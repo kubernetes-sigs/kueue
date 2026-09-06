@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/priority"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
@@ -36,21 +37,21 @@ import (
 // 0. Workloads already marked for preemption first.
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
-// 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
+// 2. (AdmissionFairSharing only) Workloads with higher LocalQueue's usage first
 // 3. Workloads with lower priority first.
 // 4. Workloads admitted more recently first.
 func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {
 	return cmputil.LazyOr(
 		func() int {
 			return cmputil.CompareBool(
-				workloadevict.IsEvicted(a.Obj),
 				workloadevict.IsEvicted(b.Obj),
+				workloadevict.IsEvicted(a.Obj),
 			)
 		},
 		func() int {
 			return cmputil.CompareBool(
-				b.ClusterQueue == cq,
 				a.ClusterQueue == cq,
+				b.ClusterQueue == cq,
 			)
 		},
 		func() int {
@@ -58,8 +59,8 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 				resourceUsagePreemptionEnabled(a, b) &&
 				a.LocalQueueFSUsage != b.LocalQueueFSUsage {
 				log.V(5).Info("Comparing workloads by LocalQueue fair sharing usage",
-					"workloadA", klog.KObj(a.Obj), "queueA", a.Obj.Spec.QueueName, "usageA", a.LocalQueueFSUsage,
-					"workloadB", klog.KObj(b.Obj), "queueB", b.Obj.Spec.QueueName, "usageB", b.LocalQueueFSUsage)
+					"workloadA", klog.KObj(a.Obj), "queueA", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usageA", a.LocalQueueFSUsage,
+					"workloadB", klog.KObj(b.Obj), "queueB", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usageB", b.LocalQueueFSUsage)
 				return cmp.Compare(*b.LocalQueueFSUsage, *a.LocalQueueFSUsage)
 			}
 			return 0
@@ -88,7 +89,7 @@ func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
 	// we can compare their LocalQueue usage.
 	// If the LocalQueueUsage is not nil for both Workloads, it means the feature gate has been enabled, and the
 	// AdmissionScope of the ClusterQueue is set to UsageBasedFairSharing. We inherit this information from the snapshot initialization.
-	return a.ClusterQueue == b.ClusterQueue && a.Obj.Spec.QueueName != b.Obj.Spec.QueueName && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
+	return a.ClusterQueue == b.ClusterQueue && utilqueue.KeyFromWorkload(a.Obj) != utilqueue.KeyFromWorkload(b.Obj) && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
 }
 
 func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {

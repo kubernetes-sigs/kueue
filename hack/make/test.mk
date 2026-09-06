@@ -50,7 +50,7 @@ INTEGRATION_API_LOG_LEVEL ?= 0
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.34.8 1.35.5 1.36.1
+E2E_K8S_VERSIONS ?= 1.34.11 1.35.8 1.36.4 1.37.0
 E2E_K8S_VERSION ?= 1.36
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
@@ -59,7 +59,6 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
-KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
 PROMETHEUS_OPERATOR_VERSION ?= v0.89.0
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
@@ -394,11 +393,6 @@ test-e2e-sequential-extended-shard-1: setup-e2e-env run-test-e2e-sequential-exte
 .PHONY: test-e2e-sequential-extended-helm
 test-e2e-sequential-extended-helm: E2E_USE_HELM=true
 test-e2e-sequential-extended-helm: test-e2e-sequential-extended
-.PHONY: test-e2e-upgrade
-test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the upgrade e2e test suite.
-
-.PHONY: test-e2e-certmanager-upgrade
-test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager upgrade e2e test suite.
 
 .PHONY: test-e2e-dra
 test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
@@ -536,33 +530,6 @@ run-test-e2e-certmanager-%:
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
-run-test-e2e-upgrade-%: K8S_VERSION = $(@:run-test-e2e-upgrade-%=%)
-run-test-e2e-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		./hack/testing/e2e-test.sh
-
-run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
-run-test-e2e-certmanager-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		./hack/testing/e2e-test.sh
-
 run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
 run-test-e2e-dra-%:
 	@echo Running DRA e2e for k8s ${K8S_VERSION}
@@ -668,6 +635,34 @@ run-test-e2e-k8s-main-was:
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS="ray" \
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		WAS_ENABLED=true \
+		./hack/testing/e2e-test.sh
+
+# Complements test-e2e-k8s-main-was: that lane tracks k/k main for early warning,
+# this one pins a release to develop WAS features against a stable target.
+# The suite needs an API server that serves scheduling.k8s.io/v1beta1, so the lane
+# defaults to 1.37 instead of the repo-wide default, while still following
+# E2E_K8S_VERSION when a caller picks a version.
+ifeq ($(origin E2E_K8S_VERSION),file)
+E2E_WAS_K8S_VERSION := 1.37
+else
+E2E_WAS_K8S_VERSION := $(E2E_K8S_VERSION)
+endif
+E2E_WAS_K8S_FULL_VERSION := $(or $(filter $(E2E_WAS_K8S_VERSION).%,$(E2E_K8S_VERSIONS)),$(E2E_WAS_K8S_VERSION).0)
+
+.PHONY: test-e2e-was
+test-e2e-was: setup-e2e-env run-test-e2e-was-$(E2E_WAS_K8S_FULL_VERSION) ## Run the WAS e2e test suite on a kind cluster of a released Kubernetes version (follows E2E_K8S_VERSION, defaults to 1.37).
+
+run-test-e2e-was-%: K8S_VERSION = $(@:run-test-e2e-was-%=%)
+run-test-e2e-was-%:
+	@echo Running WAS e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/was" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		WAS_ENABLED=true \

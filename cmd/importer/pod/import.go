@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -56,44 +55,34 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
 		log.V(3).Info("Importing")
 
-		lq, skip, err := importCache.LocalQueue(p)
+		lq, cq, skip, err := resolveQueues(importCache, p)
 		if skip || err != nil {
 			return skip, err
 		}
 
-		oldLq, found := p.Labels[controllerconstants.QueueLabel]
-		if !found {
+		// Import shares its Pod/ClusterQueue validation and Workload construction
+		// with Check, so the two commands cannot disagree on what is importable.
+		checked, err := checkPodWorkload(ctx, c, importCache, p, lq.Name, cq)
+		if err != nil {
+			return false, err
+		}
+		wl := checked.workload
+
+		// checkPodWorkload already rejects a conflicting pre-existing queue label,
+		// so a Pod reaching here either has none or one that already matches lq.Name.
+		// It may still be missing the managed-by label or importCache.AddLabels,
+		// e.g. on a re-run with a new --add-labels value.
+		if podNeedsLabels(p, lq.Name, importCache.AddLabels) {
 			if err := addLabels(ctx, c, p, lq.Name, importCache.AddLabels); err != nil {
 				return false, fmt.Errorf("cannot add queue label: %w", err)
 			}
-		} else if oldLq != lq.Name {
-			return false, fmt.Errorf("another local queue name is set %q expecting %q", oldLq, lq.Name)
-		}
-
-		kp := pod.FromObject(p)
-		// Note: the recorder is not used for single pods, we can just pass nil for now.
-		wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil, nil)
-		if err != nil {
-			return false, fmt.Errorf("construct workload: %w", err)
-		}
-
-		maps.Copy(wl.Labels, importCache.AddLabels)
-
-		if pc, found := importCache.PriorityClasses[p.Spec.PriorityClassName]; found {
-			wl.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef(pc.Name)
-			wl.Spec.Priority = &pc.Value
-		}
-
-		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
-		if !ok {
-			return false, fmt.Errorf("cluster queue not found in cache: %s: %w", lq.Spec.ClusterQueue, cache.ErrCQNotFound)
 		}
 
 		if err := createWorkload(ctx, c, wl); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, cq); err != nil {
+		if err := admitWorkload(ctx, c, wl, cq, checked.flavors, importCache.WorkloadInfoOptions()); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -120,24 +109,57 @@ func checkError(err error) (retry, reload bool, timeout time.Duration) {
 	return false, false, 0
 }
 
-func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
-	if p.Labels == nil {
-		p.Labels = make(map[string]string)
+// waitForRetry blocks for timeout, or returns early with an error if ctx is
+// done first. A non-positive timeout returns immediately.
+func waitForRetry(ctx context.Context, timeout time.Duration) error {
+	if timeout <= 0 {
+		return nil
 	}
-	p.Labels[controllerconstants.QueueLabel] = queue
-	p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-	maps.Copy(p.Labels, addLabels)
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return errors.New("context canceled")
+	case <-t.C:
+		return nil
+	}
+}
 
+// importLabels merges queue, the managed-by label, and the configured extra
+// labels into the full label set a Pod must carry after import.
+func importLabels(queue string, addLabels map[string]string) map[string]string {
+	labels := make(map[string]string, len(addLabels)+2)
+	maps.Copy(labels, addLabels)
+	labels[controllerconstants.QueueLabel] = queue
+	labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+	return labels
+}
+
+// podNeedsLabels reports whether p is missing, or has a stale value for, any label from importLabels.
+func podNeedsLabels(p *corev1.Pod, queue string, addLabels map[string]string) bool {
+	for k, v := range importLabels(queue, addLabels) {
+		if p.Labels[k] != v {
+			return true
+		}
+	}
+	return false
+}
+
+func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string, addLabels map[string]string) error {
+	applyLabels := func() {
+		if p.Labels == nil {
+			p.Labels = make(map[string]string)
+		}
+		maps.Copy(p.Labels, importLabels(queue, addLabels))
+	}
+
+	applyLabels()
 	err := c.Update(ctx, p)
 	retry, reload, timeout := checkError(err)
 
 	for retry {
-		if timeout >= 0 {
-			select {
-			case <-ctx.Done():
-				return errors.New("context canceled")
-			case <-time.After(timeout):
-			}
+		if err := waitForRetry(ctx, timeout); err != nil {
+			return err
 		}
 		if reload {
 			err = c.Get(ctx, client.ObjectKeyFromObject(p), p)
@@ -145,12 +167,7 @@ func addLabels(ctx context.Context, c client.Client, p *corev1.Pod, queue string
 				retry, reload, timeout = checkError(err)
 				continue
 			}
-			if p.Labels == nil {
-				p.Labels = make(map[string]string)
-			}
-			p.Labels[controllerconstants.QueueLabel] = queue
-			p.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
-			maps.Copy(p.Labels, addLabels)
+			applyLabels()
 		}
 		err = c.Update(ctx, p)
 		retry, reload, timeout = checkError(err)
@@ -165,12 +182,8 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	}
 	retry, _, timeout := checkError(err)
 	for retry {
-		if timeout >= 0 {
-			select {
-			case <-ctx.Done():
-				return errors.New("context canceled")
-			case <-time.After(timeout):
-			}
+		if err := waitForRetry(ctx, timeout); err != nil {
+			return err
 		}
 		err = c.Create(ctx, wl)
 		retry, _, timeout = checkError(err)
@@ -178,65 +191,63 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	return err
 }
 
-func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue) error {
+func admitWorkload(
+	ctx context.Context,
+	c client.Client,
+	wl *kueue.Workload,
+	cq *kueue.ClusterQueue,
+	flavors map[corev1.ResourceName]kueue.ResourceFlavorReference,
+	workloadInfoOptions []workload.InfoOption,
+) error {
 	resourceFormatter := resources.NewResourceFormatter()
 	update := func(wl *kueue.Workload) (bool, error) {
-		// make its admission and update its status
-		info := workload.NewInfo(wl)
-
+		info := workload.NewInfo(ctrl.LoggerFrom(ctx), wl, workloadInfoOptions...)
 		admission := kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
 			PodSetAssignments: []kueue.PodSetAssignment{
 				{
 					Name:          info.TotalRequests[0].Name,
-					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+					Flavors:       flavors,
 					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(resourceFormatter),
 					Count:         new(int32(1)),
 				},
 			},
 		}
-		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		if info.TotalRequests[0].Requests != nil {
-			info.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, val int64) {
-				admission.PodSetAssignments[0].Flavors[name] = flv
-			})
-		}
-
+		msg := fmt.Sprintf("Imported into ClusterQueue %s", cq.Name)
 		wl.Status.Admission = &admission
-		reservedCond := metav1.Condition{
+		apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
 			Status:  metav1.ConditionTrue,
 			Reason:  "Imported",
-			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
-		}
-		apimeta.SetStatusCondition(&wl.Status.Conditions, reservedCond)
-		admittedCond := metav1.Condition{
+			Message: msg,
+		})
+		apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
 			Type:    kueue.WorkloadAdmitted,
 			Status:  metav1.ConditionTrue,
 			Reason:  "Imported",
-			Message: fmt.Sprintf("Imported into ClusterQueue %s", cq.Name),
-		}
-		apimeta.SetStatusCondition(&wl.Status.Conditions, admittedCond)
+			Message: msg,
+		})
 		return true, nil
 	}
 
-	for {
+	const maxAttempts = 5
+	for range maxAttempts {
 		err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, realClock, update, workloadpatching.WithForceApply())
-		retry, _, timeout := checkError(err)
-		if !retry {
-			if err != nil {
-				return err
-			}
-			break
+		if err == nil {
+			return nil
 		}
-		if timeout >= 0 {
-			select {
-			case <-ctx.Done():
-				return errors.New("context canceled")
-			case <-time.After(timeout):
+		retry, reload, timeout := checkError(err)
+		if !retry {
+			return err
+		}
+		if waitErr := waitForRetry(ctx, timeout); waitErr != nil {
+			return waitErr
+		}
+		if reload {
+			if getErr := c.Get(ctx, client.ObjectKeyFromObject(wl), wl); getErr != nil {
+				return getErr
 			}
 		}
 	}
-
-	return nil
+	return fmt.Errorf("admitting workload %s: too many conflicts", klog.KObj(wl))
 }

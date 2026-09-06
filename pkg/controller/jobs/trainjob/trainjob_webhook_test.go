@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -175,10 +176,13 @@ func TestValidateCreate(t *testing.T) {
 			}
 			recorder := &utiltesting.EventRecorder{}
 			_, _ = NewReconciler(ctx, kClient, indexer, recorder)
-			_, gotErr := webhook.ValidateCreate(ctx, tc.trainJob)
+			warns, gotErr := webhook.ValidateCreate(ctx, tc.trainJob)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateCreate() errors mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("validateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -191,6 +195,14 @@ func TestDefault(t *testing.T) {
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", testNamespace.Name).Suspend(false)
 	testExpectedTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
 		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+	})
+	userRuntimePatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").Obj()
+	testTrainJobWithUserRuntimePatch := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{userRuntimePatch})
+	testTrainJobWithRuntimePatch := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		userRuntimePatch,
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+			Annotation("example.com/key", "value").
+			Obj(),
 	})
 	testCases := map[string]struct {
 		trainJob                     *kftrainerapi.TrainJob
@@ -211,6 +223,17 @@ func TestDefault(t *testing.T) {
 		"should not suspend a TrainJob without a queue label if manageJobsWithoutQueueName is not enabled": {
 			trainJob:     testTrainJob.DeepCopy(),
 			wantTrainJob: testExpectedTrainJob.DeepCopy(),
+		},
+		"should add a Kueue runtime patch when only a user runtime patch exists": {
+			trainJob: testTrainJobWithUserRuntimePatch.DeepCopy(),
+			wantTrainJob: testTrainJobWithUserRuntimePatch.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+				userRuntimePatch,
+				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+			}).Obj(),
+		},
+		"should preserve an existing Kueue runtime patch without adding a duplicate": {
+			trainJob:     testTrainJobWithRuntimePatch.DeepCopy(),
+			wantTrainJob: testTrainJobWithRuntimePatch.DeepCopy(),
 		},
 		"should suspend a TrainJob without a queue label if manageJobsWithoutQueueName is enabled": {
 			trainJob: testTrainJob.DeepCopy(),

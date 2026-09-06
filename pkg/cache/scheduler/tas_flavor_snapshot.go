@@ -157,8 +157,8 @@ type TASFlavorSnapshot struct {
 	// multiple worker PodSet placements within the same scheduling cycle snapshot.
 	matchingLeavesCache map[podSetMatchKey]*matchingLeavesCacheEntry
 
-	// feasibilityChecker checks whether a pod can fit in a given set of nodes.
-	feasibilityChecker simulator.NodeFeasibilityChecker
+	// simulatorSnapshot stores enough data to run a WAS scheduling simulation.
+	simulatorSnapshot simulator.SimulatorSnapshot
 
 	resourceFormatter *resources.ResourceFormatter
 }
@@ -229,7 +229,7 @@ func newTASFlavorSnapshot(
 	topologyName kueue.TopologyReference,
 	tree *topologyTree,
 	tolerations []corev1.Toleration,
-	feasibilityChecker simulator.NodeFeasibilityChecker,
+	simulatorSnapshot simulator.SimulatorSnapshot,
 	opts ...tasFlavorSnapshotOption,
 ) *TASFlavorSnapshot {
 	options := &tasFlavorSnapshotOptions{}
@@ -240,15 +240,15 @@ func newTASFlavorSnapshot(
 	}
 
 	snapshot := &TASFlavorSnapshot{
-		log:                log,
-		topologyName:       topologyName,
-		topologyTree:       tree,
-		domainStates:       make([]domainState, tree.domainCount),
-		leafCapacities:     make([]leafCapacity, len(tree.leaves)),
-		leafCandidates:     make([]leafCandidate, len(tree.leaves)),
-		tolerations:        slices.Clone(tolerations),
-		feasibilityChecker: feasibilityChecker,
-		resourceFormatter:  options.resourceFormatter,
+		log:               log,
+		topologyName:      topologyName,
+		topologyTree:      tree,
+		domainStates:      make([]domainState, tree.domainCount),
+		leafCapacities:    make([]leafCapacity, len(tree.leaves)),
+		leafCandidates:    make([]leafCandidate, len(tree.leaves)),
+		tolerations:       slices.Clone(tolerations),
+		simulatorSnapshot: simulatorSnapshot,
+		resourceFormatter: options.resourceFormatter,
 	}
 	for _, leaf := range tree.leaves {
 		snapshot.leafCapacities[leaf.leafIdx].freeCapacity = leaf.capacity.Clone()
@@ -282,6 +282,31 @@ func (s *TASFlavorSnapshot) getRemainingCapacity(leaf *leafDomain) resources.Req
 		leafCapacity.cachedRemainingCapacity.Sub(leafCapacity.tasUsage)
 	}
 	return leafCapacity.cachedRemainingCapacity.Get()
+}
+
+// hasDomain reports whether the domain has a leaf in the snapshot, i.e. whether
+// it holds a node the flavor selects.
+func (s *TASFlavorSnapshot) hasDomain(domainID utiltas.TopologyDomainID) bool {
+	return s.leaves[domainID] != nil
+}
+
+// addTASUsageForHeldDomains adds usage only for domains this snapshot has a leaf
+// for. With TASHandleOverlappingFlavors, usages can cover far more domains than
+// the flavor selects, so it walks whichever side is smaller.
+func (s *TASFlavorSnapshot) addTASUsageForHeldDomains(usages map[utiltas.TopologyDomainID]resources.Requests) {
+	if len(s.leaves) < len(usages) {
+		for domainID := range s.leaves {
+			if usage, found := usages[domainID]; found {
+				s.addTASUsage(domainID, usage)
+			}
+		}
+		return
+	}
+	for domainID, usage := range usages {
+		if s.hasDomain(domainID) {
+			s.addTASUsage(domainID, usage)
+		}
+	}
 }
 
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -1840,7 +1865,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		}
 	} else {
 		if s.isLowestLevelNode {
-			feasibleLeaves, err := s.feasibilityChecker.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
+			feasibleLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
 
 			if err != nil {
 				return err
@@ -1885,7 +1910,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 
 	leafStats := newTASExclusionStats()
 	var err error
-	feasibleLeaves, err := s.feasibilityChecker.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
+	feasibleLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1920,9 +1945,9 @@ func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateE
 }
 
 func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
-	// While correcting the topologyAssignment with a failed node
-	// check if the leaf belongs to the required domain
-	if !belongsToRequiredDomain(leaf, requirements.requiredReplacementDomain) {
+	// leaf.id contains only the hostname for hostname-level topologies, while
+	// levelValues retain the full domain path needed for this ancestry check.
+	if !utiltas.DomainID(leaf.levelValues).BelongsTo(requirements.requiredReplacementDomain) {
 		state.stats.TopologyDomain++
 		return
 	}
@@ -1948,15 +1973,6 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	}
 
 	leafDomainState.podCountWithLeader = requirements.requests.CountIn(remainingCapacity.Get())
-}
-
-func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas.TopologyDomainID) bool {
-	if requiredReplacementDomain == "" {
-		return true
-	}
-	// Uses levelValues instead of leaf.id since for topologies with hostname as lowest level it points directly to the hostname
-	// TODO(#5322): Use util function that compare two DomainIDs
-	return strings.HasPrefix(string(utiltas.DomainID(leaf.levelValues)), string(requiredReplacementDomain))
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {

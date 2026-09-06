@@ -89,7 +89,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	wlName, err := findWorkloadName(ctx, r.client, sts)
+	wlName, wl, err := findWorkload(ctx, r.client, sts)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -113,28 +113,28 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var eg errgroup.Group
 
 	eg.Go(func() error {
-		return r.finalizePods(ctx, sts, podList.Items)
+		return r.ungatePods(ctx, sts, podList.Items)
 	})
 
 	eg.Go(func() error {
-		return r.reconcileWorkload(ctx, sts)
+		return r.reconcileWorkload(ctx, sts, wl)
 	})
 
 	return ctrl.Result{}, eg.Wait()
 }
 
-func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
+func (r *Reconciler) ungatePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
 	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return r.finalizePod(ctx, sts, &pods[i])
+		return r.ungatePod(ctx, sts, &pods[i])
 	})
 }
 
-func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
+func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		if utilstatefulset.UngateAndFinalizePod(sts, pod, false) {
+		if utilstatefulset.UngatePod(sts, pod, false) {
 			log.V(3).Info(
-				"Finalizing pod in group",
+				"Ungating pod in group",
 				"pod", klog.KObj(pod),
 				"group", utilpod.GetPodGroupName(pod),
 			)
@@ -168,52 +168,40 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 	})
 }
 
-// findWorkloadName returns the workload name for the given StatefulSet,
+// findWorkload returns the workload name and object for the given StatefulSet,
 // falling back to the legacy name (without UID) if no workload exists under the new name.
+// If no workload exists under either name, it returns the default workload name and a nil workload.
 // TODO(#9497, v0.20): Remove legacy fallback.
-func findWorkloadName(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) (string, error) {
+func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet) (string, *kueue.Workload, error) {
 	wlName := GetWorkloadName(GetOwnerUID(sts), sts.Name)
 	wl := &kueue.Workload{}
 	err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
 	if client.IgnoreNotFound(err) != nil {
-		return wlName, err
+		return wlName, nil, err
 	}
-	if apierrors.IsNotFound(err) {
-		legacyName := GetWorkloadName("", sts.Name)
-		if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
-			ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
-			return legacyName, nil
-		} else if !apierrors.IsNotFound(err) {
-			return wlName, err
-		}
+	if err == nil {
+		return wlName, wl, nil
 	}
-	return wlName, nil
+	legacyName := GetWorkloadName("", sts.Name)
+	if err := c.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: legacyName}, wl); err == nil {
+		ctrl.LoggerFrom(ctx).V(3).Info("Using legacy workload name", "legacyName", legacyName, "newName", wlName)
+		return legacyName, wl, nil
+	} else if !apierrors.IsNotFound(err) {
+		return wlName, nil, err
+	}
+	return wlName, nil, nil
 }
 
-func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {
-	if sts == nil {
-		return nil
-	}
-
+func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet, wl *kueue.Workload) error {
 	replicas := ptr.Deref(sts.Spec.Replicas, 1)
 	queueName := jobframework.QueueNameForObject(sts)
 
-	wl := &kueue.Workload{}
-	wlName, err := findWorkloadName(ctx, r.client, sts)
-	if err != nil {
-		return err
-	}
-	err = r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
-
-	if apierrors.IsNotFound(err) {
+	if wl == nil {
 		_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
 		if replicas > 0 && (queueName != "" || r.manageJobsWithoutQueueName) && !isMultiKueueRemote {
 			return r.createPrebuiltWorkload(ctx, sts)
 		}
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 
 	hasOwnerReference, err := controllerutil.HasOwnerReference(wl.OwnerReferences, sts, r.client.Scheme())
@@ -326,7 +314,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		return err
 	}
 
-	if err := jobframework.PrepareWorkloadPriority(ctx, r.client, sts, createdWorkload, nil); err != nil {
+	if err := jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, sts, createdWorkload, nil); err != nil {
 		return err
 	}
 

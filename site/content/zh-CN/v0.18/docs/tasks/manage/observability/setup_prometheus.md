@@ -102,7 +102,7 @@ data:
 kubectl rollout restart deployment/kueue-controller-manager -n kueue-system
 ```
 
-参阅 [Prometheus 指标](/v0.18/docs/reference/metrics#optional-metrics)获取可选指标的完整列表。
+参阅 [Prometheus 指标](/zh-cn/v0.18/docs/reference/metrics#optional-metrics)获取可选指标的完整列表。
 
 ## 接下来是什么
 

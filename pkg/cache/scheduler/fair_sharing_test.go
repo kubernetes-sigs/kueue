@@ -819,7 +819,7 @@ func TestDominantResourceShare(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission.Obj(), now).Obj()
 
 				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				snapshot.AddWorkload(workload.NewInfo(log, wl))
 				i++
 			}
 
@@ -967,7 +967,7 @@ func TestIsBorrowingOn(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "default-namespace").
 					ReserveQuotaAt(admission.Obj(), now).Obj()
 				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				snapshot.AddWorkload(workload.NewInfo(log, wl))
 				i++
 			}
 
@@ -978,6 +978,33 @@ func TestIsBorrowingOn(t *testing.T) {
 			}
 			if got := drs.IsBorrowingOn(tc.requestedFRs); got != tc.wantBorrowingOnRequested {
 				t.Errorf("IsBorrowingOn() = %v, want %v", got, tc.wantBorrowingOnRequested)
+			}
+		})
+	}
+}
+
+func TestZeroWeightBorrows(t *testing.T) {
+	cases := map[string]struct {
+		drs  DRS
+		want bool
+	}{
+		"zero weight and borrowing returns true": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			want: true,
+		},
+		"zero weight and not borrowing returns false": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 0},
+			want: false,
+		},
+		"non-zero weight and borrowing returns false": {
+			drs:  DRS{fairWeight: 1, unweightedRatio: 100},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.drs.ZeroWeightBorrows(); got != tc.want {
+				t.Errorf("ZeroWeightBorrows() = %v, want %v", got, tc.want)
 			}
 		})
 	}

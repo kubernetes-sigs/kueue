@@ -17,6 +17,10 @@ inputs:
     description: 'If true, move the command from Log to History without adding a new entry'
     required: false
     default: 'false'
+  keep-history:
+    description: 'If false, this entry will not be archived to command history nor recorded as a comment.'
+    required: false
+    default: 'true'
 
 runs:
   using: 'composite'
@@ -30,7 +34,18 @@ runs:
         INPUT_ALIAS: ${{ inputs.alias }}
         INPUT_MESSAGE: ${{ inputs.message }}
         INPUT_CLEANUP: ${{ inputs.cleanup }}
+        INPUT_KEEP_HISTORY: ${{ inputs.keep-history }}
       run: |
+        if [[ "$INPUT_CLEANUP" != "true" && "$INPUT_CLEANUP" != "false" ]]; then
+          echo "Error: cleanup parameter must be either 'true' or 'false'." >&2
+          exit 1
+        fi
+
+        if [[ "$INPUT_KEEP_HISTORY" != "true" && "$INPUT_KEEP_HISTORY" != "false" ]]; then
+          echo "Error: keep-history parameter must be either 'true' or 'false'." >&2
+          exit 1
+        fi
+
         if [ -z "$ISSUE_NUMBER" ]; then
           echo "Error: No issue found" >&2
           exit 1
@@ -57,15 +72,15 @@ runs:
         export ISSUE_BODY
         
         # Run python script to build the new issue body
-        SCRIPT_PATH="${{ github.workspace }}/hack/releasing/log_to_issue.py"
+        SCRIPT_PATH="${{ github.workspace }}/.automation/hack/releasing/log_to_issue.py"
         if [ ! -f "$SCRIPT_PATH" ]; then
-          SCRIPT_PATH="${{ github.workspace }}/.automation/hack/releasing/log_to_issue.py"
+          SCRIPT_PATH="${{ github.workspace }}/hack/releasing/log_to_issue.py"
         fi
         python3 "$SCRIPT_PATH" > new_body.md
 
         # Update the issue body
         gh issue edit "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --body-file new_body.md
 
-        if [ "$INPUT_CLEANUP" = "false" ] && [ -n "$INPUT_MESSAGE" ]; then
+        if [ "$INPUT_CLEANUP" = "false" ] && [ "$INPUT_KEEP_HISTORY" = "true" ] && [ -n "$INPUT_MESSAGE" ]; then
           gh issue comment "$ISSUE_NUMBER" --body "$INPUT_MESSAGE"
         fi

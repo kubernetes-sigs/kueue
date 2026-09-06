@@ -136,6 +136,12 @@ func (dwc *SyncMap[K, V]) Keys() []K {
 	return slices.Collect(maps.Keys(dwc.m))
 }
 
+func (dwc *SyncMap[K, V]) Values() []V {
+	dwc.lock.RLock()
+	defer dwc.lock.RUnlock()
+	return slices.Collect(maps.Values(dwc.m))
+}
+
 func (dwc *SyncMap[K, V]) Swap(k K, v V) (V, bool) {
 	dwc.lock.Lock()
 	defer dwc.lock.Unlock()

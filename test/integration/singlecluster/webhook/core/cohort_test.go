@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -388,5 +389,102 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cohort)).ShouldNot(gomega.Succeed())
 		})
+	})
+
+	ginkgo.When("Updating a Cohort status", func() {
+		var (
+			cohort *kueue.Cohort
+		)
+
+		ginkgo.BeforeEach(func() {
+			cohort = utiltestingapi.MakeCohort("cohort").Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
+
+		maxResourceGroups := make([]kueue.ResourceGroup, resourceGroupsMaxItems)
+		for i := range maxResourceGroups {
+			maxResourceGroups[i] = utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+			)
+		}
+		moreThanMaxResourceGroups := append(slices.Clone(maxResourceGroups), utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", resourceGroupsMaxItems)).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		))
+
+		ginkgo.DescribeTable("Validate status.effectiveQuotas on update",
+			func(eq *kueue.EffectiveQuotaStatus, matcher types.GomegaMatcher) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updateCohort kueue.Cohort
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &updateCohort)).Should(gomega.Succeed())
+					updateCohort.Status.EffectiveQuotas = eq
+					err := k8sClient.Status().Update(ctx, &updateCohort)
+					g.Expect(err).Should(matcher)
+					if err == nil {
+						var gotCohort kueue.Cohort
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &gotCohort)).Should(gomega.Succeed())
+						g.Expect(gotCohort.Status.EffectiveQuotas).Should(gomega.BeComparableTo(eq))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						utiltestingapi.ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("f0").
+								Resource(corev1.ResourceCPU, "1").
+								Obj(),
+						),
+					).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with maximum number of resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(maxResourceGroups...).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef apiGroup pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					APIGroup("Invalid_APIGroup").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef kind pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Kind("123Invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef name pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Name("@invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with more than 16 resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(moreThanMaxResourceGroups...).
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject flavor resource count mismatch with coveredResources",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						kueue.ResourceGroup{
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj(),
+							},
+						},
+					).
+					Obj(),
+				utiltesting.BeInvalidError()),
+		)
 	})
 })

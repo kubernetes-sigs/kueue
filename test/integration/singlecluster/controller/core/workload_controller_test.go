@@ -516,6 +516,221 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+		// An external controller can reject a check after another check already started an eviction,
+		// leaving the Workload admitted with a Rejected check unless the rejection is still handled.
+		ginkgo.It("should deactivate an admitted workload when a check is rejected while an eviction is in progress", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Queue("queue").
+				Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			ginkgo.By("creating the workload, the check conditions should be added", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return string(c.Name)
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting quota reservation and the checks ready, should admit the workload", func() {
+				podSet := kueue.PodSetAssignment{
+					Name: kueue.DefaultPodSetName,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+					},
+				}
+				util.SetQuotaReservation(
+					ctx,
+					k8sClient,
+					wlKey,
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(podSet).Obj(),
+				)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: "check ready",
+					}, util.RealClock)
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check2",
+						State:   kueue.CheckStateReady,
+						Message: "check ready",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(&createdWl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting a retry check condition, should evict the workload and reset the checks", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check2",
+						State:   kueue.CheckStateRetry,
+						Message: "check retry",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					_, evictedByCheck := workloadevict.IsEvictedByAdmissionCheck(&createdWl)
+					g.Expect(evictedByCheck).To(gomega.BeTrue())
+					// Retry evicts the Workload but must not deactivate it.
+					g.Expect(workload.IsActive(&createdWl)).To(gomega.BeTrue())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.CheckState {
+						return c.State
+					})).Should(gomega.ConsistOf(kueue.CheckStatePending, kueue.CheckStatePending))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting a rejected check condition while the eviction is still in progress", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(&createdWl)).To(gomega.BeTrue())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateRejected,
+						Message: "check rejected",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking if the workload is deactivated and an event is emitted", func() {
+				updatedWl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(updatedWl)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: "AdmissionCheckRejected",
+					Type:   corev1.EventTypeWarning,
+					Note:   `Deactivated due to AdmissionCheck in Rejected state: "check1" (check rejected)`,
+				})
+			})
+		})
+
+		// Deactivating an already-evicted Workload skips Evict(), so the DeactivationTarget
+		// cleanup and the check reset it performs must not be lost: the user has to be able
+		// to reactivate the Workload afterwards.
+		ginkgo.It("should allow reactivating a workload deactivated by a check rejected during eviction", func() {
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Queue("queue").
+				Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			ginkgo.By("creating the workload, the check conditions should be added", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+						return string(c.Name)
+					})).Should(gomega.ConsistOf("check1", "check2"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting quota reservation and the checks ready, should admit the workload", func() {
+				podSet := kueue.PodSetAssignment{
+					Name: kueue.DefaultPodSetName,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+					},
+				}
+				util.SetQuotaReservation(
+					ctx,
+					k8sClient,
+					wlKey,
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(podSet).Obj(),
+				)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: "check ready",
+					}, util.RealClock)
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check2",
+						State:   kueue.CheckStateReady,
+						Message: "check ready",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(&createdWl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting a retry check condition, should evict the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check2",
+						State:   kueue.CheckStateRetry,
+						Message: "check retry",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					_, evictedByCheck := workloadevict.IsEvictedByAdmissionCheck(&createdWl)
+					g.Expect(evictedByCheck).To(gomega.BeTrue())
+					// Retry evicts the Workload but must not deactivate it.
+					g.Expect(workload.IsActive(&createdWl)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("setting a rejected check condition while the eviction is still in progress", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateRejected,
+						Message: "check rejected",
+					}, util.RealClock)
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the workload is deactivated, the deactivation target is cleared and the checks are reset", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(&createdWl)).To(gomega.BeFalse())
+					g.Expect(apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadDeactivationTarget)).To(gomega.BeNil())
+					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.CheckState {
+						return c.State
+					})).Should(gomega.ConsistOf(kueue.CheckStatePending, kueue.CheckStatePending))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Reactivating the workload, it should stay active", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					createdWl.Spec.Active = new(true)
+					g.Expect(k8sClient.Update(ctx, &createdWl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					g.Expect(workload.IsActive(&createdWl)).To(gomega.BeTrue())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("changing the priority value of PriorityClass changes the priority of the workload", func() {
@@ -1651,6 +1866,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(clusterQueue.Name), 1)
 			})
 
 			ginkgo.By("waiting for at least 1s of execution time so AccumulatedPastExecutionTimeSeconds > 0 after eviction", func() {

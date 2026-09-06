@@ -35,22 +35,24 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	"sigs.k8s.io/kueue/cmd/importer/pod"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
-	NamespaceFlag        = "namespace"
-	NamespaceFlagShort   = "n"
-	QueueMappingFlag     = "queuemapping"
-	QueueMappingFileFlag = "queuemapping-file"
-	QueueLabelFlag       = "queuelabel"
-	QPSFlag              = "qps"
-	BurstFlag            = "burst"
-	VerbosityFlag        = "verbose"
-	VerboseFlagShort     = "v"
-	ConcurrencyFlag      = "concurrent-workers"
-	ConcurrencyFlagShort = "c"
-	DryRunFlag           = "dry-run"
-	AddLabelsFlag        = "add-labels"
+	NamespaceFlag               = "namespace"
+	NamespaceFlagShort          = "n"
+	QueueMappingFlag            = "queuemapping"
+	QueueMappingFileFlag        = "queuemapping-file"
+	QueueLabelFlag              = "queuelabel"
+	QPSFlag                     = "qps"
+	BurstFlag                   = "burst"
+	VerbosityFlag               = "verbose"
+	VerboseFlagShort            = "v"
+	ConcurrencyFlag             = "concurrent-workers"
+	ConcurrencyFlagShort        = "c"
+	DryRunFlag                  = "dry-run"
+	AddLabelsFlag               = "add-labels"
+	ExcludeResourcePrefixesFlag = "exclude-resource-prefixes"
 )
 
 var (
@@ -75,6 +77,7 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().String(QueueLabelFlag, "", "label used to identify the target local queue")
 	cmd.Flags().StringToString(QueueMappingFlag, nil, "mapping from \""+QueueLabelFlag+"\" label values to local queue names")
 	cmd.Flags().StringToString(AddLabelsFlag, nil, "additional label=value pairs to be added to the imported pods and created workloads")
+	cmd.Flags().StringSlice(ExcludeResourcePrefixesFlag, nil, "resource name prefixes ignored by Kueue during workload quota accounting")
 	cmd.Flags().String(QueueMappingFileFlag, "", "yaml file containing extra mappings from \""+QueueLabelFlag+"\" label values to local queue names")
 	cmd.Flags().Float32(QPSFlag, 50, "client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
 	cmd.Flags().Int(BurstFlag, 50, "client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
@@ -146,6 +149,10 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 	if err != nil {
 		return nil, err
 	}
+	excludedResourcePrefixes, err := flags.GetStringSlice(ExcludeResourcePrefixesFlag)
+	if err != nil {
+		return nil, err
+	}
 
 	var validationErrors []error
 	for name, value := range addLabels {
@@ -160,7 +167,8 @@ func loadMappingCache(ctx context.Context, c client.Client, cmd *cobra.Command) 
 		return nil, fmt.Errorf("%s: %w", AddLabelsFlag, errors.Join(validationErrors...))
 	}
 
-	return cache.Load(ctx, c, namespaces, rules, addLabels)
+	workloadInfoOptions := []workload.InfoOption{workload.WithExcludedResourcePrefixes(excludedResourcePrefixes)}
+	return cache.Load(ctx, c, namespaces, rules, addLabels, workloadInfoOptions)
 }
 
 func getKubeClient(cmd *cobra.Command) (client.Client, error) {

@@ -22,6 +22,51 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+func TestBelongsTo(t *testing.T) {
+	cases := map[string]struct {
+		domainID     TopologyDomainID
+		targetDomain TopologyDomainID
+		want         bool
+	}{
+		"empty target domain": {
+			domainID: DomainID([]string{"b1", "rack-a", "x1"}),
+			want:     true,
+		},
+		"same domain": {
+			domainID:     DomainID([]string{"b1", "rack-a"}),
+			targetDomain: DomainID([]string{"b1", "rack-a"}),
+			want:         true,
+		},
+		"ancestor domain": {
+			domainID:     DomainID([]string{"b1", "rack-a", "x1"}),
+			targetDomain: DomainID([]string{"b1", "rack-a"}),
+			want:         true,
+		},
+		"string-prefix sibling domain": {
+			domainID:     DomainID([]string{"b1", "rack-ab", "x1"}),
+			targetDomain: DomainID([]string{"b1", "rack-a"}),
+			want:         false,
+		},
+		"different root domain": {
+			domainID:     DomainID([]string{"b2", "rack-a", "x1"}),
+			targetDomain: DomainID([]string{"b1"}),
+			want:         false,
+		},
+		"target descendant": {
+			domainID:     DomainID([]string{"b1", "rack-a"}),
+			targetDomain: DomainID([]string{"b1", "rack-a", "x1"}),
+			want:         false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.domainID.BelongsTo(tc.targetDomain); got != tc.want {
+				t.Errorf("%q.BelongsTo(%q) = %t, want %t", tc.domainID, tc.targetDomain, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNodeNameFromDomainID(t *testing.T) {
 	cases := map[string]struct {
 		levels       []string

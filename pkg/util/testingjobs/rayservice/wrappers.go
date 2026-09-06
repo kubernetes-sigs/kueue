@@ -294,6 +294,11 @@ func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
 	return j
 }
 
+func (j *ServiceWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *ServiceWrapper {
+	j.Spec.RayClusterSpec.HistoryServerOptions = value
+	return j
+}
+
 // StatusConditions adds a condition to the RayService status.
 func (j *ServiceWrapper) StatusConditions(c metav1.Condition) *ServiceWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)

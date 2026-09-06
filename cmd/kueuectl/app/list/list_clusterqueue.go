@@ -111,6 +111,11 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	var err error
 
+	o.Limit, err = listRequestLimit()
+	if err != nil {
+		return err
+	}
+
 	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
 		return err

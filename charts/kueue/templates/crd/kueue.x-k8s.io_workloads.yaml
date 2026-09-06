@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: workloads.kueue.x-k8s.io
 spec:
   conversion:
@@ -145,7 +145,7 @@ spec:
 
                           This is an alpha field and requires enabling PartialAdmission feature gate.
                         format: int32
-                        minimum: 1
+                        minimum: 0
                         type: integer
                       name:
                         default: main
@@ -8344,7 +8344,7 @@ spec:
                       - template
                     type: object
                     x-kubernetes-validations:
-                      - message: minCount should be positive and less or equal to count
+                      - message: minCount should be less or equal to count
                         rule: 'has(self.minCount) ? self.minCount <= self.count : true'
                   maxItems: 18
                   minItems: 1
@@ -8953,7 +8953,7 @@ spec:
               rule: '((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == ''QuotaReserved'' && c.status == ''True'')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == ''QuotaReserved'' && c.status == ''True''))) ? ((has(oldSelf.spec.queueName) == has(self.spec.queueName)) && (!has(oldSelf.spec.queueName) || oldSelf.spec.queueName == self.spec.queueName)) : true'
             - message: maximumExecutionTimeSeconds is immutable while workload quota reserved
               rule: ((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true
-      served: true
+      served: false
       storage: false
       subresources:
         status: {}
@@ -9050,7 +9050,7 @@ spec:
 
                           This is an alpha field and requires enabling PartialAdmission feature gate.
                         format: int32
-                        minimum: 1
+                        minimum: 0
                         type: integer
                       name:
                         default: main
@@ -17282,7 +17282,7 @@ spec:
                       - template
                     type: object
                     x-kubernetes-validations:
-                      - message: minCount should be positive and less or equal to count
+                      - message: minCount should be less or equal to count
                         rule: 'has(self.minCount) ? self.minCount <= self.count : true'
                   maxItems: 18
                   minItems: 1

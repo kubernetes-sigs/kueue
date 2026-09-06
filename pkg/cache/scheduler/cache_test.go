@@ -2823,6 +2823,98 @@ func TestMatchingClusterQueues(t *testing.T) {
 	}
 }
 
+// TestMatchingClusterQueuesAfterFailedUpdate covers ClusterQueues that stay in the
+// hierarchy manager after updateClusterQueue returns an error, since Namespace events
+// keep matching against them.
+func TestMatchingClusterQueuesAfterFailedUpdate(t *testing.T) {
+	teamSelector := func(team string) *metav1.LabelSelector {
+		return &metav1.LabelSelector{MatchLabels: map[string]string{"team": team}}
+	}
+	addCohortCycle := func(t *testing.T, cache *Cache) {
+		t.Helper()
+		if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj()); err != nil {
+			t.Fatal(err)
+		}
+		if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj()); err == nil {
+			t.Fatal("Expected failure when cycle")
+		}
+	}
+
+	cases := map[string]struct {
+		setup       func(*testing.T, *Cache)
+		wantMatch   []map[string]string
+		wantNoMatch []map[string]string
+	}{
+		"add into cyclic cohort applies the configured selector": {
+			setup: func(t *testing.T, cache *Cache) {
+				ctx, _ := utiltesting.ContextWithLog(t)
+				addCohortCycle(t, cache)
+				cq := utiltestingapi.MakeClusterQueue("cq").
+					Cohort("cycle-a").
+					NamespaceSelector(teamSelector("eng")).
+					Obj()
+				if err := cache.AddClusterQueue(ctx, cq); err == nil {
+					t.Fatal("Expected failure when adding cq to cohort with cycle")
+				}
+			},
+			wantMatch:   []map[string]string{{"team": "eng"}},
+			wantNoMatch: []map[string]string{{"team": "ops"}},
+		},
+		"update into cyclic cohort applies the new selector": {
+			setup: func(t *testing.T, cache *Cache) {
+				ctx, log := utiltesting.ContextWithLog(t)
+				cq := utiltestingapi.MakeClusterQueue("cq").
+					NamespaceSelector(teamSelector("eng")).
+					Obj()
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatal(err)
+				}
+				addCohortCycle(t, cache)
+				updated := utiltestingapi.MakeClusterQueue("cq").
+					Cohort("cycle-a").
+					NamespaceSelector(teamSelector("ops")).
+					Obj()
+				if err := cache.UpdateClusterQueue(log, updated); err == nil {
+					t.Fatal("Expected failure when updating cq to cohort with cycle")
+				}
+			},
+			wantMatch:   []map[string]string{{"team": "ops"}},
+			wantNoMatch: []map[string]string{{"team": "eng"}},
+		},
+		"add with an unparsable selector matches no Namespace": {
+			setup: func(t *testing.T, cache *Cache) {
+				ctx, _ := utiltesting.ContextWithLog(t)
+				cq := utiltestingapi.MakeClusterQueue("cq").
+					NamespaceSelector(teamSelector("not a valid label value")).
+					Obj()
+				if err := cache.AddClusterQueue(ctx, cq); err == nil {
+					t.Fatal("Expected failure when adding cq with an unparsable selector")
+				}
+			},
+			wantNoMatch: []map[string]string{nil, {"team": "eng"}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			tc.setup(t, cache)
+
+			for _, nsLabels := range tc.wantMatch {
+				want := sets.New[kueue.ClusterQueueReference]("cq")
+				if diff := cmp.Diff(want, cache.MatchingClusterQueues(nsLabels)); diff != "" {
+					t.Errorf("MatchingClusterQueues(%v) returned unexpected ClusterQueues (-want,+got):\n%s", nsLabels, diff)
+				}
+			}
+			for _, nsLabels := range tc.wantNoMatch {
+				want := sets.New[kueue.ClusterQueueReference]()
+				if diff := cmp.Diff(want, cache.MatchingClusterQueues(nsLabels)); diff != "" {
+					t.Errorf("MatchingClusterQueues(%v) returned unexpected ClusterQueues (-want,+got):\n%s", nsLabels, diff)
+				}
+			}
+		})
+	}
+}
+
 // TestWaitForPodsReadyCancelled ensures that the WaitForPodsReady call does not block when the context is closed.
 func TestWaitForPodsReadyCancelled(t *testing.T) {
 	now := time.Now().Truncate(time.Second)

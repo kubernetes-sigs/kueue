@@ -70,18 +70,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				}
 				cfg.Integrations.LabelKeysToCopy = []string{"toCopyKeyIntegration"}
 				cfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-					{
-						Name:           "custom_label_key",
-						SourceLabelKey: "toCopyKeyCustom",
-						SourceKind:     new(config.SourceKindWorkload),
-						TrackedValues:  []string{"custom_value"},
-					},
-					{
-						Name:                "custom_annotation_key",
-						SourceAnnotationKey: "toCopyAnnotation",
-						SourceKind:          new(config.SourceKindWorkload),
-						TrackedValues:       []string{"annotation_value"},
-					},
+					utiltestingapi.MakeCustomLabel("custom_label_key").SourceLabelKey("toCopyKeyCustom").SourceKind(config.SourceKindWorkload).TrackedValues("custom_value").Obj(),
+					utiltestingapi.MakeCustomLabel("custom_annotation_key").SourceAnnotationKey("toCopyAnnotation").SourceKind(config.SourceKindWorkload).TrackedValues("annotation_value").Obj(),
 				}
 			})
 		})

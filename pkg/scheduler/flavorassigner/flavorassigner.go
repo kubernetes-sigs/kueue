@@ -105,35 +105,70 @@ func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 // ComputeTASNetUsage computes the net TAS usage for the assignment
 func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
-	for i, psa := range a.PodSets {
-		if psa.TopologyAssignment != nil {
-			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
+	for _, psa := range a.PodSets {
+		if psa.TopologyAssignment == nil {
+			continue
+		}
+		// Pods the current admission already places on a domain are accounted for
+		// in the snapshot through the cache, so only the additional pods count
+		// towards the net usage. Comparing per domain rather than skipping the
+		// whole PodSet matters when the assignment changed: a second pass
+		// replacing an unhealthy node moves pods onto a domain nothing has
+		// accounted for yet, and that claim has to be checked and recorded like
+		// any other.
+		accounted := admittedDomainCounts(prevAdmission, psa.Name)
+		podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psa.Name)
+		if podSet == nil {
+			log.Error(nil, "PodSet not found while computing TAS net usage", "podSet", psa.Name)
+			continue
+		}
+		tasFlavor, err := onlyTASFlavor(psa.Flavors, cq.TASFlavors)
+		if err != nil {
+			log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
+			continue
+		}
+		singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
+		for _, domain := range psa.TopologyAssignment.Domains {
+			count := domain.Count - accounted[tas.DomainID(domain.Values)]
+			if count <= 0 {
+				// Unchanged, or the domain now holds fewer pods than the
+				// admission already accounts for. Releasing the surplus is not
+				// expressible here, since a Usage value is applied with a single
+				// add or subtract, so the snapshot keeps counting it until the
+				// next one is built.
 				continue
 			}
-			podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psa.Name)
-			if podSet == nil {
-				log.Error(nil, "PodSet not found while computing TAS net usage", "podSet", psa.Name)
-				continue
-			}
-			tasFlavor, err := onlyTASFlavor(psa.Flavors, cq.TASFlavors)
-			if err != nil {
-				log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
-				continue
-			}
-			singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
 			if _, ok := result[*tasFlavor]; !ok {
 				result[*tasFlavor] = make(workload.TASFlavorUsage, 0)
 			}
-			for _, domain := range psa.TopologyAssignment.Domains {
-				result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
-					Values:            domain.Values,
-					SinglePodRequests: singlePodRequests.Clone(),
-					Count:             domain.Count,
-				})
-			}
+			result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
+				Values:            domain.Values,
+				SinglePodRequests: singlePodRequests.Clone(),
+				Count:             count,
+			})
 		}
 	}
 	return result
+}
+
+// admittedDomainCounts returns the number of pods per topology domain that the
+// workload's current admission already contributes to the snapshot, keyed by
+// domain. It returns nil when the PodSet has no admitted topology assignment.
+func admittedDomainCounts(prevAdmission *kueue.Admission, psName kueue.PodSetReference) map[tas.TopologyDomainID]int32 {
+	if prevAdmission == nil {
+		return nil
+	}
+	idx := slices.IndexFunc(prevAdmission.PodSetAssignments, func(psa kueue.PodSetAssignment) bool {
+		return psa.Name == psName
+	})
+	if idx == -1 || prevAdmission.PodSetAssignments[idx].TopologyAssignment == nil {
+		return nil
+	}
+	counts := make(map[tas.TopologyDomainID]int32)
+	for _, domain := range tas.InternalFrom(prevAdmission.PodSetAssignments[idx].TopologyAssignment).Domains {
+		counts[tas.DomainID(domain.Values)] += domain.Count
+	}
+	return counts
 }
 
 // Borrows returns the borrowing level of the assignment.

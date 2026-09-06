@@ -111,6 +111,28 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 				ObservedGeneration: 1,
 			},
 		},
+		"active condition with stale observed generation": {
+			check: utiltestingapi.MakeAdmissionCheck("check1").
+				Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
+				ControllerName(kueue.ProvisioningRequestControllerName).
+				Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.AdmissionCheckActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Active",
+					Message:            "The admission check is active",
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+			configs: []kueue.ProvisioningRequestConfig{*utiltestingapi.MakeProvisioningRequestConfig("config1").Obj()},
+			wantCondition: &metav1.Condition{
+				Type:               kueue.AdmissionCheckActive,
+				Status:             metav1.ConditionTrue,
+				Reason:             "Active",
+				Message:            "The admission check is active",
+				ObservedGeneration: 2,
+			},
+		},
 	}
 
 	for name, tc := range cases {

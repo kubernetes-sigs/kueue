@@ -113,6 +113,17 @@ func (lr *LimitRangeWrapper) WithType(t corev1.LimitType) *LimitRangeWrapper {
 	return lr
 }
 
+// LimitTypes replaces the LimitRange's items with one bare item per given type,
+// or clears them when called with no arguments.
+func (lr *LimitRangeWrapper) LimitTypes(types ...corev1.LimitType) *LimitRangeWrapper {
+	items := make([]corev1.LimitRangeItem, len(types))
+	for i, t := range types {
+		items[i] = corev1.LimitRangeItem{Type: t}
+	}
+	lr.Spec.Limits = items
+	return lr
+}
+
 func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q string) *LimitRangeWrapper {
 	target := lr.Spec.Limits[0].Max
 	switch member {

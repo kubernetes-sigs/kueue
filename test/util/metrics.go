@@ -431,7 +431,7 @@ func ExpectClusterQueueInfoMetric(cqName, parentCohort, rootCohort string, count
 func ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(name string, cqName kueue.ClusterQueueReference, isGroup bool, count int) {
 	ginkgo.GinkgoHelper()
 	matcher := gomega.Equal(count)
-	expectHistogramMetric(metrics.PodSchedulingGateRemovalSeconds, matcher, name, string(cqName), strconv.FormatBool(isGroup))
+	expectHistogramMetric(metrics.PodSchedulingGateRemovalSeconds, matcher, name, string(cqName), strconv.FormatBool(isGroup), roletracker.RoleStandalone)
 }
 
 func ExpectPrometheusTargetForKueue(ctx context.Context, prometheusClient prometheusv1.API) {

@@ -26,8 +26,19 @@ import (
 
 type TopologyDomainID string
 
+const topologyDomainIDSeparator = ","
+
 func DomainID(levelValues []string) TopologyDomainID {
-	return TopologyDomainID(strings.Join(levelValues, ","))
+	return TopologyDomainID(strings.Join(levelValues, topologyDomainIDSeparator))
+}
+
+// BelongsTo reports whether d identifies targetDomain itself or one of its
+// descendants.
+func (d TopologyDomainID) BelongsTo(targetDomain TopologyDomainID) bool {
+	if targetDomain == "" {
+		return true
+	}
+	return d == targetDomain || strings.HasPrefix(string(d), string(targetDomain)+topologyDomainIDSeparator)
 }
 
 // NodeNameFromDomainID returns the node name identified by the domain ID. It
@@ -68,6 +79,18 @@ func IsExplicitTAS(annots map[string]string) bool {
 		return true
 	}
 	return false
+}
+
+// HasTopologyConstraint reports whether the request contains a field that
+// explicitly opts the PodSet into topology-aware scheduling. Derived indexing
+// fields alone don't constitute a topology constraint.
+func HasTopologyConstraint(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && (tr.Unconstrained != nil ||
+		tr.Required != nil ||
+		tr.Preferred != nil ||
+		tr.PodSetSliceRequiredTopology != nil ||
+		tr.PodSetSliceSize != nil ||
+		len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
 }
 
 func NodeLabelsFromKeysAndValues(keys, values []string) map[string]string {

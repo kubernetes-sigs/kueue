@@ -98,6 +98,8 @@ func (p *Status) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob)
 	return nil
 }
 
+func (p *Status) SyncParallelCount(_ *runtime.Info) error { return nil }
+
 func (p *Status) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || trainJob == nil {
 		return nil, nil

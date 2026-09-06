@@ -147,6 +147,11 @@ func (in *Configuration) DeepCopyInto(out *Configuration) {
 		*out = new(WaitForPodsReady)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.QuotaReleaseStrategy != nil {
+		in, out := &in.QuotaReleaseStrategy, &out.QuotaReleaseStrategy
+		*out = new(QuotaReleaseStrategy)
+		**out = **in
+	}
 	if in.ClientConnection != nil {
 		in, out := &in.ClientConnection, &out.ClientConnection
 		*out = new(ClientConnection)

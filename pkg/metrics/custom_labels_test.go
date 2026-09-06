@@ -26,6 +26,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestCustomLabels(t *testing.T) {
@@ -54,7 +55,7 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"name only (defaults to label key)": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				utiltestingapi.MakeCustomLabel("team").Obj(),
 			},
 			labels:      map[string]string{"team": "infra"},
 			sourceKinds: []configapi.SourceKind{configapi.SourceKindClusterQueue},
@@ -63,7 +64,7 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"sourceLabelKey": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "team", SourceLabelKey: "org/team"},
+				utiltestingapi.MakeCustomLabel("team").SourceLabelKey("org/team").Obj(),
 			},
 			labels:      map[string]string{"org/team": "platform"},
 			sourceKinds: []configapi.SourceKind{configapi.SourceKindClusterQueue},
@@ -72,7 +73,7 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"sourceAnnotationKey": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "cost_center", SourceAnnotationKey: "billing/cost-center"},
+				utiltestingapi.MakeCustomLabel("cost_center").SourceAnnotationKey("billing/cost-center").Obj(),
 			},
 			annotations: map[string]string{"billing/cost-center": "cc-123"},
 			sourceKinds: []configapi.SourceKind{configapi.SourceKindClusterQueue},
@@ -81,7 +82,7 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"missing key returns empty string": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "team"},
+				utiltestingapi.MakeCustomLabel("team").Obj(),
 			},
 			labels:      map[string]string{"other": "value"},
 			sourceKinds: []configapi.SourceKind{configapi.SourceKindClusterQueue},
@@ -90,9 +91,9 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"multiple entries": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "team"},
-				{Name: "env", SourceLabelKey: "environment"},
-				{Name: "cost", SourceAnnotationKey: "billing/cost"},
+				utiltestingapi.MakeCustomLabel("team").Obj(),
+				utiltestingapi.MakeCustomLabel("env").SourceLabelKey("environment").Obj(),
+				utiltestingapi.MakeCustomLabel("cost").SourceAnnotationKey("billing/cost").Obj(),
 			},
 			labels:      map[string]string{"team": "ml", "environment": "prod"},
 			annotations: map[string]string{"billing/cost": "high"},
@@ -102,10 +103,10 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"entries with specified source kinds": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "cohort", SourceAnnotationKey: "cohort", SourceKind: new(configapi.SourceKindCohort)},
-				{Name: "team", SourceKind: new(configapi.SourceKindClusterQueue)},
-				{Name: "env", SourceLabelKey: "environment", SourceKind: new(configapi.SourceKindLocalQueue)},
-				{Name: "cost", SourceAnnotationKey: "billing/cost", SourceKind: new(configapi.SourceKindClusterQueue)},
+				utiltestingapi.MakeCustomLabel("cohort").SourceAnnotationKey("cohort").SourceKind(configapi.SourceKindCohort).Obj(),
+				utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("env").SourceLabelKey("environment").SourceKind(configapi.SourceKindLocalQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("cost").SourceAnnotationKey("billing/cost").SourceKind(configapi.SourceKindClusterQueue).Obj(),
 			},
 			labels:      map[string]string{"team": "ml", "environment": "prod"},
 			annotations: map[string]string{"billing/cost": "high", "cohort": "c1"},
@@ -115,9 +116,9 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"all values tracked": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "team", TrackedValues: []string{"infra", "platform"}},
-				{Name: "env", SourceLabelKey: "environment", TrackedValues: []string{"prod", "staging"}},
-				{Name: "cost", TrackedValues: []string{}},
+				utiltestingapi.MakeCustomLabel("team").TrackedValues("infra", "platform").Obj(),
+				utiltestingapi.MakeCustomLabel("env").SourceLabelKey("environment").TrackedValues("prod", "staging").Obj(),
+				utiltestingapi.MakeCustomLabel("cost").Obj(),
 			},
 			labels:      map[string]string{"team": "infra", "environment": "prod", "cost": "high"},
 			sourceKinds: []configapi.SourceKind{configapi.SourceKindClusterQueue},
@@ -126,9 +127,9 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"some values not tracked": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "team", TrackedValues: []string{"infra", "platform"}},
-				{Name: "env", SourceLabelKey: "environment", TrackedValues: []string{"prod", "staging"}},
-				{Name: "cost", TrackedValues: []string{}},
+				utiltestingapi.MakeCustomLabel("team").TrackedValues("infra", "platform").Obj(),
+				utiltestingapi.MakeCustomLabel("env").SourceLabelKey("environment").TrackedValues("prod", "staging").Obj(),
+				utiltestingapi.MakeCustomLabel("cost").Obj(),
 			},
 			labels:      map[string]string{"team": "other", "environment": "prod", "cost": "high"},
 			sourceKinds: []configapi.SourceKind{configapi.SourceKindClusterQueue},
@@ -193,10 +194,10 @@ func TestStoreCustomLabels(t *testing.T) {
 					}
 			},
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "a"},
-				{Name: "b"},
-				{Name: "c", SourceAnnotationKey: "c"},
-				{Name: "d", SourceAnnotationKey: "d"},
+				utiltestingapi.MakeCustomLabel("a").Obj(),
+				utiltestingapi.MakeCustomLabel("b").Obj(),
+				utiltestingapi.MakeCustomLabel("c").SourceAnnotationKey("c").Obj(),
+				utiltestingapi.MakeCustomLabel("d").SourceAnnotationKey("d").Obj(),
 			},
 			initialLabels: map[string]string{
 				"a": "a",
@@ -234,10 +235,10 @@ func TestStoreCustomLabels(t *testing.T) {
 					}
 			},
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "cq-label"},
-				{Name: "wl-label", SourceKind: new(configapi.SourceKindWorkload)},
-				{Name: "cq-annotation", SourceAnnotationKey: "cq-annotation"},
-				{Name: "wl-annotation", SourceAnnotationKey: "wl-annotation", SourceKind: new(configapi.SourceKindWorkload)},
+				utiltestingapi.MakeCustomLabel("cq_label").SourceLabelKey("cq-label").Obj(),
+				utiltestingapi.MakeCustomLabel("wl_label").SourceLabelKey("wl-label").SourceKind(configapi.SourceKindWorkload).TrackedValues("wl-label-value").Obj(),
+				utiltestingapi.MakeCustomLabel("cq_annotation").SourceAnnotationKey("cq-annotation").Obj(),
+				utiltestingapi.MakeCustomLabel("wl_annotation").SourceAnnotationKey("wl-annotation").SourceKind(configapi.SourceKindWorkload).TrackedValues("wl-annot-value", "wl-annot-value2").Obj(),
 			},
 			initialLabels: map[string]string{
 				"cq-label":    "cq-label-value",
@@ -314,7 +315,7 @@ func TestUpdateRequired(t *testing.T) {
 		nilReceiver bool
 	}{
 		"nil receiver": {
-			entries:     []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			entries:     []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
 			kind:        configapi.SourceKindClusterQueue,
 			ref:         "cq1",
 			testLabels:  map[string]string{"team": "infra"},
@@ -322,28 +323,28 @@ func TestUpdateRequired(t *testing.T) {
 			nilReceiver: true,
 		},
 		"unsupported kind": {
-			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindClusterQueue)}},
+			entries:    []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").SourceKind(configapi.SourceKindClusterQueue).Obj()},
 			kind:       configapi.SourceKindLocalQueue,
 			ref:        "lq1",
 			testLabels: map[string]string{"team": "infra"},
 			want:       false,
 		},
 		"not stored, new values empty": {
-			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			entries:    []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
 			kind:       configapi.SourceKindClusterQueue,
 			ref:        "cq1",
 			testLabels: map[string]string{"other": "value"},
 			want:       false,
 		},
 		"not stored, new values not empty": {
-			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			entries:    []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
 			kind:       configapi.SourceKindClusterQueue,
 			ref:        "cq1",
 			testLabels: map[string]string{"team": "infra"},
 			want:       true,
 		},
 		"stored, values equal": {
-			entries:     []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			entries:     []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
 			kind:        configapi.SourceKindClusterQueue,
 			ref:         "cq1",
 			storeLabels: map[string]string{"team": "infra"},
@@ -351,7 +352,7 @@ func TestUpdateRequired(t *testing.T) {
 			want:        false,
 		},
 		"stored, values not equal": {
-			entries:     []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			entries:     []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()},
 			kind:        configapi.SourceKindClusterQueue,
 			ref:         "cq1",
 			storeLabels: map[string]string{"team": "infra"},
@@ -383,7 +384,7 @@ func TestUpdateRequired(t *testing.T) {
 
 func TestCustomLabelsDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, false)
-	entries := []configapi.ControllerMetricsCustomLabel{{Name: "team"}}
+	entries := []configapi.ControllerMetricsCustomLabel{utiltestingapi.MakeCustomLabel("team").Obj()}
 	cl := NewCustomLabels(entries)
 	if cl != nil {
 		t.Error("expected nil CustomLabels when feature gate is disabled")

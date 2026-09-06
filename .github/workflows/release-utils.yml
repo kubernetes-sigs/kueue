@@ -7,8 +7,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  authorize:
-    name: Authorize and Parse Command
+  validate-actions:
+    name: Validate Automation Actions
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -23,19 +23,72 @@ jobs:
        contains(github.event.comment.body, '/create-draft-release') ||
        contains(github.event.comment.body, '/wait-for-images') ||
        contains(github.event.comment.body, '/wait-for-prod-images') ||
-       contains(github.event.comment.body, '/prepare-pull') ||
        contains(github.event.comment.body, '/publish-release'))
-    outputs:
-      command: ${{ steps.parse.outputs.command }}
-      version: ${{ steps.parse.outputs.version }}
-      branch: ${{ steps.parse.outputs.branch }}
-      changelog: ${{ steps.parse.outputs.changelog }}
-      target: ${{ steps.parse.outputs.target }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Validate Actions Folder
+        id: validate
+        run: |
+          REQUIRED_ITEMS=(
+            ".github/actions/create-draft-release/action.yml"
+            ".github/actions/create-release-tag/action.yml"
+            ".github/actions/generate-openvex/action.yml"
+            ".github/actions/generate-sbom/action.yml"
+            ".github/actions/publish-release/action.yml"
+            ".github/actions/report-result/action.yml"
+            "hack/releasing/log_to_issue.py"
+          )
+          MISSING=()
+          for item in "${REQUIRED_ITEMS[@]}"; do
+            if [ ! -f "$item" ]; then
+              MISSING+=("$item")
+            fi
+          done
+
+          if [ ${#MISSING[@]} -ne 0 ]; then
+            echo "error_message=❌ Missing required automation actions/scripts after checkout: ${MISSING[*]}" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Report Validation Failure
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ERR_MSG: ${{ steps.validate.outputs.error_message }}
+        run: |
+          BODY="${ERR_MSG:-❌ Automation actions validation failed: the actions folder is missing or invalid.}
+
+          See the [failed workflow run](${RUN_URL}) for details."
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
+
+  authorize:
+    name: Authorize and Parse Command
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate-actions
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      command: ${{ steps.parse.outputs.command }}
+      version: ${{ steps.parse.outputs.version }}
+      branch: ${{ steps.parse.outputs.branch }}
+      changelog: ${{ steps.parse.outputs.changelog }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
 
       - name: Verify Actor Authorization
         id: auth
@@ -92,14 +145,6 @@ jobs:
             COMMAND="wait-for-images"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/wait-for-prod-images[[:space:]]*$'; then
             COMMAND="wait-for-prod-images"
-          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/prepare-pull([[:space:]]+(release|main))?[[:space:]]*$'; then
-            COMMAND="prepare-pull"
-            TARGET=$(printf '%s' "$BODY" | tr -d '\r' | grep -oE '^/prepare-pull([[:space:]]+(release|main))?[[:space:]]*$' | head -n 1 | awk '{print $2}')
-            if [ -z "$TARGET" ]; then
-              echo "error_message=❌ Invalid command: \`/prepare-pull\` requires a parameter: \`release\` or \`main\`." >> "$GITHUB_OUTPUT"
-              exit 1
-            fi
-            echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
           else
@@ -129,6 +174,14 @@ jobs:
         with:
           alias: "Authorization"
           cleanup: true
+      
+      - name: Log command start
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ steps.parse.outputs.command }}
+          message: "🔄 Authorization successful. Running command..."
+          keep-history: false
 
   sync-release-notes:
     name: Sync Release Notes
@@ -144,6 +197,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: main
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -268,6 +323,7 @@ jobs:
         with:
           version: ${{ steps.rc-version.outputs.version }}
           repo: ${{ github.repository }}
+          update-release-issue: false
 
       - name: Report Success
         if: ${{ success() }}
@@ -376,6 +432,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: main
+          persist-credentials: false
 
       - name: Install Crane
         uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
@@ -538,6 +596,16 @@ jobs:
           repo: ${{ github.repository }}
           prerelease: false
 
+      - name: Generate OpenVEX
+        uses: ./.automation/.github/actions/generate-openvex
+        with:
+          tag: ${{ needs.authorize.outputs.version }}
+
+      - name: Generate SBOM
+        uses: ./.automation/.github/actions/generate-sbom
+        with:
+          tag: ${{ needs.authorize.outputs.version }}
+
       - name: Report Success
         if: ${{ success() }}
         uses: ./.automation/.github/actions/report-result
@@ -551,73 +619,6 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.draft.outputs.message || '❌ Failed to create draft release.' }}
-
-  prepare-pull:
-    name: Prepare Pull
-    runs-on: ubuntu-latest
-    needs: authorize
-    timeout-minutes: 30
-    if: ${{ needs.authorize.outputs.command == 'prepare-pull' }}
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          ref: main
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: 'go.mod'
-
-      - name: Configure Git and GH CLI
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --global user.name "kueue-release-bot"
-          git config --global user.email "kueue-release-bot@kubernetes.io"
-          gh auth setup-git
-
-      - name: Run Prepare Pull
-        id: prep_pull
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          VERSION: ${{ needs.authorize.outputs.version }}
-          TARGET: ${{ needs.authorize.outputs.target }}
-          GITHUB_USER: ${{ github.repository_owner }}
-          UPSTREAM_REMOTE: origin
-        run: |
-          set +e
-          yes y | ./hack/releasing/prepare_pull.sh --target "$TARGET" "$VERSION"
-          SCRIPT_EXIT_CODE=${PIPESTATUS[1]}
-          set -e
-
-          if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
-            echo "message=❌ Failed to prepare pull requests for version \`$VERSION\` (target: \`$TARGET\`)." >> "$GITHUB_OUTPUT"
-            exit $SCRIPT_EXIT_CODE
-          fi
-
-          echo "message=✅ Successfully prepared pull request(s) for version \`$VERSION\` (target: \`$TARGET\`)." >> "$GITHUB_OUTPUT"
-
-      - name: Report Success
-        if: ${{ success() }}
-        uses: ./.github/actions/report-result
-        with:
-          command: ${{ needs.authorize.outputs.command }}
-          message: ${{ steps.prep_pull.outputs.message }}
-
-      - name: Report Failure
-        if: ${{ failure() }}
-        uses: ./.github/actions/report-result
-        with:
-          command: ${{ needs.authorize.outputs.command }}
-          message: ${{ steps.prep_pull.outputs.message || '❌ Failed to prepare pull requests.' }}
 
   publish-release:
     name: Publish Release
@@ -642,6 +643,7 @@ jobs:
         with:
           version: ${{ needs.authorize.outputs.version }}
           repo: ${{ github.repository }}
+          update-release-issue: true
 
       - name: Report Success
         if: ${{ success() }}

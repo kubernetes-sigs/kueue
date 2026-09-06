@@ -391,6 +391,26 @@ func TestReconcileRequeue(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the WorkloadRequeued condition to true on re-activated with a derived deactivation reason": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadReactivated,
+					Message: "The workload was reactivated",
+				}).
+				Obj(),
+		},
 		"should keep the WorkloadRequeued condition until the WaitForPodsReady backoff expires": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).

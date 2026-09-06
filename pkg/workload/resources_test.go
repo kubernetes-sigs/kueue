@@ -229,7 +229,10 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						Limit(corev1.ResourceCPU, "6").
-						Request(corev1.ResourceCPU, "3").
+						// The limits are copied into the missing requests before
+						// the LimitRange defaultRequest applies, mirroring the
+						// requests the created Pods will carry.
+						Request(corev1.ResourceCPU, "6").
 						InitContainers(corev1.Container{
 							Resources: corev1.ResourceRequirements{
 								Limits: corev1.ResourceList{
@@ -332,7 +335,9 @@ func TestAdjustResources(t *testing.T) {
 						PodLevelLimit(corev1.ResourceCPU, "4").
 						PodLevelLimit(corev1.ResourceMemory, "2Gi").
 						PodLevelRequest(corev1.ResourceCPU, "3").
-						PodLevelRequest(corev1.ResourceMemory, "512Mi").
+						// The user-set memory limit is copied into the missing
+						// request before the LimitRange defaultRequest applies.
+						PodLevelRequest(corev1.ResourceMemory, "2Gi").
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						PodLevelLimit(corev1.ResourceCPU, "6").

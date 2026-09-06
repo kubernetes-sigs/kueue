@@ -19,7 +19,6 @@ package scheduler
 import (
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
@@ -49,8 +48,9 @@ func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
 			corev1.ResourceCPU: 1,
 		}),
 	}}
+	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
-	originalFlavorCache.addUsage(logr.Discard(), wlKey, topologyRequests)
+	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	toleration := corev1.Toleration{
 		Key:      "example.com/dedicated",
@@ -115,9 +115,10 @@ func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
 			corev1.ResourceCPU: 1,
 		}),
 	}}
+	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
 	originalTree, _ := originalFlavorCache.cachedOrBuiltTree()
-	originalFlavorCache.addUsage(logr.Discard(), wlKey, topologyRequests)
+	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	updatedNodeLabels := map[string]string{"node-group": "other"}
 	flavor.Spec.NodeLabels = updatedNodeLabels
@@ -170,9 +171,10 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 			corev1.ResourceCPU: 1,
 		}),
 	}}
+	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
 	originalTree, _ := originalFlavorCache.cachedOrBuiltTree()
-	originalFlavorCache.addUsage(logr.Discard(), wlKey, topologyRequests)
+	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	updatedTopology := utiltestingapi.MakeTopology("default").
 		Levels(utiltesting.DefaultBlockTopologyLevel, corev1.LabelHostname).

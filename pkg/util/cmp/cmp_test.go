@@ -39,12 +39,12 @@ func TestCompareBool(t *testing.T) {
 		"a true, b false": {
 			a:   true,
 			b:   false,
-			exp: -1,
+			exp: 1,
 		},
 		"a false, b true": {
 			a:   false,
 			b:   true,
-			exp: 1,
+			exp: -1,
 		},
 	}
 

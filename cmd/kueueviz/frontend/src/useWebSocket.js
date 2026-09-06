@@ -79,7 +79,7 @@ const useWebSocket = (url) => {
       } else {
         setError('WebSocket connection failed.');
       }
-      ws.close();
+      ws.close(WS_CLOSE_NORMAL);
     };
 
     ws.onclose = (event) => {
@@ -101,7 +101,7 @@ const useWebSocket = (url) => {
     };
 
     return () => {
-      ws.close();
+      ws.close(WS_CLOSE_NORMAL);
     };
   }, [fullUrl, token]);
 

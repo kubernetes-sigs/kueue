@@ -36,6 +36,34 @@ files:
           labels:
           {{- include "kueue.labels" . | nindent 4 }}
         indentation: 2
+  - path: ./config/components/crd/alpha/bases/*.yaml
+    outputDir: ./charts/kueue/templates/crd/
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata.annotations
+        value: |
+          {{- if .Values.enableCertManager }}
+          cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
+          {{- end }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableAlphaAPIs }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
   - path: ./config/components/rbac/*.yaml
     outputDir: ./charts/kueue/templates/rbac
     removeComments: true
@@ -380,6 +408,33 @@ files:
           {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+  - path: ./config/components/map/manifests.yaml
+    outputDir: ./charts/kueue/templates/map/
+    removeComments: true
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .spec.policyName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "MutatingAdmissionPolicyBinding"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+            {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableMutatingAdmissionPolicy (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy") }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
   - path: ./config/components/kueueviz/*.yaml
     outputDir: ./charts/kueue/templates/kueueviz
     removeComments: true

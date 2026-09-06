@@ -477,7 +477,7 @@ spec:
 
 ## 停止策略 {#stoppolicy}
 
-StopPolicy 允许集群管理员通过在 [spec](/v0.19/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) 中设置其值来临时停止 ClusterQueue 中工作负载的接纳，如下所示：
+StopPolicy 允许集群管理员通过在 [spec](/zh-cn/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ClusterQueueSpec) 中设置其值来临时停止 ClusterQueue 中工作负载的接纳，如下所示：
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -504,4 +504,4 @@ AdmissionChecks 是一个机制，允许 Kueue 在接纳工作负载之前考虑
 - 创建 [local queues](/v0.19/docs/concepts/local_queue)
 - 如果你还没有，请创建 [resource flavors](/v0.19/docs/concepts/resource_flavor)
 - 学习如何 [administer cluster quotas](/v0.19/docs/tasks/manage/administer_cluster_quotas)
-- 阅读 [API reference](/v0.19/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueue) for `ClusterQueue`
+- 阅读 [API reference](/zh-cn/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ClusterQueue) for `ClusterQueue`
