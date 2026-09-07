@@ -864,7 +864,7 @@ func filterAdapters(adapters map[string]jobframework.MultiKueueAdapter, supporte
 	supported := sets.New(supportedFrameworks...)
 	filtered := make(map[string]jobframework.MultiKueueAdapter, len(supported))
 	for key, adapter := range adapters {
-		if supported.Has(key) || supported.Has(adapter.FrameworkName()) {
+		if supported.Has(adapter.FrameworkName()) {
 			filtered[key] = adapter
 		}
 	}
