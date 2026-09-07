@@ -10376,6 +10376,10 @@ func TestScheduleSimulationErrors(t *testing.T) {
 			now := time.Now().Truncate(time.Second)
 			fakeClock := testingclock.NewFakeClock(now)
 
+			sim := &mockedSimulator{
+				snapshot: newFailingSimulatorSnapshot(onSimulate, tc.failOnCall, errSimulation),
+			}
+
 			rf := utiltestingapi.MakeResourceFlavor("default").Obj()
 			cq := utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -10405,13 +10409,6 @@ func TestScheduleSimulationErrors(t *testing.T) {
 
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
-
-			sim := &mockSimulator{
-				snapshot: &mockSimulatorSnapshot{
-					failOnCall: tc.failOnCall,
-					err:        errSimulation,
-				},
-			}
 
 			cqCache := schdcache.New(cl, schdcache.WithSchedulingSimulator(sim))
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
@@ -10496,16 +10493,13 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 	errSimulation := errors.New("simulated error")
 
 	t.Run("simulation error during TAS assignment recompute when processing entry (processEntry -> updateAssignmentIfNeeded -> getAssignments)", func(t *testing.T) {
-		sim := &mockSimulator{
-			snapshot: &mockSimulatorSnapshot{
-				failOnCall: 5,
-				err:        errSimulation,
-			},
-		}
-		wantMessage := "Error while processing entry: simulated error"
-
 		now := time.Now().Truncate(time.Second)
 		fakeClock := testingclock.NewFakeClock(now)
+
+		sim := &mockedSimulator{
+			snapshot: newFailingSimulatorSnapshot(onSimulate, 5, errSimulation),
+		}
+		wantMessage := "Error while processing entry: simulated error"
 
 		topo := utiltestingapi.MakeTopology("tas-topology").Levels(corev1.LabelHostname).Obj()
 		rf := utiltestingapi.MakeResourceFlavor("default").TopologyName("tas-topology").Obj()
@@ -10548,16 +10542,7 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 			Obj()
 		lq1 := utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue(cq1.Name).Obj()
 		lq2 := utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).ClusterQueue(cq2.Name).Obj()
-		wl1 := utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
-			Queue(kueue.LocalQueueName(lq1.Name)).
-			Creation(now.Add(-time.Minute)).
-			Priority(10).
-			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-				RequiredTopologyRequest(corev1.LabelHostname).
-				Request(corev1.ResourceCPU, "1").
-				Obj()).
-			Obj()
-		wl2 := utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+		targetWL := utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
 			Queue(kueue.LocalQueueName(lq2.Name)).
 			Creation(now).
 			Priority(5).
@@ -10566,33 +10551,25 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 				Request(corev1.ResourceCPU, "1").
 				Obj()).
 			Obj()
+		otherWl := utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+			Queue(kueue.LocalQueueName(lq1.Name)).
+			Creation(now.Add(-time.Minute)).
+			Priority(10).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
 
-		cqs := []*kueue.ClusterQueue{cq1, cq2}
-		lqs := []*kueue.LocalQueue{lq1, lq2}
-		workloads := []*kueue.Workload{wl1, wl2}
-		targetWL := wl2
 		targetCQName := kueue.ClusterQueueReference(cq2.Name)
 
 		ctx, log := utiltesting.ContextWithLog(t)
 
-		var wlListItems []kueue.Workload
-		for _, w := range workloads {
-			wlListItems = append(wlListItems, *w)
-		}
-		var cqListItems []kueue.ClusterQueue
-		for _, c := range cqs {
-			cqListItems = append(cqListItems, *c)
-		}
-		var lqListItems []kueue.LocalQueue
-		for _, l := range lqs {
-			lqListItems = append(lqListItems, *l)
-		}
-
 		clientBuilder := utiltesting.NewClientBuilder().
 			WithLists(
-				&kueue.WorkloadList{Items: wlListItems},
-				&kueue.ClusterQueueList{Items: cqListItems},
-				&kueue.LocalQueueList{Items: lqListItems},
+				&kueue.WorkloadList{Items: []kueue.Workload{*otherWl, *targetWL}},
+				&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq1, *cq2}},
+				&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq1, *lq2}},
 				&corev1.NodeList{Items: []corev1.Node{node}},
 			).
 			WithObjects(utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()).
@@ -10609,18 +10586,16 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 		cqCache.AddOrUpdateTopology(log, topo)
 		cqCache.TASCache().SyncNode(&node)
 
-		for _, c := range cqs {
-			if err := cqCache.AddClusterQueue(ctx, c); err != nil {
+		for _, cq := range []*kueue.ClusterQueue{cq1, cq2} {
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Failed to add ClusterQueue to cache: %v", err)
 			}
-		}
-		for _, c := range cqs {
-			if err := qManager.AddClusterQueue(ctx, c); err != nil {
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Failed to add ClusterQueue to manager: %v", err)
 			}
 		}
-		for _, l := range lqs {
-			if err := qManager.AddLocalQueue(ctx, l); err != nil {
+		for _, lq := range []*kueue.LocalQueue{lq1, lq2} {
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
 				t.Fatalf("Failed to add LocalQueue to manager: %v", err)
 			}
 		}
@@ -10713,6 +10688,10 @@ func TestGetInitialAssignmentsTerminalErrorInReducer(t *testing.T) {
 			now := time.Now().Truncate(time.Second)
 			fakeClock := testingclock.NewFakeClock(now)
 
+			sim := &mockedSimulator{
+				snapshot: newFailingSimulatorSnapshot(onPreempt, tc.failPreemptOnCall, errSimulation),
+			}
+
 			rf := utiltestingapi.MakeResourceFlavor("default").Obj()
 			cq := utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -10764,13 +10743,6 @@ func TestGetInitialAssignmentsTerminalErrorInReducer(t *testing.T) {
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
 
-			sim := &mockSimulator{
-				snapshot: &mockSimulatorSnapshot{
-					failPreemptOnCall: tc.failPreemptOnCall,
-					preemptErr:        errSimulation,
-				},
-			}
-
 			cqCache := schdcache.New(cl, schdcache.WithSchedulingSimulator(sim))
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
 
@@ -10821,25 +10793,48 @@ func TestGetInitialAssignmentsTerminalErrorInReducer(t *testing.T) {
 	}
 }
 
-type mockSimulatorSnapshot struct {
-	failOnCall int
-	callCount  int
-	err        error
+type operation string
 
-	failPreemptOnCall int
-	preemptCallCount  int
-	preemptErr        error
+const (
+	onSimulate operation = "Simulate"
+	onPreempt  operation = "Preempt"
+)
+
+type failingSimulatorSnapshot struct {
+	op        operation
+	failAfter int
+	callCount int
+	err       error
 }
 
-func (s *mockSimulatorSnapshot) Simulate(_ context.Context, fn func() error) error {
+func newFailingSimulatorSnapshot(failOn operation, failAfter int, returnErr error) *failingSimulatorSnapshot {
+	return &failingSimulatorSnapshot{
+		op:        failOn,
+		failAfter: failAfter,
+		err:       returnErr,
+		callCount: 0,
+	}
+}
+
+func (s *failingSimulatorSnapshot) simulateOperation(fn func() error) error {
 	s.callCount++
-	if (s.failOnCall == 0 && s.err != nil) || (s.failOnCall > 0 && s.callCount == s.failOnCall) {
+	if s.callCount >= s.failAfter {
 		return s.err
+	}
+	if fn != nil {
+		return fn()
+	}
+	return nil
+}
+
+func (s *failingSimulatorSnapshot) Simulate(_ context.Context, fn func() error) error {
+	if s.op == onSimulate {
+		return s.simulateOperation(fn)
 	}
 	return fn()
 }
 
-func (s *mockSimulatorSnapshot) FindFeasibleNodes(
+func (s *failingSimulatorSnapshot) FindFeasibleNodes(
 	_ context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	_ *simulator.PodRequirements,
@@ -10854,22 +10849,21 @@ func (s *mockSimulatorSnapshot) FindFeasibleNodes(
 	return res, nil
 }
 
-func (s *mockSimulatorSnapshot) PreemptWorkload(_ context.Context, _ client.ObjectKey) (func() error, error) {
-	s.preemptCallCount++
-	if (s.failPreemptOnCall == 0 && s.preemptErr != nil) || (s.failPreemptOnCall > 0 && s.preemptCallCount == s.failPreemptOnCall) {
-		return nil, s.preemptErr
+func (s *failingSimulatorSnapshot) PreemptWorkload(_ context.Context, _ client.ObjectKey) (func() error, error) {
+	if s.op == onPreempt {
+		return func() error { return nil }, s.simulateOperation(nil)
 	}
 	return func() error { return nil }, nil
 }
 
-type mockSimulator struct {
+type mockedSimulator struct {
 	snapshot simulator.SimulatorSnapshot
 }
 
-func (s *mockSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+func (s *mockedSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
 	return s.snapshot, nil
 }
 
-func (s *mockSimulator) TrackPod(_ context.Context, _ *corev1.Pod) {}
+func (s *mockedSimulator) TrackPod(_ context.Context, _ *corev1.Pod) {}
 
-func (s *mockSimulator) UntrackPod(_ context.Context, _ client.ObjectKey) {}
+func (s *mockedSimulator) UntrackPod(_ context.Context, _ client.ObjectKey) {}

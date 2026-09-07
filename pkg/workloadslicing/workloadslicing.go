@@ -386,7 +386,7 @@ func normalizeActiveSlices(
 //
 // Returns nil if:
 // - The ElasticJobsViaWorkloadSlices feature gate is not enabled
-// - The input workload or snapshot is nil
+// - The input workload or ClusterQueue snapshot is nil
 // - The workload has no replacement slice key
 // - The referenced replacement workload is not found in the ClusterQueue snapshot
 func ReplacedWorkloadSlice(wl *workload.Info, queue *schdcache.ClusterQueueSnapshot) ([]*preemption.Target, *workload.Info) {
