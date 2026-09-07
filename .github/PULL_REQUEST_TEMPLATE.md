@@ -48,10 +48,12 @@ Fixes #
 #### Special notes for your reviewer:
 
 #### Does this PR introduce a user-facing change?
-<!--
-If no, just write "NONE" in the release-note block below.
-If yes, a release note is required:
-Enter your extended release note in the block below. If the PR requires additional action from users switching to the new release, include the string "action required".
+<!-- Describe the behavior change accurately from the user's perspective. Hints:
+- Do not leave this block blank.
+- Use "NONE" when there is no user-facing change.
+- When feasible use a prefix for the sub-component or feature, e.g. "FairSharing:" or "MultiKueue:".
+- If upgrade steps are required, include an "ACTION REQUIRED:" section.
+You may consider AI assistance using the skill: cmd/experimental/skills/kueue-release-notes/SKILL.md.
 -->
 ```release-note
 
