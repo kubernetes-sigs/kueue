@@ -291,13 +291,12 @@ func (w *wlReconciler) admittingWorkerLostSince(clusterName string) time.Time {
 	return w.clock.Now()
 }
 
-func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
+func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference, adapterKey string) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
 		return nil, nil, err
 	}
 	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
-	adapterKey := adapter.GVK().String()
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found && client.connState.isConnected() {
 			if client.supportsAdapter(adapterKey) {
@@ -336,7 +335,7 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 }
 
 func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
-	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName, adapter)
+	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName, adapter.GVK().String())
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
