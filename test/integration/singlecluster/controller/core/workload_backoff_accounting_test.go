@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 		metrics.InitMetricVectors(nil)
 	})
 
-	ginkgo.It("preserves effective resource requests when readmitting a workload after backoff", func() {
+	ginkgo.It("considers effective resource requests when readmitting a workload after backoff", func() {
 		wl := utiltestingapi.MakeWorkload("adjusted", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).Limit(corev1.ResourceCPU, "3").RuntimeClass(runtimeClass.Name).Obj()
 		other := utiltestingapi.MakeWorkload("other", ns.Name).
@@ -91,9 +91,10 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "By test", time.Now())
+					// Hold backoff until the other workload has quota; expire it explicitly below.
 					wl.Status.RequeueState = &kueue.RequeueState{
 						Count:     new(int32(1)),
-						RequeueAt: new(metav1.NewTime(time.Now().Add(3 * time.Second))),
+						RequeueAt: new(metav1.NewTime(time.Now().Add(time.Hour))),
 					}
 					return true, nil
 				})).To(gomega.Succeed())
@@ -101,7 +102,18 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, other)
 		})
 
-		ginkgo.By("waiting for backoff to expire while only 4 CPU remain available", func() {
+		ginkgo.By("ending backoff after the other workload has reserved quota", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updated kueue.Workload
+				g.Expect(k8sClient.Get(ctx, wlKey, &updated)).To(gomega.Succeed())
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updated, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+					wl.Status.RequeueState.RequeueAt = new(metav1.NewTime(time.Now().Add(-time.Second)))
+					return true, nil
+				})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("keeping the workload pending after backoff while only 4 CPU remain available", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updated kueue.Workload
 				g.Expect(k8sClient.Get(ctx, wlKey, &updated)).To(gomega.Succeed())
