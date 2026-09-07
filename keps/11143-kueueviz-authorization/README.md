@@ -176,23 +176,23 @@ semantics.
 | `/api/cohort/{name}?output=yaml` | `get` `cohorts.kueue.x-k8s.io` | 403 |
 | `/api/resourceflavor/{name}?output=yaml` | `get` `resourceflavors.kueue.x-k8s.io` | 403 |
 | `/api/node/{name}?output=yaml` | `get` `nodes` | 403 |
-| `/ws/workloads?namespace={ns}` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
-| `/ws/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` cluster-scoped | 403 before upgrade |
-| `/ws/workload/{ns}/{name}` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `workloads.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
-| `/ws/workload/{ns}/{name}/events` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `list` and `watch` `events` in `{ns}` | 403 before upgrade |
-| `/ws/local-queues?namespace={ns}` | `list` and `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
-| `/ws/local-queues` | `list` and `watch` `localqueues.kueue.x-k8s.io` cluster-scoped | 403 before upgrade |
-| `/ws/local-queue/{ns}/{name}` | `get` `localqueues.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
-| `/ws/local-queue/{ns}/{name}/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
+| `/ws/workloads?namespace={ns}` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | close code 4000 for empty namespace; close code 4003 |
+| `/ws/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` cluster-scoped | close code 4003 |
+| `/ws/workload/{ns}/{name}` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `workloads.kueue.x-k8s.io` in `{ns}` | close code 4003 |
+| `/ws/workload/{ns}/{name}/events` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `list` and `watch` `events` in `{ns}` | close code 4003 |
+| `/ws/local-queues?namespace={ns}` | `list` and `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | close code 4000 for empty namespace; close code 4003 |
+| `/ws/local-queues` | `list` and `watch` `localqueues.kueue.x-k8s.io` cluster-scoped | close code 4003 |
+| `/ws/local-queue/{ns}/{name}` | `get` `localqueues.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | close code 4003 |
+| `/ws/local-queue/{ns}/{name}/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | close code 4003 |
 | `/ws/namespaces` | `list` and `watch` `localqueues.kueue.x-k8s.io` per namespace | filtered namespaces |
-| `/ws/cluster-queues` | `list` and `watch` `clusterqueues.kueue.x-k8s.io` | 403 before upgrade |
-| `/ws/cluster-queue/{name}` | `get` `clusterqueues.kueue.x-k8s.io` named `{name}`; `watch` `clusterqueues.kueue.x-k8s.io`; related LocalQueues require per-namespace `list` and `watch` `localqueues` | 403 before upgrade for primary checks; return authorized related queues only |
-| `/ws/cohorts` | `list` and `watch` `cohorts.kueue.x-k8s.io`; related ClusterQueues require `list` and `watch` `clusterqueues` | 403 before upgrade for primary checks; omit unauthorized related data |
-| `/ws/cohort/{name}` | `get` `cohorts.kueue.x-k8s.io` named `{name}`; `watch` `cohorts.kueue.x-k8s.io`; related ClusterQueues require `list` and `watch` `clusterqueues` | 403 before upgrade for primary checks; omit unauthorized related data |
-| `/ws/resource-flavors` | `list` and `watch` `resourceflavors.kueue.x-k8s.io` | 403 before upgrade |
-| `/ws/resource-flavor/{name}` | `get` `resourceflavors.kueue.x-k8s.io` named `{name}`; `watch` `resourceflavors.kueue.x-k8s.io`; related Nodes require `list` and `watch` `nodes`; related ClusterQueues require `list` and `watch` `clusterqueues` | 403 before upgrade for primary checks; omit unauthorized related data |
-| `/ws/workloads/dashboard?namespace={ns}` | non-empty `{ns}`; `list` and `watch` Workloads in `{ns}`; Pods require `list` and `watch` pods in `{ns}` | 400 for missing or empty namespace; 403 before upgrade for primary checks; omit unauthorized panels/details |
-| `/ws/workloads/dashboard` | cluster-scoped `list` and `watch` for Workloads, Pods, LocalQueues, ClusterQueues, and ResourceFlavors | 403 before upgrade for primary checks; omit unauthorized panels |
+| `/ws/cluster-queues` | `list` and `watch` `clusterqueues.kueue.x-k8s.io` | close code 4003 |
+| `/ws/cluster-queue/{name}` | `get` `clusterqueues.kueue.x-k8s.io` named `{name}`; `watch` `clusterqueues.kueue.x-k8s.io`; related LocalQueues require per-namespace `list` and `watch` `localqueues` | close code 4003 for primary checks; return authorized related queues only |
+| `/ws/cohorts` | `list` and `watch` `cohorts.kueue.x-k8s.io`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
+| `/ws/cohort/{name}` | `get` `cohorts.kueue.x-k8s.io` named `{name}`; `watch` `cohorts.kueue.x-k8s.io`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
+| `/ws/resource-flavors` | `list` and `watch` `resourceflavors.kueue.x-k8s.io` | close code 4003 |
+| `/ws/resource-flavor/{name}` | `get` `resourceflavors.kueue.x-k8s.io` named `{name}`; `watch` `resourceflavors.kueue.x-k8s.io`; related Nodes require `list` and `watch` `nodes`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
+| `/ws/workloads/dashboard?namespace={ns}` | non-empty `{ns}`; `list` and `watch` Workloads in `{ns}`; Pods require `list` and `watch` pods in `{ns}` | close code 4000 for empty namespace; close code 4003 for primary checks; omit unauthorized panels/details |
+| `/ws/workloads/dashboard` | cluster-scoped `list` and `watch` for Workloads, Pods, LocalQueues, ClusterQueues, and ResourceFlavors | close code 4003 for primary checks; omit unauthorized panels |
 
 ### Notes/Constraints/Caveats
 
@@ -217,7 +217,7 @@ must not claim Cohort watch semantics.
 
 The `/ws/workloads/dashboard` endpoint supports both namespace-scoped and
 cluster-scoped views. An explicit but empty `namespace=` query parameter must be
-rejected with HTTP 400. If the namespace parameter is omitted entirely, the
+rejected with WebSocket close code 4000. If the namespace parameter is omitted entirely, the
 backend must use a cluster-scoped `SubjectAccessReview`. This avoids an
 expensive per-namespace filtering while still allowing users with broad permissions 
 to access the cluster-wide dashboard.
@@ -277,8 +277,8 @@ The authorizer returns:
 - denied when `status.allowed` is false
 - error when the SubjectAccessReview API call fails
 
-Handlers map denied access to HTTP 403 or a WebSocket forbidden response.
-Errors evaluating authorization map to HTTP 503 or a WebSocket error response,
+Handlers map denied access to HTTP 403 or WebSocket close code 4003.
+Errors evaluating authorization map to HTTP 503 or WebSocket close code 4002,
 because the backend cannot safely decide access.
 
 ### Request Handling
@@ -295,24 +295,32 @@ The response rules are:
 
 ### WebSocket Handling
 
-WebSocket requests are authorized before the upgrade sends initial data. If the
-user is not authorized for the primary resource, including the required `watch`
-permission for streamed data, the request fails with HTTP 403 before the
-connection is established.
+Because browsers do not expose HTTP status codes to WebSocket JavaScript clients
+when handshakes fail (reporting only a generic abnormal closure code 1006),
+KueueViz communicates failure reasons using WebSocket close codes within the
+RFC 6455 private application range (4000–4999) and standard code 1008:
 
-Namespaced WebSocket endpoints must validate namespace path parameters and query
-parameters before authorization. Missing or empty namespaces for namespace-scoped
-endpoints are malformed requests and fail with HTTP 400 before the WebSocket
-upgrade.
+| Close Code | Constant Name | HTTP Equivalent | Reason / Trigger |
+|---|---|---|---|
+| 4000 | `WSCloseBadRequest` | 400 Bad Request | Required query parameter is missing or empty. |
+| 4001 | `WSCloseUnauthorized` | 401 Unauthorized | Missing or invalid bearer token during initial handshake authentication via TokenReview. |
+| 4002 | `WSCloseServiceUnavailable` | 503 Service Unavailable | Kubernetes API server failure when performing TokenReview or SubjectAccessReview. |
+| 4003 | `WSCloseForbidden` | 403 Forbidden | Caller is authenticated, but denied by RBAC SubjectAccessReview for primary endpoint resources. |
+| 1008 | `WS_CLOSE_POLICY_VIOLATION` | N/A (Session Revocation) | Token expired or was revoked during background periodic re-validation on an already-open connection. |
 
-For endpoints that can stream partial aggregate data, each snapshot is filtered
-before it is written to the WebSocket. The same filtering is applied on the
-initial snapshot and on every informer-triggered update.
+Every protected WebSocket route passes through authentication middleware, so all endpoints
+can return 4001, 4002, and 1008. Close codes 4000 and 4003 depend on whether the endpoint
+validates query parameters or enforces primary RBAC permissions:
+- Endpoints requiring primary resource access (e.g. `/ws/workloads`, `/ws/cluster-queues`)
+  close with 4003 if denied `get`/`list` or the required `watch` permission.
+- Endpoints validating query parameters close with 4000 if the parameter is present but empty.
+- Endpoints that stream partial aggregate data (such as `/ws/namespaces` or dashboards)
+  do not close when secondary resources are unauthorized; unauthorized data is filtered
+  from payloads instead.
 
-KueueViz will not re-authenticate the token for every WebSocket message in this
-KEP. Instead, the backend must periodically re-validate the token on open
-WebSockets. If the token becomes invalid or expires,
-the backend will close the connection with an unauthorized error.
+KueueViz does not re-authenticate the token on every WebSocket message. Instead, the backend
+periodically re-validates the token in the background on open connections and closes the
+connection with code 1008 if the token expires or is revoked.
 
 ### Partial Results for Aggregated Views
 
@@ -397,12 +405,12 @@ defaults are too aggressive or too expensive.
 
 ### Frontend Considerations
 
-The frontend should treat HTTP 403 and WebSocket forbidden errors differently
-from 401:
+The frontend must handle HTTP status codes and WebSocket close codes appropriately:
 
-- 401 means the token is missing, invalid, or expired; redirect to login.
-- 403 means the user is authenticated but not authorized; show a permission
-  error without clearing the token.
+- HTTP 401, WebSocket 4001, and WebSocket 1008 mean the token is missing, invalid, expired, or revoked; redirect to login and clear the session token.
+- HTTP 403 and WebSocket 4003 mean the user is authenticated but not authorized; display a permission error without clearing the token.
+- HTTP 400 and WebSocket 4000 indicate invalid or missing parameters.
+- HTTP 503 and WebSocket 4002 indicate Kubernetes API server failure; display an error indicating service unavailability.
 
 The frontend must match user UX expectations for partial results and unauthorized requests:
 - Aggregate REST responses and WebSocket payloads will include non-sensitive metadata indicating when secondary data was filtered due to missing permissions.
@@ -411,11 +419,6 @@ The frontend must match user UX expectations for partial results and unauthorize
 
 The frontend should not attempt client-side filtering as a security boundary.
 All filtering must happen in the backend.
-
-For WebSocket authorization failures before upgrade, browsers may expose only a
-generic connection failure to JavaScript. The frontend should not clear the
-token for these failures. HTTP 403 responses must remain distinct from 401 and
-must not trigger logout.
 
 ### Test Plan
 
@@ -441,12 +444,13 @@ Unit tests should cover:
 - HTTP API handlers return 403 before object lookup when authorization is
   denied.
 - Namespaced REST resource requests without namespace return 400.
-- Dashboard WebSocket requests with missing or empty namespace return 400 before
-  upgrade.
+- Dashboard WebSocket requests with missing or empty namespace close with code 4000.
 - The dashboard frontend does not open the dashboard WebSocket with an empty
   `namespace` query parameter.
-- WebSocket handlers return 403 before upgrade when the user has `list` or
+- WebSocket handlers close with code 4003 when the user has `list` or
   `get` permission but lacks the required `watch` permission.
+- WebSocket connections close with code 1008 when token expiration or revocation is
+  detected during background periodic re-validation.
 - Workload events WebSocket requests require both `get workload` for the named
   Workload and `list/watch events` in the namespace.
 - Aggregated dashboard data omits Pod details when `list pods` or `watch pods`
