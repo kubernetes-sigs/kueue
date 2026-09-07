@@ -1866,6 +1866,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(clusterQueue.Name), 1)
 			})
 
 			ginkgo.By("waiting for at least 1s of execution time so AccumulatedPastExecutionTimeSeconds > 0 after eviction", func() {

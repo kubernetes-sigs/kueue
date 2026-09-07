@@ -561,6 +561,9 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 			logV.Info("Setting preemptor workload", "clusterQueue", wInfo.ClusterQueue, "workload", key)
 		}
 		c.pw.set(key, c.queueingStrategy == kueue.BestEffortFIFO, wInfo.LastEvaluatedGeneration)
+	} else if c.pw.matches(key, false, 0) {
+		log.V(3).Info("Clearing preemptor workload", "clusterQueue", wInfo.ClusterQueue, "workload", key, "reason", reason)
+		c.pw.clear()
 	}
 	c.workloads.ForgetInflightByKey(key)
 
@@ -659,6 +662,14 @@ func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) 
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.workloads.PendingActiveInLocalQueue(lqRef), c.workloads.PendingInadmissibleInLocalQueue(lqRef)
+}
+
+// PendingBreakdownInLocalQueue returns LabelValsTrackers for active and inadmissible
+// pending workloads in the given LocalQueue, keyed by workload custom label values.
+func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.workloads.PendingBreakdownInLocalQueue(lqRef)
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the

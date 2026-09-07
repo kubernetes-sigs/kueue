@@ -57,6 +57,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DynamicQuotaOrchestration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false
@@ -67,6 +73,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   versionedSpecs:
   - default: false
@@ -223,9 +235,9 @@
     version: "0.15"
 - name: MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
+    preRelease: Alpha
     version: "0.20"
 - name: MultiKueueClusterProfile
   versionedSpecs:
@@ -447,6 +459,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASGroupedPodSetSlicing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASHandleOverlappingFlavors
   versionedSpecs:
   - default: true

@@ -534,6 +534,11 @@ const (
 	// to complete to prevent quota stealing and thrashing during desynchronized evictions.
 	PrioritizePreemptorWorkloads featuregate.Feature = "PrioritizePreemptorWorkloads"
 
+	// owner: @pajakd
+	//
+	// Enable PodSet slicing alongside PodSet grouping in TAS.
+	TASGroupedPodSetSlicing featuregate.Feature = "TASGroupedPodSetSlicing"
+
 	// owner: @ivnovakov
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
@@ -619,6 +624,11 @@ const (
 	// Note: This feature can be promoted to "beta" once https://github.com/kubernetes-sigs/kueue/issues/14543
 	// is fixed because it might boost chances for issue #14543 to appear.
 	FairSharingReevaluatePreemptionCandidates featuregate.Feature = "FairSharingReevaluatePreemptionCandidates"
+
+	// owner: @j-skiba
+	//
+	// Enables Dynamic Quota Orchestration and respecting Effective Quota in ClusterQueue/Cohort status.
+	DynamicQuotaOrchestration featuregate.Feature = "DynamicQuotaOrchestration"
 )
 
 func init() {
@@ -635,6 +645,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASReplaceNodeOnNodeTaints:                   {TopologyAwareScheduling},
 	TASMultiLayerTopology:                        {TopologyAwareScheduling},
 	TASRespectNodeAffinityPreferred:              {TopologyAwareScheduling},
+	TASGroupedPodSetSlicing:                      {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:            {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                  {TopologyAwareScheduling},
 	TASProfileMixed:                              {TopologyAwareScheduling},
@@ -685,7 +696,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},
@@ -903,6 +914,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	TASGroupedPodSetSlicing: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
 	SchedulerLibraryIntegration: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -956,6 +971,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	FairSharingReevaluatePreemptionCandidates: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DynamicQuotaOrchestration: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

@@ -25,6 +25,8 @@ enableMutatingAdmissionPolicy: false
 enableVisibilityAuthReaderRoleBinding: true
 # -- Enable KueueViz dashboard
 enableKueueViz: false
+# -- Enable Alpha APIs (e.g. DynamicQuotaOrchestrator, CapacityProvider)
+enableAlphaAPIs: false
 # -- Kubernetes cluster's domain
 kubernetesClusterDomain: cluster.local
 controllerManager:

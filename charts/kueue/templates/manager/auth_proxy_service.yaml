@@ -20,7 +20,8 @@ metadata:
   name: {{ include "kueue.fullname" . }}-controller-manager-metrics-service
   namespace: '{{ .Release.Namespace }}'
   labels:
-  {{- include "kueue.metricsService.labels" . | nindent 4 }}
+  {{- $labels := include "kueue.metricsService.labels" . | fromYaml }}
+  {{- toYaml (merge $labels (.Values.metricsService.labels | default dict)) | nindent 4 }}
   {{- if .Values.metricsService.annotations }}
   annotations:
   {{- toYaml .Values.metricsService.annotations | nindent 4 }}

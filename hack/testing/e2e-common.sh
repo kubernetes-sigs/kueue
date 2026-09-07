@@ -54,7 +54,7 @@ export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
 # Non-retriable: missing image, denied access, or a full disk.
 # Shared by `e2e_docker_pull_if_needed` and `e2e_docker_manifest_available` below.
-export E2E_NON_RETRIABLE_IMAGE_ERRORS="manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
+export E2E_NON_RETRIABLE_IMAGE_ERRORS="no such manifest|manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
 
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then

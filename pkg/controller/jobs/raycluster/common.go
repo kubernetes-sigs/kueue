@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayctrlcommon "github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -89,6 +90,10 @@ func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
 // BuildPodSets builds PodSets from RayClusterSpec.
 func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
+	var collectorOptions *rayv1.CollectorOptions
+	if rayClusterSpec.HistoryServerOptions != nil {
+		collectorOptions = rayClusterSpec.HistoryServerOptions.CollectorOptions
+	}
 
 	// head
 	headPodSet := kueue.PodSet{
@@ -118,6 +123,12 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			autoscalerContainer(rayClusterSpec.AutoscalerOptions),
 		)
 	}
+	if collectorOptions != nil {
+		headPodSet.Template.Spec.Containers = append(
+			headPodSet.Template.Spec.Containers,
+			historyServerCollectorContainer(collectorOptions),
+		)
+	}
 	podSets = append(podSets, headPodSet)
 
 	// workers
@@ -140,6 +151,12 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			if wgs.MinReplicas != nil {
 				workerPodSet.MinCount = new(effectiveWorkerCount(wgs))
 			}
+		}
+		if collectorOptions != nil {
+			workerPodSet.Template.Spec.Containers = append(
+				workerPodSet.Template.Spec.Containers,
+				historyServerCollectorContainer(collectorOptions),
+			)
 		}
 		podSets = append(podSets, workerPodSet)
 	}
@@ -201,6 +218,20 @@ func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
 	return corev1.Container{
 		Name:      autoscalerContainerName,
 		Resources: resources,
+	}
+}
+
+// historyServerCollectorContainer returns a container mirroring the collector
+// that KubeRay injects into every head and worker Pod when History Server
+// collection is configured. Only the fields that affect quota and PodSpec
+// validation are kept: the image is required by ProvisioningRequest, and is
+// empty when unset because KubeRay rejects a missing collectorOptions.image.
+func historyServerCollectorContainer(opts *rayv1.CollectorOptions) corev1.Container {
+	collector := rayctrlcommon.BuildCollectorContainer(opts, rayv1.RayNodeType(""), "", "", "", nil)
+	return corev1.Container{
+		Name:      collector.Name,
+		Image:     collector.Image,
+		Resources: *collector.Resources.DeepCopy(),
 	}
 }
 

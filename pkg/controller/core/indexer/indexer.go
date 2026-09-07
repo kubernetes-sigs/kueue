@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -35,17 +36,18 @@ import (
 )
 
 const (
-	WorkloadQueueKey                     = "spec.queueName"
-	WorkloadClusterQueueKey              = "status.admission.clusterQueue"
-	QueueClusterQueueKey                 = "spec.clusterQueue"
-	LimitRangeHasContainerOrPodType      = "spec.hasContainerOrPodType"
-	WorkloadQuotaReservedKey             = "status.quotaReserved"
-	WorkloadRuntimeClassKey              = "spec.runtimeClass"
-	OwnerReferenceUID                    = "metadata.ownerReferences.uid"
-	WorkloadAdmissionCheckKey            = "status.admissionChecks"
-	WorkloadPriorityClassKey             = "spec.priorityClassRef"
-	DeviceClassExtendedResourceNameIndex = "spec.extendedResourceName"
-	WorkloadExtendedResourceKey          = "spec.extendedResources"
+	WorkloadQueueKey                            = "spec.queueName"
+	WorkloadClusterQueueKey                     = "status.admission.clusterQueue"
+	QueueClusterQueueKey                        = "spec.clusterQueue"
+	LimitRangeHasContainerOrPodType             = "spec.hasContainerOrPodType"
+	WorkloadQuotaReservedKey                    = "status.quotaReserved"
+	WorkloadRuntimeClassKey                     = "spec.runtimeClass"
+	OwnerReferenceUID                           = "metadata.ownerReferences.uid"
+	WorkloadAdmissionCheckKey                   = "status.admissionChecks"
+	WorkloadPriorityClassKey                    = "spec.priorityClassRef"
+	DeviceClassExtendedResourceNameIndex        = "spec.extendedResourceName"
+	WorkloadExtendedResourceKey                 = "spec.extendedResources"
+	DynamicQuotaOrchestratorCapacityProviderKey = "spec.capacityDiscovery.providers.name"
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
@@ -175,6 +177,23 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
+// IndexWorkloadSliceName indexes the workload slices of an elastic job. Every
+// slice in a chain carries the name of the chain's first slice in the
+// WorkloadSliceNameAnnotation, so indexing on it lists all Workloads of a job by
+// that name, including after the first slice itself has been deleted.
+func IndexWorkloadSliceName(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return nil
+	}
+	if value, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return []string{value}
+	}
+	// The chain's first slice names itself, and is indexed before the annotation
+	// is applied.
+	return []string{wl.Name}
+}
+
 // IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
 // Uses WorkloadSliceNameAnnotation if present, otherwise falls back to WorkloadAnnotation
 // for non-elastic workloads.
@@ -258,6 +277,19 @@ func IndexDeviceClassExtendedResourceName(obj client.Object) []string {
 	return []string{*dc.Spec.ExtendedResourceName}
 }
 
+// IndexDynamicQuotaOrchestratorCapacityProvider indexes DynamicQuotaOrchestrator by referenced CapacityProvider names.
+func IndexDynamicQuotaOrchestratorCapacityProvider(obj client.Object) []string {
+	dqo, ok := obj.(*kueuealpha.DynamicQuotaOrchestrator)
+	if !ok {
+		return nil
+	}
+	providers := make([]string, 0, len(dqo.Spec.CapacityDiscovery.Providers))
+	for _, p := range dqo.Spec.CapacityDiscovery.Providers {
+		providers = append(providers, string(p.Name))
+	}
+	return providers
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -294,6 +326,11 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
 		}
 	}
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadSliceNameKey, IndexWorkloadSliceName); err != nil {
+			return fmt.Errorf("setting index on workloadSliceName for Workload: %w", err)
+		}
+	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.
 	// The index is skipped if the DeviceClass API is not available on the cluster.
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
@@ -302,6 +339,11 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		}
 		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadExtendedResourceKey, IndexWorkloadExtendedResources); err != nil {
 			return fmt.Errorf("setting index on extended resources for Workload: %w", err)
+		}
+	}
+	if features.Enabled(features.DynamicQuotaOrchestration) {
+		if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorCapacityProviderKey, IndexDynamicQuotaOrchestratorCapacityProvider); err != nil {
+			return fmt.Errorf("setting index on capacity provider for DynamicQuotaOrchestrator: %w", err)
 		}
 	}
 	return nil

@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -4392,6 +4391,143 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"admitted prebuilt workload with implicit TAS remains in sync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  true,
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				SchedulingGate(kueue.TopologySchedulingGate).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				SchedulingGate(kueue.TopologySchedulingGate).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Count(10).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 10).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Count(10).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 10).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+		},
+		"prebuilt workload with a different topology request is out of sync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelTopologyZone}).
+						RequiredTopologyRequest(corev1.LabelTopologyZone).
+						Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelTopologyZone}).
+						RequiredTopologyRequest(corev1.LabelTopologyZone).
+						Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "OutOfSync",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
 		"when the prebuilt workload is owned by another object": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -5141,7 +5277,8 @@ func TestTerminalIndexesCount(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := terminalIndexesCount(logr.Discard(), tc.completedIndexes, tc.failedIndexes, tc.completions); got != tc.want {
+			_, log := utiltesting.ContextWithLog(t)
+			if got := terminalIndexesCount(log, tc.completedIndexes, tc.failedIndexes, tc.completions); got != tc.want {
 				t.Errorf("terminalIndexesCount(%q, %q, %d) = %d, want %d", tc.completedIndexes, tc.failedIndexes, tc.completions, got, tc.want)
 			}
 		})
