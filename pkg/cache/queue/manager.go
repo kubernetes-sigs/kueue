@@ -917,15 +917,12 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 		if len(workloads) != 0 {
 			return workloads
 		}
-		// Check ctx cancellation before entering Wait to prevent a lost-wakeup:
-		// CleanUpOnContext holds the same lock and calls Broadcast when ctx is
-		// cancelled. If that broadcast fires between the empty-heads check above
-		// and cond.Wait() below, cond.Wait() will block forever. Checking here
-		// (while still holding the lock) closes that window.
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return nil
+		default:
+			m.cond.Wait()
 		}
-		m.cond.Wait()
 	}
 }
 
