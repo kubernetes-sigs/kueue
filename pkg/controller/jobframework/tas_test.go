@@ -130,9 +130,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
 				},
 			},
-			wantReq: &kueue.PodSetTopologyRequest{
-				Unconstrained: new(false),
-			},
+			wantErr: errUnconstrainedTopologyNotTrue,
 		},
 		"slice-only topology": {
 			meta: &metav1.ObjectMeta{
