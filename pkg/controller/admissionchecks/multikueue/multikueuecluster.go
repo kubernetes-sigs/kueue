@@ -130,8 +130,6 @@ type remoteClient struct {
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
-	// supportedFrameworks is empty when all manager-enabled frameworks are supported.
-	supportedFrameworks sets.Set[string]
 
 	watchEstablishing atomic.Bool
 
@@ -155,13 +153,20 @@ type remoteClient struct {
 	mu sync.RWMutex
 }
 
-func (rc *remoteClient) setSupportedFrameworks(frameworks []string) bool {
+func (rc *remoteClient) setAdapters(adapters map[string]jobframework.MultiKueueAdapter) bool {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	supported := sets.New(frameworks...)
-	changed := !rc.supportedFrameworks.Equal(supported)
-	rc.supportedFrameworks = supported
+	changed := len(rc.adapters) != len(adapters)
+	if !changed {
+		for key := range adapters {
+			if _, found := rc.adapters[key]; !found {
+				changed = true
+				break
+			}
+		}
+	}
+	rc.adapters = maps.Clone(adapters)
 	return changed
 }
 
@@ -169,17 +174,21 @@ func (rc *remoteClient) supportsAdapter(adapterKey string) bool {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 
-	if len(rc.supportedFrameworks) == 0 {
-		return true
-	}
-	if rc.supportedFrameworks.Has(adapterKey) {
-		return true
-	}
+	_, found := rc.adapters[adapterKey]
+	return found
+}
+
+func (rc *remoteClient) adaptersSnapshot() map[string]jobframework.MultiKueueAdapter {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return maps.Clone(rc.adapters)
+}
+
+func (rc *remoteClient) adapter(adapterKey string) (jobframework.MultiKueueAdapter, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
 	adapter, found := rc.adapters[adapterKey]
-	if !found {
-		return false
-	}
-	return rc.supportedFrameworks.Has(adapter.FrameworkName())
+	return adapter, found
 }
 
 // connectionState holds a remote client's connection status. Its own mutex guards the fields
@@ -378,10 +387,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 
 	// add a watch for all the adapters implementing multiKueueWatcher
-	for kind, adapter := range rc.adapters {
-		if !rc.supportsAdapter(kind) {
-			continue
-		}
+	for kind, adapter := range rc.adaptersSnapshot() {
 		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWatcher)
 		if !implementsWatcher {
 			continue
@@ -746,7 +752,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		if controller := metav1.GetControllerOf(&remoteWl); controller != nil {
 			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
 			adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-			if adapter, found := rc.adapters[adapterKey]; !found {
+			if adapter, found := rc.adapter(adapterKey); !found {
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
@@ -856,15 +862,30 @@ func (c *clustersReconciler) disconnectCluster(clusterName string) {
 	}
 }
 
+func filterAdapters(adapters map[string]jobframework.MultiKueueAdapter, supportedFrameworks []string) map[string]jobframework.MultiKueueAdapter {
+	if len(supportedFrameworks) == 0 {
+		return maps.Clone(adapters)
+	}
+
+	supported := sets.New(supportedFrameworks...)
+	filtered := make(map[string]jobframework.MultiKueueAdapter, len(supported))
+	for key, adapter := range adapters {
+		if supported.Has(key) || supported.Has(adapter.FrameworkName()) {
+			filtered[key] = adapter
+		}
+	}
+	return filtered
+}
+
 // findOrCreateRemoteClient returns the remoteClient for clusterName, creating
 // one if absent. Only the brief map operation runs under c.lock.
-func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string) *remoteClient {
+func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -874,11 +895,12 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 }
 
 func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string, supportedFrameworks []string) (*time.Duration, error) {
-	client := c.findOrCreateRemoteClient(clusterName, origin)
+	adapters := filterAdapters(c.adapters, supportedFrameworks)
+	client := c.findOrCreateRemoteClient(clusterName, origin, adapters)
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
-	if client.setSupportedFrameworks(supportedFrameworks) {
+	if client.setAdapters(adapters) {
 		client.StopWatchers()
 		client.connState.markDisconnected(client.clock.Now())
 	}
