@@ -497,6 +497,8 @@ API server and verify SubjectAccessReview behavior with RBAC:
    in `team-a`.
 3. Verify KueueViz allows requests for `team-a`.
 4. Verify KueueViz returns 403 or filtered data for `team-b`.
+5. Verify partial responses include stable omission metadata (e.g. `omittedPanels`)
+   without leaking denied object names or counts when permissions are partially granted.
 
 #### e2e tests
 
@@ -506,7 +508,8 @@ KueueViz e2e tests should include a TokenReview-enabled deployment and verify:
 - authenticated request for an allowed namespace succeeds
 - authenticated request for a denied namespace returns 403 or omits data,
   depending on endpoint policy
-- dashboard does not show Pods from namespaces denied by RBAC
+- dashboard does not show Pods from namespaces denied by RBAC and displays an
+  informative banner indicating omitted data based on backend metadata
 
 ### Graduation Criteria
 
