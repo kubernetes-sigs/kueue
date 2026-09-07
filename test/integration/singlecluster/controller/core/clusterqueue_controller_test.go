@@ -808,6 +808,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 
 		ginkgo.It("Should prevent workload admission due to multikueue contraints", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
+
 			cpuArchAFlavor = utiltestingapi.MakeResourceFlavor(flavorCPUArchA).Obj()
 			util.MustCreate(ctx, k8sClient, cpuArchAFlavor)
 
@@ -892,6 +894,32 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 					},
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Concurrent Admission and MultiKueue are configured on the same ClusterQueue")
+			concurrentCq := utiltestingapi.MakeClusterQueue("bar-cq-concurrent").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavorCPUArchA).Resource(corev1.ResourceCPU, "5", "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavorCPUArchB).Resource(corev1.ResourceCPU, "5", "5").Obj(),
+				).
+				Cohort("bar-cohort").
+				AdmissionChecks("check1").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				Obj()
+			util.MustCreate(ctx, k8sClient, concurrentCq)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(concurrentCq), &updatedCq)).To(gomega.Succeed())
+				g.Expect(updatedCq.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.ClusterQueueActiveReasonMultiKueueWithConcurrentAdmission,
+						Message: "Can't admit new workloads: Cannot use ConcurrentAdmission on a ClusterQueue with a MultiKueue AdmissionCheck.",
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, concurrentCq, true)
 		})
 	})
 

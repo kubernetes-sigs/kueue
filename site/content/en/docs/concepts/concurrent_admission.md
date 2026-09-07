@@ -153,9 +153,26 @@ Concurrent Admission currently has the following constraints:
 - A `ClusterQueue` with `.spec.concurrentAdmissionPolicy` must have exactly one
   `resourceGroup`.
 - The `resourceGroup` can contain at most 16 ResourceFlavors.
+- A `ClusterQueue` that uses a MultiKueue AdmissionCheck is marked inactive if
+  it defines `.spec.concurrentAdmissionPolicy`. Configure Concurrent Admission
+  on the worker cluster's ClusterQueue instead.
 - The `concurrentAdmissionPolicy` field is immutable after the `ClusterQueue` is
   created.
 - `TryPreferredFlavors` is the only supported migration mode.
+
+## MultiKueue
+
+Concurrent Admission can be used on MultiKueue worker clusters. The manager
+ClusterQueue should use the MultiKueue AdmissionCheck without defining
+`.spec.concurrentAdmissionPolicy`, while the corresponding worker
+ClusterQueues define their Concurrent Admission policies.
+
+When MultiKueue orchestrated preemption is enabled, a worker reports a
+Variant's preemption signal through its Parent Workload. MultiKueue opens the
+Parent's preemption gate, and Concurrent Admission propagates the gate state to
+the Variants. The Concurrent Admission gate continues to control which sibling
+Variants can attempt preemption and opens them in preference order, subject to
+the preemption timeout.
 
 ## What's next?
 

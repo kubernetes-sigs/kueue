@@ -642,6 +642,118 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 		})
 	})
 
+	ginkgo.When("Variants inherit an external preemption gate", func() {
+		var cq *kueue.ClusterQueue
+		var lq *kueue.LocalQueue
+		var flavorReservation *kueue.ResourceFlavor
+		var flavorSpot *kueue.ResourceFlavor
+
+		ginkgo.BeforeEach(func() {
+			flavorReservation = utiltestingapi.MakeResourceFlavor("reservation").Obj()
+			util.MustCreate(ctx, k8sClient, flavorReservation)
+
+			flavorSpot = utiltestingapi.MakeResourceFlavor("spot").Obj()
+			util.MustCreate(ctx, k8sClient, flavorSpot)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-external-preemption-gate").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavorReservation.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavorSpot, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavorReservation, true)
+		})
+
+		ginkgo.It("syncs variant preemption signals to the parent and the parent gate state back to every variant", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-external-preemption-gate", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				PreemptionGates(kueue.PreemptionGate{Name: controllerconstants.MultiKueuePreemptionGate}).
+				Obj()
+
+			ginkgo.By("Creating the parent workload", func() {
+				util.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			var reservationVariant *kueue.Workload
+			ginkgo.By("Waiting for both variants", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+					reservationVariant = getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+					g.Expect(reservationVariant).ToNot(gomega.BeNil())
+					g.Expect(getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)).ToNot(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Reporting that the reservation variant is blocked on preemption gates", func() {
+				gomega.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, reservationVariant, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+					return workload.SetBlockedOnPreemptionGatesCondition(
+						wl,
+						util.RealClock.Now(),
+						kueue.PreemptionGated,
+						"Preemption is blocked by a preemption gate",
+					), nil
+				}, workloadpatching.WithRetryOnConflict())).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the signal reaches the parent and only one ConcurrentAdmission gate opens", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
+					g.Expect(workload.BlockedOnPreemptionGatesCondition(parentWl)).ToNot(gomega.BeNil())
+
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					reservationVariant = getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+					spotVariant := getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)
+					g.Expect(reservationVariant).ToNot(gomega.BeNil())
+					g.Expect(spotVariant).ToNot(gomega.BeNil())
+					g.Expect(workload.HasOpenPreemptionGate(reservationVariant, controllerconstants.ConcurrentAdmissionPreemptionGate)).To(gomega.BeTrue())
+					g.Expect(workload.HasOpenPreemptionGate(spotVariant, controllerconstants.ConcurrentAdmissionPreemptionGate)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Opening the external preemption gate on the parent", func() {
+				gomega.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, parentWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+					return workload.OpenPreemptionGate(
+						wl,
+						controllerconstants.MultiKueuePreemptionGate,
+						metav1.NewTime(util.RealClock.Now()),
+					), nil
+				}, workloadpatching.WithRetryOnConflict())).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying the external gate opens on every variant without changing the ConcurrentAdmission gates", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+					reservationVariant = getVariantByFlavor(list, parentWl.Name, flavorReservation.Name)
+					spotVariant := getVariantByFlavor(list, parentWl.Name, flavorSpot.Name)
+					g.Expect(reservationVariant).ToNot(gomega.BeNil())
+					g.Expect(spotVariant).ToNot(gomega.BeNil())
+					g.Expect(workload.HasOpenPreemptionGate(reservationVariant, controllerconstants.MultiKueuePreemptionGate)).To(gomega.BeTrue())
+					g.Expect(workload.HasOpenPreemptionGate(spotVariant, controllerconstants.MultiKueuePreemptionGate)).To(gomega.BeTrue())
+					g.Expect(workload.HasOpenPreemptionGate(reservationVariant, controllerconstants.ConcurrentAdmissionPreemptionGate)).To(gomega.BeTrue())
+					g.Expect(workload.HasOpenPreemptionGate(spotVariant, controllerconstants.ConcurrentAdmissionPreemptionGate)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
 	ginkgo.When("Should react to changes in the ClusterQueue's resource flavors", func() {
 		var cq *kueue.ClusterQueue
 		var lq *kueue.LocalQueue
