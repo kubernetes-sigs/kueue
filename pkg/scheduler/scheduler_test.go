@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -10692,15 +10693,147 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 	})
 }
 
+func TestGetInitialAssignmentsTerminalErrorInReducer(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)
+	errSimulation := errors.New("simulated error")
+
+	testCases := map[string]struct {
+		failPreemptOnCall int
+	}{
+		"terminal error when flvAssigner.Assign fails in reducer": {
+			failPreemptOnCall: 1,
+		},
+		"terminal error when preemptor.GetTargets fails in reducer": {
+			failPreemptOnCall: 2,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now().Truncate(time.Second)
+			fakeClock := testingclock.NewFakeClock(now)
+
+			rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+
+			victimWl := utiltestingapi.MakeWorkload("victim-wl", metav1.NamespaceDefault).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Priority(0).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(1).
+						Obj()).
+					Obj(), now).
+				AdmittedAt(true, now).
+				Obj()
+
+			preemptorWl := utiltestingapi.MakeWorkload("preemptor-wl", metav1.NamespaceDefault).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Priority(100).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					SetMinimumCount(1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithLists(
+					&kueue.WorkloadList{Items: []kueue.Workload{*victimWl, *preemptorWl}},
+					&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}},
+					&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
+				).
+				WithObjects(utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			sim := &mockSimulator{
+				snapshot: &mockSimulatorSnapshot{
+					failPreemptOnCall: tc.failPreemptOnCall,
+					preemptErr:        errSimulation,
+				},
+			}
+
+			cqCache := schdcache.New(cl, schdcache.WithSchedulingSimulator(sim))
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+
+			cqCache.AddOrUpdateResourceFlavor(log, rf)
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to cache: %v", err)
+			}
+			if !cqCache.AddOrUpdateWorkload(log, victimWl) {
+				t.Fatalf("Failed to add victim workload to cache")
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed to add LocalQueue to manager: %v", err)
+			}
+
+			scheduler := New(qManager, cqCache, cl, recorder,
+				WithClock(t, fakeClock),
+				WithPreemptionExpectations(preemptexpectations.New()),
+			)
+
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Failed to take snapshot: %v", err)
+			}
+
+			preemptorWlInfo := workload.NewInfo(log, preemptorWl)
+			preemptorWlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
+
+			err = simulation.Simulate(ctx, snapshot, func(simCtx *simulation.SimulationContext) error {
+				assignment, targets, inErr := scheduler.getInitialAssignments(ctx, simCtx, preemptorWlInfo, snapshot.ResourceFlavors)
+				if !errors.Is(inErr, errSimulation) {
+					t.Fatalf("getInitialAssignments() error = %v, want %v", inErr, errSimulation)
+				}
+				if len(targets) > 0 {
+					t.Errorf("Expected no preemption targets on error, got %v", targets)
+				}
+				if len(assignment.PodSets) > 0 {
+					t.Errorf("Expected empty assignment on error, got %v", assignment)
+				}
+				return inErr
+			})
+			if !errors.Is(err, errSimulation) {
+				t.Errorf("Simulate() error = %v, want %v", err, errSimulation)
+			}
+		})
+	}
+}
+
 type mockSimulatorSnapshot struct {
 	failOnCall int
 	callCount  int
 	err        error
+
+	failPreemptOnCall int
+	preemptCallCount  int
+	preemptErr        error
 }
 
 func (s *mockSimulatorSnapshot) Simulate(_ context.Context, fn func() error) error {
 	s.callCount++
-	if s.failOnCall == 0 || s.callCount == s.failOnCall {
+	if (s.failOnCall == 0 && s.err != nil) || (s.failOnCall > 0 && s.callCount == s.failOnCall) {
 		return s.err
 	}
 	return fn()
@@ -10722,6 +10855,10 @@ func (s *mockSimulatorSnapshot) FindFeasibleNodes(
 }
 
 func (s *mockSimulatorSnapshot) PreemptWorkload(_ context.Context, _ client.ObjectKey) (func() error, error) {
+	s.preemptCallCount++
+	if (s.failPreemptOnCall == 0 && s.preemptErr != nil) || (s.failPreemptOnCall > 0 && s.preemptCallCount == s.failPreemptOnCall) {
+		return nil, s.preemptErr
+	}
 	return func() error { return nil }, nil
 }
 

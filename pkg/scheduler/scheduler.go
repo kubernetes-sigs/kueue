@@ -1021,11 +1021,11 @@ func (s *Scheduler) getInitialAssignments(
 			}
 			return nil, false
 		})
-		if terminalError != nil {
-			return flavorassigner.Assignment{}, nil, terminalError
-		}
 		if pa, found := reducer.Search(); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...), nil
+		}
+		if terminalError != nil {
+			return flavorassigner.Assignment{}, nil, terminalError
 		}
 	}
 	return fullAssignment, nil, nil
