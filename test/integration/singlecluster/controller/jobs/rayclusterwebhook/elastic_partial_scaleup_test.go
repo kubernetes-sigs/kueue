@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -41,18 +42,6 @@ import (
 // in the same process (exactly how a deployed kueue-manager is wired, modulo container packaging).
 // This is the scenario a production user hits when they enable the feature for an elastic
 // RayCluster. See https://github.com/kubernetes-sigs/kueue/issues/15249.
-
-// podSetForWorkerGroup returns the Workload podSet that corresponds to a RayCluster worker
-// group, resolving the name the same way the RayCluster integration does.
-func podSetForWorkerGroup(wl *kueue.Workload, groupName string) *kueue.PodSet {
-	podSetName := kueue.NewPodSetReference(groupName)
-	for i := range wl.Spec.PodSets {
-		if wl.Spec.PodSets[i].Name == podSetName {
-			return &wl.Spec.PodSets[i]
-		}
-	}
-	return nil
-}
 
 // expectWorkloadAdmitted waits until the given Workload holds a quota reservation and is admitted.
 func expectWorkloadAdmitted(obj client.Object) {
@@ -127,7 +116,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 
 		ginkgo.By("the Workload is elastic and the worker podSet keeps the partial minCount")
 		gomega.Expect(wl.Annotations[workloadslicing.EnabledAnnotationKey]).Should(gomega.Equal(workloadslicing.EnabledAnnotationValue))
-		workerPS := podSetForWorkerGroup(&wl, "workers-group-0")
+		workerPS := podset.FindPodSetByName(wl.Spec.PodSets, kueue.NewPodSetReference("workers-group-0"))
 		gomega.Expect(workerPS).ShouldNot(gomega.BeNil())
 		gomega.Expect(workerPS.MinCount).ShouldNot(gomega.BeNil())
 		gomega.Expect(*workerPS.MinCount).Should(gomega.Equal(workerPS.Count))
@@ -165,7 +154,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 
 		ginkgo.By("every worker podSet keeps its partial minCount")
 		for _, groupName := range []string{"workers-group-0", "workers-group-1"} {
-			workerPS := podSetForWorkerGroup(&wl, groupName)
+			workerPS := podset.FindPodSetByName(wl.Spec.PodSets, kueue.NewPodSetReference(groupName))
 			gomega.Expect(workerPS).ShouldNot(gomega.BeNil())
 			gomega.Expect(workerPS.MinCount).ShouldNot(gomega.BeNil())
 			gomega.Expect(*workerPS.MinCount).Should(gomega.Equal(workerPS.Count))
@@ -207,30 +196,29 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 		ginkgo.By("the probe slice replaces the initial slice and is admitted")
 		var newWl kueue.Workload
 		gomega.Eventually(func(g gomega.Gomega) {
-			workloads := &kueue.WorkloadList{}
-			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			var workloads kueue.WorkloadList
+			g.Expect(k8sClient.List(ctx, &workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
-
-			finishedOld := false
-			admittedNew := false
 			for i := range workloads.Items {
-				slice := &workloads.Items[i]
-				if workloadfinish.IsFinished(slice) {
-					finishedOld = true
-					g.Expect(slice.Name).Should(gomega.Equal(firstWl.Name))
-				} else {
-					admittedNew = true
-					g.Expect(workload.IsAdmitted(slice)).Should(gomega.BeTrue())
-					newWl = *slice
+				if workloads.Items[i].Name == firstWl.Name {
+					continue
 				}
+				g.Expect(workload.IsAdmitted(&workloads.Items[i])).Should(gomega.BeTrue())
+				newWl = workloads.Items[i]
 			}
-			g.Expect(finishedOld && admittedNew).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the initial slice is marked finished")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var oldWl kueue.Workload
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&firstWl), &oldWl)).Should(gomega.Succeed())
+			g.Expect(workloadfinish.IsFinished(&oldWl)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the probe slice is linked to the initial slice and carries the partial minCount")
 		gomega.Expect(newWl.Annotations[workloadslicing.WorkloadSliceReplacementFor]).Should(gomega.Equal(string(workload.Key(&firstWl))))
 		gomega.Expect(newWl.Annotations[kueue.WorkloadSliceNameAnnotation]).ShouldNot(gomega.BeEmpty())
-		workerPS := podSetForWorkerGroup(&newWl, "workers-group-0")
+		workerPS := podset.FindPodSetByName(newWl.Spec.PodSets, kueue.NewPodSetReference("workers-group-0"))
 		gomega.Expect(workerPS).ShouldNot(gomega.BeNil())
 		gomega.Expect(workerPS.Count).Should(gomega.Equal(int32(4)))
 		gomega.Expect(workerPS.MinCount).ShouldNot(gomega.BeNil())
@@ -330,7 +318,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			wl = workloads.Items[0]
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		workerPS := podSetForWorkerGroup(&wl, "workers-group-0")
+		workerPS := podset.FindPodSetByName(wl.Spec.PodSets, kueue.NewPodSetReference("workers-group-0"))
 		gomega.Expect(workerPS).ShouldNot(gomega.BeNil())
 		gomega.Expect(workerPS.MinCount).ShouldNot(gomega.BeNil())
 		gomega.Expect(*workerPS.MinCount).Should(gomega.Equal(workerPS.Count))
