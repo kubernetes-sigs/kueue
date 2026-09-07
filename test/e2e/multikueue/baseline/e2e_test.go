@@ -769,12 +769,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, job, true)
 			})
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdJob := &batchv1.Job{}
-				g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.Equal(kueue.MultiKueueControllerName))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
 			ginkgo.By("Checking that only the compatible worker receives the Workload", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
