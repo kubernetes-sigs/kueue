@@ -81,10 +81,10 @@ var (
 	// Metrics tied to the Kueue process
 
 	// Unlike the metrics below, this one is built here rather than in InitMetricVectors:
-	// it carries no custom labels, and a re-initialization would swap the registered
-	// vector for an empty one that nothing re-seeds. It is likewise not passed through
-	// trackGaugeVec, because feature gates describe the process, not a queue, so the
-	// values must survive a leader-election role change.
+    // init() calls InitMetricVectors before the feature gates are parsed, so seeding it
+   // there would record the compile-time defaults instead of the running configuration.
+   // It is likewise not passed through trackGaugeVec, because feature gates describe the
+   // process, not a queue, so the values must survive a leader-election role change.
 	//
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=name="the name of the Kueue feature gate",stage="one of `ALPHA`, `BETA`, `DEPRECATED`, or empty for a generally available gate"
