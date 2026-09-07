@@ -727,7 +727,8 @@ func TestReportFeatureGates(t *testing.T) {
 func TestFeatureEnabledMetricName(t *testing.T) {
 	// `kueue_feature_enabled` deliberately mirrors upstream `kubernetes_feature_enabled`,
 	// the name operators already grep for; renaming it silently breaks their queries.
-	reportFeatureGates()
+	featureEnabled.Reset()
+	Register()
 
 	want := len(features.KueueFeatureGates())
 	if got := testutil.CollectAndCount(featureEnabled, "kueue_feature_enabled"); got != want {
