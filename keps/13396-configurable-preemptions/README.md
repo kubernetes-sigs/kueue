@@ -261,7 +261,8 @@ The new **PreemptionConfig** object will be referenceable in the **ClusterQueueS
   // defaults that may be in the system. Indicated config defines which workloads
   // will be considered for preemption if a workload from this cluster queue cannot be
   // scheduled due to resource or topology constraints.
-  PreemptionConfigName string
+  // +optional
+  PreemptionConfigName *string `json:"preemptionConfigName,omitempty"`
 
 ```
 
@@ -319,11 +320,12 @@ As it has an `AnyClusterQueue` relation, it can preempt workloads even if they a
 This example shows how a hero job's preemption configuration can be set up. It proposes an exemplary separate preemption configuration for the hero job's cluster queue, but in practical deployments it should be tailored to the user's needs.
 
 Assumptions:
+ - The hero job has a higher priority than regular workloads in the cluster,
  - The hero job should have elevated privileges to preempt other workloads,
  - The hero job is a mission-critical job and should be scheduled as soon as possible,
  - The hero job should not be preemptible by any other workload.
 
-This can be achieved by a separate preemption config for the hero job. The config should be referenced by the hero job's cluster queue. The config will have two rules, allowing it to preempt any workload for either quota or topology reasons:
+This can be achieved by a separate preemption config for the hero job. The config should be referenced by the hero job's cluster queue. The config will have two rules, allowing it to preempt any lower-priority workload across any ClusterQueue for either quota or topology reasons:
 
 ```yaml
 spec:
@@ -426,6 +428,7 @@ type PreemptionConfigSpec struct {
   Ordering []Order
 }
 
+// +kubebuilder:validation:Enum=InsufficientQuota;QuotaReclaimRequired;InsufficientTopology
 type PreemptionRuleTrigger string
 
 const (
@@ -508,6 +511,7 @@ const (
 )
 
 
+// +kubebuilder:validation:Enum=BorrowingCapacityFromPreemptor;DRSLessThanOrEqualToFinalShare;DRSLessThanInitialShare;DRSAllStrategies
 type QuotaConstraint string
 
 const (
@@ -612,6 +616,7 @@ type NumericLabelConstraint struct {
 // - "Greater": permits preemption if candidate field value > preemptor field value
 // - "LowerOrEqual": permits preemption if candidate field value <= preemptor field value
 // - "GreaterOrEqual": permits preemption if candidate field value >= preemptor field value
+// +kubebuilder:validation:Enum=Lower;Greater;LowerOrEqual;GreaterOrEqual
 type RelativeConstraint string
 
 const (
@@ -751,6 +756,7 @@ type PreemptionLimit struct {
   Status PreemptionLimitStatus
 }
 
+// +kubebuilder:validation:Enum=Global;PreemptingClusterQueue;PreemptedClusterQueue;PreemptedWorkload
 type PreemptionLimitScope string
 const (
   GlobalPreemptionLimitScope PreemptionLimitScope = "Global"
@@ -774,11 +780,13 @@ type PreemptionLimitSpec struct {
 
   // Limit defines how many preemption events can occur within the given time window.
   // An event is defined as a confirmed (preemptor, preemptee) eviction pair.
+  // Setting Limit to 0 blocks all preemptions under this limit's scope.
+  // +kubebuilder:validation:Minimum=0
   Limit int
 
   // LimitWindowDuration specifies the sliding time window duration.
   // Must be greater than or equal to 1s to prevent sub-second thrashing.
-  // +kubebuilder:validation:Minimum=1s
+  // +kubebuilder:validation:XValidation:rule="self >= duration('1s')",message="must be at least 1s"
   LimitWindowDuration metav1.Duration
 }
 
@@ -789,8 +797,7 @@ type PreemptionLimitStatus struct {
   // Map key depends on the scope. For Global it is just Global.
   // For CQ it is cluster queue name.
   // For Workload it is namespace + "/" + workload name.
-  // If all of the counts cannot be written to the resource due to the CRD size limit,
-  // then only the top K counts are stored to fit in the limit.
+  // Restricted to the top 1000 counts to fit within CRD size limits.
   Count map[string]int
 }
 ```
@@ -801,7 +808,7 @@ To track this, a list of preemption rule names responsible for selecting each ca
 To manage this data, Kueue stores a comprehensive preemption map in memory, which is isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific CQ/workload key, capturing events that occurred within the designated `LimitWindowDuration`. Moreover, it tracks only events that are in the scope of the specific limit; if a preemption does not match the defined config or rules selector, it will not be tracked in that particular instance of the preemption map.
 This list is dynamically trimmed upon each retrieval to filter out expired timestamps.
 
-Furthermore, the status of the PreemptionLimit is refreshed periodically — approximately every minute — to write the aggregated totals into the count map.
+Furthermore, the status of the PreemptionLimit is refreshed periodically — approximately every minute — to write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
 #### Observability When Reaching Preemption Limits
 
@@ -909,7 +916,7 @@ flowchart TD
    - The scheduler iterates through candidate workloads in order, adding victims until the preemptor's resource quota and topology domain requirements are fully satisfied.
 
 5. **Reverse-Order Victim Backfilling**:
-   - Once a viable candidate set $[V_1, V_2, \dots, V_k]$ is assembled, the scheduler attempts backfilling by checking victims in reverse order ($V_k, V_{k-1}, \dots, V_1$).
+   - Once a viable candidate set `[V_1, V_2, ..., V_k]` is assembled, the scheduler attempts backfilling by checking victims in reverse order, from `V_k` down to `V_1`.
    - For each victim, the scheduler evaluates whether the preemptor can still fit without evicting that victim. If the preemptor still fits, the victim is removed from the preemption target list, minimizing unnecessary workload disruptions.
 
 6. **Execution (`issuePreemptions`)**:
@@ -932,20 +939,20 @@ Preemption limits are evaluated in two complementary phases within `PreemptionEv
 #### Problem Statement
 Certain preemption candidate rules—such as those based on `BorrowingCapacityFromPreemptor` or Dominant Resource Share (DRS) fair-sharing strategies—depend on dynamic cluster state that changes as candidate workloads are simulated for preemption during evaluation.
 
-For example, consider cluster queues $A$ and $B$, each with a nominal quota of 5. Suppose CQ $B$ is currently borrowing 1 unit of quota from CQ $A$. If a workload in CQ $A$ triggers preemption under a rule targeting only borrowing workloads, and each candidate workload in CQ $B$ consumes 1 unit of quota, the evaluator should only preempt a single workload from CQ $B$. Once that first workload is selected, CQ $B$ is no longer borrowing quota from CQ $A$, so remaining workloads in CQ $B$ must immediately become ineligible for that borrowing rule.
+For example, consider cluster queues A and B, each with a nominal quota of 5. Suppose CQ B is currently borrowing 1 unit of quota from CQ A. If a workload in CQ A triggers preemption under a rule targeting only borrowing workloads, and each candidate workload in CQ B consumes 1 unit of quota, the evaluator should only preempt a single workload from CQ B. Once that first workload is selected, CQ B is no longer borrowing quota from CQ A, so remaining workloads in CQ B must immediately become ineligible for that borrowing rule.
 
 Furthermore, dynamic cluster metrics (such as DRS in fair-sharing cohorts) mean that preemption eligibility and relative candidate ordering across cluster queues can shift after every candidate selection step.
 
 #### Naive Solutions and Complexity Bottlenecks
 Let:
 - $n$: total number of candidate workloads across all cluster queues in the cohort.
-- $c$: number of cluster queues in the cohort ($c \ll n$).
-- $s$: number of candidate selectors configured in `PreemptionConfig` rules ($s \le 5$).
-- $m$: number of victim workloads required to satisfy the preemptor ($m \le n$).
+- $c$: number of cluster queues in the cohort, with $c \ll n$.
+- $s$: number of candidate selectors configured in `PreemptionConfig` rules, with $s \le 5$.
+- $m$: number of victim workloads required to satisfy the preemptor, with $m \le n$.
 
 Under dynamic state changes:
-- **Naive Linear Filtering per Selection ($O(m \cdot n)$ to $O(n^2)$):** Dynamically filtering the candidate set and linearly scanning for the minimum at each of the $m$ preemption steps requires $O(n)$ work per step, yielding $O(m \cdot n)$ time (up to $O(n^2)$ in the worst case where $m \approx n$).
-- **Naive Dynamic Re-sorting ($O(m \cdot n \log n)$ to $O(n^2 \log n)$):** Naively re-sorting the candidate array whenever CQ borrowing or DRS metrics change introduces an $O(n \log n)$ sorting step per eviction, leading to $O(m \cdot n \log n)$ time and severe scheduler throughput degradation.
+- **Naive Linear Filtering per Selection** (`O(m · n)` to `O(n²)`): Dynamically filtering the candidate set and linearly scanning for the minimum at each of the $m$ preemption steps requires $O(n)$ work per step, yielding $O(m \cdot n)$ time (up to $O(n^2)$ in the worst case where $m \approx n$).
+- **Naive Dynamic Re-sorting** (`O(m · n log n)` to `O(n² log n)`): Naively re-sorting the candidate array whenever CQ borrowing or DRS metrics change introduces an $O(n \log n)$ sorting step per eviction, leading to $O(m \cdot n \log n)$ time and severe scheduler throughput degradation.
 
 #### Proposed Approach: Per-Selector, Per-CQ Priority Queues
 To achieve optimal scheduling performance without repetitive full-array scans or re-sorting, the evaluator maintains **separate priority queues partitioned by `(CandidateSelector, ClusterQueue)`**:
@@ -973,38 +980,38 @@ To achieve optimal scheduling performance without repetitive full-array scans or
 
 #### Example Walkthrough
 
-Consider 3 cluster queues ($A, B, C$) in a flat cohort, each with 2 admitted workloads:
+Consider three cluster queues (CQ A, CQ B, and CQ C) in a flat cohort, each with 2 admitted workloads:
 - **Workloads & Priorities**:
-  - Preemptor: Workload $A_3$ in ClusterQueue $A$, Priority = 40.
-  - Candidates in CQ $A$: $A_1$ (Priority = 20), $A_2$ (Priority = 50).
-  - Candidates in CQ $B$: $B_1$ (Priority = 5), $B_2$ (Priority = 10).
-  - Candidates in CQ $C$: $C_1$ (Priority = 30), $C_2$ (Priority = 60).
+  - Preemptor: Workload A3 in ClusterQueue A, Priority = 40.
+  - Candidates in CQ A: A1 (Priority = 20), A2 (Priority = 50).
+  - Candidates in CQ B: B1 (Priority = 5), B2 (Priority = 10).
+  - Candidates in CQ C: C1 (Priority = 30), C2 (Priority = 60).
 - **Configured Rules & Ordering**:
   - `Ordering` is configured by `Priority` (Ascending, meaning lower priority workloads are preempted first).
-  - *Rule 1 (Priority-based, intra-CQ)*: Preempt workloads within the same CQ ($A$) with strictly lower priority than the preemptor ($< 40$). Candidate matching: $A_1$ (Priority 20).
+  - *Rule 1 (Priority-based, intra-CQ)*: Preempt workloads within the same CQ (CQ A) with strictly lower priority than the preemptor (priority < 40). Candidate matching: Workload A1 (Priority 20).
   - *Rule 2 (Fair Sharing, inter-CQ)*: Preempt workloads from any ClusterQueue whose DRS exceeds its fair share.
 
-Now, workload $A_3$ arrives in ClusterQueue $A$ and requires preemption to be admitted:
+Now, workload A3 arrives in ClusterQueue A and requires preemption to be admitted:
 
-1. **Queue Initialization ($2 \text{ selectors} \times 3 \text{ CQs} = 6 \text{ priority queues}$)**:
-   - For the priority selector (Rule 1), DRS is ignored; these queues only contain workloads passing the static priority filter and intra-CQ constraint ($A_1$).
+1. **Queue Initialization (2 selectors × 3 ClusterQueues = 6 priority queues)**:
+   - For the priority selector (Rule 1), DRS is ignored; these queues only contain workloads passing the static priority filter and intra-CQ constraint (Workload A1).
    - For the fair sharing selector (Rule 2), cohort DRS is evaluated dynamically for each CQ:
-     - ClusterQueue $B$ is borrowing and heavily exceeds fair share $\implies B_1$ and $B_2$ are eligible.
-     - ClusterQueue $C$ is currently within its fair share $\implies C_1$ and $C_2$ are **ineligible** under Rule 2, and do not match Rule 1 (different CQ). Thus, queues for CQ $C$ are initially inactive/empty.
+     - ClusterQueue B is borrowing and heavily exceeds fair share $\implies$ Workloads B1 and B2 are eligible.
+     - ClusterQueue C is currently within its fair share $\implies$ Workloads C1 and C2 are **ineligible** under Rule 2, and do not match Rule 1 (different CQ). Thus, queues for CQ C are initially inactive/empty.
 
-2. **Candidate Selection ($B_1$, $B_2$, $A_1$)**:
+2. **Candidate Selection (Workloads B1, B2, A1)**:
    - The evaluator inspects the heads of all active priority queues and selects the candidate with the lowest priority.
-   - First, it selects **$B_1$ (Priority 5)**, then **$B_2$ (Priority 10)**. As the cohort structure is flat, evicting $B_1$ and $B_2$ does not alter CQ $C$'s fair-share status.
-   - Next, the evaluator selects **$A_1$ (Priority 20)**. Because preemption within the same ClusterQueue is also considered fair under fair-sharing rules, $A_1$ matches both Rule 1 and Rule 2, and is popped simultaneously from both queues representing ClusterQueue $A$.
+   - First, it selects candidate **B1** (Priority 5), then candidate **B2** (Priority 10). As the cohort structure is flat, evicting B1 and B2 does not alter CQ C's fair-share status.
+   - Next, the evaluator selects candidate **A1** (Priority 20). Because preemption within the same ClusterQueue is also considered fair under fair-sharing rules, A1 matches both Rule 1 and Rule 2, and is popped simultaneously from both queues representing ClusterQueue A.
 
-3. **Dynamic State Recomputation & Selection of $C_1$**:
-   - Simulating the preemption of $A_1$ reduces ClusterQueue $A$'s resource usage, which shifts the cohort fair-share baseline. Under the updated DRS values, ClusterQueue $C$ now exceeds its fair share!
-   - Consequently, the priority queue for ClusterQueue $C$ under Rule 2 becomes active, making $C_1$ (Priority 30) eligible for preemption.
-   - The evaluator inspects active queue heads ($C_1$ at 30 vs $A_2$ at 50, $C_2$ at 60) and selects **$C_1$ (Priority 30)** as the lowest-priority eligible candidate.
-   - *(Note: Without dynamic state recomputation, $C_1$ would have been prematurely excluded or would have required a full scan of all cluster workloads.)*
+3. **Dynamic State Recomputation & Selection of Workload C1**:
+   - Simulating the preemption of A1 reduces ClusterQueue A's resource usage, which shifts the cohort fair-share baseline. Under the updated DRS values, ClusterQueue C now exceeds its fair share!
+   - Consequently, the priority queue for ClusterQueue C under Rule 2 becomes active, making C1 (Priority 30) eligible for preemption.
+   - The evaluator inspects active queue heads (C1 at 30 vs A2 at 50, C2 at 60) and selects candidate **C1** (Priority 30) as the lowest-priority eligible candidate.
+   - *(Note: Without dynamic state recomputation, C1 would have been prematurely excluded or would have required a full scan of all cluster workloads.)*
 
 4. **Termination**:
-   - Workload $A_3$'s resource requirements can now be satisfied after selecting $\{B_1, B_2, A_1, C_1\}$. Candidate iteration terminates, and the scheduler proceeds to reverse-order backfilling.
+   - Workload A3 resource requirements can now be satisfied after selecting {B1, B2, A1, C1}. Candidate iteration terminates, and the scheduler proceeds to reverse-order backfilling.
 
 #### Implementation Caveats and Selector Isolation
 Maintaining separate priority queues per candidate selector is essential. If queues were pooled across selectors (either within a rule or across rules), dropping an ineligible CQ queue due to exhausted borrowing or DRS thresholds would inadvertently discard candidates that matched other non-borrowing, static selectors (such as priority-only preemption within the same CQ). Distinct per-selector queues permit aggressive filtering using static constraints up front while isolating dynamic state invalidation.
@@ -1013,16 +1020,18 @@ Maintaining separate priority queues per candidate selector is essential. If que
 
 To evaluate algorithmic efficiency under realistic cluster conditions:
 - $n$: total number of candidate workloads across all cluster queues in the cohort.
-- $c$: number of cluster queues in the cohort ($c \ll n$).
-- $s$: number of candidate selectors configured in the `PreemptionConfig` ($s$ is small, typically $s \le 5$).
-- $m$: number of victim workloads required to admit the preemptor ($m \le n$).
+- $c$: number of cluster queues in the cohort, with $c \ll n$.
+- $s$: number of candidate selectors configured in the `PreemptionConfig`, with $s \le 5$.
+- $m$: number of victim workloads required to admit the preemptor, with $m \le n$.
 
 Assuming workloads are roughly evenly distributed across cluster queues (approximately $n/c$ workloads per queue):
 
 1. **Queue Initialization & Sorting**:
    - The algorithm instantiates at most $s \times c$ priority queues.
    - Sorting each queue of size $n/c$ takes $O(\frac{n}{c} \log \frac{n}{c})$. Across all $s \times c$ queues:
+
      $$\sum_{i=1}^{s \times c} O\left(\frac{n}{c} \log \frac{n}{c}\right) = s \cdot c \cdot O\left(\frac{n}{c} \log \frac{n}{c}\right) = O\left(s \cdot n \log\left(\frac{n}{c}\right)\right)$$
+
    - Since $\log(n/c) \le \log n$, this is bounded by standard $O(s \cdot n \log n)$.
 
 2. **Victim Selection & Dynamic Updates**:
@@ -1031,19 +1040,22 @@ Assuming workloads are roughly evenly distributed across cluster queues (approxi
    - Updating simulated resource allocations and DRS values per victim takes $O(1)$ on a flat cohort structure.
 
 3. **Overall Time Complexity**:
+
    $$T = O(s \cdot n \log n + m \cdot c \cdot s)$$
-   Treating the number of selectors $s$ as a small constant ($s = O(1)$), the overall complexity simplifies to:
-   $$\mathbf{O(n \log n + m \cdot c)}$$
+
+   Treating the number of selectors $s$ as a small constant, with $s = O(1)$, the overall complexity simplifies to:
+
+   $$O(n \log n + m \cdot c)$$
 
 #### Complexity Comparison
 
-| Algorithm | Per-Step Selection Time | Total Selection Time ($m$ victims) | Overall Algorithm Time | Scalability Bottleneck |
+| Algorithm | Per-Step Selection Time | Total Selection Time (for $m$ victims) | Overall Algorithm Time | Scalability Bottleneck |
 |---|---|---|---|---|
 | **Naive Linear Filtering** | $O(n)$ | $O(m \cdot n)$ | $O(m \cdot n)$ | High per-step scan overhead when $n$ is large. |
 | **Naive Dynamic Re-sorting** | $O(n \log n)$ | $O(m \cdot n \log n)$ | $O(m \cdot n \log n)$ | Severe throughput degradation on frequent evictions. |
-| **Proposed Per-(Selector, CQ) Queues** | $O(c \cdot s) \approx O(c)$ | $O(m \cdot c)$ | $\mathbf{O(n \log n + m \cdot c)}$ | Scales with number of ClusterQueues $c$, independent of $n$ during selection. |
+| **Proposed Per-(Selector, CQ) Queues** | $O(c \cdot s) \approx O(c)$ | $O(m \cdot c)$ | **`O(n log n + m · c)`** | Scales with number of ClusterQueues $c$, independent of $n$ during selection. |
 
-Because in real clusters the number of ClusterQueues is much smaller than the total number of workloads ($c \ll n$, e.g., dozens of queues vs. thousands of workloads), $m \cdot c \ll m \cdot n$. The proposed multi-queue approach eliminates repetitive scans and re-sorting, ensuring scalable preemption evaluation.
+Because in real clusters the number of ClusterQueues is much smaller than the total number of workloads (where $c \ll n$, e.g. dozens of queues vs. thousands of workloads), where $m \cdot c \ll m \cdot n$. The proposed multi-queue approach eliminates repetitive scans and re-sorting, ensuring scalable preemption evaluation.
 
 #### Open Challenges
 
@@ -1126,8 +1138,8 @@ Small parts of the implementation like conditions or integration with the schedu
 
 #### Alpha
 
-* `PreemptionConfiguration` CRD is implemented with preemption rules.
-* Workloads can be preempted according to rules defined in the preemption configuration.
+* `PreemptionConfig` CRD is implemented with preemption rules.
+* Workloads can be preempted according to rules defined in the preemption config.
 * Workloads that are preempted have the rule that triggered the preemption added in the eviction condition.
 * Lazy defragmentation use case is covered by available configuration rules.
 
@@ -1170,10 +1182,10 @@ Proposed implementation approach:
  - triggers
  - iteration through candidates
 
-Implementation of the following selectors to have an MVP of defrag:
-- NumericLabelConstraint
-- PriorityConstraint
-- PreemptionRelationConstraint
+Implementation of the following candidate selector fields and constraints to have an MVP of defrag:
+- `NumericLabels` (`NumericLabelConstraint`)
+- `RelativeWorkloadPriority` (`RelativeConstraint`)
+- `RelationRequirement` (`PreemptionRelationConstraint`)
 
 Expose the implementation under feature gate "ConfigurablePreemptions", integration should not change in any way the existing preemption logic.
 
