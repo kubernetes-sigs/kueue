@@ -389,19 +389,13 @@ func normalizeActiveSlices(
 // - The input workload or snapshot is nil
 // - The workload has no replacement slice key
 // - The referenced replacement workload is not found in the ClusterQueue snapshot
-func ReplacedWorkloadSlice(wl *workload.Info, snap *schdcache.Snapshot) ([]*preemption.Target, *workload.Info) {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || wl == nil || snap == nil {
+func ReplacedWorkloadSlice(wl *workload.Info, queue *schdcache.ClusterQueueSnapshot) ([]*preemption.Target, *workload.Info) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || wl == nil || queue == nil {
 		return nil, nil
 	}
 
 	sliceKey := ReplacementForKey(wl.Obj)
 	if sliceKey == nil {
-		return nil, nil
-	}
-
-	// Retrieve cluster queue.
-	queue := snap.ClusterQueue(wl.ClusterQueue)
-	if queue == nil {
 		return nil, nil
 	}
 

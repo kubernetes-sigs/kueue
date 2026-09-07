@@ -987,6 +987,10 @@ const (
 	// WorkloadAdmittedReasonPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
 	WorkloadAdmittedReasonPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
 
+	// SchedulerAdmissionFailed indicates that the internal simulation logic
+	// used for evaluating admission failed unexpectedly.
+	SchedulerAdmissionFailed = "SchedulerAdmissionFailed"
+
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
 	WorkloadFinished = "Finished"
