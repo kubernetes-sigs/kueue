@@ -1,10 +1,10 @@
 # Skills
 
-| Skill | Triggers on |
-|---|---|
-| [kueue-who-preempted](kueue-who-preempted/SKILL.md) | "who preempted my workload", "why was my workload evicted", "what kicked out my job", preemption investigation |
+| Skill | Triggers on                                                                                                                          |
+|---|--------------------------------------------------------------------------------------------------------------------------------------|
+| [kueue-who-preempted](kueue-who-preempted/SKILL.md) | "who preempted my workload", "why was my workload evicted", "what kicked out my job", preemption investigation|
 | [kueue-lineage](kueue-lineage/SKILL.md) | "what pods are running for my workload", "trace workload to pods", "show me the jobs for this workload", lineage/ownership questions |
-| [kueue-flake-debugger](kueue-flake-debugger/SKILL.md) | "debug a flake", "investigate test failure", "test timed out", "CI flake" |
+| [kueue-flake-debugger](kueue-flake-debugger/SKILL.md) | "debug a flake", "investigate test failure", "test timed out", "CI flake" , "compare a failing run with a passing run"|
 | [kueue-release-notes](kueue-release-notes/SKILL.md) | Review or propose a concise PR release note focused on the user-observable change. |
 | [was-cluster](was-cluster/SKILL.md) | "set up WAS cluster", "build WAS kind cluster", "run WAS e2e tests", "tear down WAS cluster", Workload-Aware Scheduling cluster management |
 | [kueue-e2e-cluster-singlecluster](kueue-e2e-cluster-singlecluster/SKILL.md) | "spin up an e2e cluster", "get a kind cluster ready for e2e", single-cluster e2e suite setup (baseline, extended, sequential, TAS, cert-manager, DRA) |
