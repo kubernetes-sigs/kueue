@@ -1,31 +1,21 @@
-<!--  Thanks for sending a pull request!  Here are some tips for you:
-
-1. If this is your first time, please read our contributor guidelines: https://git.k8s.io/community/contributors/guide/first-contribution.md#your-first-contribution and developer guide https://git.k8s.io/community/contributors/devel/development.md#development-guide
-2. Please label this pull request according to what type of issue you are addressing, especially if this is a release targeted pull request. For reference on required PR/issue labels, read here:
-https://git.k8s.io/community/contributors/devel/sig-release/release.md#issuepr-kind-label
-3. Ensure you have added or ran the appropriate tests for your PR: https://git.k8s.io/community/contributors/devel/sig-testing/testing.md
-4. If you want *faster* PR reviews, read how: https://git.k8s.io/community/contributors/guide/pull-requests.md#best-practices-for-faster-reviews
-5. If the PR is unfinished, see how to mark it: https://git.k8s.io/community/contributors/guide/pull-requests.md#marking-unfinished-pull-requests
--->
+<!-- Thank you for contributing! Check CONTRIBUTING.md for details. -->
 
 #### What type of PR is this?
-
-<!--
-Add one of the following kinds:
+<!-- Choose one of the following kinds:
 /kind bug
 /kind cleanup
 /kind documentation
 /kind feature
 /kind kep
 
-Optionally add one or more of the following kinds if applicable:
+Optionally choose one or more of the following kinds:
 /kind api-change
 /kind deprecation
 /kind failing-test
 /kind flake
 /kind regression
 
-Please also consider setting the area:
+Consider setting the area:
 /area tas
 /area was
 /area integrations
@@ -36,19 +26,16 @@ Please also consider setting the area:
 /area website
 -->
 
-#### What this PR does / why we need it:
-
-#### Which issue(s) this PR fixes:
+#### What this PR does / why we need it?
 <!--
-*Automatically closes linked issue when PR is merged.
-Usage: `Fixes #<issue number>`, or `Fixes (paste link of issue)`.
-_If PR is about `failing-tests or flakes`, please post the related issues/tests in a comment and do not use `Fixes`_*
+Use `Fixes #123` for an issue addressed by this PR; it will be closed when the PR merges.
+Use `Related:` or `Part of:` to reference an issue without closing it.
 -->
 Fixes #
 
-#### Special notes for your reviewer:
+#### Useful notes for your reviewer
 
-#### Does this PR introduce a user-facing change?
+#### Release note
 <!-- Describe the behavior change accurately from the user's perspective. Hints:
 - Do not leave this block blank.
 - Use "NONE" when there is no user-facing change.
