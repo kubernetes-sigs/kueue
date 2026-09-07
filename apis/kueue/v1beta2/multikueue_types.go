@@ -84,6 +84,7 @@ type MultiKueueClusterSpec struct {
 	// external frameworks must use the name configured in multiKueue.externalFrameworks.
 	// An empty list means that every framework enabled in the manager is supported, preserving the
 	// behavior from before this field was introduced.
+	// Changes to this field take effect after restarting the Kueue controller manager.
 	//
 	// +optional
 	// +listType=set

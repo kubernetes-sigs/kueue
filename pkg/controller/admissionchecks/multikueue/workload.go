@@ -1032,40 +1032,6 @@ type admissionCheckHandler struct {
 	eventsBatchPeriod time.Duration
 }
 
-type clusterHandler struct {
-	client            client.Client
-	eventsBatchPeriod time.Duration
-}
-
-func (h *clusterHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *clusterHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldCluster, oldOK := e.ObjectOld.(*kueue.MultiKueueCluster)
-	newCluster, newOK := e.ObjectNew.(*kueue.MultiKueueCluster)
-	if !oldOK || !newOK || equality.Semantic.DeepEqual(oldCluster.Spec.SupportedFrameworks, newCluster.Spec.SupportedFrameworks) {
-		return
-	}
-
-	configs := &kueue.MultiKueueConfigList{}
-	if err := h.client.List(ctx, configs, client.MatchingFields{UsingMultiKueueClusters: newCluster.Name}); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to list MultiKueueConfigs for cluster update", "multiKueueCluster", klog.KObj(newCluster))
-		return
-	}
-	configHandler := configHandler{client: h.client, eventsBatchPeriod: h.eventsBatchPeriod}
-	for i := range configs.Items {
-		if err := configHandler.queueWorkloadsForConfig(ctx, configs.Items[i].Name, q); err != nil {
-			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads for cluster update", "multiKueueCluster", klog.KObj(newCluster))
-		}
-	}
-}
-
-func (h *clusterHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *clusterHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
 func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	// no-op as we don't need to react to new configs
 }
@@ -1243,7 +1209,6 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
-		Watches(&kueue.MultiKueueCluster{}, &clusterHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 
 	c, err := builder.
