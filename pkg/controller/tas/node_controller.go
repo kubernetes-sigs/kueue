@@ -258,7 +258,7 @@ func newNodeReconciler(
 	return &nodeReconciler{
 		client:      client,
 		cache:       cache,
-		logName:     TASNodeController,
+		logName:     "tas-node-reconciler",
 		clock:       clock.RealClock{},
 		recorder:    recorder,
 		roleTracker: roleTracker,

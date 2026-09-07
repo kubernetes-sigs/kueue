@@ -149,7 +149,7 @@ func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
 		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(a.roleTracker, "multikueue-admissioncheck"),
+			LogConstructor: roletracker.NewLogConstructor(a.roleTracker, "multikueue-admissioncheck-reconciler"),
 		}).
 		Complete(a)
 }

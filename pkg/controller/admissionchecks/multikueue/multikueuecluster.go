@@ -1234,7 +1234,7 @@ func newClustersReconciler(
 		fsWatcher:                    fsWatcher,
 		adapters:                     adapters,
 		clusterProfileAccessProvider: cpAccessProvider,
-		logName:                      "multikueuecluster-reconciler",
+		logName:                      "multikueue-multikueuecluster-reconciler",
 		roleTracker:                  roleTracker,
 	}
 }
@@ -1274,7 +1274,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
 		WithEventFilter(c).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-cluster"),
+			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-multikueuecluster-reconciler"),
 		})
 	if features.Enabled(features.MultiKueueClusterProfile) {
 		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {

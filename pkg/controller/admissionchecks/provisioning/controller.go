@@ -891,7 +891,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.AdmissionCheck{}, ach).
 		Watches(&kueue.ProvisioningRequestConfig{}, prch).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-workload"),
+			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-workload-reconciler"),
 		}).
 		Complete(c)
 	if err != nil {
@@ -911,7 +911,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kueue.AdmissionCheck{}).
 		Watches(&kueue.ProvisioningRequestConfig{}, prcACh).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-admissioncheck"),
+			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-admissioncheck-reconciler"),
 		}).
 		Complete(acReconciler)
 }
