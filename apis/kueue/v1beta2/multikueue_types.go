@@ -82,8 +82,7 @@ type MultiKueueClusterSpec struct {
 	// MultiKueue only watches and dispatches jobs for these frameworks on this cluster.
 	// Built-in framework names must use the same values accepted by integrations.frameworks;
 	// external frameworks must use the name configured in multiKueue.externalFrameworks.
-	// An empty list means that every framework enabled in the manager is supported, preserving the
-	// behavior from before this field was introduced.
+	// An empty list means that every framework enabled in the manager is supported.
 	// Changes to this field take effect after restarting the Kueue controller manager.
 	//
 	// +optional
