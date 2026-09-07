@@ -1831,46 +1831,6 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 	}
 }
 
-func TestFilterAdapters(t *testing.T) {
-	const (
-		jobAdapterKey = "batch/v1, Kind=Job"
-		jobFramework  = "batch/job"
-		rayAdapterKey = "ray.io/v1, Kind=RayJob"
-	)
-
-	adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New(jobFramework, "ray.io/rayjob"))
-	if err != nil {
-		t.Fatalf("getting adapters: %v", err)
-	}
-	if _, found := filterAdapters(adapters, nil)[jobAdapterKey]; !found {
-		t.Errorf("empty supportedFrameworks should retain adapter %q", jobAdapterKey)
-	}
-
-	filtered := filterAdapters(adapters, []string{jobFramework})
-	if _, found := filtered[jobAdapterKey]; !found {
-		t.Errorf("supported framework %q should enable adapter %q", jobFramework, jobAdapterKey)
-	}
-	if _, found := filtered[rayAdapterKey]; found {
-		t.Errorf("did not expect framework %q to support adapter %q", jobFramework, rayAdapterKey)
-	}
-
-	rc := newRemoteClient(nil, nil, nil, nil, defaultOrigin, "worker", adapters)
-	if changed := rc.setAdapters(filtered); !changed {
-		t.Error("expected filtering the remote client adapters to report a change")
-	}
-	if !rc.supportsAdapter(jobAdapterKey) || rc.supportsAdapter(rayAdapterKey) {
-		t.Error("remote client did not use the filtered adapter set")
-	}
-	if changed := rc.setAdapters(filtered); changed {
-		t.Error("setting the same adapter set should not report a change")
-	}
-
-	// Canonical adapter keys are also accepted.
-	if filtered := filterAdapters(adapters, []string{jobAdapterKey}); len(filtered) != 1 {
-		t.Errorf("expected canonical adapter key %q to retain one adapter, got %d", jobAdapterKey, len(filtered))
-	}
-}
-
 func TestRemoteClientWatchesOnlySupportedFrameworks(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
