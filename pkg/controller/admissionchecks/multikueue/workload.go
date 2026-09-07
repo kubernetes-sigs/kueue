@@ -337,6 +337,7 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
+	// Keep only worker clusters that support the workload framework.
 	adapterKey := adapter.GVK().String()
 	for clusterName, client := range rClients {
 		if !client.supportsAdapter(adapterKey) {
