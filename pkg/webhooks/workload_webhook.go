@@ -122,10 +122,8 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		}
 	}
 
-	// KEP-12100 partial replica scale-up lets an elastic job that opted into the partial scale-up
-	// strategy produce Workloads with minCounts: the first slice carries one minCount podSet and
-	// scale-up probes carry several. Those shapes are only valid while the partial scale-up gate is
-	// on; otherwise the two rules below stay in force.
+	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
+	// so both checks below are skipped for them.
 	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
 		workloadslicing.Enabled(obj)
 
