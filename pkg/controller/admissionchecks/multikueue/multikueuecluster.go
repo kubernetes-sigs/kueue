@@ -894,7 +894,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
-	if client.setAdapters(adapters) {
+	if changed := client.setAdapters(adapters); changed {
 		client.StopWatchers()
 		client.connState.markDisconnected(client.clock.Now())
 	}
