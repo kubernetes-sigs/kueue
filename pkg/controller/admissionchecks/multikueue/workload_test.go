@@ -91,6 +91,7 @@ func TestWlReconcile(t *testing.T) {
 		worker1Reconnecting      bool
 		worker1DisconnectedSince *time.Time
 		dispatcherName           *string
+		preemptionMode           *config.MultiKueuePreemptionMode
 
 		// second worker
 		useSecondWorker          bool
@@ -1930,7 +1931,8 @@ func TestWlReconcile(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
 			},
-			reconcileFor: "wl1",
+			preemptionMode: ptr.To(config.MultiKueuePreemptionModeAtMostOne),
+			reconcileFor:   "wl1",
 
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -2168,7 +2170,7 @@ func TestWlReconcile(t *testing.T) {
 
 				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
-				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
+				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock), withPreemptionMode(ptr.Deref(tc.preemptionMode, config.MultiKueuePreemptionModeConcurrent)))
 
 				for _, val := range tc.managersDeletedWorkloads {
 					reconciler.Delete(event.DeleteEvent{

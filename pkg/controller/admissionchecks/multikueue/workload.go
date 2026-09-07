@@ -101,6 +101,7 @@ type wlReconciler struct {
 	clock             clock.Clock
 	dispatcherName    string
 	roleTracker       *roletracker.RoleTracker
+	preemptionMode    config.MultiKueuePreemptionMode
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -121,6 +122,12 @@ type Option func(reconciler *wlReconciler)
 func WithClock(_ testing.TB, c clock.Clock) Option {
 	return func(r *wlReconciler) {
 		r.clock = c
+	}
+}
+
+func withPreemptionMode(mode config.MultiKueuePreemptionMode) Option {
+	return func(r *wlReconciler) {
+		r.preemptionMode = mode
 	}
 }
 
@@ -1386,6 +1393,11 @@ func (w *wlReconciler) workloadToOpenPreemptionGate(ctx context.Context, group *
 				previousUngateTime = &gateOpenedTime
 			}
 		}
+	}
+
+	if w.preemptionMode == config.MultiKueuePreemptionModeAtMostOne && previousUngateTime != nil {
+		log.V(4).Info("Preemption mode is AtMostOne and a preemption gate is already open.")
+		return nil, 0
 	}
 
 	var timeSinceUngate time.Duration
