@@ -345,6 +345,10 @@ var (
 	CohortSubtreeAdmittedActiveWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",status="one of `active` or `inadmissible`",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortSubtreePendingWorkloads *prometheus.GaugeVec
+
+	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",parent_cohort="the direct parent Cohort name, empty if this Cohort has no parent",root_cohort="the root Cohort name in the hierarchy",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortInfo *prometheus.GaugeVec
 
@@ -1050,6 +1054,14 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 	)
 	trackGaugeVec(CohortSubtreeAdmittedActiveWorkloads)
 
+	CohortSubtreePendingWorkloads = trackGaugeVec(prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_subtree_pending_workloads",
+			Help:      "The number of pending Workloads that are active or inadmissible, per cohort's subtree",
+		}, append([]string{"cohort", "status", "replica_role"}, cohortMetricLabels...),
+	))
+
 	CohortInfo = trackGaugeVec(prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -1350,6 +1362,10 @@ func ClearCohortAdmittedWorkloadsMetrics(cohortName kueue.CohortReference) {
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 }
 
+func ClearCohortPendingWorkloadsMetrics(cohortName kueue.CohortReference) {
+	CohortSubtreePendingWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
+}
+
 func ReportClusterQueueStatus(cqName kueue.ClusterQueueReference, cqStatus ClusterQueueStatus, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
 	for _, status := range CQStatuses {
@@ -1514,6 +1530,11 @@ func ReportCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference, co
 	CohortSubtreeAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
+func ReportCohortSubtreePendingWorkloads(cohort kueue.CohortReference, status string, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cohort), status, roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortSubtreePendingWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
 func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
 	AdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
@@ -1661,6 +1682,7 @@ func Register() {
 		CohortSubtreeAdmittedWorkloadsTotal,
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,
+		CohortSubtreePendingWorkloads,
 		PodSchedulingGateRemovalSeconds,
 		UnadmittedWorkloads,
 		ExecutionTimeSeconds,
