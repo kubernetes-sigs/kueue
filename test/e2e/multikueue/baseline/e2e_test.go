@@ -684,7 +684,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					updatedCQ := &kueue.ClusterQueue{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCQ)).To(gomega.Succeed())
-					updatedCQ.Spec.StopPolicy = ptr.To(stopPolicy)
+					updatedCQ.Spec.StopPolicy = new(stopPolicy)
 					g.Expect(k8sClient.Update(ctx, updatedCQ)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
