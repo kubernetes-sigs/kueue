@@ -157,17 +157,11 @@ func (rc *remoteClient) setAdapters(adapters map[string]jobframework.MultiKueueA
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	changed := len(rc.adapters) != len(adapters)
-	if !changed {
-		for key := range adapters {
-			if _, found := rc.adapters[key]; !found {
-				changed = true
-				break
-			}
-		}
+	if maps.Equal(rc.adapters, adapters) {
+		return false
 	}
 	rc.adapters = maps.Clone(adapters)
-	return changed
+	return true
 }
 
 func (rc *remoteClient) supportsAdapter(adapterKey string) bool {
