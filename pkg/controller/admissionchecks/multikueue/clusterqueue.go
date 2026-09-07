@@ -327,7 +327,7 @@ func (r *cqReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.MultiKueueCluster{}, &cqClusterHandler{reconciler: r}).
 		WatchesRawSource(source.Channel(r.clusters.cqUpdateCh, remoteHandler)).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "multikueue-clusterqueue"),
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "multikueue-clusterqueue-reconciler"),
 		}).
 		Complete(r)
 }

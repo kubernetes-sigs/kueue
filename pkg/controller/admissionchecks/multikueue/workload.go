@@ -1196,7 +1196,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	c, err := builder.
 		WithEventFilter(w).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
+			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload-reconciler"),
 		}).
 		Build(w)
 	if err != nil {
@@ -1227,7 +1227,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 			gvk := adapter.GVK()
 			h := &localJobHandler{client: w.client, gvk: gvk, eventsBatchPeriod: w.eventsBatchPeriod}
 			if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-				log := ctrl.LoggerFrom(ctx).WithName("multikueue-workload")
+				log := ctrl.LoggerFrom(ctx).WithName("multikueue-workload-reconciler")
 				jobframework.WaitForAPI(ctx, mgr, log, gvk, func() {
 					if err := c.Watch(source.Kind(mgr.GetCache(), emptyJob, h)); err != nil {
 						log.Error(err, "Unable to watch local job for MultiKueue spec sync", "gvk", gvk)
