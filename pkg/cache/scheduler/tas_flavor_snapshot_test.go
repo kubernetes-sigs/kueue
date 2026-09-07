@@ -17,8 +17,10 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"iter"
 	"strings"
 	"testing"
 
@@ -30,9 +32,12 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -1604,4 +1609,102 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// additiveChecker scores the way the WAS checker does, reading a candidate's
+// score before writing it back. The assignment in fillInCounts rests on that
+// state being clear when the checker runs, and nothing else here holds it.
+type additiveChecker struct {
+	calls int
+}
+
+func (c *additiveChecker) FindFeasibleNodes(
+	_ context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	_ *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	c.calls++
+	var matched []simulator.MatchedCandidate
+	for candidate := range candidates {
+		mc, ok := candidate.(simulator.MatchedCandidate)
+		if !ok {
+			continue
+		}
+		mc.SetAffinityScore(mc.GetAffinityScore() + requirements.PreferredSchedulingTerms.Score(mc.GetNode()))
+		matched = append(matched, mc)
+	}
+	return matched, nil
+}
+
+func TestFillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T) {
+	for _, cacheMatches := range []bool{true, false} {
+		t.Run(fmt.Sprintf("TASCacheNodeMatchResults=%t", cacheMatches), func(t *testing.T) {
+			fillInCountsAffinityScoreIsStableAcrossRuns(t, cacheMatches)
+		})
+	}
+}
+
+func fillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T, cacheMatches bool) {
+	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
+	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheMatches)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	nodes := []*corev1.Node{
+		node.MakeNode("node-a").Label(corev1.LabelHostname, "node-a").Label("pool", "fast").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			}).Ready().Obj(),
+		node.MakeNode("node-b").Label(corev1.LabelHostname, "node-b").Label("pool", "slow").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			}).Ready().Obj(),
+	}
+	checker := &additiveChecker{}
+	snapshot := newTASFlavorSnapshot(log, "tas-topology",
+		newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, checker)
+
+	terms, err := nodeaffinity.NewPreferredSchedulingTerms(
+		utiltesting.MakePreferredSchedulingTerms().Term(10, "pool", corev1.NodeSelectorOpIn, "fast").Obj())
+	if err != nil {
+		t.Fatalf("NewPreferredSchedulingTerms() error: %v", err)
+	}
+	requirements := &topologyAssignmentPodRequirements{
+		podRequirements: simulator.PodRequirements{PreferredSchedulingTerms: terms},
+		requests:        resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+		matchKey:        &podSetMatchKey{WorkloadUID: types.UID("wl-uid"), PodSetName: "main"},
+	}
+	want := map[tas.TopologyDomainID]int64{"node-a": 10, "node-b": 0}
+	domains := []*domain{&snapshot.leaves["node-a"].domain, &snapshot.leaves["node-b"].domain}
+	for _, run := range []string{"first", "second"} {
+		// A placement evaluation builds its own state, so sharing one here would
+		// let the exclusion stats carry over in a way production never sees.
+		state := &findTopologyAssignmentState{stats: newTASExclusionStats()}
+		state.sliceSize = 1
+		if err := snapshot.fillInCounts(ctx, requirements, state); err != nil {
+			t.Fatalf("%s: fillInCounts() error: %v", run, err)
+		}
+		for id, wantScore := range want {
+			leaf := snapshot.leaves[id]
+			if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != wantScore {
+				t.Errorf("%s run: leaf %q affinityScore = %d, want %d", run, id, got, wantScore)
+			}
+		}
+		// node-b holds twice the CPU, so it leads on capacity whenever the
+		// preference stops separating the two.
+		if got := snapshot.sortedDomains(domains, false)[0].id; got != "node-a" {
+			t.Errorf("%s run: the preferred domain is %q, want node-a", run, got)
+		}
+	}
+	// Without this the second run proves the result is stable, not that it came
+	// from the cache the result is supposed to have survived.
+	wantCalls := 2
+	if cacheMatches {
+		wantCalls = 1
+	}
+	if checker.calls != wantCalls {
+		t.Errorf("the checker ran %d times, want %d", checker.calls, wantCalls)
+	}
 }
