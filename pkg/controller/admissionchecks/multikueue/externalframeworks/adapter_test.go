@@ -426,8 +426,8 @@ func TestAdapter_GetEmptyList(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			adapter := NewAdapter(tt.gvk)
-			result := adapter.(*Adapter).GetEmptyList()
+			adapter := &Adapter{gvk: tt.gvk}
+			result := adapter.GetEmptyList()
 
 			// Verify the result is an UnstructuredList
 			unstructuredList, ok := result.(*unstructured.UnstructuredList)
@@ -506,12 +506,12 @@ func TestAdapter_WorkloadKeysFor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			adapter := NewAdapter(tt.gvk)
+			adapter := &Adapter{gvk: tt.gvk}
 			tt.object.SetGroupVersionKind(tt.gvk)
 			tt.object.SetName("test-job")
 			tt.object.SetNamespace("test-ns")
 
-			result, err := adapter.(*Adapter).WorkloadKeysFor(tt.object)
+			result, err := adapter.WorkloadKeysFor(tt.object)
 
 			if tt.wantErrMsg != "" {
 				if err == nil {
