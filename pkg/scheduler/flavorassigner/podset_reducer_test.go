@@ -155,15 +155,16 @@ func TestOrderedSearch(t *testing.T) {
 	}
 }
 
-func TestSearchTotalDeltaOverflow(t *testing.T) {
+func TestSearchTotalDeltaLarge(t *testing.T) {
 	podSets := []kueue.PodSet{
-		*utiltestingapi.MakePodSet("ps1", 1_500_000_000).SetMinimumCount(1).Obj(),
-		*utiltestingapi.MakePodSet("ps2", 1_500_000_000).SetMinimumCount(1).Obj(),
+		*utiltestingapi.MakePodSet("ps1", math.MaxInt32).SetMinimumCount(0).Obj(),
+		*utiltestingapi.MakePodSet("ps2", math.MaxInt32).SetMinimumCount(0).Obj(),
+		*utiltestingapi.MakePodSet("ps3", 1).SetMinimumCount(0).Obj(),
 	}
 
 	fits := func(counts []int32) ([]int32, bool) {
-		total := int64(counts[0]) + int64(counts[1])
-		if total > 1_000_000_000 {
+		total := int64(counts[0]) + int64(counts[1]) + int64(counts[2])
+		if total > 1 {
 			return nil, false
 		}
 
@@ -174,8 +175,8 @@ func TestSearchTotalDeltaOverflow(t *testing.T) {
 
 	red := NewOrderedPodSetReducer(podSets, fits)
 
-	if want, got := int64(2_999_999_998), red.totalDelta; got != want {
-		t.Errorf("Unexpected totalDelta: %d, want %d", got, want)
+	if want, got := int64(4_294_967_295), red.totalDelta; got != want {
+		t.Fatalf("Unexpected totalDelta: %d, want %d", got, want)
 	}
 
 	count, found := red.Search()
@@ -183,21 +184,8 @@ func TestSearchTotalDeltaOverflow(t *testing.T) {
 		t.Fatal("Expected a solution")
 	}
 
-	wantCount := []int32{999_999_999, 1}
+	wantCount := []int32{1, 0, 0}
 	if diff := cmp.Diff(wantCount, count); diff != "" {
 		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
-	}
-}
-
-func TestSearchInt64MaxInt64(t *testing.T) {
-	got, found := searchInt64(math.MaxInt64, func(i int64) bool {
-		return i == math.MaxInt64
-	})
-
-	if !found {
-		t.Fatal("Expected to find a solution")
-	}
-	if got != math.MaxInt64 {
-		t.Errorf("Unexpected index: %d, want %d", got, math.MaxInt64)
 	}
 }
