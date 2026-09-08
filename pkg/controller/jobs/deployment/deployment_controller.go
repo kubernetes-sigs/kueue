@@ -39,7 +39,7 @@ const (
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:                    SetupIndexes,
-		NewReconciler:                   jobframework.NewNoopReconcilerFactory(gvk),
+		NewReconciler:                   NewReconciler,
 		GVK:                             gvk,
 		SetupWebhook:                    SetupWebhook,
 		JobType:                         &appsv1.Deployment{},
@@ -50,7 +50,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 
 type Deployment appsv1.Deployment
 
-// +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;list;watch;patch
 // +kubebuilder:rbac:groups="apps",resources=replicasets,verbs=get;list;watch
 
 func fromObject(o runtime.Object) *Deployment {
