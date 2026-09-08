@@ -88,22 +88,28 @@ func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simula
 // SimulateNested allows running a nested simulation inisde of a closure passed to Simulate.
 // Returns an error if the simulation function returns an error
 // or if it fails to restore the context to its original state.
-func SimulateNested(parentCtx *SimulationContext, simulate Simulation) error {
-	if err := parentCtx.errorTerminated(); err != nil {
-		return err
+func SimulateNested(parentCtx *SimulationContext, simulate Simulation) (err error) {
+	if err = parentCtx.errorTerminated(); err != nil {
+		return
 	}
 
 	childCtx := parentCtx.childContext()
-	if simErr := simulate(childCtx); simErr != nil {
-		parentCtx.terminate(simErr)
-		return simErr
+
+	err = simulate(childCtx)
+	if err == nil {
+		err = childCtx.terminalError
 	}
-	if restoreErr := childCtx.restoreWorkloads(); restoreErr != nil {
-		parentCtx.terminate(restoreErr)
-		return restoreErr
+	if err == nil {
+		err = childCtx.restoreWorkloads()
 	}
-	childCtx.clear()
-	return nil
+	if err == nil {
+		childCtx.clear()
+	}
+
+	if err != nil {
+		parentCtx.terminate(err)
+	}
+	return
 }
 
 // PreemptWorkload preempts a workload in the scope of the context.
