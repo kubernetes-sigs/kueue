@@ -354,6 +354,106 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), nil, ""),
 			}.ToAggregate(),
 		},
+		"should reject podSetSliceSize greater than pod set count when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(2).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept podSetSliceSize greater than pod set count when TASValidateWorkloadSliceSize is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASValidateWorkloadSliceSize: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(2).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should reject first podsetSliceRequiredTopologyConstraints layer size greater than pod set count when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 2}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("size"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept podSetSliceSize equal to pod set count when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 2).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(2).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should reject podSetSliceSize that does not evenly divide pod set count when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 3).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(2).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept podSetSliceSize that evenly divides pod set count when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 16).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(4).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should accept podSetSliceSize that does not evenly divide pod set count when TASValidateWorkloadSliceSize is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASValidateWorkloadSliceSize: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("legacy", 3).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(2).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should reject first podsetSliceRequiredTopologyConstraints layer size that does not evenly divide pod set count when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 3).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 2}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("size"), nil, ""),
+			}.ToAggregate(),
+		},
 		"should reject podSetSliceSize without podSetSliceRequiredTopology when TASValidateWorkloadSliceSize is enabled": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(

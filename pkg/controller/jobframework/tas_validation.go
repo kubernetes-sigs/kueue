@@ -195,6 +195,11 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue,
 				fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
 			))
+		} else if features.Enabled(features.TASValidateWorkloadSliceSize) && podSet.Count > 0 && int32(val) > 0 && podSet.Count%int32(val) != 0 {
+			allErrs = append(allErrs, field.Invalid(
+				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue,
+				fmt.Sprintf("must evenly divide pod set count %d", podSet.Count),
+			))
 		}
 	}
 
@@ -208,6 +213,12 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 					annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
 					constraints[0].Size,
 					fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
+				))
+			} else if features.Enabled(features.TASValidateWorkloadSliceSize) && podSet.Count > 0 && constraints[0].Size > 0 && podSet.Count%constraints[0].Size != 0 {
+				allErrs = append(allErrs, field.Invalid(
+					annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
+					constraints[0].Size,
+					fmt.Sprintf("must evenly divide pod set count %d", podSet.Count),
 				))
 			}
 		}
