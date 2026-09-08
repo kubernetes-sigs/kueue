@@ -866,6 +866,40 @@ wl2               j2         lq2          cq2            PENDING   22           
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
+		"should not print workloads when the --for object is not found": {
+			args: []string{"--for", "job.batch/job-test"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Queue("lq1").
+					Active(true).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+					Queue("lq2").
+					Active(true).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.JobList{},
+			},
+			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
+		},
 		"should print not found error with all-namespaces filter": {
 			args:       []string{"-A"},
 			wantOutErr: "No resources found\n",

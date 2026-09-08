@@ -110,6 +110,9 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 			if err != nil {
 				return err
 			}
+			if o.UserSpecifiedForObject != "" && o.forObject == nil {
+				return nil
+			}
 			return o.Run(cmd.Context())
 		},
 	}
