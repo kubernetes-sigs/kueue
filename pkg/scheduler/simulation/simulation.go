@@ -22,7 +22,9 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -48,6 +50,9 @@ type SimulationContext struct {
 
 	simulatedPreemptions  map[workloadKey]preemption
 	restoreUsageCallbacks []func()
+
+	log           logr.Logger
+	terminalError error
 }
 
 type workloadKey = client.ObjectKey
@@ -57,12 +62,14 @@ type preemption struct {
 	revert func() error
 }
 
-func newSimulationContext(snapshot *schdcache.Snapshot) *SimulationContext {
+func newSimulationContext(ctx context.Context, snapshot *schdcache.Snapshot) *SimulationContext {
 	return &SimulationContext{
 		cacheSnapshot:         &snapshot.Manager,
 		simulatorSnapshot:     snapshot.SimulatorSnapshot,
 		simulatedPreemptions:  make(map[workloadKey]preemption),
 		restoreUsageCallbacks: make([]func(), 0),
+		log:                   ctrl.LoggerFrom(ctx).V(3),
+		terminalError:         nil,
 	}
 }
 
@@ -72,7 +79,7 @@ func newSimulationContext(snapshot *schdcache.Snapshot) *SimulationContext {
 // Only one simulation can be ran at the time.
 func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simulation) error {
 	return snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
-		simCtx := newSimulationContext(snapshot)
+		simCtx := newSimulationContext(ctx, snapshot)
 		defer simCtx.clear()
 		return simulate(simCtx)
 	})
@@ -82,11 +89,17 @@ func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simula
 // Returns an error if the simulation function returns an error
 // or if it fails to restore the context to its original state.
 func SimulateNested(parentCtx *SimulationContext, simulate Simulation) error {
+	if err := parentCtx.errorTerminated(); err != nil {
+		return err
+	}
+
 	childCtx := parentCtx.childContext()
 	if simErr := simulate(childCtx); simErr != nil {
+		parentCtx.terminate(simErr)
 		return simErr
 	}
 	if restoreErr := childCtx.restoreWorkloads(); restoreErr != nil {
+		parentCtx.terminate(restoreErr)
 		return restoreErr
 	}
 	childCtx.clear()
@@ -95,10 +108,16 @@ func SimulateNested(parentCtx *SimulationContext, simulate Simulation) error {
 
 // PreemptWorkload preempts a workload in the scope of the context.
 func (s *SimulationContext) PreemptWorkload(ctx context.Context, candidate *workload.Info) error {
+	if err := s.errorTerminated(); err != nil {
+		return err
+	}
+
 	wlKey := client.ObjectKeyFromObject(candidate.Obj)
 	revert, err := s.simulatorSnapshot.PreemptWorkload(ctx, wlKey)
 	if err != nil {
-		return fmt.Errorf("failed to preempt workload %s: %w", wlKey, err)
+		preemptErr := fmt.Errorf("failed to preempt workload %s: %w", wlKey, err)
+		s.terminate(preemptErr)
+		return preemptErr
 	}
 	s.removeWorkload(candidate)
 	s.simulatedPreemptions[wlKey] = preemption{
@@ -112,6 +131,10 @@ func (s *SimulationContext) PreemptWorkload(ctx context.Context, candidate *work
 // If no targets are provided, it will attempt to restore all preempted workloads.
 // If it fails, it stops and returns an error.
 func (s *SimulationContext) RestoreWorkload(target types.NamespacedName) error {
+	if err := s.errorTerminated(); err != nil {
+		return err
+	}
+
 	return s.restoreWorkloads(target)
 }
 
@@ -119,6 +142,10 @@ func (s *SimulationContext) RestoreWorkload(target types.NamespacedName) error {
 // corresponding to the list of workloads from workloads' respective
 // ClusterQueues.
 func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
+	if err := s.errorTerminated(); err != nil {
+		return
+	}
+
 	type cqUsage struct {
 		cq    kueue.ClusterQueueReference
 		usage workload.Usage
@@ -138,7 +165,24 @@ func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 }
 
 func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *schdcache.ClusterQueueSnapshot {
+	if err := s.errorTerminated(); err != nil {
+		return nil
+	}
+
 	return s.cacheSnapshot.ClusterQueue(ref)
+}
+
+func (s *SimulationContext) terminate(reason error) {
+	s.log.Error(reason, "terminating simulation")
+	s.terminalError = reason
+}
+
+func (s *SimulationContext) errorTerminated() error {
+	if s.terminalError == nil {
+		return nil
+	}
+	s.log.Error(s.terminalError, "attempting to access terminated simulation context")
+	return fmt.Errorf("attempting to access terminated simulation context; simulation terminated due to: %w", s.terminalError)
 }
 
 // childContext returns a new context for running a nested simulation.
@@ -148,6 +192,8 @@ func (s *SimulationContext) childContext() *SimulationContext {
 		simulatorSnapshot:     s.simulatorSnapshot,
 		simulatedPreemptions:  make(map[workloadKey]preemption),
 		restoreUsageCallbacks: make([]func(), 0),
+		log:                   s.log,
+		terminalError:         nil,
 	}
 }
 
@@ -172,6 +218,7 @@ func (s *SimulationContext) restoreWorkloads(targets ...types.NamespacedName) er
 			continue
 		}
 		if err := preemption.revert(); err != nil {
+			s.terminate(err)
 			return err
 		}
 		s.addWorkload(preemption.target)

@@ -476,7 +476,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			snap, err := cqCache.Snapshot(ctx)
-			sim := newSimulationContext(snap)
+			sim := newSimulationContext(ctx, snap)
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
@@ -582,7 +582,7 @@ func TestPreemptWorkload(t *testing.T) {
 			if tc.injectSimErr != nil {
 				snap.SimulatorSnapshot = &errSimulatorSnapshot{err: tc.injectSimErr}
 			}
-			sim := newSimulationContext(snap)
+			sim := newSimulationContext(ctx, snap)
 			var preemptErr error
 			for _, wlName := range tc.preempt {
 				if err := sim.PreemptWorkload(ctx, wlInfos[wlName]); err != nil {
@@ -725,7 +725,7 @@ func TestRestoreWorkload(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error building snapshot: %v", err)
 			}
-			sim := newSimulationContext(snap)
+			sim := newSimulationContext(ctx, snap)
 			for _, wlName := range tc.preempt {
 				if err := sim.PreemptWorkload(ctx, wlInfos[wlName]); err != nil {
 					t.Fatalf("unexpected error preempting %s: %v", wlName, err)
@@ -870,7 +870,7 @@ func TestRestoreSnapshot(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error building snapshot: %v", err)
 			}
-			sim := newSimulationContext(snap)
+			sim := newSimulationContext(ctx, snap)
 			for _, wlName := range tc.preempt {
 				if err := sim.PreemptWorkload(ctx, wlInfos[wlName]); err != nil {
 					t.Fatalf("unexpected error preempting %s: %v", wlName, err)
@@ -1197,7 +1197,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			sim := newSimulationContext(snap)
+			sim := newSimulationContext(ctx, snap)
 			for _, name := range tc.remove {
 				sim.removeWorkload(wlInfos[string(name)])
 			}
@@ -1208,6 +1208,143 @@ func TestAddRemoveWorkload(t *testing.T) {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestContextTerminationOnError(t *testing.T) {
+	errSimulator := errors.New("simulator error")
+	errRevert := errors.New("revert error")
+	errSimulation := errors.New("simulation closure error")
+
+	cases := map[string]struct {
+		setupSim func(t *testing.T, ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info)
+		run      func(ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) error
+		wantErr  error
+	}{
+		"PreemptWorkload error terminates context": {
+			setupSim: func(_ *testing.T, _ context.Context, sim *SimulationContext, _ map[string]*workload.Info) {
+				sim.simulatorSnapshot = &errSimulatorSnapshot{err: errSimulator}
+			},
+			run: func(ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) error {
+				return sim.PreemptWorkload(ctx, wlInfos["wl1"])
+			},
+			wantErr: errSimulator,
+		},
+		"RestoreWorkload error terminates context": {
+			setupSim: func(t *testing.T, ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) {
+				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
+					t.Fatalf("unexpected error during preemption setup: %v", err)
+				}
+				key := client.ObjectKeyFromObject(wlInfos["wl1"].Obj)
+				p := sim.simulatedPreemptions[key]
+				p.revert = func() error { return errRevert }
+				sim.simulatedPreemptions[key] = p
+			},
+			run: func(_ context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) error {
+				return sim.RestoreWorkload(client.ObjectKeyFromObject(wlInfos["wl1"].Obj))
+			},
+			wantErr: errRevert,
+		},
+		"SimulateNested closure error terminates parent context": {
+			run: func(_ context.Context, sim *SimulationContext, _ map[string]*workload.Info) error {
+				return SimulateNested(sim, func(_ *SimulationContext) error {
+					return errSimulation
+				})
+			},
+			wantErr: errSimulation,
+		},
+		"SimulateNested restore error terminates parent context": {
+			run: func(ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) error {
+				return SimulateNested(sim, func(child *SimulationContext) error {
+					if err := child.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
+						return err
+					}
+					key := client.ObjectKeyFromObject(wlInfos["wl1"].Obj)
+					p := child.simulatedPreemptions[key]
+					p.revert = func() error { return errRevert }
+					child.simulatedPreemptions[key] = p
+					return nil
+				})
+			},
+			wantErr: errRevert,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cqCache, wlInfos := defaultSetup(t)
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error building snapshot: %v", err)
+			}
+			sim := newSimulationContext(ctx, snap)
+			if tc.setupSim != nil {
+				tc.setupSim(t, ctx, sim, wlInfos)
+			}
+
+			err = tc.run(ctx, sim, wlInfos)
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("got error %v, want error wrapping %v", err, tc.wantErr)
+			}
+			if !errors.Is(sim.terminalError, tc.wantErr) {
+				t.Errorf("sim.terminalError = %v, want error wrapping %v", sim.terminalError, tc.wantErr)
+			}
+			if !errors.Is(sim.errorTerminated(), tc.wantErr) {
+				t.Errorf("sim.errorTerminated() = %v, want error wrapping %v", sim.errorTerminated(), tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestTerminatedContextExportedMethods(t *testing.T) {
+	ctx, cqCache, wlInfos := defaultSetup(t)
+	snap, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error building snapshot: %v", err)
+	}
+	sim := newSimulationContext(ctx, snap)
+	initialErr := errors.New("initial termination error")
+	sim.terminate(initialErr)
+
+	// 1. PreemptWorkload should fail with terminated error
+	if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); !errors.Is(err, initialErr) {
+		t.Errorf("PreemptWorkload() error = %v, want error wrapping %v", err, initialErr)
+	}
+
+	// 2. RestoreWorkload should fail with terminated error
+	if err := sim.RestoreWorkload(client.ObjectKeyFromObject(wlInfos["wl1"].Obj)); !errors.Is(err, initialErr) {
+		t.Errorf("RestoreWorkload() error = %v, want error wrapping %v", err, initialErr)
+	}
+
+	// 3. ClusterQueue should return nil
+	if cq := sim.ClusterQueue("c1"); cq != nil {
+		t.Errorf("ClusterQueue() = %v, want nil", cq)
+	}
+
+	// 4. RemoveUsage should be a no-op (no usage subtracted, no restore callback registered)
+	snapBefore, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error building snapshot: %v", err)
+	}
+	callbacksBefore := len(sim.restoreUsageCallbacks)
+	sim.RemoveUsage([]*workload.Info{wlInfos["wl1"]})
+	if diff := cmp.Diff(*snapBefore, *snap, snapshotCmpOpts...); diff != "" {
+		t.Errorf("RemoveUsage() modified snapshot unexpectedly (-want,+got):\n%s", diff)
+	}
+	if len(sim.restoreUsageCallbacks) != callbacksBefore {
+		t.Errorf("RemoveUsage() registered callbacks on terminated context, count = %d, want %d", len(sim.restoreUsageCallbacks), callbacksBefore)
+	}
+
+	// 5. SimulateNested should fail with terminated error and not run the nested simulation
+	nestedRan := false
+	if err := SimulateNested(sim, func(_ *SimulationContext) error {
+		nestedRan = true
+		return nil
+	}); !errors.Is(err, initialErr) {
+		t.Errorf("SimulateNested() error = %v, want error wrapping %v", err, initialErr)
+	}
+	if nestedRan {
+		t.Errorf("SimulateNested() executed nested simulation on terminated context")
 	}
 }
 
