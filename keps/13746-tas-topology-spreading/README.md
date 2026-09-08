@@ -149,7 +149,7 @@ spec:
           {
             "workloadLabelSelector": "app=main-inference-service",
             "rules": [
-              {"key": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"}
+              {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"}
             ]
           }
 ```
@@ -180,7 +180,7 @@ spec:
           kueue.x-k8s.io/podset-topology-spreading: |
             {
               "rules": [
-                {"key": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
+                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
               ]
             }
     workerTemplate:
@@ -191,7 +191,7 @@ spec:
           kueue.x-k8s.io/podset-topology-spreading: |
             {
               "rules": [
-                {"key": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
+                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
               ]
             }
 ```
@@ -230,7 +230,7 @@ metadata:
       {
         "workloadLabelSelector": "app=large-inference-service",
         "rules": [
-          {"key": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
+          {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
         ]
       }
 ```
@@ -258,7 +258,7 @@ spec:
         kueue.x-k8s.io/podset-topology-spreading: |
           {
             "rules": [
-              {"key": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%", "enforcementMode": "Preferred"}
+              {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%", "enforcementMode": "Preferred"}
             ]
           }
 ```
@@ -320,7 +320,7 @@ The annotation value is a JSON object with the following structure:
   "workloadLabelSelector": "<label-selector-string>",
   "rules": [
     {
-      "key": "<topology-level-key>",
+      "topologyKey": "<topology-level-key>",
       "maxShareAllowingPlacement": "45%",
       "enforcementMode": "Required"
     }
@@ -351,8 +351,8 @@ spec:
               {
                 "workloadLabelSelector": "app=main-inference-service",
                 "rules": [
-                  {"key": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"},
-                  {"key": "cloud.google.com/gke-tpu-partition-4x4x4-id", "maxShareAllowingPlacement": "22%"}
+                  {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"},
+                  {"topologyKey": "cloud.google.com/gke-tpu-partition-4x4x4-id", "maxShareAllowingPlacement": "22%"}
                 ]
               }
 ```
@@ -368,7 +368,7 @@ Each element of `rules` is:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `key` | string | yes | — | The topology level key for this rule. Must correspond to one of the `spec.levels[].nodeLabel` values in the `Topology` resource referenced by the evaluated `ResourceFlavor`'s `spec.topologyName`. Not validated at annotation creation time — validation happens at scheduling time. |
+| `topologyKey` | string | yes | — | The topology level key for this rule. Must correspond to one of the `spec.levels[].nodeLabel` values in the `Topology` resource referenced by the evaluated `ResourceFlavor`'s `spec.topologyName`. Not validated at annotation creation time — validation happens at scheduling time. |
 | `maxShareAllowingPlacement` | string | yes | — | Percentage string in the format `"X%"` where X is an integer in [1, 99] (e.g., `"45%"`). A domain is eligible to receive the next PodSet group only if its current share of the total is at most this value. |
 | `enforcementMode` | string | no | `"Required"` | Enforcement mode: `"Required"` blocks admission into over-threshold domains; `"Preferred"` deprioritizes them via spread-aware domain ordering but still allows admission. |
 
@@ -452,7 +452,7 @@ carry the annotation enforce the rules at their own admission time.
 
 #### Admission constraint formula
 
-For a given domain `D` and rule with `key` K, let:
+For a given domain `D` and rule with `topologyKey` K, let:
 
 - `count(D)` = number of admitted PodSet groups in domain `D` (at topology level K)
   among workloads matching the effective selector
@@ -498,12 +498,12 @@ Validation is split into two layers:
 1. If the PodSet template annotation `kueue.x-k8s.io/podset-topology-spreading` is
    present, its value must be valid JSON that parses according to the schema above:
    an optional `workloadLabelSelector` string, and a `rules` array with 1–2 elements
-   (alpha milestone limit), each containing a valid `key`, a `maxShareAllowingPlacement`
+   (alpha milestone limit), each containing a valid `topologyKey`, a `maxShareAllowingPlacement`
    string in the format `"X%"` where X is an integer in [1, 99], and an optional
    `enforcementMode` of `"Required"` or `"Preferred"`.
 2. If `workloadLabelSelector` is present, it must be a syntactically valid
    Kubernetes label selector string.
-3. All `key` values within the `rules` array must be distinct. Two rules for the
+3. All `topologyKey` values within the `rules` array must be distinct. Two rules for the
    same topology key are rejected because the combined behavior would be ambiguous.
 4. For each distinct `kueue.x-k8s.io/podset-group-name` value in the workload,
    all PodSets in that group must either all carry the same
@@ -515,16 +515,16 @@ with a descriptive error message.
 
 **Key validity at scheduling time:**
 
-Rule `key` values are not validated against topology levels in `ResourceFlavor`
+Rule `topologyKey` values are not validated against topology levels in `ResourceFlavor`
 objects at annotation creation time — ResourceFlavor configurations can change
 independently and the scheduler is better positioned to evaluate the match at
 admission time.
 
-When a key does not match any topology level, the rule is ignored for that flavor
+When a `topologyKey` does not match any topology level, the rule is ignored for that flavor
 regardless of whether the `enforcementMode` is `"Required"` or `"Preferred"` — the workload is
 admitted if capacity is available, without spreading being applied. To surface
 the misconfiguration, the scheduler sets a `TopologySpreadKeyNotFound` workload
-condition identifying the unmatched key. See [Visibility](#visibility).
+condition identifying the unmatched `topologyKey`. See [Visibility](#visibility).
 
 ### Scheduler integration
 
@@ -537,10 +537,10 @@ to topology-enabled ResourceFlavors (those with `spec.topologyName` set).
 The annotation is copied automatically from the Job's pod template by each job
 integration's `PodSets()` method. Before evaluating a candidate workload, the
 scheduler reads the annotation from each PodSet template, resolves the effective
-label selector, and for each rule's `key` builds a `domainID → count` map by
+label selector, and for each rule's `topologyKey` builds a `domainID → count` map by
 scanning the admitted Workloads in the spreading group (see [Spreading
 group](#spreading-group)): each PodSet (or PodSet group, if `podset-group-name`
-is set) that has a topology assignment at the rule's `key` level contributes 1
+is set) that has a topology assignment at the rule's `topologyKey` level contributes 1
 to the count for its assigned domain value. The candidate itself is not yet
 admitted and is not included.
 
@@ -582,17 +582,17 @@ When a workload cannot be admitted because all eligible domains exceed
   workload is eventually admitted. This reason indicates a **transient** state —
   the workload will be retried and may be admitted once capacity frees up.
 - **Logs**: a structured log entry at `V(3)` naming the workload, the PodSet
-  name, the effective selector, the violated rule key, and the per-domain
+  name, the effective selector, the violated rule `topologyKey`, and the per-domain
   PodSet group counts.
 
-**`Required` or `Preferred` rule — key not found on ResourceFlavor (admitted but rule not applied):**
+**`Required` or `Preferred` rule — `topologyKey` not found on ResourceFlavor (admitted but rule not applied):**
 
-When a rule's `key` does not match any `spec.levels[].nodeLabel` in the `Topology`
+When a rule's `topologyKey` does not match any `spec.levels[].nodeLabel` in the `Topology`
 referenced by the evaluated `ResourceFlavor`, the rule is ignored for that flavor
 and the workload is admitted if capacity is available. To surface the
 misconfiguration, the scheduler sets a new workload condition of type
 `TopologySpreadKeyNotFound` (value `True`) with a message identifying the unmatched
-key. This is a new `ConditionType` that will be added to the Workload API alongside
+`topologyKey`. This is a new `ConditionType` that will be added to the Workload API alongside
 the existing `QuotaReserved` and `Admitted` types.
 
 **Admitted onto a non-topology flavor (spreading not applied):**
@@ -654,14 +654,14 @@ Concrete test cases:
 2. Workload webhook rejects creation when `workloadLabelSelector` is present but
    not a valid Kubernetes label selector.
 3. Workload webhook rejects creation when `maxShareAllowingPlacement` is not in `"X%"` format with X in [1, 99].
-4. Workload webhook rejects creation when `rules` contains duplicate `key` values.
+4. Workload webhook rejects creation when `rules` contains duplicate `topologyKey` values.
 5. Workload webhook rejects creation when PodSets within the same
    `kueue.x-k8s.io/podset-group-name` group carry different annotation values (or
    a mix of annotated and unannotated PodSets).
 6. Workloads with a valid annotation are parsed and rules applied correctly.
 7. Only admitted workloads whose labels match the effective selector are counted
    (workloads that do not match are ignored).
-8. Only PodSet groups with a topology assignment at the rule's `key` level contribute
+8. Only PodSet groups with a topology assignment at the rule's `topologyKey` level contribute
    to the count; groups without that topology level are skipped.
 9. Only PodSets in the same namespace are counted (cross-namespace spreading is not
    supported).
@@ -670,7 +670,7 @@ Concrete test cases:
     - A workload with multiple annotated PodSets: each PodSet counted independently
       in its own domain (one workload can contribute more than 1 to the total).
     - A workload with some PodSet groups annotated and some not: all PodSet groups
-      with a topology assignment at the rule's key level are counted, regardless of
+      with a topology assignment at the rule's `topologyKey` level are counted, regardless of
       whether the PodSet carries the annotation.
     - Workloads that are candidates for preemption (their PodSet groups excluded
       from the count).
@@ -684,7 +684,7 @@ Concrete test cases:
     the same scheduling cycle (snapshot reflects the removal).
 16. PodSet template annotation propagated correctly from Job pod template to Workload
     PodSet template.
-17. Targeting a topology key not present on the ResourceFlavor: workload is admitted
+17. Targeting a `topologyKey` not present on the ResourceFlavor: workload is admitted
     (rule ignored for that flavor regardless of `Required` or `Preferred`) and
     condition `TopologySpreadKeyNotFound` is set in both cases.
 
