@@ -441,13 +441,8 @@ func TestPodSets(t *testing.T) {
 			}
 			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithObjects(objs...).Build()
 
-			// Set up the reconciler with the fake client
-			reconciler = rayServiceReconciler{
-				client: fakeClient,
-			}
-
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.rayService.PodSets(ctx, nil)
+			gotPodSets, err := tc.rayService.PodSets(ctx, fakeClient)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
