@@ -83,13 +83,13 @@ func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simula
 // or if it fails to restore the context to its original state.
 func SimulateNested(parentCtx *SimulationContext, simulate Simulation) error {
 	childCtx := parentCtx.childContext()
-	defer childCtx.clear()
 	if simErr := simulate(childCtx); simErr != nil {
 		return simErr
 	}
 	if restoreErr := childCtx.restoreWorkloads(); restoreErr != nil {
 		return restoreErr
 	}
+	childCtx.clear()
 	return nil
 }
 
