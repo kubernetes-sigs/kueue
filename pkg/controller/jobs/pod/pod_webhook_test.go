@@ -1391,6 +1391,18 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"pod scheduling shape hash annotation is added": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-scheduling-shape-hash]",
+				},
+			}.ToAggregate(),
+		},
 		"pod scheduling shape hash annotation is unchanged": {
 			oldPod: testingpod.MakePod("test-pod", "test-ns").
 				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").

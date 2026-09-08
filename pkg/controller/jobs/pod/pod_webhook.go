@@ -251,15 +251,12 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
-	if oldShapeHash != "" {
-		allErrs = append(allErrs,
-			validation.ValidateImmutableField(
-				newShapeHash,
-				oldShapeHash,
-				podSchedulingShapeHashPath,
-			)...,
-		)
-	}
+	allErrs = append(allErrs,
+		validation.ValidateImmutableField(
+			newShapeHash,
+			oldShapeHash,
+			podSchedulingShapeHashPath,
+		)...)
 
 	if oldGroupName := utilpod.GetPodGroupName(&oldPod.pod); oldGroupName != "" {
 		newGroupName := utilpod.GetPodGroupName(&newPod.pod)

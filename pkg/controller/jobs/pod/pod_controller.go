@@ -752,7 +752,32 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 	}
 	return constructGroupPodSets(p.list.Items)
 }
+func reorderPodSets(podSets, reference []kueue.PodSet) []kueue.PodSet {
+	podSetsByName := make(map[kueue.PodSetReference]kueue.PodSet, len(podSets))
+	for _, podSet := range podSets {
+		podSetsByName[podSet.Name] = podSet
+	}
 
+	result := make([]kueue.PodSet, 0, len(podSets))
+	used := make(map[kueue.PodSetReference]struct{}, len(podSets))
+
+	for _, referencePodSet := range reference {
+		if podSet, found := podSetsByName[referencePodSet.Name]; found {
+			result = append(result, podSet)
+			used[podSet.Name] = struct{}{}
+		}
+	}
+
+	// Keep any PodSets that aren't present in the Workload so
+	// equivalentToWorkload can detect them.
+	for _, podSet := range podSets {
+		if _, found := used[podSet.Name]; !found {
+			result = append(result, podSet)
+		}
+	}
+
+	return result
+}
 func constructPodSets(p *corev1.Pod) ([]kueue.PodSet, error) {
 	podSet, err := constructPodSet(p)
 	if err != nil {
@@ -1392,6 +1417,8 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		return nil, nil, err
 	}
 
+	jobPodSets = reorderPodSets(jobPodSets, workload.Spec.PodSets)
+
 	if len(keptPods) == 0 || !p.equivalentToWorkload(workload, jobPodSets) {
 		return nil, []*kueue.Workload{workload}, nil
 	}
@@ -1573,7 +1600,6 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 }
 
 func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
-	// For single job using base EquivalentToWorkload method.
 	if !p.isGroup {
 		return jobframework.EquivalentToWorkload(ctx, c, p, wl)
 	}
@@ -1582,6 +1608,8 @@ func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kue
 	if err != nil {
 		return false, err
 	}
+
+	podSets = reorderPodSets(podSets, wl.Spec.PodSets)
 
 	return p.equivalentToWorkload(wl, podSets), nil
 }
