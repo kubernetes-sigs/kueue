@@ -33,8 +33,10 @@ type LocalQueue struct {
 	key                queue.LocalQueueReference
 	reservingWorkloads int
 	admittedWorkloads  int
-	totalReserved      resources.FlavorResourceQuantities
-	admittedUsage      resources.FlavorResourceQuantities
+	// Usage maps are protected by the LocalQueue lock because some readers do
+	// not hold the scheduler-cache lock.
+	totalReserved resources.FlavorResourceQuantities
+	admittedUsage resources.FlavorResourceQuantities
 
 	// allows access to values extracted from K8s labels/annotations, used as custom Prometheus metric labels
 	customLabels      *metrics.CustomLabels
@@ -50,6 +52,14 @@ func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
 	return q.admittedUsage.FlattenFlavors().ToResourceList(q.resourceFormatter)
+}
+
+// GetReservedUsage returns the usage of every Workload actively holding a quota
+// reservation.
+func (q *LocalQueue) GetReservedUsage() corev1.ResourceList {
+	q.RLock()
+	defer q.RUnlock()
+	return q.totalReserved.FlattenFlavors().ToResourceList(q.resourceFormatter)
 }
 
 func (q *LocalQueue) GetLabels() map[string]string {
@@ -70,6 +80,12 @@ func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantitie
 	q.Lock()
 	defer q.Unlock()
 	updateFlavorUsage(usage, q.admittedUsage, op)
+}
+
+func (q *LocalQueue) updateTotalReserved(usage resources.FlavorResourceQuantities, op usageOp) {
+	q.Lock()
+	defer q.Unlock()
+	updateFlavorUsage(usage, q.totalReserved, op)
 }
 
 func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {

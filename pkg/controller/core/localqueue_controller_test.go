@@ -1091,3 +1091,109 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 		t.Fatalf("Expected LocalQueue AFS usage metric value %v, got %v", wantUsage, got[0].Value)
 	}
 }
+
+// The usage the consumed history decays towards has to be read at the accounting
+// anchor on the sampling path as well, not only where the entry penalty settles.
+// Sampling admitted usage while settling at quota reservation would decay a
+// check-gated Workload's cost away while it still holds quota.
+func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		atQuotaReservation bool
+		// The anchor moves only for ClusterQueues that admit on usage, so a
+		// LocalQueue under any other ClusterQueue keeps reporting admitted usage.
+		admitsOnUsage bool
+		wantCPUMilli  int64
+	}{
+		"the admitted anchor does not sample a Workload that only reserved quota": {
+			admitsOnUsage: true,
+			wantCPUMilli:  0,
+		},
+		"the quota-reservation anchor samples it": {
+			atQuotaReservation: true,
+			admitsOnUsage:      true,
+			wantCPUMilli:       2_000,
+		},
+		"the quota-reservation anchor leaves a ClusterQueue that does not admit on usage alone": {
+			atQuotaReservation: true,
+			wantCPUMilli:       0,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
+			clock := testingclock.NewFakeClock(now)
+			afsConfig := &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			}
+			cqWrapper := utiltestingapi.MakeClusterQueue("cq-anchor").Active(metav1.ConditionTrue)
+			if tc.admitsOnUsage {
+				cqWrapper.AdmissionMode(kueue.UsageBasedAdmissionFairSharing)
+			}
+			clusterQueue := cqWrapper.Obj()
+			localQueue := utiltestingapi.MakeLocalQueue("lq-anchor", "default").
+				ClusterQueue("cq-anchor").
+				Active(metav1.ConditionTrue).
+				Obj()
+			lqKey := utilqueue.Key(localQueue)
+
+			objs := []client.Object{clusterQueue, localQueue}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(objs...).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+				Build()
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			cqCache := schdcache.New(cl)
+			if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("couldn't add the cluster queue to the scheduler cache: %v", err)
+			}
+			// AddClusterQueue already registered the LocalQueue from the client.
+			if _, err := cqCache.GetCacheLocalQueue(localQueue.Spec.ClusterQueue, lqKey); err != nil {
+				t.Fatalf("the local queue is not in the scheduler cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+			if err := qManager.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("couldn't add the cluster queue to the queue manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, localQueue); err != nil {
+				t.Fatalf("couldn't add the local queue to the queue manager: %v", err)
+			}
+
+			// A Workload holding quota while it waits for its AdmissionChecks:
+			// counted by the quota-reservation anchor, invisible to the admitted one.
+			reserved := utiltestingapi.MakeWorkload("wl", "default").
+				Queue("lq-anchor").
+				Request(corev1.ResourceCPU, "4").
+				SimpleReserveQuota("cq-anchor", "rf", now).
+				Obj()
+			if !cqCache.AddOrUpdateWorkload(log, reserved) {
+				t.Fatal("couldn't add the quota-reserving workload to the scheduler cache")
+			}
+
+			// One half-life of decay gives live usage weight 0.5. A fresh entry
+			// weights it zero, which would make the two anchors indistinguishable.
+			qManager.AfsUsageLedger.SetForTest(lqKey, corev1.ResourceList{}, now.Add(-5*time.Minute))
+
+			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
+				WithClock(clock),
+				WithAdmissionFairSharingConfig(afsConfig))
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(localQueue)}); err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+
+			var got kueue.LocalQueue
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(localQueue), &got); err != nil {
+				t.Fatalf("couldn't read the LocalQueue back: %v", err)
+			}
+			gotCPU := got.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
+			if gotCPU.MilliValue() != tc.wantCPUMilli {
+				t.Errorf("unexpected consumed CPU: want %dm, got %dm", tc.wantCPUMilli, gotCPU.MilliValue())
+			}
+		})
+	}
+}

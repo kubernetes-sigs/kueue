@@ -17,6 +17,7 @@ limitations under the License.
 package features
 
 import (
+	"strings"
 	"testing"
 
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -76,6 +77,58 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 				if got := utilfeature.DefaultFeatureGate.Enabled(fg); got != want {
 					t.Errorf("unexpected state for feature gate %s: got %v, want %v", fg, got, want)
 				}
+			}
+		})
+	}
+}
+
+// AdmissionFairSharingAnchorAtQuotaReservation only does anything while AdmissionFairSharing
+// is enabled, so the registry has to reject the combination rather than silently
+// ignoring the anchor. Now that the anchor defaults to enabled, the dependency
+// also rejects a configuration that names only the parent, so disabling
+// AdmissionFairSharing means disabling both.
+func TestAnchorAtQuotaReservationRequiresAdmissionFairSharing(t *testing.T) {
+	cases := map[string]struct {
+		set        map[string]bool
+		wantReject bool
+	}{
+		"the anchor enabled while AdmissionFairSharing is disabled": {
+			set: map[string]bool{
+				string(AdmissionFairSharing):                         false,
+				string(AdmissionFairSharingAnchorAtQuotaReservation): true,
+			},
+			wantReject: true,
+		},
+		"AdmissionFairSharing disabled on its own, leaving the anchor at its default": {
+			set:        map[string]bool{string(AdmissionFairSharing): false},
+			wantReject: true,
+		},
+		"both disabled together": {
+			set: map[string]bool{
+				string(AdmissionFairSharing):                         false,
+				string(AdmissionFairSharingAnchorAtQuotaReservation): false,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// A copy, because SetFromMap records the raw values before it validates them
+			// and does not roll them back when the validation fails. DeepCopy carries the
+			// registered dependencies over; DeepCopyAndReset would drop them.
+			gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
+			err := gate.SetFromMap(tc.set)
+			if !tc.wantReject {
+				if err != nil {
+					t.Fatalf("disabling both gates together should be accepted: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("the configuration leaves the anchor enabled without AdmissionFairSharing and should be rejected")
+			}
+			if !strings.Contains(err.Error(), string(AdmissionFairSharingAnchorAtQuotaReservation)) ||
+				!strings.Contains(err.Error(), string(AdmissionFairSharing)) {
+				t.Errorf("the rejection does not name both gates, so it may not be the dependency check: %v", err)
 			}
 		})
 	}
