@@ -17,6 +17,8 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"sort"
+
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -70,8 +72,8 @@ func (psr *PodSetReducer[R]) Search() (R, bool) {
 	}
 
 	current := make([]int32, len(psr.podSets))
-	_, found := searchInt64(psr.totalDelta, func(i int64) bool {
-		fillPodSetSizesForSearchIndex(current, psr.fullCounts, psr.deltas, i, psr.totalDelta)
+	idx := sort.Search(int(psr.totalDelta), func(i int) bool {
+		fillPodSetSizesForSearchIndex(current, psr.fullCounts, psr.deltas, int64(i), psr.totalDelta)
 		r, f := psr.fits(current)
 		if f {
 			lastR = r
@@ -79,21 +81,11 @@ func (psr *PodSetReducer[R]) Search() (R, bool) {
 		return f
 	})
 
-	return lastR, found
-}
-
-func searchInt64(max int64, f func(int64) bool) (int64, bool) {
-	var i int64
-	j := max
-
-	for i < j {
-		h := i + (j-i)/2
-		if f(h) {
-			j = h
-		} else {
-			i = h + 1
-		}
+	if idx < int(psr.totalDelta) {
+		return lastR, true
 	}
 
-	return i, f(i)
+	// sort.Search searches [0, totalDelta), so check totalDelta separately.
+	fillPodSetSizesForSearchIndex(current, psr.fullCounts, psr.deltas, psr.totalDelta, psr.totalDelta)
+	return psr.fits(current)
 }
