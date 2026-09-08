@@ -45,6 +45,7 @@ type SetupOptions struct {
 	dispatcherName       string
 	clusterProfileConfig *configapi.ClusterProfile
 	roleTracker          *roletracker.RoleTracker
+	clientConnection     *configapi.ClientConnection
 }
 
 type SetupOption func(o *SetupOptions)
@@ -108,6 +109,12 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	}
 }
 
+func WithClientConnection(c *configapi.ClientConnection) SetupOption {
+	return func(o *SetupOptions) {
+		o.clientConnection = c
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -148,7 +155,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		cpCreds = &NoOpClusterProfileCreds{}
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds, options.roleTracker)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher, options.adapters, cpCreds, options.roleTracker, options.clientConnection)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err

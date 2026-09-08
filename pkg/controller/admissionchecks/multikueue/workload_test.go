@@ -2116,7 +2116,7 @@ func TestWlReconcile(t *testing.T) {
 
 				managerClient := managerBuilder.Build()
 				adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil)
+				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
 
 				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
@@ -2298,7 +2298,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	managerClient := managerBuilder.Build()
 
 	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil)
+	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
 
 	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
