@@ -118,6 +118,8 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups="apps",resources=deployments,verbs=get;patch
+// +kubebuilder:rbac:groups="apps",resources=replicasets,verbs=get
 
 type Reconciler struct {
 	*jobframework.JobReconciler
@@ -194,6 +196,7 @@ var (
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.JobWithParentSuspension         = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -379,6 +382,81 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 
 		return nil
 	})
+}
+
+// SuspendParent pauses the parent Deployment to prevent its progress deadline
+// from firing while pods are scheduling-gated.
+func (p *Pod) SuspendParent(ctx context.Context, c client.Client) error {
+	pod := p.representativePod()
+	if pod == nil || pod.Annotations[podconstants.SuspendedByParentAnnotation] != deploymentconstants.FrameworkName {
+		return nil
+	}
+
+	deploy, err := findParentDeployment(ctx, c, pod)
+	if deploy == nil || err != nil {
+		return err
+	}
+
+	if deploy.Spec.Paused {
+		return nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Pausing parent Deployment", "deployment", klog.KObj(deploy))
+	return clientutil.Patch(ctx, c, deploy, func() (bool, error) {
+		if deploy.Annotations == nil {
+			deploy.Annotations = make(map[string]string, 1)
+		}
+		deploy.Annotations[ctrlconstants.PausedByKueueAnnotation] = "true"
+		deploy.Spec.Paused = true
+		return true, nil
+	})
+}
+
+// ResumeParent unpauses the parent Deployment after the workload has been
+// admitted and pods are ungated.
+func (p *Pod) ResumeParent(ctx context.Context, c client.Client) error {
+	pod := p.representativePod()
+	if pod == nil || pod.Annotations[podconstants.SuspendedByParentAnnotation] != deploymentconstants.FrameworkName {
+		return nil
+	}
+
+	deploy, err := findParentDeployment(ctx, c, pod)
+	if deploy == nil || err != nil {
+		return err
+	}
+
+	if deploy.Annotations[ctrlconstants.PausedByKueueAnnotation] != "true" {
+		return nil
+	}
+
+	gated, err := hasGatedSiblings(ctx, c, deploy)
+	if err != nil {
+		return err
+	}
+	if gated {
+		return nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Unpausing parent Deployment", "deployment", klog.KObj(deploy))
+	return clientutil.Patch(ctx, c, deploy, func() (bool, error) {
+		delete(deploy.Annotations, ctrlconstants.PausedByKueueAnnotation)
+		deploy.Spec.Paused = false
+		return true, nil
+	})
+}
+
+// representativePod returns a pod from this workload to inspect for owner references.
+func (p *Pod) representativePod() *corev1.Pod {
+	switch {
+	case !p.isGroup:
+		return &p.pod
+	case len(p.list.Items) > 0:
+		return &p.list.Items[0]
+	default:
+		return nil
+	}
 }
 
 func (p *Pod) IsTopLevel() bool {
