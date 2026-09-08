@@ -317,6 +317,13 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool 
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
 	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	// When dynamic allocation is enabled, the actual number of executors can
+	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
+	// expected count since it's the guaranteed minimum. If neither the CRD
+	// field nor sparkConf is set, use Spec.Executor.Instances as default.
+	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
+		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
+	}
 	if expected == 0 {
 		return true
 	}

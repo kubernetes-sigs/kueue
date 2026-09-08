@@ -42,6 +42,8 @@ work may evolve into a configurable quota release strategy (e.g., a
 Configuration API knob) that allows administrators to select between different
 strategies for all integrations.
 
+> **Note**: This KEP and the `FastQuotaReleaseInPodIntegration` feature gate are deprecated and superseded by [KEP-10076: Configurable Quota Release Strategy](../10076-quota-release-strategy/README.md), which introduces a top-level Configuration API knob (`.quotaReleaseStrategy`) across all Kueue integrations.
+
 ## Motivation
 
 When Kueue preempts a Pod-based workload, the current Pod integration holds
@@ -102,6 +104,8 @@ nominal quota. I want subsequent CQs to be able to reclaim their nominal quota
 within a reasonable amount of time.
 
 ### Notes/Constraints/Caveats
+
+- The `FastQuotaReleaseInPodIntegration` feature gate is deprecated in v0.20 in favor of the global `.quotaReleaseStrategy` Configuration API field introduced in [KEP-10076](../10076-quota-release-strategy/README.md).
 
 ### Risks and Mitigations
 

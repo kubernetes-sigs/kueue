@@ -163,7 +163,7 @@ func applyVisibilityServerSecureServingOptions(o *genericoptions.SecureServingOp
 func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {
 	c := genericapiserver.NewRecommendedConfig(codecs)
 	versionInfo := version.Get()
-	version := strings.Split(versionInfo.String(), "-")[0]
+	version, _, _ := strings.Cut(versionInfo.String(), "-")
 	// enable OpenAPI schemas
 	c.EffectiveVersion = compatibility.NewEffectiveVersionFromString(version, "", "")
 	c.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(scheme))

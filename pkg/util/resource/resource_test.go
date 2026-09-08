@@ -442,3 +442,49 @@ func TestMergeKeepMaxOwnsItsResult(t *testing.T) {
 		})
 	}
 }
+
+func TestMultiplyQuantity(t *testing.T) {
+	cases := map[string]struct {
+		value resource.Quantity
+		mul   resource.Quantity
+		want  resource.Quantity
+	}{
+		"integer multiplication": {
+			value: resource.MustParse("2"),
+			mul:   resource.MustParse("3"),
+			want:  resource.MustParse("6"),
+		},
+		"multiplication by zero": {
+			value: resource.MustParse("10"),
+			mul:   resource.MustParse("0"),
+			want:  resource.MustParse("0"),
+		},
+		"milli quantity multiplication": {
+			value: resource.MustParse("500m"),
+			mul:   resource.MustParse("2"),
+			want:  resource.MustParse("1"),
+		},
+		"fractional multiplier": {
+			value: resource.MustParse("10"),
+			mul:   resource.MustParse("0.5"),
+			want:  resource.MustParse("5"),
+		},
+		"binary SI format preserved": {
+			value: resource.MustParse("1Gi"),
+			mul:   resource.MustParse("2"),
+			want:  resource.MustParse("2Gi"),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := MultiplyQuantity(tc.value, tc.mul)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("MultiplyQuantity() mismatch (-want +got):\n%s", diff)
+			}
+			if got.Format != tc.value.Format {
+				t.Errorf("MultiplyQuantity() format mismatch: got %v, want %v", got.Format, tc.value.Format)
+			}
+		})
+	}
+}

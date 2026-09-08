@@ -93,6 +93,13 @@ and passing the readiness probe) within the specified time. If the timeout
 is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
+<tr><td><code>quotaReleaseStrategy</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy"><code>QuotaReleaseStrategy</code></a>
+</td>
+<td>
+   <p>QuotaReleaseStrategy provides configuration options for controlling quota release timing.</p>
+</td>
+</tr>
 <tr><td><code>clientConnection</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
 </td>
@@ -265,7 +272,7 @@ using the ClusterProfile API.</p>
 </td>
 </tr>
 <tr><td><code>credentialsProviders</code><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
 </td>
 <td>
    <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
@@ -309,6 +316,19 @@ are mutually exclusive.</p>
 </tr>
 </tbody>
 </table>
+
+## `ClusterProfileCredentialsProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider}
+    
+
+**Appears in:**
+
+- [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
+
+
+<p>ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.</p>
+
+
+
 
 ## `ControllerConfigurationSpec`     {#config-kueue-x-k8s-io-v1beta2-ControllerConfigurationSpec}
     
@@ -1238,6 +1258,25 @@ A nil value disables automatic deletion of Workloads.</p>
 
 <p>QuotaCheckStrategy determines how Kueue checks resources against quota
 during admission.</p>
+
+
+
+
+## `QuotaReleaseStrategy`     {#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.</p>
+<p>Valid values are:</p>
+<ul>
+<li>&quot;OnTerminating&quot; (default): releases quota as soon as all pods have a deletionTimestamp set.</li>
+<li>&quot;OnTerminal&quot;: holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).</li>
+</ul>
 
 
 

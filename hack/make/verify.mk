@@ -37,7 +37,7 @@ endif
 # The final step of `make verify` enforces that these paths have:
 # - no unstaged/staged diffs (`git diff --exit-code`)
 # - no untracked files (e.g. newly generated files not added to git)
-PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netlify.toml $(MOCKS_DIR)
+PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netlify.toml test/compatibility_lifecycle $(MOCKS_DIR)
 
 .PHONY: verify
 ## Main target used by CI and local development.
@@ -159,6 +159,7 @@ endef
 define _helm_verify_recipe
 $(HELM) lint charts/kueue
 $(HELM) template charts/kueue > /dev/null
+$(HELM) template charts/kueue --set enableAlphaAPIs=true > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
 $(HELM) template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
 $(HELM) template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
@@ -166,7 +167,7 @@ $(HELM) template charts/kueue --set controllerManager.nodeSelector.nodetype=infr
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
-$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.priorityClassName="system-cluster-critical" > /dev/null
 endef
 
 define _helm_unit_test_recipe
@@ -180,6 +181,7 @@ endef
 
 define _kustomize_build_verify_recipe
 $(KUSTOMIZE) build config/alpha-enabled > /dev/null
+$(KUSTOMIZE) build config/components/crd/alpha > /dev/null
 endef
 
 # Validates skills against https://agentskills.io/specification

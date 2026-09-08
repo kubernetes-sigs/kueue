@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -174,17 +175,14 @@ func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *
 	return nil
 }
 
-type GroupVersionResourceName struct {
+type GroupVersionResourceRef struct {
 	schema.GroupVersionResource
 	Name string
+	UID  types.UID
 }
 
-func (g GroupVersionResourceName) String() string {
+func (g GroupVersionResourceRef) String() string {
 	return strings.Join([]string{g.GroupResource().String(), g.Name}, "/")
-}
-
-func GroupVersionResourceWithName(gvr schema.GroupVersionResource, name string) GroupVersionResourceName {
-	return GroupVersionResourceName{GroupVersionResource: gvr, Name: name}
 }
 
 // Run delete a resource
@@ -279,11 +277,11 @@ func (o *WorkloadOptions) getWorkloads(ctx context.Context) ([]*kueue.Workload, 
 	return workloads, haveAssociatedWorkloads, nil
 }
 
-func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) (map[*kueue.Workload][]GroupVersionResourceName, error) {
-	workloadResources := make(map[*kueue.Workload][]GroupVersionResourceName, len(workloads))
+func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) (map[*kueue.Workload][]GroupVersionResourceRef, error) {
+	workloadResources := make(map[*kueue.Workload][]GroupVersionResourceRef, len(workloads))
 
 	for _, wl := range workloads {
-		workloadResources[wl] = make([]GroupVersionResourceName, 0, len(wl.OwnerReferences))
+		workloadResources[wl] = make([]GroupVersionResourceRef, 0, len(wl.OwnerReferences))
 
 		for _, or := range wl.OwnerReferences {
 			gv, err := schema.ParseGroupVersion(or.APIVersion)
@@ -296,14 +294,18 @@ func (o *WorkloadOptions) getWorkloadResources(workloads []*kueue.Workload) (map
 				return nil, err
 			}
 
-			workloadResources[wl] = append(workloadResources[wl], GroupVersionResourceWithName(mapping.Resource, or.Name))
+			workloadResources[wl] = append(workloadResources[wl], GroupVersionResourceRef{
+				GroupVersionResource: mapping.Resource,
+				Name:                 or.Name,
+				UID:                  or.UID,
+			})
 		}
 	}
 
 	return workloadResources, nil
 }
 
-func (o *WorkloadOptions) generateConfirmationMessage(workloadResources map[*kueue.Workload][]GroupVersionResourceName) string {
+func (o *WorkloadOptions) generateConfirmationMessage(workloadResources map[*kueue.Workload][]GroupVersionResourceRef) string {
 	associatedResources := make([]string, 0, len(workloadResources))
 
 	for wl, resources := range workloadResources {
@@ -338,7 +340,7 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 	return strings.EqualFold(input, "y")
 }
 
-func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*kueue.Workload][]GroupVersionResourceName) error {
+func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*kueue.Workload][]GroupVersionResourceRef) error {
 	for wl, nrs := range workloadNameResources {
 		deleteOptions := metav1.DeleteOptions{}
 
@@ -347,9 +349,11 @@ func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResou
 		}
 
 		for _, nr := range nrs {
+			resourceDeleteOptions := deleteOptions
+			resourceDeleteOptions.Preconditions = &metav1.Preconditions{UID: &nr.UID}
 			if o.DryRunStrategy != dryrun.Client {
 				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(wl.Namespace).
-					Delete(ctx, nr.Name, deleteOptions); client.IgnoreNotFound(err) != nil {
+					Delete(ctx, nr.Name, resourceDeleteOptions); client.IgnoreNotFound(err) != nil {
 					return err
 				}
 			}

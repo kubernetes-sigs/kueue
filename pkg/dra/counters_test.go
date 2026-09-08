@@ -21,7 +21,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -285,7 +284,8 @@ func TestComputeCounterCharges(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := computeCounterCharges(logr.Discard(), tc.cc, tc.quotaResource, tc.matched, tc.count)
+			_, log := utiltesting.ContextWithLog(t)
+			got := computeCounterCharges(log, tc.cc, tc.quotaResource, tc.matched, tc.count)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("computeCounterCharges() mismatch (-want +got):\n%s", diff)
 			}

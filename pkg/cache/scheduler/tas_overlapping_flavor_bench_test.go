@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // countingSink is a logr.LogSink that counts only the "skip accounting for TAS
@@ -74,7 +75,8 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 				)
 
 				// Held domains come from the flavor's own leaves; the rest are foreign.
-				held, err := flavorCache.snapshot(b.Context(), logr.Discard(), nil, nil)
+				_, log := utiltesting.ContextWithLog(b)
+				held, err := flavorCache.snapshot(b.Context(), log, nil, nil)
 				if err != nil {
 					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 				}
@@ -87,7 +89,7 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 				}
 
 				sink := &countingSink{enabledV: v}
-				log := logr.New(sink)
+				log = logr.New(sink)
 				b.ReportAllocs()
 				iters := 0
 				for b.Loop() {

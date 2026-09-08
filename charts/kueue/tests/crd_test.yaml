@@ -1,0 +1,58 @@
+suite: test alpha CRDs
+templates:
+  - crd/kueue.x-k8s.io_capacityproviders.yaml
+  - crd/kueue.x-k8s.io_dynamicquotaorchestrators.yaml
+tests:
+  - it: should not render CapacityProvider CRD by default
+    template: crd/kueue.x-k8s.io_capacityproviders.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render DynamicQuotaOrchestrator CRD by default
+    template: crd/kueue.x-k8s.io_dynamicquotaorchestrators.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render CapacityProvider CRD when enableAlphaAPIs is false
+    template: crd/kueue.x-k8s.io_capacityproviders.yaml
+    set:
+      enableAlphaAPIs: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render DynamicQuotaOrchestrator CRD when enableAlphaAPIs is false
+    template: crd/kueue.x-k8s.io_dynamicquotaorchestrators.yaml
+    set:
+      enableAlphaAPIs: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render CapacityProvider CRD when enableAlphaAPIs is true
+    template: crd/kueue.x-k8s.io_capacityproviders.yaml
+    set:
+      enableAlphaAPIs: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: CustomResourceDefinition
+      - equal:
+          path: metadata.name
+          value: capacityproviders.kueue.x-k8s.io
+
+  - it: should render DynamicQuotaOrchestrator CRD when enableAlphaAPIs is true
+    template: crd/kueue.x-k8s.io_dynamicquotaorchestrators.yaml
+    set:
+      enableAlphaAPIs: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: CustomResourceDefinition
+      - equal:
+          path: metadata.name
+          value: dynamicquotaorchestrators.kueue.x-k8s.io

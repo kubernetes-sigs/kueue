@@ -838,6 +838,77 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"single pod with admitted prebuilt workload and implicit TAS remains in sync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.WorkloadIdentifierAnnotations: false,
+			},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				KueueFinalizer().
+				TopologySchedulingGate().
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Annotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				KueueFinalizer().
+				TopologySchedulingGate().
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Annotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localUserQueueName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj()).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localUserQueueName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj()).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"non-matching admitted workload is deleted and pod is finalized": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
@@ -7977,6 +8048,111 @@ func TestIsPodRunnableOrSucceeded(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := isPodRunnableOrSucceeded(&tc.pod); got != tc.want {
 				t.Errorf("isPodRunnableOrSucceeded() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSortActivePods pins down the ordering behavior of sortActivePods, in particular
+// the finalizer and gated-state tiebreakers that are implemented with cmputil.CompareBool.
+func TestSortActivePods(t *testing.T) {
+	now := time.Now()
+
+	tests := map[string]struct {
+		pods     []corev1.Pod
+		wantPods []string
+	}{
+		"finalizer state takes priority over creation timestamp": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("no-finalizer-newer", "ns").
+					CreationTimestamp(now).
+					Obj(),
+				*testingpod.MakePod("has-finalizer-older", "ns").
+					KueueFinalizer().
+					CreationTimestamp(now.Add(-time.Hour)).
+					Obj(),
+			},
+			wantPods: []string{"has-finalizer-older", "no-finalizer-newer"},
+		},
+		"non-gated pods sort before gated pods with the same finalizer state": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("gated", "ns").
+					KueueSchedulingGate().
+					Obj(),
+				*testingpod.MakePod("not-gated", "ns").
+					Obj(),
+			},
+			wantPods: []string{"not-gated", "gated"},
+		},
+		"older creation timestamp sorts first when finalizer and gate state match": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("newer", "ns").
+					CreationTimestamp(now).
+					Obj(),
+				*testingpod.MakePod("older", "ns").
+					CreationTimestamp(now.Add(-time.Hour)).
+					Obj(),
+			},
+			wantPods: []string{"older", "newer"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sortActivePods(tc.pods)
+			gotPods := make([]string, len(tc.pods))
+			for i, p := range tc.pods {
+				gotPods[i] = p.Name
+			}
+			if diff := cmp.Diff(tc.wantPods, gotPods); diff != "" {
+				t.Errorf("sortActivePods() ordering mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestSortInactivePods pins down the ordering behavior of sortInactivePods, in particular
+// the finalizer tiebreaker that is implemented with cmputil.CompareBool.
+func TestSortInactivePods(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	tests := map[string]struct {
+		pods     []corev1.Pod
+		wantPods []string
+	}{
+		"finalizer state takes priority over last-active time": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("no-finalizer-active-later", "ns").
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+				*testingpod.MakePod("has-finalizer-active-earlier", "ns").
+					KueueFinalizer().
+					DeletionTimestamp(now.Add(-time.Hour)).
+					Obj(),
+			},
+			wantPods: []string{"has-finalizer-active-earlier", "no-finalizer-active-later"},
+		},
+		"more recently active pods sort first when finalizer state matches": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("active-earlier", "ns").
+					DeletionTimestamp(now.Add(-time.Hour)).
+					Obj(),
+				*testingpod.MakePod("active-later", "ns").
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+			},
+			wantPods: []string{"active-later", "active-earlier"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sortInactivePods(fakeClock, tc.pods)
+			gotPods := make([]string, len(tc.pods))
+			for i, p := range tc.pods {
+				gotPods[i] = p.Name
+			}
+			if diff := cmp.Diff(tc.wantPods, gotPods); diff != "" {
+				t.Errorf("sortInactivePods() ordering mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
