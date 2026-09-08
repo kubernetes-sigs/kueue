@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -194,7 +193,7 @@ func (r *rayServiceReconciler) unsuspendAdmittedChildren(ctx context.Context, re
 			continue
 		}
 		patch := client.MergeFrom(child.DeepCopy())
-		child.Spec.Suspend = ptr.To(false)
+		child.Spec.Suspend = new(false)
 		if err := r.client.Patch(ctx, child, patch); err != nil {
 			return err
 		}
@@ -209,7 +208,7 @@ func computeRequiredPodSetCounts(children *rayv1.RayClusterList) map[kueue.PodSe
 	required := make(map[kueue.PodSetReference]int32)
 	for i := range children.Items {
 		child := &children.Items[i]
-		required[headGroupPodSetName] += 1
+		required[headGroupPodSetName]++
 		for j := range child.Spec.WorkerGroupSpecs {
 			wgs := &child.Spec.WorkerGroupSpecs[j]
 			count := int32(1)
@@ -263,7 +262,7 @@ func (j *RayService) Suspend() {
 	// Nested template Suspend=true is the persistent gate: any RayCluster KubeRay
 	// creates from this template (initial admission and zero-downtime upgrade pending
 	// cluster) starts suspended.
-	j.Spec.RayClusterSpec.Suspend = ptr.To(true)
+	j.Spec.RayClusterSpec.Suspend = new(true)
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
