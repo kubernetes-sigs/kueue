@@ -326,6 +326,10 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffMaxSeconds"),
 				*strategy.BackoffMaxSeconds, apimachineryvalidation.IsNegativeErrorMsg))
 		}
+		if strategy.BackoffLimitTimeout != nil && strategy.BackoffLimitTimeout.Duration <= 0 {
+			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffLimitTimeout"),
+				strategy.BackoffLimitTimeout, "must be greater than 0"))
+		}
 	}
 	return allErrs
 }
