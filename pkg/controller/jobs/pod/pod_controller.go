@@ -593,6 +593,9 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName); err != nil {
 		return err
 	}
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, multiKueuePodGroupNameCacheKey, indexMultiKueuePodGroupName); err != nil {
+		return err
+	}
 	if err := jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk); err != nil {
 		return err
 	}

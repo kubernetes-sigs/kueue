@@ -32,6 +32,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,8 +52,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -90,6 +93,7 @@ func newTestClient(ctx context.Context, kubeconfig []byte, restConfig *rest.Conf
 	ret := &remoteClient{
 		config:      &clientConfig{Kubeconfig: kubeconfig, RestConfig: restConfig},
 		localClient: localClient,
+		localReader: localClient,
 		watchCancel: watchCancel,
 		clock:       clock.RealClock{},
 
@@ -686,7 +690,7 @@ func TestUpdateConfig(t *testing.T) {
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder)
+			reconciler := newClustersReconciler(c, c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder)
 
 			reconciler.rootContext = ctx
 
@@ -862,7 +866,7 @@ func TestReconnectBackoff(t *testing.T) {
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
+			reconciler := newClustersReconciler(c, c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
 			reconciler.rootContext = ctx
 
 			var buildCalls int
@@ -872,7 +876,7 @@ func TestReconnectBackoff(t *testing.T) {
 				return inner(builderCtx, cfg, opts)
 			}
 
-			rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+			rc := newRemoteClient(c, c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
@@ -919,7 +923,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
-	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
+	reconciler := newClustersReconciler(c, c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
 
 	var buildCalls int
@@ -998,10 +1002,10 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	managerClient := getClientBuilder(ctx).WithObjects(cluster).WithStatusSubresource(cluster).Build()
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
-	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+	cRec := newClustersReconciler(managerClient, managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 
 	nextRetry := time.Now().Truncate(time.Second).Add(20 * time.Second)
-	rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	rc := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	rc.failedConnAttempts = 3
 	rc.retryConnNextAttempt = metav1.NewTime(nextRetry)
 	cRec.remoteClients["worker1"] = rc
@@ -1039,8 +1043,24 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 }
 
 func TestRemoteClientGC(t *testing.T) {
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
-	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).UID("test-uuid")
+	remoteJobBuilder := baseJobBuilder.Clone().
+		UID("remote-job-uid").
+		PrebuiltWorkloadLabel("wl1").
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, "test-uuid")
+	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		UID("manager-wl-uid").
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
+	remoteWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		UID("remote-wl-uid").
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "remote-job-uid").
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-wl-uid")
+	deletingManagerWl := *baseWlBuilder.Clone().
+		DeletionTimestamp(time.Now()).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Obj()
 
 	cases := map[string]struct {
 		managersWorkloads []kueue.Workload
@@ -1056,9 +1076,7 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseWlBuilder.DeepCopy(),
 			},
 			workersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
+				*remoteWlBuilder.DeepCopy(),
 			},
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.DeepCopy(),
@@ -1067,50 +1085,92 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.DeepCopy(),
 			},
 			wantWorkersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
+				*remoteWlBuilder.DeepCopy(),
 			},
 			wantWorkersJobs: []batchv1.Job{
 				*baseJobBuilder.DeepCopy(),
 			},
 		},
-		"missing worker workloads are deleted": {
+		"uncorrelated remote workloads are preserved": {
 			workersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
+				*remoteWlBuilder.DeepCopy(),
 			},
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.DeepCopy(),
 			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*remoteWlBuilder.DeepCopy(),
+			},
 		},
-		"missing worker workloads are deleted (no job adapter)": {
+		"uncorrelated remote workloads are preserved without a job adapter": {
 			workersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
+				*remoteWlBuilder.Clone().
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid").
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*remoteWlBuilder.Clone().
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid").
 					Obj(),
 			},
 		},
-		"missing worker workloads and their owner jobs are deleted": {
+		"uncorrelated remote workloads cannot make GC delete owner jobs": {
 			workersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
+				*remoteWlBuilder.DeepCopy(),
 			},
 			managersJobs: []batchv1.Job{
 				*baseJobBuilder.DeepCopy(),
 			},
 			workersJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*remoteWlBuilder.DeepCopy(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
+		"authenticated remote workload and owner job are deleted with the manager workload": {
+			managersWorkloads: []kueue.Workload{deletingManagerWl},
+			workersWorkloads: []kueue.Workload{
+				*remoteWlBuilder.DeepCopy(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.DeepCopy(),
+			},
+			workersJobs: []batchv1.Job{
+				*remoteJobBuilder.DeepCopy(),
+			},
+		},
+		"remote workload with a different manager UID is preserved": {
+			managersWorkloads: []kueue.Workload{deletingManagerWl},
+			workersWorkloads: []kueue.Workload{
+				*remoteWlBuilder.Clone().
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "other-manager-uid").
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*remoteJobBuilder.DeepCopy(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*remoteWlBuilder.Clone().
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "other-manager-uid").
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*remoteJobBuilder.DeepCopy(),
+			},
+		},
 		"unrelated workers and jobs are not deleted": {
 			workersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
+				*remoteWlBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, "other-gc-key").
 					Obj(),
 			},
@@ -1118,7 +1178,7 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.DeepCopy(),
 			},
 			wantWorkersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
+				*remoteWlBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, "other-gc-key").
 					Obj(),
 			},
@@ -1145,7 +1205,7 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connState.markConnected()
 
@@ -1171,6 +1231,275 @@ func TestRemoteClientGC(t *testing.T) {
 				t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestRemoteClientGCBindsPodOwnerUID(t *testing.T) {
+	const (
+		workloadName = "workload"
+		podName      = "pod"
+	)
+	workloadKey := types.NamespacedName{Name: workloadName, Namespace: TestNamespace}
+	podKey := types.NamespacedName{Name: podName, Namespace: TestNamespace}
+
+	for name, tc := range map[string]struct {
+		ownerUID     types.UID
+		podUID       types.UID
+		wantPod      bool
+		wantWorkload bool
+	}{
+		"matching owner UID deletes Pod": {
+			ownerUID: "pod-uid",
+			podUID:   "pod-uid",
+		},
+		"replacement UID preserves Pod": {
+			ownerUID:     "original-pod-uid",
+			podUID:       "replacement-pod-uid",
+			wantPod:      true,
+			wantWorkload: true,
+		},
+		"empty owner UID preserves Pod": {
+			podUID:       "pod-uid",
+			wantPod:      true,
+			wantWorkload: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			remoteWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+				Name:      workloadKey.Name,
+				Namespace: workloadKey.Namespace,
+				UID:       "remote-workload-uid",
+				Labels:    map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
+				Annotations: map[string]string{
+					kueue.MultiKueueOriginUIDAnnotation: "manager-workload-uid",
+				},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: corev1.SchemeGroupVersion.String(),
+					Kind:       "Pod",
+					Name:       podKey.Name,
+					UID:        tc.ownerUID,
+					Controller: new(true),
+				}},
+			}}
+			remotePod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				Name:      podKey.Name,
+				Namespace: podKey.Namespace,
+				UID:       tc.podUID,
+				Labels: map[string]string{
+					kueue.MultiKueueOriginLabel:               defaultOrigin,
+					controllerconstants.PrebuiltWorkloadLabel: workloadName,
+				},
+				Annotations: map[string]string{kueue.MultiKueueOriginUIDAnnotation: "manager-pod-uid"},
+			}}
+			managerWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+				Name:              workloadKey.Name,
+				Namespace:         workloadKey.Namespace,
+				UID:               "manager-workload-uid",
+				DeletionTimestamp: new(metav1.Now()),
+				Finalizers:        []string{kueue.ResourceInUseFinalizerName},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: corev1.SchemeGroupVersion.String(),
+					Kind:       "Pod",
+					Name:       podKey.Name,
+					UID:        "manager-pod-uid",
+					Controller: new(true),
+				}},
+			}}
+
+			managerClient := getClientBuilder(ctx).WithObjects(managerWorkload).Build()
+			workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remoteWorkload, remotePod).Build())
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("pod"))
+			remote := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+			remote.client = workerClient
+			remote.connState.markConnected()
+
+			remote.runGC(ctx)
+
+			workloadErr := workerClient.Get(ctx, workloadKey, &kueue.Workload{})
+			if tc.wantWorkload {
+				if workloadErr != nil {
+					t.Fatalf("preserved remote Workload Get() error = %v", workloadErr)
+				}
+			} else if !apierrors.IsNotFound(workloadErr) {
+				t.Fatalf("remote Workload Get() error = %v, want NotFound", workloadErr)
+			}
+			gotPod := &corev1.Pod{}
+			err := workerClient.Get(ctx, podKey, gotPod)
+			if tc.wantPod {
+				if err != nil {
+					t.Fatalf("replacement Pod Get() error = %v", err)
+				}
+				if gotPod.UID != tc.podUID {
+					t.Fatalf("replacement Pod UID = %q, want %q", gotPod.UID, tc.podUID)
+				}
+			} else if !apierrors.IsNotFound(err) {
+				t.Fatalf("remote Pod Get() error = %v, want NotFound", err)
+			}
+		})
+	}
+}
+
+func TestRemoteClientGCRetriesPodGroupCleanupBeforeDeletingWorkload(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	const (
+		workloadName = "group"
+		anchorName   = "group-0"
+		memberName   = "group-1"
+	)
+	workloadKey := types.NamespacedName{Name: workloadName, Namespace: TestNamespace}
+	anchorKey := types.NamespacedName{Name: anchorName, Namespace: TestNamespace}
+	memberKey := types.NamespacedName{Name: memberName, Namespace: TestNamespace}
+	remoteWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      workloadKey.Name,
+		Namespace: workloadKey.Namespace,
+		UID:       "workload-uid",
+		Labels:    map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
+		Annotations: map[string]string{
+			podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+			kueue.MultiKueueOriginUIDAnnotation:       "manager-workload-uid",
+		},
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Pod",
+			Name:       anchorName,
+			UID:        "anchor-uid",
+			Controller: new(true),
+		}},
+	}}
+	makeRemotePod := func(key types.NamespacedName, uid types.UID) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+			UID:       uid,
+			Labels: map[string]string{
+				kueue.MultiKueueOriginLabel:               defaultOrigin,
+				controllerconstants.PrebuiltWorkloadLabel: workloadName,
+				podconstants.GroupNameLabel:               workloadName,
+			},
+			Annotations: map[string]string{kueue.MultiKueueOriginUIDAnnotation: "manager-anchor-uid"},
+		}}
+	}
+	anchor := makeRemotePod(anchorKey, "anchor-uid")
+	member := makeRemotePod(memberKey, "member-uid")
+	member.Annotations[kueue.MultiKueueOriginUIDAnnotation] = "manager-member-uid"
+	pageErr := errors.New("Pod list unavailable")
+	failPodList := true
+	baseWorkerClient := getClientBuilder(ctx).WithObjects(remoteWorkload, anchor, member).Build()
+	workerClient := NewNeverCachingClient(interceptor.NewClient(baseWorkerClient, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, isPodList := list.(*corev1.PodList); isPodList && failPodList {
+				failPodList = false
+				return pageErr
+			}
+			return c.List(ctx, list, opts...)
+		},
+	}))
+	managerWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:              workloadKey.Name,
+		Namespace:         workloadKey.Namespace,
+		UID:               "manager-workload-uid",
+		DeletionTimestamp: new(metav1.Now()),
+		Finalizers:        []string{kueue.ResourceInUseFinalizerName},
+		Annotations: map[string]string{
+			podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+		},
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Pod",
+			Name:       anchorName,
+			UID:        "manager-anchor-uid",
+			Controller: new(true),
+		}, {
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Pod",
+			Name:       memberName,
+			UID:        "manager-member-uid",
+		}},
+	}}
+	managerClient := getClientBuilder(ctx).WithObjects(managerWorkload).Build()
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("pod"))
+	remote := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	remote.client = workerClient
+	remote.connState.markConnected()
+
+	remote.runGC(ctx)
+	for key, obj := range map[types.NamespacedName]client.Object{
+		workloadKey: &kueue.Workload{},
+		anchorKey:   &corev1.Pod{},
+		memberKey:   &corev1.Pod{},
+	} {
+		if err := workerClient.Get(ctx, key, obj); err != nil {
+			t.Fatalf("object %q was deleted after failed cleanup: %v", key, err)
+		}
+	}
+
+	remote.runGC(ctx)
+	for key, obj := range map[types.NamespacedName]client.Object{
+		workloadKey: &kueue.Workload{},
+		anchorKey:   &corev1.Pod{},
+		memberKey:   &corev1.Pod{},
+	} {
+		if err := workerClient.Get(ctx, key, obj); !apierrors.IsNotFound(err) {
+			t.Errorf("object %q Get() error = %v after retry, want NotFound", key, err)
+		}
+	}
+}
+
+func TestRemoteClientGCUsesWorkloadUIDPrecondition(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	key := types.NamespacedName{Name: "workload", Namespace: TestNamespace}
+	original := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:        key.Name,
+		Namespace:   key.Namespace,
+		UID:         "original-workload-uid",
+		Labels:      map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
+		Annotations: map[string]string{kueue.MultiKueueOriginUIDAnnotation: "manager-workload-uid"},
+	}}
+	replacement := original.DeepCopy()
+	replacement.UID = "replacement-workload-uid"
+	baseWorkerClient := getClientBuilder(ctx).WithObjects(original).Build()
+	workerClient := NewNeverCachingClient(interceptor.NewClient(baseWorkerClient, interceptor.Funcs{
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if _, isWorkload := obj.(*kueue.Workload); !isWorkload {
+				return c.Delete(ctx, obj, opts...)
+			}
+			deleteOptions := &client.DeleteOptions{}
+			for _, opt := range opts {
+				opt.ApplyToDelete(deleteOptions)
+			}
+			if deleteOptions.Preconditions == nil || deleteOptions.Preconditions.UID == nil || *deleteOptions.Preconditions.UID != original.UID {
+				t.Errorf("Workload Delete() UID precondition = %v, want %q", deleteOptions.Preconditions, original.UID)
+			}
+			if err := c.Delete(ctx, obj); err != nil {
+				return err
+			}
+			if err := c.Create(ctx, replacement); err != nil {
+				return err
+			}
+			return apierrors.NewConflict(kueue.Resource("workloads"), key.Name, errors.New("UID precondition failed"))
+		},
+	}))
+	managerWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:              key.Name,
+		Namespace:         key.Namespace,
+		UID:               "manager-workload-uid",
+		DeletionTimestamp: new(metav1.Now()),
+		Finalizers:        []string{kueue.ResourceInUseFinalizerName},
+	}}
+	managerClient := getClientBuilder(ctx).WithObjects(managerWorkload).Build()
+	remote := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", nil)
+	remote.client = workerClient
+	remote.connState.markConnected()
+
+	remote.runGC(ctx)
+
+	got := &kueue.Workload{}
+	if err := workerClient.Get(ctx, key, got); err != nil {
+		t.Fatalf("replacement Workload Get() error = %v", err)
+	}
+	if got.UID != replacement.UID {
+		t.Fatalf("replacement Workload UID = %q, want %q", got.UID, replacement.UID)
 	}
 }
 
@@ -1333,7 +1662,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := getClientBuilder(ctx).Build()
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+			reconciler := newClustersReconciler(c, c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 			reconciler.rootContext = ctx
 
 			if got := tc.invoke(reconciler); got != tc.wantReconcile {
@@ -1583,7 +1912,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 		Build()
 
 	recorder := &utiltesting.EventRecorder{}
-	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+	reconciler := newClustersReconciler(localClient, localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
 	t.Cleanup(func() {

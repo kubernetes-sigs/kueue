@@ -48,6 +48,19 @@ const (
 	TestNamespace = "ns"
 )
 
+func makeJobBoundWorkload(name string, key types.NamespacedName, managerUID types.UID) *kueue.Workload {
+	return &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      name,
+		Namespace: key.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: batchv1.SchemeGroupVersion.String(),
+			Kind:       "Job",
+			Name:       key.Name,
+			UID:        managerUID,
+		}},
+	}}
+}
+
 func TestMultiKueueAdapter(t *testing.T) {
 	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
@@ -624,7 +637,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				remoteJob: newJob().
 					ResourceVersion("2").
 					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					PrebuiltWorkloadLabel("test-workload").
+					PrebuiltWorkloadLabel("job-test-f53b2").
 					SetAnnotation(constants.PrebuiltWorkloadAnnotation, "job-test-f53b2").
 					Parallelism(22).
 					Condition(runningJobCondition).
@@ -772,6 +785,150 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMultiKueueOwnershipWrapperAllowsUIDBoundElasticReassignment(t *testing.T) {
+	const (
+		origin     = "origin1"
+		managerUID = "manager-job-uid"
+		oldWL      = "old-workload"
+		newWL      = "new-workload"
+	)
+	for _, tc := range []struct {
+		name           string
+		annotationsOn  bool
+		setOldIdentity func(*utiltestingjob.JobWrapper)
+	}{
+		{
+			name:          "label to annotation",
+			annotationsOn: true,
+			setOldIdentity: func(job *utiltestingjob.JobWrapper) {
+				job.PrebuiltWorkloadLabel(oldWL)
+			},
+		},
+		{
+			name:          "annotation to label",
+			annotationsOn: false,
+			setOldIdentity: func(job *utiltestingjob.JobWrapper) {
+				job.SetAnnotation(constants.PrebuiltWorkloadAnnotation, oldWL)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:  true,
+				features.WorkloadIdentifierAnnotations: tc.annotationsOn,
+			})
+			key := types.NamespacedName{Name: "elastic", Namespace: TestNamespace}
+			localJob := utiltestingjob.MakeJob(key.Name, key.Namespace).
+				UID(managerUID).
+				ResourceVersion("1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Parallelism(1).
+				Obj()
+			remoteJobBuilder := utiltestingjob.MakeJob(key.Name, key.Namespace).
+				UID("remote-job-uid").
+				ResourceVersion("1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, managerUID).
+				Label(kueue.MultiKueueOriginLabel, origin).
+				Parallelism(3)
+			tc.setOldIdentity(remoteJobBuilder)
+			remoteJob := remoteJobBuilder.Obj()
+
+			managerClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(localJob).WithStatusSubresource(localJob).Build()
+			workerClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(remoteJob).Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if _, err := jobframework.SyncJobWithRemoteObjectOwnership(
+				ctx,
+				managerClient,
+				managerClient,
+				workerClient,
+				&multiKueueAdapter{},
+				key,
+				makeJobBoundWorkload(newWL, key, managerUID),
+				origin,
+			); err != nil {
+				t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v", err)
+			}
+
+			got := &batchv1.Job{}
+			if err := workerClient.Get(ctx, key, got); err != nil {
+				t.Fatalf("getting remote Job: %v", err)
+			}
+			if got.Spec.Parallelism == nil || *got.Spec.Parallelism != 1 {
+				t.Fatalf("remote parallelism = %v, want 1", got.Spec.Parallelism)
+			}
+			if gotWorkload := jobframework.PrebuiltWorkloadNameFor(got); gotWorkload != newWL {
+				t.Fatalf("remote Workload association = %q, want %q", gotWorkload, newWL)
+			}
+			if got.Labels[constants.PrebuiltWorkloadLabel] != newWL || got.Annotations[constants.PrebuiltWorkloadAnnotation] != newWL {
+				t.Fatalf(
+					"transitioned Workload metadata label=%q annotation=%q, want both %q",
+					got.Labels[constants.PrebuiltWorkloadLabel],
+					got.Annotations[constants.PrebuiltWorkloadAnnotation],
+					newWL,
+				)
+			}
+		})
+	}
+}
+
+func TestMultiKueueOwnershipWrapperRejectsWorkloadReassignmentForNonElasticJob(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.ElasticJobsViaWorkloadSlices:  true,
+		features.WorkloadIdentifierAnnotations: false,
+	})
+	const (
+		origin     = "origin1"
+		managerUID = "manager-job-uid"
+		oldWL      = "old-workload"
+		newWL      = "new-workload"
+	)
+	key := types.NamespacedName{Name: "ordinary", Namespace: TestNamespace}
+	localJob := utiltestingjob.MakeJob(key.Name, key.Namespace).
+		UID(managerUID).
+		ResourceVersion("1").
+		Parallelism(1).
+		Obj()
+	remoteJob := utiltestingjob.MakeJob(key.Name, key.Namespace).
+		UID("remote-job-uid").
+		ResourceVersion("1").
+		SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, managerUID).
+		PrebuiltWorkloadLabel(oldWL).
+		Label(kueue.MultiKueueOriginLabel, origin).
+		Parallelism(3).
+		Obj()
+
+	managerClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(localJob).WithStatusSubresource(localJob).Build()
+	workerClient := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(remoteJob).Build()
+	ctx, _ := utiltesting.ContextWithLog(t)
+	if _, err := jobframework.SyncJobWithRemoteObjectOwnership(
+		ctx,
+		managerClient,
+		managerClient,
+		workerClient,
+		&multiKueueAdapter{},
+		key,
+		makeJobBoundWorkload(newWL, key, managerUID),
+		origin,
+	); !errors.Is(
+		err,
+		jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+	) {
+		t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+	}
+
+	got := &batchv1.Job{}
+	if err := workerClient.Get(ctx, key, got); err != nil {
+		t.Fatalf("getting remote Job: %v", err)
+	}
+	if got.Spec.Parallelism == nil || *got.Spec.Parallelism != 3 {
+		t.Fatalf("remote parallelism = %v, want unchanged value 3", got.Spec.Parallelism)
+	}
+	if gotWorkload := jobframework.PrebuiltWorkloadNameFor(got); gotWorkload != oldWL {
+		t.Fatalf("remote Workload association = %q, want unchanged value %q", gotWorkload, oldWL)
 	}
 }
 

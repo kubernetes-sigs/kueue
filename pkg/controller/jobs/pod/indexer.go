@@ -18,13 +18,16 @@ package pod
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 const (
-	PodGroupNameCacheKey = "PodGroupNameCacheKey"
+	PodGroupNameCacheKey           = "PodGroupNameCacheKey"
+	multiKueuePodGroupNameCacheKey = "MultiKueuePodGroupNameCacheKey"
 )
 
 func IndexPodGroupName(o client.Object) []string {
@@ -37,4 +40,25 @@ func IndexPodGroupName(o client.Object) []string {
 		return []string{groupName}
 	}
 	return nil
+}
+
+// indexMultiKueuePodGroupName indexes both supported group-name representations
+// so MultiKueue can finish an in-flight dispatch across feature-gate changes.
+func indexMultiKueuePodGroupName(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+
+	groupNames := sets.New[string]()
+	if groupName := pod.Labels[podconstants.GroupNameLabel]; groupName != "" {
+		groupNames.Insert(groupName)
+	}
+	if groupName := pod.Annotations[podconstants.GroupNameAnnotation]; groupName != "" {
+		groupNames.Insert(groupName)
+	}
+	if groupNames.Len() == 0 {
+		return nil
+	}
+	return groupNames.UnsortedList()
 }

@@ -18,10 +18,12 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
@@ -40,6 +42,19 @@ import (
 const (
 	TestNamespace = "ns"
 )
+
+func makeLWSBoundWorkload(name string, key types.NamespacedName, managerUID types.UID) *kueue.Workload {
+	return &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      name,
+		Namespace: key.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       key.Name,
+			UID:        managerUID,
+		}},
+	}}
+}
 
 func TestMultiKueueAdapter(t *testing.T) {
 	objCheckOpts := cmp.Options{
@@ -279,6 +294,127 @@ func TestMultiKueueAdapter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMultiKueueOwnershipWrapperUsesManagerObjectUID(t *testing.T) {
+	const (
+		origin       = "origin1"
+		workloadName = "wl1"
+		managerUID   = "manager-uid-123"
+	)
+	key := types.NamespacedName{Name: "lws1", Namespace: TestNamespace}
+
+	makeManagerClient := func() client.Client {
+		return utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+			WithObjects(utiltestingleaderworkerset.MakeLeaderWorkerSet(key.Name, key.Namespace).UID(managerUID).Obj()).
+			WithStatusSubresource(&leaderworkersetv1.LeaderWorkerSet{}).
+			Build()
+	}
+	makeWorkerClient := func(originUID string) client.Client {
+		return utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+			WithObjects(utiltestingleaderworkerset.MakeLeaderWorkerSet(key.Name, key.Namespace).
+				UID("worker-uid").
+				Label(kueue.MultiKueueOriginLabel, origin).
+				Annotation(kueue.MultiKueueOriginUIDAnnotation, originUID).
+				ReadyReplicas(3).
+				Obj()).
+			Build()
+	}
+
+	t.Run("matching UID permits synchronization", func(t *testing.T) {
+		managerClient := makeManagerClient()
+		workerClient := makeWorkerClient(managerUID)
+		ctx, _ := utiltesting.ContextWithLog(t)
+
+		if _, err := jobframework.SyncJobWithRemoteObjectOwnership(
+			ctx,
+			managerClient,
+			managerClient,
+			workerClient,
+			&multiKueueAdapter{},
+			key,
+			makeLWSBoundWorkload(workloadName, key, managerUID),
+			origin,
+		); err != nil {
+			t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v", err)
+		}
+		local := &leaderworkersetv1.LeaderWorkerSet{}
+		if err := managerClient.Get(ctx, key, local); err != nil {
+			t.Fatalf("getting manager LeaderWorkerSet: %v", err)
+		}
+		if local.Status.ReadyReplicas != 0 {
+			t.Fatalf("manager ready replicas = %d, want 0 because LWS intentionally skips status copying", local.Status.ReadyReplicas)
+		}
+	})
+
+	t.Run("different UID blocks status synchronization", func(t *testing.T) {
+		managerClient := makeManagerClient()
+		workerClient := makeWorkerClient("other-manager-uid")
+		ctx, _ := utiltesting.ContextWithLog(t)
+
+		_, err := jobframework.SyncJobWithRemoteObjectOwnership(ctx, managerClient, managerClient, workerClient, &multiKueueAdapter{}, key, makeLWSBoundWorkload(workloadName, key, managerUID), origin)
+		if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+			t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+		}
+		local := &leaderworkersetv1.LeaderWorkerSet{}
+		if err := managerClient.Get(ctx, key, local); err != nil {
+			t.Fatalf("getting manager LeaderWorkerSet: %v", err)
+		}
+		if local.Status.ReadyReplicas != 0 {
+			t.Fatalf("manager ready replicas = %d, want 0", local.Status.ReadyReplicas)
+		}
+	})
+
+	t.Run("matching UID permits deletion", func(t *testing.T) {
+		managerClient := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).Build()
+		workerClient := makeWorkerClient(managerUID)
+		ctx, _ := utiltesting.ContextWithLog(t)
+		managerWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+			Name:      workloadName,
+			Namespace: key.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: leaderworkersetv1.GroupVersion.String(),
+				Kind:       "LeaderWorkerSet",
+				Name:       key.Name,
+				UID:        managerUID,
+				Controller: new(bool),
+			}},
+		}}
+		*managerWorkload.OwnerReferences[0].Controller = true
+
+		if err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, &multiKueueAdapter{}, key, managerWorkload, origin); err != nil {
+			t.Fatalf("DeleteRemoteObjectForWorkloadIfOwned() error = %v", err)
+		}
+		if err := workerClient.Get(ctx, key, &leaderworkersetv1.LeaderWorkerSet{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("getting worker LeaderWorkerSet error = %v, want NotFound", err)
+		}
+	})
+
+	t.Run("different UID preserves object during deletion", func(t *testing.T) {
+		managerClient := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).Build()
+		workerClient := makeWorkerClient("other-manager-uid")
+		ctx, _ := utiltesting.ContextWithLog(t)
+		managerWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+			Name:      workloadName,
+			Namespace: key.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: leaderworkersetv1.GroupVersion.String(),
+				Kind:       "LeaderWorkerSet",
+				Name:       key.Name,
+				UID:        managerUID,
+				Controller: new(bool),
+			}},
+		}}
+		*managerWorkload.OwnerReferences[0].Controller = true
+
+		err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, &multiKueueAdapter{}, key, managerWorkload, origin)
+		if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+			t.Fatalf("DeleteRemoteObjectForWorkloadIfOwned() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+		}
+		if err := workerClient.Get(ctx, key, &leaderworkersetv1.LeaderWorkerSet{}); err != nil {
+			t.Fatalf("getting worker LeaderWorkerSet: %v", err)
+		}
+	})
 }
 
 func TestGetWorkloadIndex(t *testing.T) {

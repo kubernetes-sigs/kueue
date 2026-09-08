@@ -150,9 +150,10 @@
   used_on: |
     [MultiKueue](/docs/concepts/multikueue/).
   description: |
-    The annotation stores the UID of the original object from the management cluster on remote objects
-    in worker clusters. Used by job types (e.g., LeaderWorkerSet) that generate workload names based on
-    their UID, ensuring workload names match between management and worker clusters.
+    The annotation stores the UID of the exact original object from the management cluster on corresponding
+    remote objects in worker clusters. Remote Workloads record the manager Workload UID; adapter-declared
+    execution objects record their manager execution-object UID. For a PodGroup, each remote Pod records the
+    UID of its same-name manager Pod. MultiKueue requires this binding for synchronization and cleanup.
 
 - key: kueue.x-k8s.io/pod-group-fast-admission
   type: Annotation
