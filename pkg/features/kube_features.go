@@ -315,7 +315,7 @@ const (
 	// Enable custom metadata labels on Kueue metrics
 	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
 
-	// owner: @sohankunkerkar
+	// owner: @vivekk16
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/11952
 	// Enables the DisaggregatedSet integration for disaggregated LLM inference
