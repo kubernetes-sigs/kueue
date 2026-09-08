@@ -58,7 +58,7 @@ func childRayCluster(name, rayServiceName, namespace, groupName string, replicas
 			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 				{
 					GroupName: groupName,
-					Replicas:  ptr.To(replicas),
+					Replicas:  new(replicas),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: groupName + "_c"}}},
 					},
