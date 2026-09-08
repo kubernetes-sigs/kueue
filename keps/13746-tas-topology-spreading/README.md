@@ -382,7 +382,7 @@ Each element of `rules` is:
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `topologyKey` | string | yes | — | The topology level key for this rule. Must correspond to one of the `spec.levels[].nodeLabel` values in the `Topology` resource referenced by the evaluated `ResourceFlavor`'s `spec.topologyName`. Not validated at annotation creation time — validation happens at scheduling time. |
-| `maxShareAllowingPlacement` | string | yes | — | Percentage string in the format `"X%"` where X is an integer in [1, 99] (e.g., `"45%"`). A domain is eligible to receive the next PodSet group only if its current share of the total is at most this value. |
+| `maxShareAllowingPlacement` | string | yes | — | Percentage string in the format `"X%"` where X is a whole integer in [1, 99] (e.g., `"45%"`). Fractional values such as `"33.33%"` are rejected. A domain is eligible to receive the next PodSet group only if its current share of the total is at most this value. |
 | `enforcementMode` | string | no | `"Required"` | Enforcement mode: `"Required"` blocks admission into over-threshold domains; `"Preferred"` deprioritizes them via spread-aware domain ordering but still allows admission. |
 
 #### Field definitions
@@ -442,13 +442,14 @@ must be propagated to the Workload via `integrations.labelKeysToCopy`:
 
 **`maxShareAllowingPlacement`**
 
-A string in the format `"X%"` where X is an integer in the range [1, 99] (e.g.,
-`"45%"`). It is a before-placement gate: a domain is eligible to receive the next
-PodSet group only if the domain's current share of the total admitted PodSet groups
-in the spreading group is at most this value. In other words,
-`maxShareAllowingPlacement` is the maximum current share a domain may hold for the
-next placement to be allowed there — the new group itself is not yet counted when
-the check is performed.
+A string in the format `"X%"` where X is a whole (non-decimal) integer in the range
+[1, 99] (e.g., `"45%"`). Fractional values such as `"33.33%"` are rejected by the
+Workload webhook with a validation error — only whole-number percentages are accepted.
+It is a before-placement gate: a domain is eligible to receive the next PodSet group
+only if the domain's current share of the total admitted PodSet groups in the
+spreading group is at most this value. In other words, `maxShareAllowingPlacement` is
+the maximum current share a domain may hold for the next placement to be allowed there
+— the new group itself is not yet counted when the check is performed.
 
 **`enforcementMode`**
 
@@ -688,7 +689,7 @@ Concrete test cases:
 3. Workload mutating webhook injects the job-uid-based default into the annotation
    when `workloadLabelSelectors` is omitted, so the stored annotation always
    contains an explicit selector.
-4. Workload webhook rejects creation when `maxShareAllowingPlacement` is not in `"X%"` format with X in [1, 99].
+4. Workload webhook rejects creation when `maxShareAllowingPlacement` is not in `"X%"` format with X a whole integer in [1, 99] — including fractional values such as `"33.33%"`.
 5. Workload webhook rejects creation when `rules` contains duplicate `topologyKey` values.
 6. Workload webhook rejects creation when PodSets within the same
    `kueue.x-k8s.io/podset-group-name` group carry different annotation values (or
