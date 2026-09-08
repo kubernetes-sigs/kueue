@@ -33,6 +33,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -779,7 +780,7 @@ func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
 	}
 }
 
-func Test_countDevicesPerClass_overflow(t *testing.T) {
+func TestChargesForClaimSpecOverflow(t *testing.T) {
 	cases := map[string]struct {
 		requests  []resourcev1.DeviceRequest
 		wantCount int64
@@ -796,12 +797,69 @@ func Test_countDevicesPerClass_overflow(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			spec := &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: tc.requests}}
-			out, errs := countDevicesPerClass(spec)
+			out, errs := chargesForClaimSpec(spec, NewResourceMapper())
 			if len(errs) != 0 {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
-			if got := out.ResourceValue("gpu"); got != tc.wantCount {
+			if got := out.perDeviceClass.ResourceValue("gpu"); got != tc.wantCount {
 				t.Errorf("count = %d, want %d", got, tc.wantCount)
+			}
+		})
+	}
+}
+
+// The bound belongs to the prioritized-list gate. The map it reads carries the
+// Exactly charges too, and one of those that reaches the range saturates today,
+// so refusing it while the gate is off would change a workload this gate has
+// nothing to do with.
+func TestOverflowingExactChargeFollowsTheGate(t *testing.T) {
+	tmpl := &resourcev1.ResourceClaimTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: "tmpl", Namespace: "ns"},
+		Spec: resourcev1.ResourceClaimTemplateSpec{Spec: resourcev1.ResourceClaimSpec{
+			Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{
+				exactReq("r0", "gpu-class", math.MaxInt64),
+				exactReq("r1", "gpu-class", math.MaxInt64),
+			}},
+		}},
+	}
+	wl := &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns"},
+		Spec: kueue.WorkloadSpec{PodSets: []kueue.PodSet{{
+			Name:  "main",
+			Count: 1,
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "c", Image: "pause"}},
+				ResourceClaims: []corev1.PodResourceClaim{
+					{Name: "c", ResourceClaimTemplateName: new("tmpl")},
+				},
+			}},
+		}}},
+	}
+
+	mapper := NewResourceMapper()
+	if err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+		Name:             corev1.ResourceName("res-1"),
+		DeviceClassNames: []corev1.ResourceName{"gpu-class"},
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
+
+	for name, on := range map[string]bool{"gate off": false, "gate on": true} {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPrioritizedList, on)
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&resourcev1.ResourceSlice{}, "spec.driver", func(obj client.Object) []string {
+					return []string{obj.(*resourcev1.ResourceSlice).Spec.Driver}
+				}).
+				WithObjects(tmpl).Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			_, errs := GetResourceRequestsForResourceClaimTemplates(ctx, cl, NewResourceSliceCache(cl), mapper, wl.DeepCopy())
+			if on && len(errs) == 0 {
+				t.Error("charge past the range admitted under the gate")
+			}
+			if !on && len(errs) != 0 {
+				t.Errorf("charge past the range refused with the gate off: %v", errs)
 			}
 		})
 	}
