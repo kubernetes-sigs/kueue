@@ -1268,6 +1268,16 @@ func TestContextTerminationOnError(t *testing.T) {
 			},
 			wantErr: errRevert,
 		},
+		"SimulateNested inner simulation succeeds but child context corrupted terminates parent context": {
+			run: func(ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) error {
+				return SimulateNested(sim, func(child *SimulationContext) error {
+					child.simulatorSnapshot = &errSimulatorSnapshot{err: errSimulator}
+					_ = child.PreemptWorkload(ctx, wlInfos["wl1"])
+					return nil
+				})
+			},
+			wantErr: errSimulator,
+		},
 	}
 
 	for name, tc := range cases {
