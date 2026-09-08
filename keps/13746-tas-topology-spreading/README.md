@@ -127,6 +127,8 @@ placed and not group all Deployment pods together. The team must specify an expl
 propagated to the Workload via `integrations.labelKeysToCopy`:
 
 ```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
 integrations:
   labelKeysToCopy:
     - app
