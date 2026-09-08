@@ -62,7 +62,7 @@
   - default: false
     lockToDefault: false
     preRelease: Alpha
-    version: "0.21"
+    version: "0.20"
 - name: DynamicQuotaOrchestration
   versionedSpecs:
   - default: false
