@@ -13,5 +13,3 @@ After changing any Go file:
 1. Run `make ci-lint` from the repository root.
 2. Fix every reported issue and rerun `make ci-lint` against the final diff.
 3. Report whether the command passed. If it could not run, report the exact reason.
-
-Do not rely on unit or e2e tests to catch lint issues such as `modernize/newexpr`.
