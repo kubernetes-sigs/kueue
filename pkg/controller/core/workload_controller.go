@@ -1324,17 +1324,12 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	// workload was in the queues and should be cleared from them.
 	r.queues.DeleteAndForgetWorkload(log, wlKey)
 
-	if afs.Enabled(r.admissionFSConfig) {
-		// A Workload deleted before settling (e.g. a Job deleted while waiting
-		// for an AdmissionCheck) would leave its penalty pending forever,
-		// inflating the LocalQueue's fair-sharing usage until restart.
-		// Also drop the settled identity so a replacement object with the same
-		// namespace/name can be charged as a new entry.
-		lqKey := qutil.KeyFromWorkload(e.Object)
-		wlRef := queueafs.WorkloadReference(wlKey)
-		r.queues.AfsUsageLedger.SubPenalty(lqKey, wlRef)
-		r.queues.AfsUsageLedger.ForgetSettledPenalty(lqKey, wlRef)
-	}
+	// A Workload deleted before settling (e.g. a Job deleted while waiting
+	// for an AdmissionCheck) would leave its penalty pending forever,
+	// inflating the LocalQueue's fair-sharing usage until restart.
+	// Also drop the settled identity so a replacement object with the same
+	// namespace/name can be charged as a new entry.
+	r.dropAfsPenaltyAccounting(e.Object)
 	return true
 }
 
@@ -1367,6 +1362,16 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		log = log.WithValues("unhealthyNodes", nodeNames)
 	}
 	log.V(2).Info("Workload update event")
+
+	// A SharedInformer may deliver delete+create of the same namespaced name
+	// as one Update with a new UID (client-go SharedInformer contract). The
+	// Delete handler is not invoked for that sequence, so drop the old
+	// object's AFS records before the replacement is queued. Otherwise
+	// PushPenalty would treat UID B as a re-admission of UID A and skip B's
+	// first entry penalty.
+	if e.ObjectOld.UID != e.ObjectNew.UID {
+		r.dropAfsPenaltyAccounting(e.ObjectOld)
+	}
 
 	wlCopy := e.ObjectNew.DeepCopy()
 	wlKey := workload.Key(e.ObjectNew)
@@ -1530,6 +1535,19 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	if status == workload.StatusFinished && prevStatus != workload.StatusFinished {
 		r.queues.AfsUsageLedger.ForgetSettledPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
 	}
+}
+
+// dropAfsPenaltyAccounting removes pending and settled AFS records for wl.
+// Call when the object is gone: an explicit Delete, or an Update whose UID
+// changed because delete+create of the same namespaced name was coalesced.
+func (r *WorkloadReconciler) dropAfsPenaltyAccounting(wl *kueue.Workload) {
+	if !afs.Enabled(r.admissionFSConfig) {
+		return
+	}
+	lqKey := qutil.KeyFromWorkload(wl)
+	wlRef := queueafs.WorkloadReference(workload.Key(wl))
+	r.queues.AfsUsageLedger.SubPenalty(lqKey, wlRef)
+	r.queues.AfsUsageLedger.ForgetSettledPenalty(lqKey, wlRef)
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {

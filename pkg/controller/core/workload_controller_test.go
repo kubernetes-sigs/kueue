@@ -2713,3 +2713,123 @@ func TestAdmitEvictReadmitDoesNotDoubleChargeAfsEntryPenalty(t *testing.T) {
 		t.Errorf("penalty still pending after re-admission: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }
+
+// A SharedInformer can report delete+create of the same namespaced name as
+// Update(oldUID, newUID). The replacement must not inherit the previous
+// object's settled marker, or its first admission would skip the entry penalty.
+func TestDifferentUIDUpdateDoesNotInheritSettledAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+
+	makeWl := func(uid types.UID) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			UID(uid).
+			Queue("lq").
+			Active(true).
+			Request(corev1.ResourceCPU, "4")
+	}
+	makeAdmission := func() *kueue.Admission {
+		return utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
+			Obj()
+	}
+	pendingA := makeWl("uid-a").Obj()
+	admittedA := makeWl("uid-a").
+		ReserveQuotaAt(makeAdmission(), now).
+		AdmittedAt(true, now).
+		Obj()
+	pendingB := makeWl("uid-b").Obj()
+	admittedB := makeWl("uid-b").
+		ReserveQuotaAt(makeAdmission(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	afsConfig := &configapi.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+	}
+	fakeClock := testingclock.NewFakeClock(now)
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl, schdcache.WithAdmissionFairSharing(afsConfig))
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock),
+		qcache.WithAdmissionFairSharing(afsConfig),
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder,
+		WithAdmissionFairSharing(afsConfig),
+		WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler.clock = fakeClock
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+		Active(metav1.ConditionTrue).
+		Obj()
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	setupLocalQueue(ctx, t, cl, qManager, lq, false)
+	if err := cqCache.AddLocalQueue(lq); err != nil {
+		t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+	}
+
+	seeded := afs.CalculateEntryPenalty(workload.NewInfo(admittedA).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
+	if len(seeded) == 0 {
+		t.Fatal("the seeded penalty is empty, so the settlement would fold nothing and the test would pass")
+	}
+	wlRef := queueafs.WorkloadReference(workload.Key(admittedA))
+	qManager.AfsUsageLedger.PushPenalty(lqKey, wlRef, seeded, now)
+
+	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: pendingA.DeepCopy(),
+		ObjectNew: admittedA.DeepCopy(),
+	})
+
+	entry, found := qManager.AfsUsageLedger.Get(lqKey)
+	if !found {
+		t.Fatal("expected an AfsUsageLedger entry after the first admission")
+	}
+	firstCPU := entry.Resources[corev1.ResourceCPU]
+	if firstCPU.IsZero() {
+		t.Fatal("first admission did not fold the entry penalty into consumed usage")
+	}
+	if !entry.HasSettledPenalty(wlRef) {
+		t.Fatal("expected UID A's settled identity after the first settlement")
+	}
+
+	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: admittedA.DeepCopy(),
+		ObjectNew: pendingB.DeepCopy(),
+	})
+
+	entry, _ = qManager.AfsUsageLedger.Get(lqKey)
+	if entry.HasSettledPenalty(wlRef) {
+		t.Fatal("Update from UID A to UID B retained A's settled marker")
+	}
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("UID replacement left a pending penalty: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+
+	qManager.AfsUsageLedger.PushPenalty(lqKey, wlRef, seeded, now)
+	if !qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Fatal("PushPenalty for UID B was suppressed by A's settled marker")
+	}
+
+	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: pendingB.DeepCopy(),
+		ObjectNew: admittedB.DeepCopy(),
+	})
+
+	entry, found = qManager.AfsUsageLedger.Get(lqKey)
+	if !found {
+		t.Fatal("expected an AfsUsageLedger entry after UID B's admission")
+	}
+	wantCPU := firstCPU.DeepCopy()
+	wantCPU.Add(firstCPU)
+	if got := entry.Resources[corev1.ResourceCPU]; got.Cmp(wantCPU) != 0 {
+		t.Errorf("consumed CPU after UID replacement = %s, want %s (both first-entry penalties)", got.String(), wantCPU.String())
+	}
+	if !entry.HasSettledPenalty(wlRef) {
+		t.Error("expected UID B's settled identity after its first admission")
+	}
+}
