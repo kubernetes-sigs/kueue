@@ -609,7 +609,7 @@ When a workload cannot be admitted because all eligible domains exceed
 `maxShareAllowingPlacement`, the following surfaces are updated:
 
 - **Workload condition**: `QuotaReserved: False` or `Admitted: False` with
-  `reason: TopologySpreadConstraintNotMet` and a message describing which rule,
+  `reason: TopologyPlacementFailed` and a message describing which rule,
   which PodSet, and which domains are blocked. The condition is cleared when the
   workload is eventually admitted. This reason indicates a **transient** state —
   the workload will be retried and may be admitted once capacity frees up.
@@ -789,6 +789,8 @@ admitted workloads, using both the default job-uid selector and explicit selecto
   AppWrapper) should support the annotation based on user feedback gathered during alpha.
 - Re-evaluate whether to replace the annotation-based configuration with a typed API
   field in the PodSet spec based on user feedback gathered during alpha.
+- Re-evaluate the `TopologyPlacementFailed` reason suffix for spreading-blocked
+  workloads based on alpha usage and feedback.
 - Documentation updated.
 - No known correctness or performance bugs
 
