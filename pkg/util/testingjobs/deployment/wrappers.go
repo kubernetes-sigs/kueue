@@ -140,6 +140,12 @@ func (d *DeploymentWrapper) RequestAndLimit(r corev1.ResourceName, v string) *De
 	return d.Request(r, v).Limit(r, v)
 }
 
+// Paused sets the paused field of the Deployment.
+func (d *DeploymentWrapper) Paused(paused bool) *DeploymentWrapper {
+	d.Spec.Paused = paused
+	return d
+}
+
 // Replicas updated the replicas of the Deployment
 func (d *DeploymentWrapper) Replicas(replicas int32) *DeploymentWrapper {
 	d.Spec.Replicas = &replicas

@@ -242,6 +242,15 @@ type TopLevelJob interface {
 	IsTopLevel() bool
 }
 
+// JobWithParentSuspension is an optional interface for jobs whose parent
+// resource (e.g. a Deployment) should be suspended/resumed in sync with
+// the Kueue workload lifecycle. This prevents the parent controller's
+// progress deadline from firing while pods are scheduling-gated.
+type JobWithParentSuspension interface {
+	SuspendParent(ctx context.Context, c client.Client) error
+	ResumeParent(ctx context.Context, c client.Client) error
+}
+
 // JobWithCustomQueueNameChange is an optional interface that allows jobs
 // to provide custom queue-name change logic.
 type JobWithCustomQueueNameChange interface {
