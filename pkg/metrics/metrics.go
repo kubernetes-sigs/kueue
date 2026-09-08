@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1430,9 +1431,14 @@ func ClearCohortSubtreeResourceReservations(cohort kueue.CohortReference, flavor
 	CohortSubtreeResourceReservations.DeletePartialMatch(lbls)
 }
 
-func ReportCohortInfo(cohort, parentCohort, rootCohort kueue.CohortReference, dynamicQuotaOrchestrator string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportCohortInfo(
+	cohort, parentCohort, rootCohort kueue.CohortReference,
+	dynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
 	labels := make([]string, 0, 5+len(customLabelValues))
-	labels = append(labels, string(cohort), string(parentCohort), string(rootCohort), dynamicQuotaOrchestrator, roletracker.GetRole(tracker))
+	labels = append(labels, string(cohort), string(parentCohort), string(rootCohort), string(dynamicQuotaOrchestrator), roletracker.GetRole(tracker))
 	labels = append(labels, customLabelValues...)
 	CohortInfo.WithLabelValues(labels...).Set(1)
 }
@@ -1444,12 +1450,12 @@ func ClearCohortInfo(cohort kueue.CohortReference) {
 func ReportClusterQueueInfo(
 	cqName kueue.ClusterQueueReference,
 	parentCohort, rootCohort kueue.CohortReference,
-	dynamicQuotaOrchestrator string,
+	dynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference,
 	customLabelValues []string,
 	tracker *roletracker.RoleTracker,
 ) {
 	labels := make([]string, 0, 5+len(customLabelValues))
-	labels = append(labels, string(cqName), string(parentCohort), string(rootCohort), dynamicQuotaOrchestrator, roletracker.GetRole(tracker))
+	labels = append(labels, string(cqName), string(parentCohort), string(rootCohort), string(dynamicQuotaOrchestrator), roletracker.GetRole(tracker))
 	labels = append(labels, customLabelValues...)
 	ClusterQueueInfo.WithLabelValues(labels...).Set(1)
 }

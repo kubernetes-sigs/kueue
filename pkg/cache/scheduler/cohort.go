@@ -19,9 +19,10 @@ package scheduler
 import (
 	"iter"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
 
@@ -36,7 +37,7 @@ type cohort struct {
 
 	admittedWorkloadsCount int
 
-	DynamicQuotaOrchestrator string
+	DynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference
 }
 
 func newCohort(name kueue.CohortReference) *cohort {
@@ -50,10 +51,7 @@ func newCohort(name kueue.CohortReference) *cohort {
 func (c *cohort) updateCohort(apiCohort *kueue.Cohort, oldParent *cohort) error {
 	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
 
-	c.DynamicQuotaOrchestrator = ""
-	if features.Enabled(features.DynamicQuotaOrchestration) && apiCohort.Status.EffectiveQuotas != nil {
-		c.DynamicQuotaOrchestrator = apiCohort.Status.EffectiveQuotas.OrchestratorRef.Name
-	}
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(apiCohort.Status.EffectiveQuotas)
 
 	c.resourceNode.Quotas = createResourceQuotas(resourcegroups.EffectiveCohortResourceGroups(apiCohort))
 	if oldParent != nil && oldParent != c.Parent() {
