@@ -91,8 +91,6 @@ func setup(b *builder.Builder, c client.Client) *builder.Builder {
 	return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner()))
 }
 
-var reconciler rayServiceReconciler
-
 func NewReconciler(
 	ctx context.Context,
 	client client.Client,
@@ -100,11 +98,11 @@ func NewReconciler(
 	eventRecorder events.EventRecorder,
 	opts ...jobframework.Option,
 ) (jobframework.JobReconcilerInterface, error) {
-	reconciler = rayServiceReconciler{
+	reconciler := &rayServiceReconciler{
 		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
 		client: client,
 	}
-	return &reconciler, nil
+	return reconciler, nil
 }
 
 func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -287,10 +285,10 @@ func (j *RayService) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
+func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	// List the actual child RayClusters owned by this RayService.
 	var children rayv1.RayClusterList
-	err := reconciler.client.List(ctx, &children,
+	err := c.List(ctx, &children,
 		client.InNamespace(j.GetNamespace()),
 		childRayClusterLabels(j.GetName()),
 	)
