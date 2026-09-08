@@ -22,6 +22,7 @@ package v1alpha1
 // with apply.
 type CapacityProviderNormalizedCapacityApplyConfiguration struct {
 	// flavors contains capacity per flavor and resource.
+	//
 	Flavors []CapacityProviderNormalizedCapacityFlavorApplyConfiguration `json:"flavors,omitempty"`
 }
 

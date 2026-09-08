@@ -78,8 +78,6 @@ type Reconciler struct {
 	customLabels                 *metrics.CustomLabels
 }
 
-const controllerName = "statefulset"
-
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet")
@@ -383,7 +381,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithEventFilter(r).
 		Watches(&corev1.Pod{}, &podHandler{}).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "statefulset-reconciler"),
 		}).
 		Complete(r)
 }

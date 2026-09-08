@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -95,6 +96,10 @@ var (
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsAdmittedTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the manager ClusterQueue referencing the worker cluster",cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueClusterByStatus *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -345,11 +350,11 @@ var (
 	CohortSubtreeAdmittedActiveWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=cohort
-	// +metricsdoc:labels=cohort="the name of the Cohort",parent_cohort="the direct parent Cohort name, empty if this Cohort has no parent",root_cohort="the root Cohort name in the hierarchy",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cohort="the name of the Cohort",parent_cohort="the direct parent Cohort name, empty if this Cohort has no parent",root_cohort="the root Cohort name in the hierarchy",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortInfo *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",parent_cohort="the direct parent Cohort name, empty if this ClusterQueue has no Cohort",root_cohort="the root Cohort name in the hierarchy, empty if this ClusterQueue has no Cohort",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",parent_cohort="the direct parent Cohort name, empty if this ClusterQueue has no Cohort",root_cohort="the root Cohort name in the hierarchy, empty if this ClusterQueue has no Cohort",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueInfo *prometheus.GaugeVec
 )
 
@@ -365,6 +370,7 @@ const (
 	gaugeCleanupScopeLocalQueueCache
 	gaugeCleanupScopeLocalQueueResource
 	gaugeCleanupScopeCohort
+	gaugeCleanupScopeMultiKueueCluster
 )
 
 var gaugeVecsByScope map[gaugeCleanupScope][]*prometheus.GaugeVec
@@ -422,6 +428,17 @@ The label 'result' can have the following values:
 			Help:      `The total number of remote workload admissions on a worker cluster, per 'cluster_queue' and 'cluster'. A workload may be counted more than once if it is evicted and re-admitted.`,
 		}, []string{"cluster_queue", "cluster", "replica_role"},
 	)
+
+	MultiKueueClusterByStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "cluster_status",
+			Help: `Reports a MultiKueue worker 'cluster' with its 'active' status (with possible values 'True', 'False', or 'Unknown'), per manager 'cluster_queue' referencing it, mirroring the Active condition of the MultiKueueCluster, whose reason explains why a cluster is not active.
+For a pair of 'cluster_queue' and worker cluster, the metric only reports a value of 1 for one of the statuses.
+A worker cluster shared by several ClusterQueues is reported once per ClusterQueue, so use 'max by (cluster)' rather than 'sum' to count distinct workers.`,
+		}, []string{"cluster_queue", "cluster", "active", "replica_role"},
+	)
+	trackGaugeVec(MultiKueueClusterByStatus, gaugeCleanupScopeMultiKueueCluster)
 
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1055,7 +1072,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Subsystem: constants.KueueName,
 			Name:      "cohort_info",
 			Help:      `Reports Cohort hierarchy information. The metric has value 1 and can be joined using labels.`,
-		}, append([]string{"cohort", "parent_cohort", "root_cohort", "replica_role"}, cohortMetricLabels...),
+		}, append([]string{"cohort", "parent_cohort", "root_cohort", "dynamic_quota_orchestrator", "replica_role"}, cohortMetricLabels...),
 	))
 
 	ClusterQueueInfo = trackGaugeVec(prometheus.NewGaugeVec(
@@ -1063,7 +1080,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_info",
 			Help:      `Reports ClusterQueue hierarchy information. The metric has value 1 and can be joined using labels.`,
-		}, append([]string{"cluster_queue", "parent_cohort", "root_cohort", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "parent_cohort", "root_cohort", "dynamic_quota_orchestrator", "replica_role"}, clusterQueueMetricsLabels...),
 	))
 }
 
@@ -1087,6 +1104,34 @@ func ReportMultiKueueWorkloadDispatched(cqName kueue.ClusterQueueReference, clus
 
 func ReportMultiKueueWorkloadAdmitted(cqName kueue.ClusterQueueReference, cluster string, tracker *roletracker.RoleTracker) {
 	MultiKueueWorkloadsAdmittedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
+}
+
+// ReportMultiKueueClusterStatus reports the Active status of a worker cluster as
+// seen by the manager ClusterQueue referencing it. A cluster shared by several
+// ClusterQueues is reported once per ClusterQueue.
+func ReportMultiKueueClusterStatus(cqName kueue.ClusterQueueReference, cluster string, conditionStatus metav1.ConditionStatus, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	for _, status := range ConditionStatusValues {
+		var v float64
+		if status == conditionStatus {
+			v = 1
+		}
+		MultiKueueClusterByStatus.WithLabelValues(string(cqName), cluster, string(status), role).Set(v)
+	}
+}
+
+// ClearMultiKueueClusterMetrics drops every series reported for a worker cluster,
+// across all ClusterQueues. Called when the cluster is removed.
+func ClearMultiKueueClusterMetrics(cluster string) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster": cluster})
+}
+
+// ClearMultiKueueClusterQueueMetrics drops every series reported for a manager
+// ClusterQueue, across all worker clusters. Called when the ClusterQueue is deleted,
+// stops using MultiKueue, or before re-reporting its current set of workers so that
+// clusters it no longer references do not linger.
+func ClearMultiKueueClusterQueueMetrics(cqName kueue.ClusterQueueReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster_queue": string(cqName)})
 }
 
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1443,9 +1488,14 @@ func ClearCohortSubtreeResourceReservations(cohort kueue.CohortReference, flavor
 	CohortSubtreeResourceReservations.DeletePartialMatch(lbls)
 }
 
-func ReportCohortInfo(cohort, parentCohort, rootCohort kueue.CohortReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := make([]string, 0, 4+len(customLabelValues))
-	labels = append(labels, string(cohort), string(parentCohort), string(rootCohort), roletracker.GetRole(tracker))
+func ReportCohortInfo(
+	cohort, parentCohort, rootCohort kueue.CohortReference,
+	dynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := make([]string, 0, 5+len(customLabelValues))
+	labels = append(labels, string(cohort), string(parentCohort), string(rootCohort), string(dynamicQuotaOrchestrator), roletracker.GetRole(tracker))
 	labels = append(labels, customLabelValues...)
 	CohortInfo.WithLabelValues(labels...).Set(1)
 }
@@ -1454,9 +1504,15 @@ func ClearCohortInfo(cohort kueue.CohortReference) {
 	CohortInfo.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
 }
 
-func ReportClusterQueueInfo(cqName kueue.ClusterQueueReference, parentCohort, rootCohort kueue.CohortReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := make([]string, 0, 4+len(customLabelValues))
-	labels = append(labels, string(cqName), string(parentCohort), string(rootCohort), roletracker.GetRole(tracker))
+func ReportClusterQueueInfo(
+	cqName kueue.ClusterQueueReference,
+	parentCohort, rootCohort kueue.CohortReference,
+	dynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := make([]string, 0, 5+len(customLabelValues))
+	labels = append(labels, string(cqName), string(parentCohort), string(rootCohort), string(dynamicQuotaOrchestrator), roletracker.GetRole(tracker))
 	labels = append(labels, customLabelValues...)
 	ClusterQueueInfo.WithLabelValues(labels...).Set(1)
 }
@@ -1625,6 +1681,7 @@ func Register() {
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
+		MultiKueueClusterByStatus,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,

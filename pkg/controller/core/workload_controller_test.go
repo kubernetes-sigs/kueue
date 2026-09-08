@@ -626,7 +626,7 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithAdmissionFairSharing(afsConfig))
 
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cq := utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Active(metav1.ConditionTrue).
@@ -640,7 +640,7 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 
 			// Seed the per-Workload penalty record the scheduler would have
 			// pushed at assume time; the settlement folds exactly this record.
-			seeded := afs.CalculateEntryPenalty(workload.NewInfo(tc.newWl).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
+			seeded := afs.CalculateEntryPenalty(workload.NewInfo(log, tc.newWl).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
 			if len(seeded) == 0 {
 				t.Fatal("the seeded penalty is empty, so the settlement would subtract nothing and every case would pass")
 			}
@@ -664,6 +664,7 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 }
 
 func TestReconcile(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
@@ -1726,7 +1727,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1764,7 +1765,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1796,7 +1797,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1834,7 +1835,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").

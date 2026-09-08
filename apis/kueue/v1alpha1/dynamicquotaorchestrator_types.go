@@ -103,6 +103,11 @@ type CapacityProviderName string
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ResourceFlavorReference string
 
+// DynamicQuotaOrchestratorReference is the name of the DynamicQuotaOrchestrator.
+// +kubebuilder:validation:MaxLength=253
+// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+type DynamicQuotaOrchestratorReference string
+
 type DynamicQuotaOrchestratorStatus struct {
 	// effectiveCapacity is the capacity aggregated from the referenced providers.
 	//

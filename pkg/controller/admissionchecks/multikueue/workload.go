@@ -1254,7 +1254,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Configurat
 			gvk := adapter.GVK()
 			h := &localJobHandler{client: mgr.GetClient(), gvk: gvk, eventsBatchPeriod: w.eventsBatchPeriod}
 			if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-				log := ctrl.LoggerFrom(ctx).WithName("multikueue-workload")
+				log := ctrl.LoggerFrom(ctx).WithName("multikueue-workload-reconciler")
 				jobframework.WaitForAPI(ctx, mgr, log, gvk, func() {
 					if err := c.Watch(source.Kind(mgr.GetCache(), emptyJob, h)); err != nil {
 						log.Error(err, "Unable to watch local job for MultiKueue spec sync", "gvk", gvk)

@@ -33,6 +33,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	cfg "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -40,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/dqo"
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
@@ -101,6 +103,8 @@ type clusterQueue struct {
 	AdmissionScope *kueue.AdmissionScope
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
+
+	DynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference
 
 	roleTracker *roletracker.RoleTracker
 
@@ -207,6 +211,7 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas)
 	return nil
 }
 
@@ -487,7 +492,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
-	wi := workload.NewInfoWithLogger(log, w, c.workloadInfoOptions...)
+	wi := workload.NewInfo(log, w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
 		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
