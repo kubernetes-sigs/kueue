@@ -149,20 +149,22 @@ For REST endpoints that return a single object, the relevant verb is `get`.
 For WebSocket endpoints, KueueViz sends an initial snapshot and then sends new
 snapshots after informer-triggered changes. These endpoints must require the
 equivalent `watch` authorization in addition to the read authorization for the
-initial data. List-style streams require `list` and `watch`; detail streams
-require `get` for the named object and `watch` for the streamed resource in the
-same scope. If an endpoint is implemented as a one-shot snapshot instead of a
-stream, it may omit the `watch` check.
+initial data. List-style streams require collection-level `list` and `watch`; detail streams
+require `get` and `watch` for the specific named object. If an endpoint is
+implemented as a one-shot snapshot instead of a stream, it may omit the `watch` check.
 
 Cluster-scoped resources use an empty namespace in the access review.
 Namespace-scoped resources must include a namespace. Requests for a namespaced
 resource without a namespace are rejected with HTTP 400 instead of being
 interpreted as all namespaces.
 
-For `SubjectAccessReview` resource attributes, `name` is set only for named
-object checks such as `get`. The `name` field must be empty for `list` and
-`watch` checks so the authorization request matches Kubernetes API server
-semantics.
+For `SubjectAccessReview` resource attributes, `name` is set for single-object
+checks, including `get` and `watch` checks on detail endpoints (for example,
+`/ws/local-queue/{ns}/{name}` checks `get` and `watch` with `name` set to `{name}`).
+This preserves compatibility with Kubernetes RBAC roles restricted by `resourceNames`.
+The `name` field must be empty for collection-level `list` and `watch` checks
+(such as `/ws/local-queues` or `/ws/workloads`) so the authorization request
+matches Kubernetes API server collection semantics.
 
 ### Endpoint Authorization Policy
 
@@ -178,19 +180,19 @@ semantics.
 | `/api/node/{name}?output=yaml` | `get` `nodes` | 403 |
 | `/ws/workloads?namespace={ns}` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | close code 4000 for empty namespace; close code 4003 |
 | `/ws/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` cluster-scoped | close code 4003 |
-| `/ws/workload/{ns}/{name}` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `workloads.kueue.x-k8s.io` in `{ns}` | close code 4003 |
+| `/ws/workload/{ns}/{name}` | `get` and `watch` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}` | close code 4003 |
 | `/ws/workload/{ns}/{name}/events` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `list` and `watch` `events` in `{ns}` | close code 4003 |
 | `/ws/local-queues?namespace={ns}` | `list` and `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | close code 4000 for empty namespace; close code 4003 |
 | `/ws/local-queues` | `list` and `watch` `localqueues.kueue.x-k8s.io` cluster-scoped | close code 4003 |
-| `/ws/local-queue/{ns}/{name}` | `get` `localqueues.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | close code 4003 |
+| `/ws/local-queue/{ns}/{name}` | `get` and `watch` `localqueues.kueue.x-k8s.io` named `{name}` in `{ns}` | close code 4003 |
 | `/ws/local-queue/{ns}/{name}/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | close code 4003 |
 | `/ws/namespaces` | `list` and `watch` `localqueues.kueue.x-k8s.io` per namespace | filtered namespaces |
 | `/ws/cluster-queues` | `list` and `watch` `clusterqueues.kueue.x-k8s.io` | close code 4003 |
-| `/ws/cluster-queue/{name}` | `get` `clusterqueues.kueue.x-k8s.io` named `{name}`; `watch` `clusterqueues.kueue.x-k8s.io`; related LocalQueues require per-namespace `list` and `watch` `localqueues` | close code 4003 for primary checks; return authorized related queues only |
+| `/ws/cluster-queue/{name}` | `get` and `watch` `clusterqueues.kueue.x-k8s.io` named `{name}`; related LocalQueues require per-namespace `list` and `watch` `localqueues` | close code 4003 for primary checks; return authorized related queues only |
 | `/ws/cohorts` | `list` and `watch` `cohorts.kueue.x-k8s.io`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
-| `/ws/cohort/{name}` | `get` `cohorts.kueue.x-k8s.io` named `{name}`; `watch` `cohorts.kueue.x-k8s.io`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
+| `/ws/cohort/{name}` | `get` and `watch` `cohorts.kueue.x-k8s.io` named `{name}`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
 | `/ws/resource-flavors` | `list` and `watch` `resourceflavors.kueue.x-k8s.io` | close code 4003 |
-| `/ws/resource-flavor/{name}` | `get` `resourceflavors.kueue.x-k8s.io` named `{name}`; `watch` `resourceflavors.kueue.x-k8s.io`; related Nodes require `list` and `watch` `nodes`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
+| `/ws/resource-flavor/{name}` | `get` and `watch` `resourceflavors.kueue.x-k8s.io` named `{name}`; related Nodes require `list` and `watch` `nodes`; related ClusterQueues require `list` and `watch` `clusterqueues` | close code 4003 for primary checks; omit unauthorized related data |
 | `/ws/workloads/dashboard?namespace={ns}` | non-empty `{ns}`; `list` and `watch` Workloads in `{ns}`; Pods require `list` and `watch` pods in `{ns}` | close code 4000 for empty namespace; close code 4003 for primary checks; omit unauthorized panels/details |
 | `/ws/workloads/dashboard` | cluster-scoped `list` and `watch` for Workloads, Pods, LocalQueues, ClusterQueues, and ResourceFlavors | close code 4003 for primary checks; omit unauthorized panels |
 
@@ -439,8 +441,11 @@ Unit tests should cover:
 - TokenReview cache stores and restores full user info.
 - SubjectAccessReview requests include username, uid, groups, extras, and
   resource attributes.
-- SubjectAccessReview requests leave `resourceAttributes.name` empty for
-  `list` and `watch` checks.
+- SubjectAccessReview requests set `resourceAttributes.name` for single-object
+  `get` and `watch` checks on detail endpoints, while leaving `name` empty for
+  collection-level `list` and `watch` checks.
+- Single-object WebSocket endpoints succeed when the user has an RBAC Role
+  restricted by `resourceNames` granting `get` and `watch` on that named object.
 - HTTP API handlers return 403 before object lookup when authorization is
   denied.
 - Namespaced REST resource requests without namespace return 400.

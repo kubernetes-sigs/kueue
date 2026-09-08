@@ -11,6 +11,7 @@ reviewers:
   - "@tenzen-y"
 approvers:
   - "@mimowo"
+  - "@tenzen-y"
 
 see-also:
   - "/keps/5993-kueueviz-authentication"
