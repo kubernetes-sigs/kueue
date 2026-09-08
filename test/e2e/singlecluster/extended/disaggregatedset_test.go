@@ -319,9 +319,10 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 						disaggregatedsetv1.SetNameLabelKey: ds.Name,
 					}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
-					g.Expect(pods.Items).NotTo(gomega.BeEmpty())
+					g.Expect(pods.Items).To(gomega.HaveLen(3))
 					for _, pod := range pods.Items {
 						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+						g.Expect(pod.DeletionTimestamp).To(gomega.BeNil())
 					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -361,6 +362,10 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 						disaggregatedsetv1.SetNameLabelKey: ds.Name,
 					}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
 					g.Expect(pods.Items).To(gomega.HaveLen(2))
+					for _, pod := range pods.Items {
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+						g.Expect(pod.DeletionTimestamp).To(gomega.BeNil())
+					}
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
