@@ -51,9 +51,10 @@ const (
 var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	var (
 		// Values changed by tests (and reset after each):
-		podsReadyTimeout            = defaultPodsReadyTimeout
-		requeuingTimestamp          = defaultRequeuingTimestamp
-		requeueingBackoffLimitCount = defaultRequeuingBackoffLimitCount
+		podsReadyTimeout             = defaultPodsReadyTimeout
+		requeuingTimestamp           = defaultRequeuingTimestamp
+		requeueingBackoffLimitCount  = defaultRequeuingBackoffLimitCount
+		requeuingBackoffLimitTimeout *metav1.Duration
 	)
 
 	var (
@@ -72,9 +73,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				BlockAdmission: new(true),
 				Timeout:        metav1.Duration{Duration: podsReadyTimeout},
 				RequeuingStrategy: &config.RequeuingStrategy{
-					Timestamp:          new(requeuingTimestamp),
-					BackoffLimitCount:  requeueingBackoffLimitCount,
-					BackoffBaseSeconds: new(int32(1)),
+					Timestamp:           new(requeuingTimestamp),
+					BackoffLimitCount:   requeueingBackoffLimitCount,
+					BackoffLimitTimeout: requeuingBackoffLimitTimeout,
+					BackoffBaseSeconds:  new(int32(1)),
 				},
 			},
 		}
@@ -117,6 +119,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		podsReadyTimeout = defaultPodsReadyTimeout
 		requeuingTimestamp = defaultRequeuingTimestamp
 		requeueingBackoffLimitCount = defaultRequeuingBackoffLimitCount
+		requeuingBackoffLimitTimeout = nil
 	})
 
 	ginkgo.Context("Long PodsReady timeout", func() {
@@ -355,6 +358,51 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
 				Count: new(int32(1)),
 			}, false)
+		})
+	})
+
+	var _ = ginkgo.Context("Short PodsReady timeout with backoffLimitTimeout", func() {
+		ginkgo.BeforeEach(func() {
+			podsReadyTimeout = util.ShortTimeout
+			requeuingBackoffLimitTimeout = &metav1.Duration{Duration: podsReadyTimeout}
+		})
+
+		ginkgo.It("Should deactivate a workload re-queued for longer than backoffLimitTimeout without backoffLimitCount", framework.SlowSpec, func() {
+			ginkgo.By("create the 'prod' workload")
+			prodWl := utiltestingapi.MakeWorkload("prod", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
+			util.MustCreate(ctx, k8sClient, prodWl)
+
+			ginkgo.By("checking the 'prod' workload is admitted and evicted after the PodsReady timeout")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 1)
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
+			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+
+			ginkgo.By("checking the first eviction time is recorded in the requeue state")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(prodWl.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
+					Count: new(int32(1)),
+				}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt", "FirstEvictedAt")))
+				g.Expect(prodWl.Status.RequeueState.FirstEvictedAt).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verify the 'prod' workload gets re-admitted and is deactivated once it exceeds the PodsReady timeout again")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 2)
+			time.Sleep(podsReadyTimeout)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				g.Expect(workload.IsActive(prodWl)).Should(gomega.BeFalse())
+				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, prodWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+					return workload.SetRequeuedCondition(wl, kueue.WorkloadDeactivated, "by test", false), nil
+				})).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			util.ExpectEvictedWorkloadsTotalMetric(prodClusterQ.Name, "Deactivated", "RequeuingLimitExceeded", "", 1)
+			util.ExpectEvictedWorkloadsOnceTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "", 1)
 		})
 	})
 

@@ -167,6 +167,9 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 		result.requeuingBackoffLimitCount = cfg.RequeuingStrategy.BackoffLimitCount
 		result.requeuingBackoffMaxDuration = time.Duration(*cfg.RequeuingStrategy.BackoffMaxSeconds) * time.Second
 		result.requeuingBackoffJitter = 0.0001
+		if cfg.RequeuingStrategy.BackoffLimitTimeout != nil {
+			result.requeuingBackoffLimitTimeout = &cfg.RequeuingStrategy.BackoffLimitTimeout.Duration
+		}
 	}
 	return &result
 }

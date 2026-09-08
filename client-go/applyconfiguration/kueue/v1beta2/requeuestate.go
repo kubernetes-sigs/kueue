@@ -35,6 +35,14 @@ type RequeueStateApplyConfiguration struct {
 	// this time would be reset to null.
 	//
 	RequeueAt *v1.Time `json:"requeueAt,omitempty"`
+	// firstEvictedAt records the time of the first eviction with the PodsReadyTimeout
+	// reason since the workload last reached the PodsReady=true condition.
+	// It is only recorded when waitForPodsReady.requeuingStrategy.backoffLimitTimeout
+	// is configured and is used to enforce that timeout.
+	// It is reset to null when the workload reaches PodsReady=true, and when a
+	// deactivated (`.spec.active`=`false`) workload is reactivated (`.spec.active`=`true`).
+	//
+	FirstEvictedAt *v1.Time `json:"firstEvictedAt,omitempty"`
 }
 
 // RequeueStateApplyConfiguration constructs a declarative configuration of the RequeueState type for use with
@@ -56,5 +64,13 @@ func (b *RequeueStateApplyConfiguration) WithCount(value int32) *RequeueStateApp
 // If called multiple times, the RequeueAt field is set to the value of the last call.
 func (b *RequeueStateApplyConfiguration) WithRequeueAt(value v1.Time) *RequeueStateApplyConfiguration {
 	b.RequeueAt = &value
+	return b
+}
+
+// WithFirstEvictedAt sets the FirstEvictedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FirstEvictedAt field is set to the value of the last call.
+func (b *RequeueStateApplyConfiguration) WithFirstEvictedAt(value v1.Time) *RequeueStateApplyConfiguration {
+	b.FirstEvictedAt = &value
 	return b
 }

@@ -248,13 +248,14 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 }
 
 type waitForPodsReadyConfig struct {
-	timeout                     time.Duration
-	recoveryTimeout             *time.Duration
-	unscheduledTimeout          *time.Duration
-	requeuingBackoffLimitCount  *int32
-	requeuingBackoffBaseSeconds int32
-	requeuingBackoffMaxDuration time.Duration
-	requeuingBackoffJitter      float64
+	timeout                      time.Duration
+	recoveryTimeout              *time.Duration
+	unscheduledTimeout           *time.Duration
+	requeuingBackoffLimitCount   *int32
+	requeuingBackoffLimitTimeout *time.Duration
+	requeuingBackoffBaseSeconds  int32
+	requeuingBackoffMaxDuration  time.Duration
+	requeuingBackoffJitter       float64
 }
 
 type workloadRetentionConfig struct {
@@ -1220,6 +1221,17 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return 0, nil
 	}
 
+	if wl.Status.RequeueState != nil && wl.Status.RequeueState.FirstEvictedAt != nil &&
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady) {
+		// Reaching PodsReady=True ends the current cycle of PodsReadyTimeout evictions
+		// measured against backoffLimitTimeout; the next such eviction starts a new one.
+		log.V(3).Info("Clearing requeueState.firstEvictedAt as the workload reached PodsReady=True")
+		return 0, workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			wl.Status.RequeueState.FirstEvictedAt = nil
+			return true, nil
+		})
+	}
+
 	underlyingCause, recheckAfter := r.admittedNotReadyWorkload(wl)
 	if underlyingCause == "" {
 		return 0, nil
@@ -1252,6 +1264,9 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		r.customLabels,
 		workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 			workload.UpdateRequeueState(wl, r.waitForPodsReady.requeuingBackoffBaseSeconds, int32(r.waitForPodsReady.requeuingBackoffMaxDuration.Seconds()), r.clock)
+			if r.waitForPodsReady.requeuingBackoffLimitTimeout != nil && wl.Status.RequeueState.FirstEvictedAt == nil {
+				wl.Status.RequeueState.FirstEvictedAt = new(metav1.NewTime(r.clock.Now()))
+			}
 		}),
 	)
 
@@ -1259,20 +1274,29 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 }
 
 // triggerDeactivation trigger deactivation of workload
-// if a re-queued number has already exceeded the limit of re-queuing backoff.
+// if a re-queued number has already exceeded the limit of re-queuing backoff,
+// or if the workload has been re-queued for longer than the re-queuing backoff limit timeout.
 // It returns true as a first value if a workload triggered deactivation.
 func (r *WorkloadReconciler) triggerDeactivation(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	requeueState := ptr.Deref(wl.Status.RequeueState, kueue.RequeueState{})
+	var message string
+	switch {
 	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
-	if r.waitForPodsReady.requeuingBackoffLimitCount != nil && ptr.Deref(requeueState.Count, 0)+1 > *r.waitForPodsReady.requeuingBackoffLimitCount {
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.SetDeactivationTarget(wl, kueue.WorkloadRequeuingLimitExceeded, "exceeding the maximum number of re-queuing retries"), nil
-		}); err != nil {
-			return false, err
-		}
-		return true, nil
+	case r.waitForPodsReady.requeuingBackoffLimitCount != nil && ptr.Deref(requeueState.Count, 0)+1 > *r.waitForPodsReady.requeuingBackoffLimitCount:
+		message = "exceeding the maximum number of re-queuing retries"
+	// If requeuingBackoffLimitTimeout equals to null, the time spent re-queuing is not limited.
+	case r.waitForPodsReady.requeuingBackoffLimitTimeout != nil && requeueState.FirstEvictedAt != nil &&
+		r.clock.Since(requeueState.FirstEvictedAt.Time) >= *r.waitForPodsReady.requeuingBackoffLimitTimeout:
+		message = fmt.Sprintf("exceeding the maximum time %s for re-queuing retries", r.waitForPodsReady.requeuingBackoffLimitTimeout.String())
+	default:
+		return false, nil
 	}
-	return false, nil
+	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		return workload.SetDeactivationTarget(wl, kueue.WorkloadRequeuingLimitExceeded, message), nil
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
