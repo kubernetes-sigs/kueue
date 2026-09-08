@@ -2176,7 +2176,7 @@ func TestWlReconcile(t *testing.T) {
 					})
 				}
 
-				gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
+				gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}}, managerClient)
 				if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("unexpected error (-want/+got):\n%s", diff)
 				}
@@ -2338,7 +2338,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
 
 	// Step 1: worker2 is reconnecting — reconcile should requeue and NOT delete worker2's workload.
-	result, err := reconciler.Reconcile(ctx, req)
+	result, err := reconciler.Reconcile(ctx, req, managerClient)
 	if err != nil {
 		t.Fatalf("unexpected error on first reconcile: %v", err)
 	}
@@ -2354,7 +2354,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	// Step 2: worker2 finishes reconnecting — reconcile should clean up the orphaned workload.
 	w2remoteClient.connState.markConnected()
 
-	result, err = reconciler.Reconcile(ctx, req)
+	result, err = reconciler.Reconcile(ctx, req, managerClient)
 	if err != nil {
 		t.Fatalf("unexpected error on second reconcile: %v", err)
 	}
@@ -2374,7 +2374,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 // setupAdmittedMetricTest builds a reconciler with a manager workload whose
 // admission check starts in acState and a worker1 remote workload that is
 // already admitted, so reconciliation reaches the admitted-metric code path.
-func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.CheckState) *wlReconciler {
+func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.CheckState) (*wlReconciler, client.Client) {
 	t.Helper()
 
 	now := time.Now().Truncate(time.Second)
@@ -2436,7 +2436,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 		config.MultiKueueDispatcherModeAllAtOnce,
 		nil,
 		WithClock(t, fakeClock),
-	)
+	), managerClient
 }
 
 func admittedMetricValue(t *testing.T) float64 {
@@ -2450,12 +2450,12 @@ func TestMultiKueueWorkloadAdmittedMetricIncrementedOnceOnAdmission(t *testing.T
 	t.Cleanup(metrics.MultiKueueWorkloadsAdmittedTotal.Reset)
 
 	ctx, _ := utiltesting.ContextWithLog(t)
-	reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
+	reconciler, managerClient := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
 
 	// First reconcile: the admission check transitions Pending -> Ready,
 	// the counter must increment exactly once.
-	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+	if _, err := reconciler.Reconcile(ctx, req, managerClient); err != nil {
 		t.Fatalf("unexpected error on first reconcile: %v", err)
 	}
 	if got := admittedMetricValue(t); got != 1 {
@@ -2463,7 +2463,7 @@ func TestMultiKueueWorkloadAdmittedMetricIncrementedOnceOnAdmission(t *testing.T
 	}
 
 	// Second reconcile: the check is already Ready, the counter must not move.
-	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+	if _, err := reconciler.Reconcile(ctx, req, managerClient); err != nil {
 		t.Fatalf("unexpected error on second reconcile: %v", err)
 	}
 	if got := admittedMetricValue(t); got != 1 {
@@ -2480,14 +2480,14 @@ func TestMultiKueueWorkloadAdmittedMetricNotIncrementedOnRetryOrRejected(t *test
 			t.Cleanup(metrics.MultiKueueWorkloadsAdmittedTotal.Reset)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			reconciler := setupAdmittedMetricTest(ctx, t, state)
+			reconciler, managerClient := setupAdmittedMetricTest(ctx, t, state)
 			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
 
 			// syncReservingRemoteState intentionally does not flip Retry/Rejected
 			// to Ready, so no admission happens and the counter must stay 0 no
 			// matter how many times the workload is reconciled.
 			for i := range 2 {
-				if _, err := reconciler.Reconcile(ctx, req); err != nil {
+				if _, err := reconciler.Reconcile(ctx, req, managerClient); err != nil {
 					t.Fatalf("unexpected error on reconcile %d: %v", i+1, err)
 				}
 				if got := admittedMetricValue(t); got != 0 {
@@ -2644,14 +2644,14 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				acName:        "ac1",
 			}
 
+			cl := wlClientBuilder.Build()
 			wlRec := &wlReconciler{
 				clock:          fakeClock,
 				dispatcherName: tt.dispatcherMode,
-				client:         wlClientBuilder.Build(),
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, err := wlRec.nominateAndSynchronizeWorkers(ctx, group)
+			_, err := wlRec.nominateAndSynchronizeWorkers(ctx, cl, group)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("expected error: %v, got: %v", tt.wantErr, err)
 			}
@@ -3202,7 +3202,6 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	}
 
 	reconciler := &wlReconciler{
-		client:            managerClient,
 		clock:             fakeClock,
 		origin:            defaultOrigin,
 		workerLostTimeout: defaultWorkerLostTimeout,
@@ -3210,7 +3209,7 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
 	}
 
-	gotResult, gotErr := reconciler.reconcileGroup(ctx, group)
+	gotResult, gotErr := reconciler.reconcileGroup(ctx, managerClient, group)
 	if gotErr != nil {
 		t.Fatalf("reconcileGroup returned unexpected error: %v", gotErr)
 	}

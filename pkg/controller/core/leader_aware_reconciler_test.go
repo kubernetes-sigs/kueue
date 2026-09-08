@@ -93,3 +93,69 @@ func TestLeaderAwareReconcilerNonLeadingDestinations(t *testing.T) {
 		t.Errorf("both requests decoded into %p, want a destination per request", destinations[0])
 	}
 }
+
+// Fake Reconciler that records which method was invoked
+type fakeObserverReconciler struct {
+	reconcileCalled bool
+	observeCalled   bool
+	lastClient      client.Client
+}
+
+func (f *fakeObserverReconciler) Reconcile(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error) {
+	f.reconcileCalled = true
+	f.lastClient = cl
+	return reconcile.Result{}, nil
+}
+
+func (f *fakeObserverReconciler) Observe(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error) {
+	f.observeCalled = true
+	f.lastClient = cl
+	return reconcile.Result{}, nil
+}
+
+// Table-driven test function
+func TestLeaderAwareReconcilerObserver(t *testing.T) {
+	cases := map[string]struct {
+		isLeader            bool
+		wantReconcileCalled bool
+		wantObserveCalled   bool
+	}{
+		"follower replica calls Observe": {
+			isLeader:            false,
+			wantReconcileCalled: false,
+			wantObserveCalled:   true,
+		},
+		"leader replica calls Reconcile": {
+			isLeader:            true,
+			wantReconcileCalled: true,
+			wantObserveCalled:   false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			elected := make(chan struct{})
+			if tc.isLeader {
+				close(elected) // Closed channel = Leader
+			}
+
+			fake := &fakeObserverReconciler{}
+			wrapper := &leaderAwareReconcilerObserver{
+				elected:  elected,
+				delegate: fake,
+			}
+
+			_, err := wrapper.Reconcile(t.Context(), reconcile.Request{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if fake.reconcileCalled != tc.wantReconcileCalled {
+				t.Errorf("got reconcileCalled=%v, want %v", fake.reconcileCalled, tc.wantReconcileCalled)
+			}
+			if fake.observeCalled != tc.wantObserveCalled {
+				t.Errorf("got observeCalled=%v, want %v", fake.observeCalled, tc.wantObserveCalled)
+			}
+		})
+	}
+}
