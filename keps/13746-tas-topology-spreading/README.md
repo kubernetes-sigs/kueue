@@ -121,9 +121,9 @@ want at most 45% of the inference pods in any single availability zone at the ti
 the next pod is placed there.
 
 Because each Deployment pod has its own `kueue.x-k8s.io/job-uid` label (the pod's
-own UID), the default `workloadLabelSelector` would only match the workload being
+own UID), the default `workloadLabelSelectors` would only match the workload being
 placed and not group all Deployment pods together. The team must specify an explicit
-`workloadLabelSelector` using a shared label (e.g., `app`) and ensure that label is
+`workloadLabelSelectors` using a shared label (e.g., `app`) and ensure that label is
 propagated to the Workload via `integrations.labelKeysToCopy`:
 
 ```yaml
@@ -147,7 +147,7 @@ spec:
       annotations:
         kueue.x-k8s.io/podset-topology-spreading: |
           {
-            "workloadLabelSelector": "app=main-inference-service",
+            "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}],
             "rules": [
               {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"}
             ]
@@ -198,7 +198,7 @@ spec:
 
 Because all 10 groups are created from a single LWS object, all their Workloads share
 the same `kueue.x-k8s.io/job-uid` label value (the LWS object's UID). Kueue defaults
-`workloadLabelSelector` to this label, so no explicit selector is required.
+`workloadLabelSelectors` to this label, so no explicit selector is required.
 
 #### Story 3: Serving a large AI inference model with multiple replicas using PodGroups
 
@@ -210,7 +210,7 @@ The team wants to ensure high availability when some of the racks go down, so th
 a rack to hold at most 45% of the PodGroups before the next one is placed there.
 
 Unlike LWS, PodGroups have no single parent object: each PodGroup is an independent set
-of Pods with no shared owner. Kueue therefore cannot default `workloadLabelSelector` to
+of Pods with no shared owner. Kueue therefore cannot default `workloadLabelSelectors` to
 a `kueue.x-k8s.io/job-uid` value — there is no job UID shared across all PodGroup
 replicas of the service. The selector must be specified explicitly:
 
@@ -228,7 +228,7 @@ metadata:
     kueue.x-k8s.io/podset-required-topology: cloud.provider.com/rack
     kueue.x-k8s.io/podset-topology-spreading: |
       {
-        "workloadLabelSelector": "app=large-inference-service",
+        "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["large-inference-service"]}],
         "rules": [
           {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
         ]
@@ -237,7 +237,7 @@ metadata:
 
 Each pod in the group carries the same annotations. The `app` label on each Pod is
 propagated to the Workload via `integrations.labelKeysToCopy`, making it available
-for the `workloadLabelSelector`.
+for the `workloadLabelSelectors`.
 
 #### Story 4: Soft spreading with limited capacity
 
@@ -317,7 +317,13 @@ The annotation value is a JSON object with the following structure:
 
 ```json
 {
-  "workloadLabelSelector": "<label-selector-string>",
+  "workloadLabelSelectors": [
+    {
+      "key": "<label-key>",
+      "operator": "In",
+      "values": ["<label-value>"]
+    }
+  ],
   "rules": [
     {
       "topologyKey": "<topology-level-key>",
@@ -328,10 +334,13 @@ The annotation value is a JSON object with the following structure:
 }
 ```
 
-`workloadLabelSelector` is optional. When omitted, it defaults to
-`kueue.x-k8s.io/job-uid=<value>`, where `<value>` is the `kueue.x-k8s.io/job-uid`
-label of the current workload. This means the spreading group is all workloads that
-share the same parent job (e.g., all groups from one LWS object).
+`workloadLabelSelectors` is optional. When omitted, it defaults to matching all
+workloads whose `kueue.x-k8s.io/job-uid` label equals that of the current workload.
+This means the spreading group is all workloads that share the same parent job
+(e.g., all groups from one LWS object).
+
+In alpha, at most one element is supported in the `workloadLabelSelectors` array,
+and only the `"In"` operator is supported.
 
 Example with two rules at different topology levels:
 
@@ -349,7 +358,7 @@ spec:
           annotations:
             kueue.x-k8s.io/podset-topology-spreading: |
               {
-                "workloadLabelSelector": "app=main-inference-service",
+                "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}],
                 "rules": [
                   {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"},
                   {"topologyKey": "cloud.google.com/gke-tpu-partition-4x4x4-id", "maxShareAllowingPlacement": "22%"}
@@ -361,7 +370,7 @@ The top-level JSON fields are:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `workloadLabelSelector` | string | no | `kueue.x-k8s.io/job-uid=<current-job-uid>` | A Kubernetes label selector string (e.g., `"app=my-service"`). Identifies which admitted workloads in the same namespace form the spreading group for counting purposes. When omitted, defaults to matching all workloads that share the same parent job UID. |
+| `workloadLabelSelectors` | array | no | `[{"key": "kueue.x-k8s.io/job-uid", "operator": "In", "values": ["<current-job-uid>"]}]` | A list of label selector requirements. Each requirement specifies a `key`, an `operator` (`"In"` only in alpha), and a `values` array. All requirements are ANDed together. Identifies which admitted workloads form the spreading group. When omitted, defaults to matching all workloads that share the same parent job UID. In alpha, at most one requirement is supported. |
 | `rules` | array | yes | — | One or more spreading rules. Each rule independently targets one topology level. At least one rule must be present. At most two rules may be specified in alpha. |
 
 Each element of `rules` is:
@@ -374,30 +383,41 @@ Each element of `rules` is:
 
 #### Field definitions
 
-**`workloadLabelSelector`**
+**`workloadLabelSelectors`**
 
-An optional Kubernetes label selector string, following the same syntax as
-`metav1.LabelSelector` but expressed as a compact string (the format accepted by
-`labels.Parse`). The selector is evaluated against the `metadata.labels` of every
-admitted `Workload` object in the same namespace. All workloads whose labels
-match the selector contribute to the domain counts, regardless of whether they
-themselves carry the `kueue.x-k8s.io/podset-topology-spreading` annotation.
+An optional list of label selector requirements. Each requirement has three fields:
 
-When omitted, the selector defaults to `kueue.x-k8s.io/job-uid=<value>`, where
-`<value>` is the `kueue.x-k8s.io/job-uid` label of the current workload. The
+| Sub-field | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | yes | The label key to match. |
+| `operator` | string | yes | The match operator. In alpha, only `"In"` is supported. |
+| `values` | array of string | yes | The set of label values. For the `"In"` operator, the workload's label value must equal one of these values. |
+
+All requirements in the array are ANDed together. This follows the same structure
+as `metav1.LabelSelectorRequirement` in the Kubernetes API. The selector is
+evaluated against the `metadata.labels` of every admitted `Workload` object in the
+same namespace. All workloads whose labels match contribute to the domain counts,
+regardless of whether they themselves carry the
+`kueue.x-k8s.io/podset-topology-spreading` annotation.
+
+In alpha, at most one requirement is supported in the array, and only the `"In"`
+operator is allowed.
+
+When omitted, the selector defaults to matching workloads whose
+`kueue.x-k8s.io/job-uid` label equals the current workload's job UID. The
 `kueue.x-k8s.io/job-uid` label is set automatically on every Workload by Kueue and
 requires no additional configuration. This default is appropriate for integrations
 where all spreading-group members share a common parent object (e.g., all replica
 groups created from one LWS object).
 
-When an explicit selector is used with custom labels (e.g., `"app=my-service"`),
-those labels must be propagated to the Workload via `integrations.labelKeysToCopy`:
+When an explicit selector is used with custom labels (e.g., `app`), those labels
+must be propagated to the Workload via `integrations.labelKeysToCopy`:
 
 > [!NOTE]
 > **Dependency on `integrations.labelKeysToCopy`**: Kueue does not copy all labels
 > from the underlying Job onto the created Workload automatically — only label keys
 > explicitly listed in `integrations.labelKeysToCopy` in the Kueue `Configuration`
-> are propagated. For example, to use `"workloadLabelSelector": "app=main-inference-service"`,
+> are propagated. For example, to use a selector with `"key": "app"`,
 > add `app` to `integrations.labelKeysToCopy`:
 >
 > ```yaml
@@ -444,8 +464,8 @@ individual PodSet name otherwise. This mirrors how TAS tracks topology assignmen
 
 **Spreading group.** The spreading group for a rule is the set of admitted
 Workloads in the namespace whose `metadata.labels` match the effective label
-selector (`workloadLabelSelector` if specified, otherwise
-`kueue.x-k8s.io/job-uid=<current-job-uid>`). Only Workloads with
+selector (`workloadLabelSelectors` if specified, otherwise the default job-uid
+selector). Only Workloads with
 `status.admission` set are counted; pending or suspended Workloads contribute
 nothing. A Workload need not carry the annotation to be counted — it only needs
 matching labels and a topology assignment at the relevant level. Workloads that do
@@ -498,12 +518,14 @@ Validation is split into two layers:
 
 1. If the PodSet template annotation `kueue.x-k8s.io/podset-topology-spreading` is
    present, its value must be valid JSON that parses according to the schema above:
-   an optional `workloadLabelSelector` string, and a `rules` array with 1–2 elements
-   (alpha milestone limit), each containing a valid `topologyKey`, a `maxShareAllowingPlacement`
-   string in the format `"X%"` where X is an integer in [1, 99], and an optional
-   `enforcementMode` of `"Required"` or `"Preferred"`.
-2. If `workloadLabelSelector` is present, it must be a syntactically valid
-   Kubernetes label selector string.
+   an optional `workloadLabelSelectors` array (at most one element in alpha), and a
+   `rules` array with 1–2 elements (alpha milestone limit), each containing a valid
+   `topologyKey`, a `maxShareAllowingPlacement` string in the format `"X%"` where X
+   is an integer in [1, 99], and an optional `enforcementMode` of `"Required"` or
+   `"Preferred"`.
+2. If `workloadLabelSelectors` is present, each requirement must have a non-empty
+   `key`, an `operator` of `"In"` (the only supported operator in alpha), and a
+   non-empty `values` array. At most one requirement may be specified in alpha.
 3. All `topologyKey` values within the `rules` array must be distinct. Two rules for the
    same topology key are rejected because the combined behavior would be ambiguous.
 4. For each distinct `kueue.x-k8s.io/podset-group-name` value in the workload,
@@ -652,8 +674,9 @@ The following unit tests will be added or extended:
 Concrete test cases:
 
 1. Workload webhook rejects creation when the annotation value is not valid JSON.
-2. Workload webhook rejects creation when `workloadLabelSelector` is present but
-   not a valid Kubernetes label selector.
+2. Workload webhook rejects creation when `workloadLabelSelectors` contains an
+   invalid requirement (empty key, unsupported operator, empty values, or more than
+   one element in alpha).
 3. Workload webhook rejects creation when `maxShareAllowingPlacement` is not in `"X%"` format with X in [1, 99].
 4. Workload webhook rejects creation when `rules` contains duplicate `topologyKey` values.
 5. Workload webhook rejects creation when PodSets within the same
@@ -851,8 +874,8 @@ approach was chosen instead because:
   on the workload's own pod template rather than being distributed across two
   separate objects. Operators debugging admission behavior can read all relevant
   configuration from a single `kubectl describe`.
-- The `workloadLabelSelector` field provides an equally clear and unambiguous
-  group identifier: all workloads whose labels match the selector are in the same
+- The `workloadLabelSelectors` field provides an equally clear and unambiguous
+  group identifier: all workloads whose labels match the selectors are in the same
   spreading group. Operators who want separate spreading groups use different
   label selectors.
 
