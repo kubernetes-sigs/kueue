@@ -361,7 +361,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		e := iterator.pop()
 		if err := s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Error while processing entry: %v", err)
-			e.quotaReservedReason = kueue.SchedulerAdmissionFailed
+			e.quotaReservedReason = kueue.WorkloadAdmittedReasonSchedulerAdmissionFailed
 		}
 	}
 
@@ -750,7 +750,7 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 		return e, true
 	} else {
 		e.inadmissibleMsg = fmt.Sprintf("Error while getting initial assignments: %v", err)
-		e.quotaReservedReason = kueue.SchedulerAdmissionFailed
+		e.quotaReservedReason = kueue.WorkloadAdmittedReasonSchedulerAdmissionFailed
 	}
 	return e, false
 }
