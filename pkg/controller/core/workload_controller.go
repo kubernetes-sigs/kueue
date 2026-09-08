@@ -1980,7 +1980,10 @@ func extendedResourceName(dc *resourcev1.DeviceClass) string {
 func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {
 	log := h.r.logger()
 
-	// Requeue only workloads that request the affected extended resources.
+	// Requeue only workloads that request the affected extended resources and have
+	// not reserved quota yet. A reserved Workload keeps the quota key resolved at
+	// reservation time: re-admitting it would need the DeviceClass the scheduler
+	// actually allocated from, which we don't watch today (#14563).
 	for _, name := range resourceNames {
 		if name == "" {
 			continue
