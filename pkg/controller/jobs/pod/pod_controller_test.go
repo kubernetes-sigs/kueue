@@ -8083,3 +8083,64 @@ func TestStop(t *testing.T) {
 		})
 	}
 }
+func TestReorderPodSets(t *testing.T) {
+	tests := map[string]struct {
+		podSets   []kueue.PodSet
+		reference []kueue.PodSet
+		want      []kueue.PodSet
+	}{
+		"reorders to match workload": {
+			podSets: []kueue.PodSet{
+				{Name: "worker"},
+				{Name: "leader"},
+			},
+			reference: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+		},
+		"keeps unmatched podsets": {
+			podSets: []kueue.PodSet{
+				{Name: "worker"},
+				{Name: "extra"},
+				{Name: "leader"},
+			},
+			reference: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+				{Name: "extra"},
+			},
+		},
+		"keeps podset order when already matching": {
+			podSets: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+			reference: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := reorderPodSets(tc.podSets, tc.reference)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("reorderPodSets() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
