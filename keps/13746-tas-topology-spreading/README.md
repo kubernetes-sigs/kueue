@@ -400,6 +400,8 @@ those labels must be propagated to the Workload via `integrations.labelKeysToCop
 > add `app` to `integrations.labelKeysToCopy`:
 >
 > ```yaml
+> apiVersion: config.kueue.x-k8s.io/v1beta2
+> kind: Configuration
 > integrations:
 >   labelKeysToCopy:
 >     - app
