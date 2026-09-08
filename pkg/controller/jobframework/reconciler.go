@@ -1652,27 +1652,19 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 // newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
 // and GroupVersionKind (GVK). If workload slicing is enabled, it includes the job's generation
 // in the generated workload name.
-func newWorkloadName(job GenericJob, extra string) string {
+func newWorkloadName(job GenericJob, probeExtra string) string {
 	object := job.Object()
 	if WorkloadSliceEnabled(job) {
-		// A caller-supplied extra (e.g. the scale-up-probe suffix, which encodes the
-		// admitted level) must not be silently discarded by ElasticWorkloadNameProvider:
-		// that provider's extra is generation-based and does not change across
-		// successive partial admissions within the same generation, so letting it
-		// override the caller's extra here would make repeated probes collide on the
-		// active workload's name instead of each requesting a distinct, larger
-		// admission. Combine both so each contributes to uniqueness.
-		if elasticWorkloadNameProvider, ok := job.(ElasticWorkloadNameProvider); ok {
-			providerExtra := elasticWorkloadNameProvider.GetWorkloadNameExtraPart()
-			if extra == "" {
-				extra = providerExtra
-			} else {
-				extra = providerExtra + "-" + extra
-			}
-		} else if extra == "" {
-			extra = strconv.FormatInt(object.GetGeneration(), 10)
+		// Keep both the job revision and admitted level in probe names to avoid
+		// collisions between revisions and successive partial admissions.
+		baseExtra := strconv.FormatInt(object.GetGeneration(), 10)
+		if provider, ok := job.(ElasticWorkloadNameProvider); ok {
+			baseExtra = provider.GetWorkloadNameExtraPart()
 		}
-		return GenerateWorkloadNameWithExtra(object.GetName(), object.GetUID(), job.GVK(), extra)
+		if probeExtra != "" {
+			baseExtra += "-" + probeExtra
+		}
+		return GenerateWorkloadNameWithExtra(object.GetName(), object.GetUID(), job.GVK(), baseExtra)
 	}
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
 }

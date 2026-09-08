@@ -91,19 +91,35 @@ func TestReconcileGenericJob(t *testing.T) {
 		Queue(testLocalQueueName).
 		PodSets(basePodSets...).
 		Priority(0)
+	elasticPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", 10).Obj()}
 	// No pod set assignments, so equivalence compares against the workload spec.
 	reservedIn := &kueue.Admission{ClusterQueue: "cq"}
 	reservedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+	elasticJob := baseJob.Clone().
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial)
+
+	partiallyAdmittedWorkload := baseWl.Clone().Name("job-test-job-prev").
+		PodSets(elasticPodSets...).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "job-test-job-prev").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("main").Count(3).Obj(),
+		).Obj(), reservedAt).
+		AdmittedAt(true, reservedAt).
+		Obj()
 
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
 		reconcilerOptions []Option
 		req               types.NamespacedName
 		job               *batchv1.Job
+		nameExtraPart     *string
 		podSets           []kueue.PodSet
 		objs              []client.Object
 		wantWorkloads     []kueue.Workload
 		wantEvents        []utiltesting.EventRecord
+		wantWorkloadNames []string
 		wantPodSets       []podset.PodSetInfo
 	}{
 		"handle job with no workload (elasticJobsViaWorkloadSlicesEnabled = false)": {
@@ -149,6 +165,47 @@ func TestReconcileGenericJob(t *testing.T) {
 						kueue.WorkloadSliceNameAnnotation:    "job-test-job-3991b",
 					}).
 					Obj(),
+			},
+		},
+		"elastic provider keeps non-probe name": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			req:           baseReq,
+			job:           elasticJob.Clone().Generation(7).Obj(),
+			nameExtraPart: new("provider-gen-7"),
+			podSets:       elasticPodSets,
+			wantWorkloadNames: []string{
+				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "provider-gen-7"),
+			},
+		},
+		"elastic provider composes probe name": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			req:           baseReq,
+			job:           elasticJob.Clone().Generation(7).Obj(),
+			nameExtraPart: new("provider-gen-7"),
+			podSets:       elasticPodSets,
+			objs:          []client.Object{partiallyAdmittedWorkload.DeepCopy()},
+			wantWorkloadNames: []string{
+				"job-test-job-prev",
+				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "provider-gen-7-scale-up-probe-3"),
+			},
+		},
+		"elastic non-provider composes probe name": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			req:     baseReq,
+			job:     elasticJob.Clone().Generation(7).Obj(),
+			podSets: elasticPodSets,
+			objs:    []client.Object{partiallyAdmittedWorkload.DeepCopy()},
+			wantWorkloadNames: []string{
+				"job-test-job-prev",
+				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-3"),
 			},
 		},
 		"update workload to match job (one existing workload)": {
@@ -630,6 +687,15 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
+			var genericJob GenericJob = mgj
+			if tc.nameExtraPart != nil {
+				provider := mocks.NewMockElasticWorkloadNameProvider(mockctrl)
+				provider.EXPECT().GetWorkloadNameExtraPart().Return(*tc.nameExtraPart).AnyTimes()
+				genericJob = &struct {
+					*mocks.MockGenericJob
+					*mocks.MockElasticWorkloadNameProvider
+				}{mgj, provider}
+			}
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
 				WithObjects(utiltesting.MakeNamespace(tc.req.Namespace)).
 				WithObjects(tc.objs...).
@@ -639,7 +705,7 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
-			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, mgj)
+			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, genericJob)
 			if err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 			}
@@ -650,7 +716,15 @@ func TestReconcileGenericJob(t *testing.T) {
 				t.Fatalf("Failed to List workloads: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.wantWorkloads, wls.Items, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
+			if tc.wantWorkloadNames != nil {
+				gotNames := sets.New[string]()
+				for i := range wls.Items {
+					gotNames.Insert(wls.Items[i].Name)
+				}
+				if diff := cmp.Diff(sets.New(tc.wantWorkloadNames...), gotNames); diff != "" {
+					t.Errorf("Workload names mismatch (-want +got):\n%s", diff)
+				}
+			} else if diff := cmp.Diff(tc.wantWorkloads, wls.Items, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
 				t.Errorf("Workloads mismatch (-want +got):\n%s", diff)
 			}
 
@@ -1480,15 +1554,6 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 	}
 }
 
-type mockElasticWorkloadNameProviderJob struct {
-	*mocks.MockGenericJob
-	nameExtraPart string
-}
-
-func (j *mockElasticWorkloadNameProviderJob) GetWorkloadNameExtraPart() string {
-	return j.nameExtraPart
-}
-
 func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
@@ -1529,16 +1594,13 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 
 	cases := map[string]struct {
 		job             client.Object
-		nameExtraPart   string
 		podSets         []kueue.PodSet
 		existingObjects []client.Object
 		wantCounts      map[kueue.PodSetReference]int32
 		wantMinCounts   map[kueue.PodSetReference]*int32
-		wantName        string
 	}{
 		"initial creation without previous admitted workload": {
-			job:           job,
-			nameExtraPart: "provider-gen-1",
+			job: job,
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
 				{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
@@ -1554,11 +1616,9 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-reservation"): new(int32(4)),
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
-			wantName: GenerateWorkloadNameWithExtra(job.Name, job.UID, gvk, "provider-gen-1"),
 		},
 		"scale-up with previous admitted workload sets minCount and probe extra": {
-			job:           job,
-			nameExtraPart: "provider-gen-1",
+			job: job,
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
 				{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
@@ -1575,7 +1635,6 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-reservation"): new(int32(2)),
 				kueue.PodSetReference("workers-spot"):        new(int32(5)),
 			},
-			wantName: GenerateWorkloadNameWithExtra(job.Name, job.UID, gvk, "provider-gen-1-scale-up-probe-6"),
 		},
 	}
 
@@ -1586,10 +1645,6 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
 			mgj.EXPECT().GVK().Return(gvk).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
-			var genericJob GenericJob = mgj
-			if tc.nameExtraPart != "" {
-				genericJob = &mockElasticWorkloadNameProviderJob{MockGenericJob: mgj, nameExtraPart: tc.nameExtraPart}
-			}
 
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
 			objects := append([]client.Object{ns}, tc.existingObjects...)
@@ -1598,7 +1653,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
 				Build()
 
-			wl, err := ConstructWorkload(ctx, cl, genericJob, nil, nil)
+			wl, err := ConstructWorkload(ctx, cl, mgj, nil, nil)
 			if err != nil {
 				t.Fatalf("ConstructWorkload failed: %v", err)
 			}
@@ -1630,9 +1685,6 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 						t.Errorf("expected minCount=%d for podset %q, got %d", *wantMin, ps.Name, *ps.MinCount)
 					}
 				}
-			}
-			if wl.Name != tc.wantName {
-				t.Errorf("workload name = %q, want %q", wl.Name, tc.wantName)
 			}
 		})
 	}
