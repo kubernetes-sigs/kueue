@@ -100,6 +100,8 @@ var (
 	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",reason="the eviction reason reported by the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsEvictedTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the manager ClusterQueue referencing the worker cluster",cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueClusterByStatus *prometheus.GaugeVec
 
