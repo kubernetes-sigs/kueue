@@ -155,7 +155,7 @@ spec:
           {
             "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}],
             "rules": [
-              {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"}
+              {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "0.45"}
             ]
           }
 ```
@@ -186,7 +186,7 @@ spec:
           kueue.x-k8s.io/podset-topology-spreading: |
             {
               "rules": [
-                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
+                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "0.45"}
               ]
             }
     workerTemplate:
@@ -197,7 +197,7 @@ spec:
           kueue.x-k8s.io/podset-topology-spreading: |
             {
               "rules": [
-                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
+                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "0.45"}
               ]
             }
 ```
@@ -236,7 +236,7 @@ metadata:
       {
         "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["large-inference-service"]}],
         "rules": [
-          {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "45%"}
+          {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "0.45"}
         ]
       }
 ```
@@ -264,7 +264,7 @@ spec:
         kueue.x-k8s.io/podset-topology-spreading: |
           {
             "rules": [
-              {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%", "enforcementMode": "Preferred"}
+              {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "0.45", "enforcementMode": "Preferred"}
             ]
           }
 ```
@@ -289,15 +289,15 @@ examples. In particular, the following reference table maps value ranges to the
 minimum number of domains opened initially and to example steady-state
 distributions:
 
-| `maxShareAllowingPlacement` | Minimum domains before reuse | Example steady-state shares |
+| `maxShareAllowingPlacement` | Minimum domains before reuse | Example steady-state shares (%) |
 |---:|---:|---|
-| `"50%"`–`"99%"` | 2 | `"50%"` → `[50, 50]`; `"60%"` → `[60, 40]`; `"80%"` → `[80, 20]` |
-| `"34%"`–`"49%"` | 3 | `"34%"` → `[34, 34, 32]`; `"40%"` → `[40, 40, 20]`; `"45%"` → `[45, 45, 10]` |
-| `"25%"`–`"33%"` | 4 | `"25%"` → `[25, 25, 25, 25]`; `"30%"` → `[30, 30, 30, 10]`; `"33%"` → `[33, 33, 33, 1]` |
-| `"20%"`–`"24%"` | 5 | `"20%"` → `[20, 20, 20, 20, 20]`; `"22%"` → `[22, 22, 22, 22, 12]`; `"24%"` → `[24, 24, 24, 24, 4]` |
+| `"0.5"`–`"0.99"` | 2 | `"0.5"` → `[50, 50]`; `"0.6"` → `[60, 40]`; `"0.8"` → `[80, 20]` |
+| `"0.34"`–`"0.49"` | 3 | `"0.34"` → `[34, 34, 32]`; `"0.4"` → `[40, 40, 20]`; `"0.45"` → `[45, 45, 10]` |
+| `"0.25"`–`"0.33"` | 4 | `"0.25"` → `[25, 25, 25, 25]`; `"0.3"` → `[30, 30, 30, 10]`; `"0.33"` → `[33, 33, 33, 1]` |
+| `"0.2"`–`"0.24"` | 5 | `"0.2"` → `[20, 20, 20, 20, 20]`; `"0.22"` → `[22, 22, 22, 22, 12]`; `"0.24"` → `[24, 24, 24, 24, 4]` |
 
-The general rule is: a value of `maxShareAllowingPlacement = "V%"` opens
-`ceil(100 / V)` domains before any domain is reused.
+The general rule is: a value of `maxShareAllowingPlacement = V` opens
+`ceil(1 / V)` domains before any domain is reused.
 
 #### Performance impact of counting PodSet groups per domain
 
@@ -333,7 +333,7 @@ The annotation value is a JSON object with the following structure:
   "rules": [
     {
       "topologyKey": "<topology-level-key>",
-      "maxShareAllowingPlacement": "45%",
+      "maxShareAllowingPlacement": "0.45",
       "enforcementMode": "Required"
     }
   ]
@@ -370,8 +370,8 @@ spec:
               {
                 "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}],
                 "rules": [
-                  {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "45%"},
-                  {"topologyKey": "cloud.google.com/gke-tpu-partition-4x4x4-id", "maxShareAllowingPlacement": "22%"}
+                  {"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "0.45"},
+                  {"topologyKey": "cloud.google.com/gke-tpu-partition-4x4x4-id", "maxShareAllowingPlacement": "0.22"}
                 ]
               }
 ```
@@ -388,7 +388,7 @@ Each element of `rules` is:
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `topologyKey` | string | yes | — | The topology level key for this rule. Must correspond to one of the `spec.levels[].nodeLabel` values in the `Topology` resource referenced by the evaluated `ResourceFlavor`'s `spec.topologyName`. Not validated at annotation creation time — validation happens at scheduling time. |
-| `maxShareAllowingPlacement` | string | yes | — | Percentage string in the format `"X%"` where X is a whole integer in [1, 99] (e.g., `"45%"`). Fractional values such as `"33.33%"` are rejected. A domain is eligible to receive the next PodSet group only if its current share of the total is at most this value. |
+| `maxShareAllowingPlacement` | resource.Quantity | yes | — | A fractional share in the range (0, 1) expressed as a `resource.Quantity` (e.g., `"0.45"` for 45%). A domain is eligible to receive the next PodSet group only if its current share of the total is at most this value. |
 | `enforcementMode` | string | no | `"Required"` | Enforcement mode: `"Required"` blocks admission into over-threshold domains; `"Preferred"` deprioritizes them via spread-aware domain ordering but still allows admission. |
 
 #### Field definitions
@@ -448,9 +448,11 @@ must be propagated to the Workload via `integrations.labelKeysToCopy`:
 
 **`maxShareAllowingPlacement`**
 
-A string in the format `"X%"` where X is a whole (non-decimal) integer in the range
-[1, 99] (e.g., `"45%"`). Fractional values such as `"33.33%"` are rejected by the
-Workload webhook with a validation error — only whole-number percentages are accepted.
+A fractional share expressed as a `resource.Quantity` in the range (0, 1) exclusive
+(e.g., `"0.45"` for 45%). The value is
+parsed via JSON unmarshaling into `resource.Quantity`, so any valid quantity
+representation is accepted; values outside (0, 1) are rejected by the Workload
+webhook with a validation error.
 It is a before-placement gate: a domain is eligible to receive the next PodSet group
 only if the domain's current share of the total admitted PodSet groups in the
 spreading group is at most this value. In other words, `maxShareAllowingPlacement` is
@@ -498,10 +500,10 @@ For a given domain `D` and rule with `topologyKey` K, let:
 A domain `D` is admissible for a new PodSet group if and only if:
 
 ```text
-N == 0 || 100 * count(D) <= maxShareAllowingPlacement * N
+N == 0 || count(D) <= maxShareAllowingPlacement * N
 ```
 
-where `maxShareAllowingPlacement` is the integer value parsed from the field (e.g., `45` for `"45%"`).
+where `maxShareAllowingPlacement` is the fractional value parsed from the field.
 The check is performed **before** the new group is counted — `count(D)` and `N`
 reflect only the currently admitted groups, not the candidate being placed.
 
@@ -510,11 +512,11 @@ admissible — the first PodSet group can always be placed regardless of which
 domain is selected (cold-start case).
 
 The `<=` means a domain whose current share is exactly `maxShareAllowingPlacement`
-percent of the total is still eligible to receive the next group. A domain
+of the total is still eligible to receive the next group. A domain
 becomes ineligible only when its share strictly exceeds the threshold.
 
 The following example illustrates the formula for 3 domains and
-`maxShareAllowingPlacement: "34%"` (each row represents one incoming PodSet group):
+`maxShareAllowingPlacement: "0.34"` (each row represents one incoming PodSet group):
 
 | PodSet group # | Domain A (count → %) | Domain B (count → %) | Domain C (count → %) | Placed in |
 |---|---|---|----------------------|---|
@@ -535,8 +537,8 @@ Validation is split into two layers:
    present, its value must be valid JSON that parses according to the schema above:
    an optional `workloadLabelSelectors` array (at most one element in alpha), and a
    `rules` array with 1–2 elements (alpha milestone limit), each containing a valid
-   `topologyKey`, a `maxShareAllowingPlacement` string in the format `"X%"` where X
-   is an integer in [1, 99], and an optional `enforcementMode` of `"Required"` or
+   `topologyKey`, a `maxShareAllowingPlacement` value parseable as a `resource.Quantity`
+   in the range (0, 1) exclusive, and an optional `enforcementMode` of `"Required"` or
    `"Preferred"`.
 2. If `workloadLabelSelectors` is present, each requirement must have a non-empty
    `key`, an `operator` of `"In"` (the only supported operator in alpha), and a
@@ -588,12 +590,12 @@ admitted and is not included.
 From the per-domain PodSet group counts, two derived sets are computed for each rule:
 
 - **Banned domains** (applies to `Required` rules): domains where
-  `N > 0 && 100 * count(D) > maxShareAllowingPlacement * N`. **Candidates whose
+  `N > 0 && count(D) > maxShareAllowingPlacement * N`. **Candidates whose
   topology domain is banned are removed from the candidate list** — the entire
   candidate entry is dropped, not just individual nodes within it. When `N == 0`
   no domain is banned.
 - **Over-threshold domains** (applies to `Preferred` rules): domains where
-  `N > 0 && 100 * count(D) > maxShareAllowingPlacement * N`. These domains remain
+  `N > 0 && count(D) > maxShareAllowingPlacement * N`. These domains remain
   in the candidate list but are placed in a lower-priority scoring tier (see
   [Scoring](#scoring) below).
 
@@ -695,7 +697,9 @@ Concrete test cases:
 3. Workload mutating webhook injects the job-uid-based default into the annotation
    when `workloadLabelSelectors` is omitted, so the stored annotation always
    contains an explicit selector.
-4. Workload webhook rejects creation when `maxShareAllowingPlacement` is not in `"X%"` format with X a whole integer in [1, 99] — including fractional values such as `"33.33%"`.
+4. Workload webhook rejects creation when `maxShareAllowingPlacement` is not 
+   parseable as a `resource.Quantity`, or the parsed value is not in the range (0, 1) 
+   exclusive.
 5. Workload webhook rejects creation when `rules` contains duplicate `topologyKey` values.
 6. Workload webhook rejects creation when PodSets within the same
    `kueue.x-k8s.io/podset-group-name` group carry different annotation values (or
