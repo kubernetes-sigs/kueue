@@ -78,7 +78,7 @@ import (
 const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
-	fullScaleUpProbeExtra       = "full-scaleup-probe"
+	scaleUpProbeExtra           = "scale-up-probe"
 )
 
 var (
@@ -1476,7 +1476,10 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 // EquivalentToWorkload checks if the job corresponds to the workload
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
-	if owner.Name != job.Object().GetName() {
+	// A Workload without a controller owner reference cannot belong to this job.
+	// The owner index that selects candidates matches any owner reference, not only
+	// controller ones, so wl may reach here with no controller owner.
+	if owner == nil || owner.Name != job.Object().GetName() {
 		return false, nil
 	}
 
@@ -1493,7 +1496,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	if err != nil {
 		return false, err
 	}
-	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
+	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
 	opts := make([]equality.ComparePodSetsOption, 0, 2)
 	if workload.IsAdmitted(wl) {
@@ -1671,7 +1674,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 	extra := ""
-	if WorkloadSliceEnabled(job) {
+	if shouldCreatePartialScaleUpProbe(job) {
 		extra, err = prepareWorkloadSliceForScaleUp(ctx, c, job, podSets)
 		if err != nil {
 			return nil, err
@@ -1700,19 +1703,23 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	return wl, nil
 }
 
+// shouldCreatePartialScaleUpProbe reports whether the job takes the partial
+// replica scale-up path for its workload slices.
+func shouldCreatePartialScaleUpProbe(job GenericJob) bool {
+	return WorkloadSliceEnabled(job) &&
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		job.Object().GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial
+}
+
 func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job GenericJob, podSets []kueue.PodSet) (string, error) {
 	object := job.Object()
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) ||
-		object.GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] != constants.ElasticJobScaleUpStrategyPartial {
-		return "", nil
-	}
 	prevWl, err := workloadslicing.FindLatestActiveWorkload(ctx, c, object, job.GVK())
 	if err != nil {
 		return "", err
 	}
 	extra := ""
-	if prevWl != nil && workload.HasQuotaReservation(prevWl) {
-		extra = fullScaleUpProbeExtra
+	if prevWl != nil {
+		extra = scaleUpProbeExtra
 		if len(prevWl.Spec.PodSets) != len(podSets) {
 			extra = ""
 		} else {
@@ -1723,11 +1730,23 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			}
 		}
 		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
+		admitted := int32(0)
 		for i := range podSets {
-			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok && podSets[i].Count > prevAdmittedCount {
+			prevAdmittedCount, ok := grantedCounts[podSets[i].Name]
+			if !ok {
+				continue
+			}
+			admitted += prevAdmittedCount
+			if podSets[i].Count > prevAdmittedCount {
 				minCount := prevAdmittedCount + 1
 				podSets[i].MinCount = &minCount
 			}
+		}
+		if extra != "" {
+			// The admitted level the probe is issued against. It grows with every partial
+			// admission, so successive probes within one scale event get distinct names,
+			// while a retry against an unchanged level reuses the same one.
+			extra = fmt.Sprintf("%s-%d", extra, admitted)
 		}
 	}
 	return extra, nil
@@ -1803,12 +1822,22 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		return err
 	}
 
-	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
-
-	if WorkloadSliceEnabled(job) {
-		return prepareWorkloadSlice(ctx, r.client, job, wl)
+	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before
+	// clearUnusableMinCounts: MinCountsUsable recognizes elastic workloads by that annotation and
+	// would otherwise drop the minCounts of elastic partial scale-up workloads before the annotation
+	// exists to protect them.
+	workloadSliceEnabled := WorkloadSliceEnabled(job)
+	if workloadSliceEnabled {
+		if err := prepareWorkloadSlice(ctx, r.client, job, wl); err != nil {
+			return err
+		}
 	}
-	wl.Spec.Active = active
+
+	wl.Spec.PodSets = clearUnusableMinCounts(wl.Spec.PodSets, wl)
+
+	if !workloadSliceEnabled {
+		wl.Spec.Active = active
+	}
 	return nil
 }
 
@@ -2066,9 +2095,12 @@ func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return b.Complete(r)
 }
 
-// clearMinCountsIfFeatureDisabled sets the minCount for all podSets to nil if the PartialAdmission feature is not enabled
-func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
-	if features.Enabled(features.PartialAdmission) || len(in) == 0 {
+// clearUnusableMinCounts sets the minCount for all podSets to nil when no feature honors MinCount
+// for wl, so that a disabled feature's leftover minCount cannot be acted upon. The podSets are
+// passed separately from wl because callers compare job-derived podSets against wl, which supplies
+// only the feature/annotation state for the decision.
+func clearUnusableMinCounts(in []kueue.PodSet, wl *kueue.Workload) []kueue.PodSet {
+	if len(in) == 0 || workload.MinCountsUsable(wl) {
 		return in
 	}
 	for i := range in {

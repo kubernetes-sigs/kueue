@@ -109,14 +109,29 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			},
 			wantErrNum: 2, // forbidden with slice-required-topology AND slice-size
 		},
-		"invalid: with podset-group-name": {
-			featureGates: map[featuregate.Feature]bool{features.TASMultiLayerTopology: true},
+		"invalid: with podset-group-name when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:   true,
+				features.TASGroupedPodSetSlicing: false,
+			},
 			annotations: map[string]string{
 				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
 				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16}]`,
 				kueue.PodSetGroupName:                                  "group1",
 			},
-			wantErrNum: 1, // podset-group-name forbidden with constraints
+			wantErrNum: 1, // podset-group-name forbidden with constraints when feature gate is disabled
+		},
+		"valid: with podset-group-name when TASGroupedPodSetSlicing is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:   true,
+				features.TASGroupedPodSetSlicing: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16}]`,
+				kueue.PodSetGroupName:                                  "group1",
+			},
+			wantErrNum: 0,
 		},
 		"invalid: feature gate disabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -150,6 +165,98 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
+			meta := &metav1.ObjectMeta{
+				Annotations: tc.annotations,
+			}
+			errs := ValidateTASPodSetRequest(replicaPath, meta)
+			if got := len(errs); got != tc.wantErrNum {
+				t.Errorf("ValidateTASPodSetRequest() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			}
+		})
+	}
+}
+
+func TestValidateTASPodSetRequest_GroupingWithSlicing(t *testing.T) {
+	replicaPath := field.NewPath("spec", "template", "metadata")
+
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		annotations  map[string]string
+		wantErrNum   int
+	}{
+		"valid: podset grouping with 2-level slicing and required topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                       "group1",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetSliceSizeAnnotation:             "4",
+			},
+			wantErrNum: 0,
+		},
+		"valid: podset grouping with 2-level slicing and preferred topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                       "group1",
+				kueue.PodSetPreferredTopologyAnnotation:     "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetSliceSizeAnnotation:             "4",
+			},
+			wantErrNum: 0,
+		},
+		"valid: podset grouping with multi-layer slicing and required topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                                  "group1",
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":4}]`,
+			},
+			wantErrNum: 0,
+		},
+		"invalid: podset grouping with 2-level slicing when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: false,
+			},
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                       "group1",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetSliceSizeAnnotation:             "4",
+			},
+			wantErrNum: 2,
+		},
+		"invalid: podset grouping with multi-layer slicing when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:   true,
+				features.TASGroupedPodSetSlicing: false,
+			},
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                                  "group1",
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":4}]`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: podset grouping with 2-level slicing but neither required nor preferred topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                       "group1",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetSliceSizeAnnotation:             "4",
+			},
+			wantErrNum: 1,
+		},
+		"invalid: podset grouping with slice size missing slice required topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                  "group1",
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetSliceSizeAnnotation:        "4",
+			},
+			wantErrNum: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if tc.featureGates != nil {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			}
 			meta := &metav1.ObjectMeta{
 				Annotations: tc.annotations,
 			}

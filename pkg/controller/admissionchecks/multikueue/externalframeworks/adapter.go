@@ -49,14 +49,6 @@ var (
 	_ jobframework.MultiKueueWatcher = (*Adapter)(nil)
 )
 
-// NewAdapter creates a new adapter for the given GVK.
-func NewAdapter(gvk schema.GroupVersionKind) jobframework.MultiKueueAdapter {
-	return &Adapter{
-		gvk:           gvk,
-		frameworkName: gvk.String(),
-	}
-}
-
 // FrameworkName returns the name used to configure this external framework.
 func (a *Adapter) FrameworkName() string {
 	return a.frameworkName

@@ -534,6 +534,11 @@ const (
 	// to complete to prevent quota stealing and thrashing during desynchronized evictions.
 	PrioritizePreemptorWorkloads featuregate.Feature = "PrioritizePreemptorWorkloads"
 
+	// owner: @pajakd
+	//
+	// Enable PodSet slicing alongside PodSet grouping in TAS.
+	TASGroupedPodSetSlicing featuregate.Feature = "TASGroupedPodSetSlicing"
+
 	// owner: @ivnovakov
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
@@ -640,6 +645,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASReplaceNodeOnNodeTaints:                   {TopologyAwareScheduling},
 	TASMultiLayerTopology:                        {TopologyAwareScheduling},
 	TASRespectNodeAffinityPreferred:              {TopologyAwareScheduling},
+	TASGroupedPodSetSlicing:                      {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:            {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                  {TopologyAwareScheduling},
 	TASProfileMixed:                              {TopologyAwareScheduling},
@@ -905,6 +911,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	TASCacheTopologyTree: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASGroupedPodSetSlicing: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
