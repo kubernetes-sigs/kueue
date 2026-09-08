@@ -74,6 +74,7 @@ linters:
     modernize:
       disable:
         - omitzero
+        - embedlit
     usetesting:
       os-temp-dir: true
       context-background: true

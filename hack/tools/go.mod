@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue/hack/tools
 
-go 1.26.0
+go 1.27.0
 
 tool (
 	github.com/gohugoio/hugo
@@ -37,7 +37,6 @@ require (
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.2.4
 	k8s.io/code-generator v0.36.4 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
-	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1
 	sigs.k8s.io/controller-tools v0.21.0
 	sigs.k8s.io/dra-example-driver v0.4.0
@@ -526,6 +525,7 @@ require (
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
 	oras.land/oras-go/v2 v2.6.2 // indirect
 	rsc.io/qr v0.2.0 // indirect
+	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
 	sigs.k8s.io/controller-runtime v0.24.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
