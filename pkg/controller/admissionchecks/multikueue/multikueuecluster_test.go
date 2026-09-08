@@ -30,6 +30,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -54,6 +55,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1828,5 +1831,29 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 	case <-stopped:
 	case <-time.After(30 * time.Second):
 		t.Fatal("StopWatchers did not return: the watcher goroutine was never joined")
+	}
+}
+
+func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
+	metrics.MultiKueueClusterByStatus.Reset()
+	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{})
+
+	// The same ClusterQueue references both workers.
+	metrics.ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, nil)
+	metrics.ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, nil)
+
+	reconciler.stopAndRemoveCluster("worker1")
+
+	// worker1 series are dropped so a deleted cluster stops reporting as active,
+	// while other clusters keep their series.
+	if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != len(metrics.ConditionStatusValues) {
+		t.Errorf("expected only worker2 series to remain, got %d series", got)
+	}
+	if got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected worker2 to still be reported as active, got %v", got)
 	}
 }
