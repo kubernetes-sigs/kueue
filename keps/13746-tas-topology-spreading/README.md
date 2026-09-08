@@ -393,6 +393,7 @@ groups created from one LWS object).
 When an explicit selector is used with custom labels (e.g., `"app=my-service"`),
 those labels must be propagated to the Workload via `integrations.labelKeysToCopy`:
 
+> [!NOTE]
 > **Dependency on `integrations.labelKeysToCopy`**: Kueue does not copy all labels
 > from the underlying Job onto the created Workload automatically — only label keys
 > explicitly listed in `integrations.labelKeysToCopy` in the Kueue `Configuration`
