@@ -97,6 +97,12 @@ assumes individual pods are spread.
 - Continuous rebalancing or eviction of already-admitted workloads when a                                                                                 
   spreading constraint is later violated; spreading is enforced only at                                                                                   
   admission time.
+- Elastic workload resize (e.g. via WorkloadSlice scale-up or scale-down);
+  spreading is designed for fixed-size workloads. Rolling updates in Deployment
+  and LWS are handled naturally — each replica is an independent Workload that
+  is admitted and deleted individually, so spreading rules apply at each
+  admission event without special handling. Support for elastic resize will be
+  re-evaluated in a later milestone.
 
 ## Proposal
 
