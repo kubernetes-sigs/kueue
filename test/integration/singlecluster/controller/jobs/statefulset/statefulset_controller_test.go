@@ -224,6 +224,66 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
 		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should resize the workload when the StatefulSet scales up from zero to a different size", func() {
+		ginkgo.By("Creating a StatefulSet with replicas=3")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(3).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Waiting for the workload to be admitted with 3 pods")
+		wlName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		wlKey := types.NamespacedName{Name: wlName, Namespace: ns.Name}
+		wl := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(3)))
+			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Scaling the StatefulSet to zero")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Spec.Replicas = new(int32(0))
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload is put on hold")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			cond := findWorkloadCondition(wl, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).ShouldNot(gomega.BeNil())
+			g.Expect(cond.Reason).Should(gomega.Equal(kueue.WorkloadOnHold))
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Scaling the StatefulSet up to 5")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Spec.Replicas = new(int32(5))
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload is resized to 5 and re-admitted at that size")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+
+		ginkgo.By("Verifying the resized count is stable")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
 })
 
 func findWorkloadCondition(wl *kueue.Workload, condType string) *metav1.Condition {
