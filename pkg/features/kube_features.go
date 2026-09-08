@@ -676,6 +676,12 @@ const (
 	// Note: This feature can be promoted to "beta" once https://github.com/kubernetes-sigs/kueue/issues/14543
 	// is fixed because it might boost chances for issue #14543 to appear.
 	FairSharingReevaluatePreemptionCandidates featuregate.Feature = "FairSharingReevaluatePreemptionCandidates"
+
+	// owner: @alien1403
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/14973
+	//
+	// Reuse clientConnection (QPS and Burst) for MultiKueue worker clusters instead of creating a new client for each request.
+	MultiKueueReuseClientConnectionConfigForWorkers featuregate.Feature = "MultiKueueReuseClientConnectionConfigForWorkers"
 )
 
 func init() {
@@ -1026,6 +1032,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	FairSharingReevaluatePreemptionCandidates: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	MultiKueueReuseClientConnectionConfigForWorkers: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
