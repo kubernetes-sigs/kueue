@@ -123,6 +123,15 @@ scheduling it on a healthy cluster. When a worker reconnects, the manager
 performs a fresh `List` to rebuild the TAS cache for that cluster and re-evicts
 workloads on the workload which were evicted while it was disconnected.
 
+**Risk:** Topology on selected worker cluster is incompatible with manager cluster.
+
+**Mitigation:** The manager cluster will watch Topology resources on the worker
+clusters and deactivate the manager ClusterQueue when any of the workers'
+Topologies are incompatible with any of the Topologies reachable from
+the ClusterQueue on the manager cluster. A worker's Topology is considered
+compatible with the manager's Topology when the worker's Topology defines at
+least the same levels as the manager's Topology in the same order.
+
 ## Drawbacks
 
 - **Scalability Limits**: Centralizing all node and pod state into a single
