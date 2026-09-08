@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package core
+package dqo
 
 import (
 	"testing"
@@ -37,9 +37,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
+func TestDynamicQuotaOrchestratorDistribution(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
-	halfMultiplier := resource.MustParse("0.5")
 
 	timeNow := time.Now()
 	timeEarlier := timeNow.Add(-10 * time.Minute)
@@ -56,276 +55,6 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 		wantClusterQueues []*kueue.ClusterQueue
 		wantErr           bool
 	}{
-		"discovery-only: provider not found": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("non-existent-provider", nil).
-				Obj(),
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("non-existent-provider", nil).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
-					Message: "CapacityProvider \"non-existent-provider\" not found",
-				}).
-				Obj(),
-			wantErr: false,
-		},
-		"discovery-only: provider not ready (no condition)": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-			capacityProviders: []*kueuealpha.CapacityProvider{
-				utiltestingalpha.MakeCapacityProvider("cp-1").Obj(),
-			},
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("cp-1", nil).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
-					Message: "CapacityProvider \"cp-1\" is not synchronized",
-				}).
-				Obj(),
-			wantErr: false,
-		},
-		"discovery-only: single provider aggregated successfully": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-			capacityProviders: []*kueuealpha.CapacityProvider{
-				utiltestingalpha.MakeCapacityProvider("cp-1").
-					OrchestratedFlavors("default-flavor").
-					Condition(metav1.Condition{
-						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
-						Status: metav1.ConditionTrue,
-						Reason: kueuealpha.CapacityProviderReasonSynchronized,
-					}).
-					Capacity(utiltestingalpha.MakeNormalizedCapacity().
-						Flavors(
-							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
-								Resource(corev1.ResourceCPU, "100").
-								Resource(corev1.ResourceMemory, "50Gi").
-								Obj(),
-						).
-						Obj()).
-					Obj(),
-			},
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("cp-1", nil).
-				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors(
-						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
-							Resource(corev1.ResourceCPU, "100").
-							Resource(corev1.ResourceMemory, "50Gi").
-							Obj(),
-					).
-					Obj(),
-				).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
-					Message: "Aggregated capacity successfully computed",
-				}).
-				Obj(),
-		},
-		"discovery-only: multiple providers with multipliers": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("cp-1", &halfMultiplier).
-				DiscoveryProvider("cp-2", &halfMultiplier).
-				Obj(),
-			capacityProviders: []*kueuealpha.CapacityProvider{
-				utiltestingalpha.MakeCapacityProvider("cp-1").
-					OrchestratedFlavors("default-flavor").
-					Condition(metav1.Condition{
-						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
-						Status: metav1.ConditionTrue,
-						Reason: kueuealpha.CapacityProviderReasonSynchronized,
-					}).
-					Capacity(utiltestingalpha.MakeNormalizedCapacity().
-						Flavors(
-							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
-								Resource(corev1.ResourceCPU, "100").
-								Obj(),
-						).
-						Obj()).
-					Obj(),
-				utiltestingalpha.MakeCapacityProvider("cp-2").
-					OrchestratedFlavors("default-flavor", "gpu-flavor").
-					Condition(metav1.Condition{
-						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
-						Status: metav1.ConditionTrue,
-						Reason: kueuealpha.CapacityProviderReasonSynchronized,
-					}).
-					Capacity(utiltestingalpha.MakeNormalizedCapacity().
-						Flavors(
-							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
-								Resource(corev1.ResourceCPU, "200").
-								Obj(),
-							utiltestingalpha.MakeNormalizedCapacityFlavor("gpu-flavor").
-								Resource("nvidia.com/gpu", "8").
-								Obj(),
-						).
-						Obj()).
-					Obj(),
-			},
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
-				DiscoveryProvider("cp-1", &halfMultiplier).
-				DiscoveryProvider("cp-2", &halfMultiplier).
-				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors(
-						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
-							Resource(corev1.ResourceCPU, "150").
-							Obj(),
-						*utiltestingalpha.MakeEffectiveCapacityFlavor("gpu-flavor").
-							Resource("nvidia.com/gpu", "4").
-							Obj(),
-					).
-					Obj(),
-				).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
-					Message: "Aggregated capacity successfully computed",
-				}).
-				Obj(),
-		},
-		"discovery-only: filters flavors not declared in spec.orchestratedFlavors": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-filter").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-			capacityProviders: []*kueuealpha.CapacityProvider{
-				utiltestingalpha.MakeCapacityProvider("cp-1").
-					OrchestratedFlavors("allowed-flavor").
-					Condition(metav1.Condition{
-						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
-						Status: metav1.ConditionTrue,
-						Reason: kueuealpha.CapacityProviderReasonSynchronized,
-					}).
-					Capacity(utiltestingalpha.MakeNormalizedCapacity().
-						Flavors(
-							utiltestingalpha.MakeNormalizedCapacityFlavor("allowed-flavor").
-								Resource(corev1.ResourceCPU, "50").
-								Obj(),
-							utiltestingalpha.MakeNormalizedCapacityFlavor("unorchestrated-flavor").
-								Resource(corev1.ResourceCPU, "50").
-								Obj(),
-						).
-						Obj()).
-					Obj(),
-			},
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-filter").
-				DiscoveryProvider("cp-1", nil).
-				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors(
-						*utiltestingalpha.MakeEffectiveCapacityFlavor("allowed-flavor").
-							Resource(corev1.ResourceCPU, "50").
-							Obj(),
-					).
-					Obj(),
-				).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
-					Message: "Aggregated capacity successfully computed",
-				}).
-				Obj(),
-		},
-		"discovery-only: no matching orchestrated flavors": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-no-match").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-			capacityProviders: []*kueuealpha.CapacityProvider{
-				utiltestingalpha.MakeCapacityProvider("cp-1").
-					OrchestratedFlavors("other-flavor").
-					Condition(metav1.Condition{
-						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
-						Status: metav1.ConditionTrue,
-						Reason: kueuealpha.CapacityProviderReasonSynchronized,
-					}).
-					Capacity(utiltestingalpha.MakeNormalizedCapacity().
-						Flavors(
-							utiltestingalpha.MakeNormalizedCapacityFlavor("provider-flavor").
-								Resource(corev1.ResourceCPU, "10").
-								Obj(),
-						).
-						Obj()).
-					Obj(),
-			},
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-no-match").
-				DiscoveryProvider("cp-1", nil).
-				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors().
-					Obj(),
-				).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
-					Message: "Aggregated capacity successfully computed",
-				}).
-				Obj(),
-		},
-		"discovery-only: provider reports empty capacity": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-			capacityProviders: []*kueuealpha.CapacityProvider{
-				utiltestingalpha.MakeCapacityProvider("cp-1").
-					OrchestratedFlavors("default-flavor").
-					Condition(metav1.Condition{
-						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
-						Status: metav1.ConditionTrue,
-						Reason: kueuealpha.CapacityProviderReasonSynchronized,
-					}).
-					Capacity(utiltestingalpha.MakeNormalizedCapacity().Obj()).
-					Obj(),
-			},
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty").
-				DiscoveryProvider("cp-1", nil).
-				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors().
-					Obj(),
-				).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
-					Message: "Aggregated capacity successfully computed",
-				}).
-				Obj(),
-		},
-		"discovery-only: provider reports nil capacity with synchronized condition": {
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-nil-capacity").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-			capacityProviders: []*kueuealpha.CapacityProvider{
-				utiltestingalpha.MakeCapacityProvider("cp-1").
-					OrchestratedFlavors("default-flavor").
-					Condition(metav1.Condition{
-						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
-						Status: metav1.ConditionTrue,
-						Reason: kueuealpha.CapacityProviderReasonSynchronized,
-					}).
-					Obj(),
-			},
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-nil-capacity").
-				DiscoveryProvider("cp-1", nil).
-				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors().
-					Obj(),
-				).
-				Condition(metav1.Condition{
-					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
-					Message: "Aggregated capacity successfully computed",
-				}).
-				Obj(),
-		},
 		"distribution: discovery not ready sets EffectiveCapacityNotComputed condition": {
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-dist-not-ready").
 				DiscoveryProvider("non-existent-provider", nil).
@@ -1135,17 +864,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		"feature gate disabled": {
-			enableFeatureGate: new(bool),
-			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-disabled").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-disabled").
-				DiscoveryProvider("cp-1", nil).
-				Obj(),
-		},
 	}
-
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			if tc.enableFeatureGate != nil {
@@ -1168,7 +887,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			}
 
 			cl := builder.WithObjects(objs...).WithStatusSubresource(objs...).Build()
-			r := NewDynamicQuotaOrchestratorReconciler(cl)
+			r := NewReconciler(cl)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := r.Reconcile(ctx, reconcile.Request{
