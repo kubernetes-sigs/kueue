@@ -78,11 +78,15 @@ func newSimulationContext(ctx context.Context, snapshot *schdcache.Snapshot) *Si
 // Returns an error if the simulation fails or the simulation function returns an error.
 // Only one simulation can be ran at the time.
 func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simulation) error {
-	return snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
+	err := snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
 		simCtx := newSimulationContext(ctx, snapshot)
 		defer simCtx.clear()
 		return simulate(simCtx)
 	})
+	if err != nil {
+		err = fmt.Errorf("simulation failed: %w", err)
+	}
+	return err
 }
 
 // SimulateNested allows running a nested simulation inisde of a closure passed to Simulate.
@@ -107,6 +111,7 @@ func SimulateNested(parentCtx *SimulationContext, simulate Simulation) (err erro
 	}
 
 	if err != nil {
+		err = fmt.Errorf("nested simulation failed: %w", err)
 		parentCtx.terminate(err)
 	}
 	return
