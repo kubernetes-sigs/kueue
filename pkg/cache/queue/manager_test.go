@@ -1289,7 +1289,7 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			// A recomputed hash must describe the Info the queue now holds. The
 			// reuse cases cannot be checked this way: what they keep is the probe.
 			if !tc.wantReuse {
-				if want := workload.NewInfo(log, info.Obj).SchedulingHash; info.SchedulingHash != want {
+				if want := workload.NewInfoFromClient(ctx, cl, info.Obj).SchedulingHash; info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, want)
 				}
 			}
