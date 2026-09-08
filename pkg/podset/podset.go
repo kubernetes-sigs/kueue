@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -150,21 +151,37 @@ func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
 	}
 }
 
+// isElasticAdmission reports whether info describes an elastic workload-slice
+// admission.
+func isElasticAdmission(info PodSetInfo) bool {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return false
+	}
+	_, elastic := info.Annotations[kueue.WorkloadSliceNameAnnotation]
+	return elastic
+}
+
 // overrideableAnnotations returns the Kueue-owned pod template annotations
 // that Merge may overwrite instead of reporting a conflict. For elastic jobs
 // their values may legitimately change between admissions (e.g. when a new
 // slice chain starts), so overwriting is restricted to elastic flows:
 //  1. the workload-slice-name annotation, whenever the
 //     ElasticJobsViaWorkloadSlices feature is enabled, and
-//  2. the workload annotation, only for an elastic admission, identified by
-//     the workload-slice-name annotation being part of the injected info.
+//  2. the workload annotation and provisioning-class-name, only for an
+//     elastic admission (identified by workload-slice-name in info).
+//
+// consume-provisioning-request is excluded: it changes on every PRQ, so it
+// must not live on the elastic job template, which pods inherit as a group.
 func overrideableAnnotations(info PodSetInfo) []string {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		return nil
 	}
 	annotations := []string{kueue.WorkloadSliceNameAnnotation}
-	if _, elastic := info.Annotations[kueue.WorkloadSliceNameAnnotation]; elastic {
-		annotations = append(annotations, kueue.WorkloadAnnotation)
+	if isElasticAdmission(info) {
+		annotations = append(annotations,
+			kueue.WorkloadAnnotation,
+			autoscaling.ProvisioningClassPodAnnotationKey,
+		)
 	}
 	return annotations
 }
@@ -172,6 +189,25 @@ func overrideableAnnotations(info PodSetInfo) []string {
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
 func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
+	// Elastic: never persist per-PRQ identity on the job template.
+	// consume-provisioning-request changes every ProvisioningRequest; pods
+	// inherit the template and later replacements would conflict.
+	// provisioning-class-name is stable and may stay. The ungater applies
+	// the current per PRQ value to each gated Pod once when absent.
+	if isElasticAdmission(info) {
+		// Only clone+delete when the key is actually present: info.Annotations
+		// may be a shared map owned by the Workload, and
+		// deleting a missing key is a noop that doesn't warrant defensive copy.
+		if _, present := info.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; present {
+			info.Annotations = maps.Clone(info.Annotations)
+			delete(info.Annotations, autoscaling.ProvisioningRequestPodAnnotationKey)
+		}
+		if _, had := meta.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; had {
+			log.V(2).Info("Stripping provisioning consume annotation from elastic job template")
+			delete(meta.Annotations, autoscaling.ProvisioningRequestPodAnnotationKey)
+		}
+	}
+
 	for _, key := range overrideableAnnotations(info) {
 		newValue, found := info.Annotations[key]
 		if !found {

@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -4720,6 +4721,59 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 				g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(3))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+	})
+
+	ginkgo.It("Should ungate a pod carrying a stale provisioning-consume annotation when its active slice has no provisioning admission check", framework.SlowSpec, func() {
+		// Regression test: podAdmissionCompatible used to read the active
+		// slice PodSetUpdates annotations with a plain map index, so a key
+		// the slice never sets (because this ClusterQueue has no
+		// ProvisioningRequest admission check) came back as "". A pod still
+		// carrying a leftover consume annotation from an earlier admission
+		// then compared unequal to "" and was reported as conflicting, which
+		// left it permanently gated. The absent keys must be skipped instead of
+		// compared as empty.
+		testJob := testingjob.MakeJob("no-provisioning-check", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(1).
+			Completions(1).
+			Obj()
+
+		ginkgo.By("creating and admitting the elastic job's workload slice")
+		util.MustCreate(ctx, k8sClient, testJob)
+		var slice *kueue.Workload
+		var podSet kueue.PodSetReference
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			slice = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(slice)).Should(gomega.BeTrue())
+			podSet = slice.Spec.PodSets[0].Name
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the admitted slice has no ProvisioningRequest admission check of its own")
+		gomega.Expect(slice.Status.AdmissionChecks).Should(gomega.BeEmpty())
+
+		ginkgo.By("creating a gated pod that already carries a stale provisioning-consume annotation")
+		gatedPod := testingpod.MakePod("worker-0", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, slice.Name).
+			Annotation(kueue.WorkloadSliceNameAnnotation, slice.Name).
+			Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "stale-provisioning-request").
+			Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "stale-provisioning-class").
+			Label(pkgconstants.PodSetLabel, string(podSet)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		util.MustCreate(ctx, k8sClient, gatedPod)
+
+		ginkgo.By("the ungater removes the elastic scheduling gate instead of treating the stale annotation as a conflict")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got corev1.Pod
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gatedPod), &got)).To(gomega.Succeed())
+			g.Expect(got.Spec.SchedulingGates).ShouldNot(gomega.ContainElement(
+				corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should support job scale-down and scale-up", framework.SlowSpec, func() {
