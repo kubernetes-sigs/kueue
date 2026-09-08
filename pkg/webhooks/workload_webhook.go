@@ -187,12 +187,14 @@ func validatePodSet(ps, oldPs *kueue.PodSet, path *field.Path) field.ErrorList {
 	// validate initContainers
 	icPath := path.Child("template", "spec", "initContainers")
 	for ci := range ps.Template.Spec.InitContainers {
-		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.InitContainers[ci], containerAt(oldInitContainers, ci), icPath.Index(ci))...)
+		c := &ps.Template.Spec.InitContainers[ci]
+		allErrs = append(allErrs, validateContainer(c, containerByName(oldInitContainers, c.Name), icPath.Index(ci))...)
 	}
 	// validate containers
 	cPath := path.Child("template", "spec", "containers")
 	for ci := range ps.Template.Spec.Containers {
-		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], containerAt(oldContainers, ci), cPath.Index(ci))...)
+		c := &ps.Template.Spec.Containers[ci]
+		allErrs = append(allErrs, validateContainer(c, containerByName(oldContainers, c.Name), cPath.Index(ci))...)
 	}
 	// validate pod-level resources
 	if ps.Template.Spec.Resources != nil {
@@ -224,11 +226,20 @@ func validateContainer(c, old *corev1.Container, path *field.Path) field.ErrorLi
 	return append(requestErrors, limitErrors...)
 }
 
-func containerAt(containers []corev1.Container, i int) *corev1.Container {
-	if i >= len(containers) {
+// containerByName returns the previous container with the same name, if any.
+// Identity is the name, not the slice position: reordering would otherwise
+// refuse an unchanged leftover, and a replacement at the same index would
+// inherit the exemption (kueue#14373).
+func containerByName(containers []corev1.Container, name string) *corev1.Container {
+	if name == "" {
 		return nil
 	}
-	return &containers[i]
+	for i := range containers {
+		if containers[i].Name == name {
+			return &containers[i]
+		}
+	}
+	return nil
 }
 
 // validateResourceList rejects the reserved pods key and, when enabled, negative quantities.

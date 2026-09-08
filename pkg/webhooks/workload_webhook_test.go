@@ -81,6 +81,17 @@ func legacyNegativeRequestWorkload() *kueue.Workload {
 		Obj()
 }
 
+func namedRequestContainer(name string, requests map[corev1.ResourceName]string) corev1.Container {
+	rl := make(corev1.ResourceList, len(requests))
+	for r, q := range requests {
+		rl[r] = resource.MustParse(q)
+	}
+	return corev1.Container{
+		Name: name,
+		Resources: corev1.ResourceRequirements{Requests: rl},
+	}
+}
+
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")
@@ -1499,17 +1510,17 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
-					InitContainers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+					InitContainers(namedRequestContainer("init", map[corev1.ResourceName]string{
 						legacyNegativeGPU: "-3",
-					})...).
+					})).
 					Obj()).
 				Finalizers(kueue.ResourceInUseFinalizerName).
 				Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
-					InitContainers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+					InitContainers(namedRequestContainer("init", map[corev1.ResourceName]string{
 						legacyNegativeGPU: "-3",
-					})...).
+					})).
 					Obj()).
 				Obj(),
 			wantErr: nil,
@@ -1556,6 +1567,90 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceMemory)), nil, ""),
+			}.ToAggregate(),
+		},
+		"reordering containers keeps a leftover negative request allowed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+					).
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a new container name at an old index does not inherit a leftover exemption": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						namedRequestContainer("c", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+					).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "containers").Index(0).Child("resources", "requests").Key(string(legacyNegativeGPU)), nil, ""),
+			}.ToAggregate(),
+		},
+		"reordering init containers keeps a leftover negative request allowed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+					).
+					Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"a new init-container name at an old index does not inherit a leftover exemption": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						namedRequestContainer("a", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+					).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					InitContainers(
+						namedRequestContainer("c", map[corev1.ResourceName]string{legacyNegativeGPU: "-3"}),
+						namedRequestContainer("b", map[corev1.ResourceName]string{legacyNegativeGPU: "1"}),
+					).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "initContainers").Index(0).Child("resources", "requests").Key(string(legacyNegativeGPU)), nil, ""),
 			}.ToAggregate(),
 		},
 		// Refusing this update would leave the object undeletable.
