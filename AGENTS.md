@@ -45,8 +45,6 @@ Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/d
 
 Operational runbook index for common Kueue debugging tasks are in [cmd/experimental/skills](cmd/experimental/skills/README.md). Consult these proactively when a user asks about workload preemption, eviction, ownership, or pod tracing — even if the question is informal or incomplete.
 
-Before committing, pushing, opening or updating a pull request, or handing back code changes, follow [kueue-verify-changes](cmd/experimental/skills/kueue-verify-changes/SKILL.md) to run the checks applicable to the final diff.
-
 When a skill is triggered, read the corresponding SKILL.md file directly and follow its steps. These are plain markdown guides, not plugins in the Claude Code skill system.
 
 @cmd/experimental/skills/README.md
