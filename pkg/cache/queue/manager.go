@@ -865,28 +865,40 @@ func (m *Manager) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Refe
 	m.DeleteSecondPassWithoutLock(wlKey)
 }
 
+func (m *Manager) clusterQueueForWorkloadReferenceWithoutLock(wlKey workload.Reference, wl *kueue.Workload) kueue.ClusterQueueReference {
+	if qKey, ok := m.workloadAssignedQueues[wlKey]; ok {
+		if q := m.localQueues[qKey]; q != nil {
+			return q.ClusterQueue
+		}
+	}
+	if wl != nil && wl.Status.Admission != nil {
+		// Fallback: the workload was admitted but never tracked in the queue
+		// manager (e.g. pre-admitted workloads in unit tests), or the local
+		// queue was already deleted. Use the CQ name from admission status.
+		return wl.Status.Admission.ClusterQueue
+	}
+	return ""
+}
+
 // QueueAssociatedInadmissibleWorkloadsAfter requeues into the heaps all
 // previously inadmissible workloads in the same ClusterQueue and cohort (if
 // they exist) as the provided admitted workload to the heaps.
 // An optional action can be executed at the beginning of the function,
 // while holding the lock, to provide atomicity with the operations in the
 // queues.
-func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context, wlKey workload.Reference, action func()) {
+// The wl parameter is optional: when non-nil it is used as a fallback to
+// resolve the ClusterQueue when the workload was not tracked in
+// workloadAssignedQueues (e.g. admitted workloads loaded directly into the
+// cache without going through the queue manager).
+func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context, wlKey workload.Reference, action func(), wl *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
 	if action != nil {
 		action()
 	}
 
-	qKey, ok := m.workloadAssignedQueues[wlKey]
-	if !ok {
-		return
-	}
-	q := m.localQueues[qKey]
-	if q == nil {
-		return
-	}
-	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	cqName := m.clusterQueueForWorkloadReferenceWithoutLock(wlKey, wl)
+	cq := m.hm.ClusterQueue(cqName)
 	if cq == nil {
 		return
 	}
