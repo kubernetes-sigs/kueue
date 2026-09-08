@@ -2007,7 +2007,7 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				t.Errorf("unexpected constructed client QPS/Burst: want %v/%v, got %v/%v", tc.wantQPS, tc.wantBurst, constructedRESTConfig.QPS, constructedRESTConfig.Burst)
 			}
 		})
-  }
+	}
 }
 
 func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
@@ -2016,7 +2016,7 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{})
+	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{}, nil)
 
 	// The same ClusterQueue references both workers.
 	metrics.ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, nil)
