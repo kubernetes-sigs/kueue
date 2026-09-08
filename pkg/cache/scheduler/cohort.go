@@ -21,6 +21,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
 
 // cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -46,7 +47,7 @@ func newCohort(name kueue.CohortReference) *cohort {
 func (c *cohort) updateCohort(apiCohort *kueue.Cohort, oldParent *cohort) error {
 	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
 
-	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
+	c.resourceNode.Quotas = createResourceQuotas(resourcegroups.EffectiveCohortResourceGroups(apiCohort))
 	if oldParent != nil && oldParent != c.Parent() {
 		updateCohortTreeResourcesIfNoCycle(oldParent)
 	}

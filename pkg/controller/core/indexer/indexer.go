@@ -175,6 +175,23 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
+// IndexWorkloadSliceName indexes the workload slices of an elastic job. Every
+// slice in a chain carries the name of the chain's first slice in the
+// WorkloadSliceNameAnnotation, so indexing on it lists all Workloads of a job by
+// that name, including after the first slice itself has been deleted.
+func IndexWorkloadSliceName(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return nil
+	}
+	if value, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return []string{value}
+	}
+	// The chain's first slice names itself, and is indexed before the annotation
+	// is applied.
+	return []string{wl.Name}
+}
+
 // IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
 // Uses WorkloadSliceNameAnnotation if present, otherwise falls back to WorkloadAnnotation
 // for non-elastic workloads.
@@ -217,25 +234,29 @@ func IndexWorkloadPriorityClass(obj client.Object) []string {
 }
 
 // IndexWorkloadExtendedResources indexes Workloads by the extended resource names
-// in their container requests. Used by the DeviceClass handler to find workloads
+// in their container requests or limits. Used by the DeviceClass handler to find workloads
 // affected by a specific DeviceClass change.
 func IndexWorkloadExtendedResources(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok {
 		return nil
 	}
+
 	resNames := sets.New[string]()
 	for _, ps := range wl.Spec.PodSets {
 		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
 			for _, c := range containers {
-				for name, qty := range c.Resources.Requests {
-					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) {
-						resNames.Insert(string(name))
+				for _, resources := range []corev1.ResourceList{c.Resources.Requests, c.Resources.Limits} {
+					for name, qty := range resources {
+						if !qty.IsZero() && utilresource.IsExtendedResourceName(name) {
+							resNames.Insert(string(name))
+						}
 					}
 				}
 			}
 		}
 	}
+
 	if resNames.Len() > 0 {
 		return resNames.UnsortedList()
 	}
@@ -288,6 +309,11 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
+		}
+	}
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadSliceNameKey, IndexWorkloadSliceName); err != nil {
+			return fmt.Errorf("setting index on workloadSliceName for Workload: %w", err)
 		}
 	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.

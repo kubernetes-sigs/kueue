@@ -28,11 +28,21 @@ import (
 
 type KueueV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	CapacityProvidersGetter
+	DynamicQuotaOrchestratorsGetter
 }
 
 // KueueV1alpha1Client is used to interact with features provided by the kueue.x-k8s.io group.
 type KueueV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *KueueV1alpha1Client) CapacityProviders() CapacityProviderInterface {
+	return newCapacityProviders(c)
+}
+
+func (c *KueueV1alpha1Client) DynamicQuotaOrchestrators() DynamicQuotaOrchestratorInterface {
+	return newDynamicQuotaOrchestrators(c)
 }
 
 // NewForConfig creates a new KueueV1alpha1Client for the given config.

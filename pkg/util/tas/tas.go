@@ -81,6 +81,18 @@ func IsExplicitTAS(annots map[string]string) bool {
 	return false
 }
 
+// HasTopologyConstraint reports whether the request contains a field that
+// explicitly opts the PodSet into topology-aware scheduling. Derived indexing
+// fields alone don't constitute a topology constraint.
+func HasTopologyConstraint(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && (tr.Unconstrained != nil ||
+		tr.Required != nil ||
+		tr.Preferred != nil ||
+		tr.PodSetSliceRequiredTopology != nil ||
+		tr.PodSetSliceSize != nil ||
+		len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
+}
+
 func NodeLabelsFromKeysAndValues(keys, values []string) map[string]string {
 	result := make(map[string]string, len(keys))
 	for i := range keys {

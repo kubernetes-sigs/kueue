@@ -1292,7 +1292,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		WithEventFilter(c).
 		WithOptions(controller.Options{
 			NeedLeaderElection: new(false),
-			LogConstructor:     roletracker.NewLogConstructor(c.roleTracker, "multikueue-cluster"),
+			LogConstructor:     roletracker.NewLogConstructor(c.roleTracker, "multikueue-multikueuecluster-reconciler"),
 		})
 	if features.Enabled(features.MultiKueueClusterProfile) {
 		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {

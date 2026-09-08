@@ -65,6 +65,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
@@ -198,6 +199,8 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	err = cmv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
+	err = kueuealpha.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	err = visibility.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
@@ -621,7 +624,7 @@ func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
 
 	holderIdentity := ptr.Deref(lease.Spec.HolderIdentity, "")
 	gomega.Expect(holderIdentity).NotTo(gomega.BeEmpty(), "expected a current leader to be elected")
-	leaderPodName := strings.SplitN(holderIdentity, "_", 2)[0]
+	leaderPodName, _, _ := strings.Cut(holderIdentity, "_")
 
 	ginkgo.By(fmt.Sprintf("Deleting leader pod %q to force failover", leaderPodName))
 	leaderPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: kueueNS, Name: leaderPodName}}

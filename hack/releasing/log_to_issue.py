@@ -32,6 +32,7 @@ def main():
         sys.exit(1)
     message = os.environ.get("INPUT_MESSAGE", "").strip()
     cleanup = os.environ.get("INPUT_CLEANUP", "").strip().lower() == "true"
+    keep_in_history = os.environ.get("INPUT_KEEP_HISTORY", "true").strip().lower() == "true"
 
     actor = os.environ.get("GITHUB_ACTOR", "").strip()
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
@@ -49,7 +50,7 @@ def main():
         title = command.replace("-", " ").capitalize()
     
     new_entry = (
-        f"<!-- entry-start title=\"{title}\" -->\n"
+        f"<!-- entry-start title=\"{title}\" keep-in-history=\"{str(keep_in_history).lower()}\" -->\n"
         f"### {title}"
     )
     if command:
@@ -89,7 +90,7 @@ def main():
         history = ""
 
     # Find all existing entries in the Details section
-    entries = re.findall(r'(<!-- entry-start title=".*?" -->.*?<!-- entry-end -->)', details, re.DOTALL)
+    entries = re.findall(r'(<!-- entry-start title=".*?"(?:\s+keep[-_]in[-_]history=".*?")? -->.*?<!-- entry-end -->)', details, re.DOTALL)
 
     entry_index = -1
     for idx, entry in enumerate(entries):
@@ -115,38 +116,44 @@ def main():
 
     # Handle History
     if old_entry:
-        # Strip markers, header, and command from old_entry to avoid redundancy in history
-        old_entry_clean = re.sub(r'<!-- entry-start title=".*?" -->\s*', '', old_entry)
-        old_entry_clean = re.sub(r'\s*<!-- entry-end -->', '', old_entry_clean)
-        old_entry_clean = re.sub(r'^###? ' + re.escape(title) + r'\b\s*', '', old_entry_clean, flags=re.MULTILINE)
-        old_entry_clean = re.sub(r'^Command:.*?\n\s*', '', old_entry_clean, flags=re.MULTILINE).strip()
+        should_keep = True
+        keep_match = re.search(r'keep[-_]in[-_]history=["\']?(false|true)["\']?', old_entry, re.IGNORECASE)
+        if keep_match and keep_match.group(1).lower() == "false":
+            should_keep = False
 
-        details_pattern = (
-            r'(<!-- history-start title="' + re.escape(title) + r'" -->\s*<details>\s*<summary>\s*<b>' + re.escape(title) + r'\s+history</b>\s*</summary>\s*)'
-            r'(.*?)'
-            r'(\s*</details>\s*<!-- history-end -->)'
-        )
-        details_match = re.search(details_pattern, history, re.DOTALL | re.IGNORECASE)
-        if details_match:
-            prefix_hist = details_match.group(1)
-            content_hist = details_match.group(2).strip()
-            suffix_hist = details_match.group(3)
-            # Use horizontal rules to separate multiple archived runs of the same command
-            new_content_hist = f"{old_entry_clean}\n\n---\n\n{content_hist}" if content_hist else old_entry_clean
-            history = history[:details_match.start()] + f"{prefix_hist}\n{new_content_hist}\n{suffix_hist}" + history[details_match.end():]
-        else:
-            new_details_block = (
-                f"<!-- history-start title=\"{title}\" -->\n"
-                f"<details>\n"
-                f"<summary><b>{title} history</b></summary>\n\n"
-                f"{old_entry_clean}\n"
-                f"</details>\n"
-                f"<!-- history-end -->"
+        if should_keep:
+            # Strip markers, header, and command from old_entry to avoid redundancy in history
+            old_entry_clean = re.sub(r'<!-- entry-start title=".*?"(?:\s+keep[-_]in[-_]history=".*?")? -->\s*', '', old_entry)
+            old_entry_clean = re.sub(r'\s*<!-- entry-end -->', '', old_entry_clean)
+            old_entry_clean = re.sub(r'^###? ' + re.escape(title) + r'\b\s*', '', old_entry_clean, flags=re.MULTILINE)
+            old_entry_clean = re.sub(r'^Command:.*?\n\s*', '', old_entry_clean, flags=re.MULTILINE).strip()
+
+            details_pattern = (
+                r'(<!-- history-start title="' + re.escape(title) + r'" -->\s*<details>\s*<summary>\s*<b>' + re.escape(title) + r'\s+history</b>\s*</summary>\s*)'
+                r'(.*?)'
+                r'(\s*</details>\s*<!-- history-end -->)'
             )
-            if history:
-                history = history.rstrip() + f"\n\n{new_details_block}"
+            details_match = re.search(details_pattern, history, re.DOTALL | re.IGNORECASE)
+            if details_match:
+                prefix_hist = details_match.group(1)
+                content_hist = details_match.group(2).strip()
+                suffix_hist = details_match.group(3)
+                # Use horizontal rules to separate multiple archived runs of the same command
+                new_content_hist = f"{old_entry_clean}\n\n---\n\n{content_hist}" if content_hist else old_entry_clean
+                history = history[:details_match.start()] + f"{prefix_hist}\n{new_content_hist}\n{suffix_hist}" + history[details_match.end():]
             else:
-                history = new_details_block
+                new_details_block = (
+                    f"<!-- history-start title=\"{title}\" -->\n"
+                    f"<details>\n"
+                    f"<summary><b>{title} history</b></summary>\n\n"
+                    f"{old_entry_clean}\n"
+                    f"</details>\n"
+                    f"<!-- history-end -->"
+                )
+                if history:
+                    history = history.rstrip() + f"\n\n{new_details_block}"
+                else:
+                    history = new_details_block
 
     # Reconstruct final log part
     updated_log_part = details

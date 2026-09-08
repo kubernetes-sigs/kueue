@@ -1117,6 +1117,16 @@ when participating in Fair Sharing.
 This is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
+<tr><td><code>effectiveQuotas</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-EffectiveQuotaStatus"><code>EffectiveQuotaStatus</code></a>
+</td>
+<td>
+   <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
+present.</p>
+<p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+feature gate is disabled.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1264,6 +1274,16 @@ when participating in Fair Sharing.
 The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p>
 </td>
 </tr>
+<tr><td><code>effectiveQuotas</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-EffectiveQuotaStatus"><code>EffectiveQuotaStatus</code></a>
+</td>
+<td>
+   <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
+present.</p>
+<p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+feature gate is disabled.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1386,6 +1406,84 @@ Flavor preferences are expressed through the order of flavors in the ClusterQueu
 
 
 
+
+## `EffectiveQuotaStatus`     {#kueue-x-k8s-io-v1beta2-EffectiveQuotaStatus}
+    
+
+**Appears in:**
+
+- [ClusterQueueStatus](#kueue-x-k8s-io-v1beta2-ClusterQueueStatus)
+
+- [CohortStatus](#kueue-x-k8s-io-v1beta2-CohortStatus)
+
+
+<p>EffectiveQuotaStatus represents the active effective quota structure computed by
+Dynamic Quota Orchestration (DQO).</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>orchestratorRef,omitzero</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-EffectiveQuotaStatusOrchestratorRef"><code>EffectiveQuotaStatusOrchestratorRef</code></a>
+</td>
+<td>
+   <p>orchestratorRef identifies the component managing this value.</p>
+</td>
+</tr>
+<tr><td><code>resourceGroups</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
+</td>
+<td>
+   <p>resourceGroups is the effective quota used by the scheduler.
+An empty list is a valid complete override and does not cause fallback to
+spec.resourceGroups.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `EffectiveQuotaStatusOrchestratorRef`     {#kueue-x-k8s-io-v1beta2-EffectiveQuotaStatusOrchestratorRef}
+    
+
+**Appears in:**
+
+- [EffectiveQuotaStatus](#kueue-x-k8s-io-v1beta2-EffectiveQuotaStatus)
+
+
+<p>EffectiveQuotaStatusOrchestratorRef identifies the component managing the effective quota.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>apiGroup</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>apiGroup is the group for the resource representing the manager.</p>
+</td>
+</tr>
+<tr><td><code>kind</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>kind is the type of the manager setting the effective quota.</p>
+</td>
+</tr>
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name is the name of the manager setting the effective quota.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `EvictionUnderlyingCause`     {#kueue-x-k8s-io-v1beta2-EvictionUnderlyingCause}
     
@@ -3158,6 +3256,8 @@ nodes matching to the Resource Flavor node labels.</p>
 - [ClusterQueueSpec](#kueue-x-k8s-io-v1beta2-ClusterQueueSpec)
 
 - [CohortSpec](#kueue-x-k8s-io-v1beta2-CohortSpec)
+
+- [EffectiveQuotaStatus](#kueue-x-k8s-io-v1beta2-EffectiveQuotaStatus)
 
 
 

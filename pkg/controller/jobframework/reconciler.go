@@ -78,6 +78,7 @@ import (
 const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
+	fullScaleUpProbeExtra       = "full-scaleup-probe"
 )
 
 var (
@@ -1275,8 +1276,14 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
 	targets = append(targets, sameClassName...)
 	targets = append(targets, needsClassChange...)
+	log := ctrl.LoggerFrom(ctx)
 	for _, wl := range targets {
 		if priorityStateEqual(wl, priorityClassRef, priority) {
+			continue
+		}
+		if workload.HasQuotaReservation(wl) && !hasSameOrEmptyPriorityClass(wl.Spec.PriorityClassRef, priorityClassRef) {
+			log.V(4).Info("Leaving a workload that reserved quota on its current priority class, since the transition the owner asks for is immutable while quota is reserved",
+				"workload", klog.KObj(wl))
 			continue
 		}
 		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
@@ -1328,6 +1335,25 @@ func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName st
 		}
 	}
 	return sameClassName, needsClassChange
+}
+
+// hasSameOrEmptyPriorityClass reports whether cur and ref agree on everything the
+// Workload CEL rules freeze while quota is reserved: presence, group and kind, and
+// for a Pod PriorityClass the name as well.
+func hasSameOrEmptyPriorityClass(cur, ref *kueue.PriorityClassRef) bool {
+	if (cur == nil) != (ref == nil) {
+		return false
+	}
+	if cur == nil {
+		return true
+	}
+	if cur.Group != ref.Group || cur.Kind != ref.Kind {
+		return false
+	}
+	if ref.Group == kueue.PodPriorityClassGroup && ref.Kind == kueue.PodPriorityClassKind {
+		return cur.Name == ref.Name
+	}
+	return true
 }
 
 // priorityStateEqual reports whether the workload's priority already matches the
@@ -1431,6 +1457,14 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 		if err != nil {
 			return nil
 		}
+		// FromAssignment injects this annotation for implicit TAS. Mirror it in
+		// the structured request used to compare against the running Job.
+		if psi.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] == "true" {
+			if ps.TopologyRequest == nil {
+				ps.TopologyRequest = &kueue.PodSetTopologyRequest{}
+			}
+			ps.TopologyRequest.Unconstrained = new(true)
+		}
 		if canBePartiallyAdmitted && ps.MinCount != nil {
 			// update the expected running count
 			ps.Count = psi.Count
@@ -1461,9 +1495,12 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 1)
+	opts := make([]equality.ComparePodSetsOption, 0, 2)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
+	}
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		opts = append(opts, equality.WithIgnoreTopologyRequest())
 	}
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
@@ -1612,13 +1649,12 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 // newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
 // and GroupVersionKind (GVK). If workload slicing is enabled, it includes the job's generation
 // in the generated workload name.
-func newWorkloadName(job GenericJob) string {
+func newWorkloadName(job GenericJob, extra string) string {
 	object := job.Object()
 	if WorkloadSliceEnabled(job) {
-		extra := ""
 		if elasticWorkloadNameProvider, ok := job.(ElasticWorkloadNameProvider); ok {
 			extra = elasticWorkloadNameProvider.GetWorkloadNameExtraPart()
-		} else {
+		} else if extra == "" {
 			extra = strconv.FormatInt(object.GetGeneration(), 10)
 		}
 		return GenerateWorkloadNameWithExtra(object.GetName(), object.GetUID(), job.GVK(), extra)
@@ -1634,8 +1670,15 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	if err != nil {
 		return nil, err
 	}
+	extra := ""
+	if WorkloadSliceEnabled(job) {
+		extra, err = prepareWorkloadSliceForScaleUp(ctx, c, job, podSets)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy, annotationsToCopy)
+	wl := NewWorkload(newWorkloadName(job, extra), object, podSets, labelKeysToCopy, annotationsToCopy)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
@@ -1655,6 +1698,39 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	return wl, nil
+}
+
+func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job GenericJob, podSets []kueue.PodSet) (string, error) {
+	object := job.Object()
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) ||
+		object.GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] != constants.ElasticJobScaleUpStrategyPartial {
+		return "", nil
+	}
+	prevWl, err := workloadslicing.FindLatestActiveWorkload(ctx, c, object, job.GVK())
+	if err != nil {
+		return "", err
+	}
+	extra := ""
+	if prevWl != nil && workload.HasQuotaReservation(prevWl) {
+		extra = fullScaleUpProbeExtra
+		if len(prevWl.Spec.PodSets) != len(podSets) {
+			extra = ""
+		} else {
+			for i := range podSets {
+				if prevWl.Spec.PodSets[i].Count != podSets[i].Count {
+					extra = ""
+				}
+			}
+		}
+		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
+		for i := range podSets {
+			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok && podSets[i].Count > prevAdmittedCount {
+				minCount := prevAdmittedCount + 1
+				podSets[i].MinCount = &minCount
+			}
+		}
+	}
+	return extra, nil
 }
 
 // prepareWorkloadSlice adds necessary workload slice annotations.

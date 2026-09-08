@@ -44,6 +44,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -246,7 +247,7 @@ func (r *cqReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *k
 		Type:               kueue.MultiKueueManagerQuotaAutomation,
 		Status:             status,
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: cq.Generation,
 	}
 

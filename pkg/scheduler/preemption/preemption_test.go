@@ -4636,6 +4636,20 @@ func TestCandidatesOrdering(t *testing.T) {
 		Obj())
 	wlHighUsageLqDifCQ.LocalQueueFSUsage = new(1.0)
 
+	wlLowUsageSameNameLq := workload.NewInfo(utiltestingapi.MakeWorkload("low_same_name_lq_usage", "team-a").
+		Queue("default").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
+		Priority(-10).
+		Obj())
+	wlLowUsageSameNameLq.LocalQueueFSUsage = new(0.1)
+
+	wlHighUsageSameNameLq := workload.NewInfo(utiltestingapi.MakeWorkload("high_same_name_lq_usage", "team-b").
+		Queue("default").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(preemptorCq)).Obj(), now).
+		Priority(10).
+		Obj())
+	wlHighUsageSameNameLq.LocalQueueFSUsage = new(1.0)
+
 	cases := map[string]struct {
 		candidates     []workload.Info
 		wantCandidates []workload.Reference
@@ -4750,6 +4764,14 @@ func TestCandidatesOrdering(t *testing.T) {
 				*wlMidUsageLq,
 			},
 			wantCandidates: []workload.Reference{"mid_lq_usage", "low_lq_usage"},
+			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+		},
+		"workloads from same-named LQs in different namespaces are sorted by LQ usage": {
+			candidates: []workload.Info{
+				*wlLowUsageSameNameLq,
+				*wlHighUsageSameNameLq,
+			},
+			wantCandidates: []workload.Reference{"high_same_name_lq_usage", "low_same_name_lq_usage"},
 			featureGates:   map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
 		},
 		"workloads from different CQ are sorted based on priority and timestamp": {

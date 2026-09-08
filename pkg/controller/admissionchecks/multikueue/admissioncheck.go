@@ -112,7 +112,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	needsUpdate := false
 	oldCondition := apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive)
-	if !cmpConditionState(oldCondition, &newCondition) {
+	if !cmpConditionState(oldCondition, &newCondition) || oldCondition.ObservedGeneration != newCondition.ObservedGeneration {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		needsUpdate = true
 	}

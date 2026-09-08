@@ -158,6 +158,11 @@ func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *JobWrapper {
+	j.Spec.RayClusterSpec.HistoryServerOptions = value
+	return j
+}
+
 func (j *JobWrapper) RayClusterSpec(spec *rayv1.RayClusterSpec) *JobWrapper {
 	j.Spec.RayClusterSpec = spec
 	return j

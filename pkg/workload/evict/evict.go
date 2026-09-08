@@ -205,7 +205,7 @@ func Evict(
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
 	SetEvictedCondition(w, now, reason, message)
 	resetClusterNomination(w)
-	resetChecksOnEviction(w, now)
+	ResetChecksOnEviction(w, now)
 	resetUnhealthyNodes(w)
 	unsetBlockedOnPreemptionGatesCondition(w, now, reason, message)
 	closeAllPreemptionGates(w, now)
@@ -216,8 +216,9 @@ func resetClusterNomination(w *kueue.Workload) {
 	w.Status.NominatedClusterNames = nil
 }
 
-// resetChecksOnEviction sets all AdmissionChecks to Pending
-func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
+// ResetChecksOnEviction sets all AdmissionChecks to Pending. Exported for the deactivation
+// path in the Workload controller, which bypasses Evict when the Workload is already evicted.
+func ResetChecksOnEviction(w *kueue.Workload, now time.Time) {
 	checks := w.Status.AdmissionChecks
 	for i := range checks {
 		if checks[i].State == kueue.CheckStatePending {

@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -162,6 +163,46 @@ cq1    cohort1   1                   2                    true     60m
 			gotOutErr := outErr.String()
 			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueueOptionsComplete(t *testing.T) {
+	testCases := map[string]struct {
+		envValue  string
+		wantLimit int64
+		wantErr   error
+	}{
+		"should use the default limit": {
+			wantLimit: defaultListRequestLimit,
+		},
+		"should use the limit from the env var": {
+			envValue:  "5",
+			wantLimit: 5,
+		},
+		"should return an error for an invalid limit env var": {
+			envValue: "invalid",
+			wantErr:  errInvalidListRequestLimit,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if tc.envValue != "" {
+				t.Setenv(KueuectlListRequestLimitEnvName, tc.envValue)
+			}
+
+			streams, _, _, _ := genericiooptions.NewTestIOStreams()
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset())
+			o := NewClusterQueueOptions(streams, testingclock.NewFakeClock(time.Now()))
+
+			gotErr := o.Complete(tcg, &cobra.Command{}, nil)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			if tc.wantErr == nil && o.Limit != tc.wantLimit {
+				t.Errorf("Unexpected limit: got %d, want %d", o.Limit, tc.wantLimit)
 			}
 		})
 	}

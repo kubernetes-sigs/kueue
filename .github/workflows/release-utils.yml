@@ -29,16 +29,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          
-      - name: Checkout automation actions from main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
           ref: main
-          path: .automation
-          sparse-checkout: |
-            .github/actions
-            hack/releasing
-          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Validate Actions Folder
@@ -55,7 +46,7 @@ jobs:
           )
           MISSING=()
           for item in "${REQUIRED_ITEMS[@]}"; do
-            if [ ! -f ".automation/$item" ]; then
+            if [ ! -f "$item" ]; then
               MISSING+=("$item")
             fi
           done
@@ -96,6 +87,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: main
+          persist-credentials: false
 
       - name: Verify Actor Authorization
         id: auth
@@ -181,6 +174,14 @@ jobs:
         with:
           alias: "Authorization"
           cleanup: true
+      
+      - name: Log command start
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ steps.parse.outputs.command }}
+          message: "🔄 Authorization successful. Running command..."
+          keep-history: false
 
   sync-release-notes:
     name: Sync Release Notes
@@ -196,6 +197,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: main
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -429,6 +432,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: main
+          persist-credentials: false
 
       - name: Install Crane
         uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7

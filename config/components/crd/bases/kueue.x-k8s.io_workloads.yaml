@@ -113,7 +113,7 @@ spec:
 
                         This is an alpha field and requires enabling PartialAdmission feature gate.
                       format: int32
-                      minimum: 1
+                      minimum: 0
                       type: integer
                     name:
                       default: main
@@ -8795,7 +8795,7 @@ spec:
                   - template
                   type: object
                   x-kubernetes-validations:
-                  - message: minCount should be positive and less or equal to count
+                  - message: minCount should be less or equal to count
                     rule: 'has(self.minCount) ? self.minCount <= self.count : true'
                 maxItems: 18
                 minItems: 1
@@ -9549,7 +9549,7 @@ spec:
 
                         This is an alpha field and requires enabling PartialAdmission feature gate.
                       format: int32
-                      minimum: 1
+                      minimum: 0
                       type: integer
                     name:
                       default: main
@@ -18276,7 +18276,7 @@ spec:
                   - template
                   type: object
                   x-kubernetes-validations:
-                  - message: minCount should be positive and less or equal to count
+                  - message: minCount should be less or equal to count
                     rule: 'has(self.minCount) ? self.minCount <= self.count : true'
                 maxItems: 18
                 minItems: 1
