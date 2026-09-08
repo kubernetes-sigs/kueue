@@ -334,10 +334,14 @@ The annotation value is a JSON object with the following structure:
 }
 ```
 
-`workloadLabelSelectors` is optional. When omitted, it defaults to matching all
-workloads whose `kueue.x-k8s.io/job-uid` label equals that of the current workload.
-This means the spreading group is all workloads that share the same parent job
-(e.g., all groups from one LWS object).
+`workloadLabelSelectors` is optional. When omitted, the Workload mutating webhook
+injects the default value
+`[{"key": "kueue.x-k8s.io/job-uid", "operator": "In", "values": ["<job-uid>"]}]`
+into the annotation before the Workload is persisted, where `<job-uid>` is the
+value of the `kueue.x-k8s.io/job-uid` label on the Workload. This means the
+spreading group is all workloads that share the same parent job (e.g., all groups
+from one LWS object). The injected value is visible on the stored Workload object,
+so the effective selector is never implicit.
 
 In alpha, at most one element is supported in the `workloadLabelSelectors` array,
 and only the `"In"` operator is supported.
@@ -370,7 +374,7 @@ The top-level JSON fields are:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `workloadLabelSelectors` | array | no | `[{"key": "kueue.x-k8s.io/job-uid", "operator": "In", "values": ["<current-job-uid>"]}]` | A list of label selector requirements. Each requirement specifies a `key`, an `operator` (`"In"` only in alpha), and a `values` array. All requirements are ANDed together. Identifies which admitted workloads form the spreading group. When omitted, defaults to matching all workloads that share the same parent job UID. In alpha, at most one requirement is supported. |
+| `workloadLabelSelectors` | array | no | injected by webhook: `[{"key": "kueue.x-k8s.io/job-uid", "operator": "In", "values": ["<job-uid>"]}]` | A list of label selector requirements. Each requirement specifies a `key`, an `operator` (`"In"` only in alpha), and a `values` array. All requirements are ANDed together. Identifies which admitted workloads form the spreading group. When omitted, the Workload mutating webhook injects the job-uid-based default before the object is persisted. In alpha, at most one requirement is supported. |
 | `rules` | array | yes | — | One or more spreading rules. Each rule independently targets one topology level. At least one rule must be present. At most two rules may be specified in alpha. |
 
 Each element of `rules` is:
@@ -403,12 +407,16 @@ regardless of whether they themselves carry the
 In alpha, at most one requirement is supported in the array, and only the `"In"`
 operator is allowed.
 
-When omitted, the selector defaults to matching workloads whose
-`kueue.x-k8s.io/job-uid` label equals the current workload's job UID. The
-`kueue.x-k8s.io/job-uid` label is set automatically on every Workload by Kueue and
-requires no additional configuration. This default is appropriate for integrations
-where all spreading-group members share a common parent object (e.g., all replica
-groups created from one LWS object).
+When omitted, the Workload mutating webhook injects the concrete default
+`[{"key": "kueue.x-k8s.io/job-uid", "operator": "In", "values": ["<job-uid>"]}]`
+into the annotation, where `<job-uid>` is the value of the
+`kueue.x-k8s.io/job-uid` label on the Workload being created. The injection
+happens before the object is persisted, so the stored annotation always contains
+the effective selector — there is no scheduler-side implicit fallback. The
+`kueue.x-k8s.io/job-uid` label is set automatically on every Workload by Kueue
+and requires no additional configuration. This default is appropriate for
+integrations where all spreading-group members share a common parent object
+(e.g., all groups created from one LWS object).
 
 When an explicit selector is used with custom labels (e.g., `app`), those labels
 must be propagated to the Workload via `integrations.labelKeysToCopy`:
@@ -463,9 +471,9 @@ where *effective-podset-name* is the `podset-group-name` value if set, or the
 individual PodSet name otherwise. This mirrors how TAS tracks topology assignments.
 
 **Spreading group.** The spreading group for a rule is the set of admitted
-Workloads in the namespace whose `metadata.labels` match the effective label
-selector (`workloadLabelSelectors` if specified, otherwise the default job-uid
-selector). Only Workloads with
+Workloads in the namespace whose `metadata.labels` match the `workloadLabelSelectors`
+from the annotation (always present — injected by the webhook if the user omitted
+it). Only Workloads with
 `status.admission` set are counted; pending or suspended Workloads contribute
 nothing. A Workload need not carry the annotation to be counted — it only needs
 matching labels and a topology assignment at the relevant level. Workloads that do
@@ -677,19 +685,22 @@ Concrete test cases:
 2. Workload webhook rejects creation when `workloadLabelSelectors` contains an
    invalid requirement (empty key, unsupported operator, empty values, or more than
    one element in alpha).
-3. Workload webhook rejects creation when `maxShareAllowingPlacement` is not in `"X%"` format with X in [1, 99].
-4. Workload webhook rejects creation when `rules` contains duplicate `topologyKey` values.
-5. Workload webhook rejects creation when PodSets within the same
+3. Workload mutating webhook injects the job-uid-based default into the annotation
+   when `workloadLabelSelectors` is omitted, so the stored annotation always
+   contains an explicit selector.
+4. Workload webhook rejects creation when `maxShareAllowingPlacement` is not in `"X%"` format with X in [1, 99].
+5. Workload webhook rejects creation when `rules` contains duplicate `topologyKey` values.
+6. Workload webhook rejects creation when PodSets within the same
    `kueue.x-k8s.io/podset-group-name` group carry different annotation values (or
    a mix of annotated and unannotated PodSets).
-6. Workloads with a valid annotation are parsed and rules applied correctly.
-7. Only admitted workloads whose labels match the effective selector are counted
+7. Workloads with a valid annotation are parsed and rules applied correctly.
+8. Only admitted workloads whose labels match the effective selector are counted
    (workloads that do not match are ignored).
-8. Only PodSet groups with a topology assignment at the rule's `topologyKey` level contribute
+9. Only PodSet groups with a topology assignment at the rule's `topologyKey` level contribute
    to the count; groups without that topology level are skipped.
-9. Only PodSets in the same namespace are counted (cross-namespace spreading is not
-   supported).
-10. Correct per-domain PodSet group count computation for:
+10. Only PodSets in the same namespace are counted (cross-namespace spreading is not
+    supported).
+11. Correct per-domain PodSet group count computation for:
     - Multiple workloads in multiple domains.
     - A workload with multiple annotated PodSets: each PodSet counted independently
       in its own domain (one workload can contribute more than 1 to the total).
@@ -699,16 +710,16 @@ Concrete test cases:
     - Workloads that are candidates for preemption (their PodSet groups excluded
       from the count).
     - Workloads that were preemption candidates but are no longer (count restored).
-11. Banned domain set correctly derived for `Required` rules.
-12. Over-threshold domain set correctly derived for `Preferred` rules.
-13. Multiple rules (different topology level keys) in a single annotation all applied.
-14. Correct counts after a workload matching the label selector is admitted within
+12. Banned domain set correctly derived for `Required` rules.
+13. Over-threshold domain set correctly derived for `Preferred` rules.
+14. Multiple rules (different topology level keys) in a single annotation all applied.
+15. Correct counts after a workload matching the label selector is admitted within
     the same scheduling cycle.
-15. Correct counts after a workload matching the label selector is evicted within
+16. Correct counts after a workload matching the label selector is evicted within
     the same scheduling cycle (snapshot reflects the removal).
-16. PodSet template annotation propagated correctly from Job pod template to Workload
+17. PodSet template annotation propagated correctly from Job pod template to Workload
     PodSet template.
-17. Targeting a `topologyKey` not present on the ResourceFlavor: workload is admitted
+18. Targeting a `topologyKey` not present on the ResourceFlavor: workload is admitted
     (rule ignored for that flavor regardless of `Required` or `Preferred`) and
     condition `TopologySpreadKeyNotFound` is set in both cases.
 
