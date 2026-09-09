@@ -564,7 +564,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					return ctrl.Result{}, nil
 				}
 
-				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
+				// Adjust the copy before queueing, as every sibling producer
+				// does; the queue accounting must reflect the effective
+				// resources, not the raw spec.
+				wlCopy := wl.DeepCopy()
+				workload.AdjustResources(ctx, r.client, wlCopy)
+				if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
