@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -864,6 +863,1312 @@ func TestDynamicQuotaOrchestratorDistribution(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		"soft validation: grandchild CQ DQO deactivated when ancestor DQO distributes to grandparent cohort": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("child-dqo").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "child-cq").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("grandparent-cohort").Obj(),
+				utiltestingapi.MakeCohort("parent-cohort").Parent("grandparent-cohort").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("child-cq").
+					Cohort("parent-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			otherDQOs: []*kueuealpha.DynamicQuotaOrchestrator{
+				utiltestingalpha.MakeDynamicQuotaOrchestrator("grandparent-dqo").
+					DiscoveryProvider("cp-1", nil).
+					SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "grandparent-cohort").
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("child-dqo").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "child-cq").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonConflictingDynamicQuotaOrchestrator,
+					Message: "Conflicts with ancestor DynamicQuotaOrchestrator \"grandparent-dqo\"",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("child-cq").
+					Cohort("parent-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"soft validation: ancestor DQO takes over effective quotas on multi-level descendant CQ": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("grandparent-dqo").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "grandparent-cohort").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("grandparent-cohort").Obj(),
+				utiltestingapi.MakeCohort("parent-cohort").Parent("grandparent-cohort").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("child-cq").
+					Cohort("parent-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("child-dqo").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			otherDQOs: []*kueuealpha.DynamicQuotaOrchestrator{
+				utiltestingalpha.MakeDynamicQuotaOrchestrator("child-dqo").
+					DiscoveryProvider("cp-1", nil).
+					SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "child-cq").
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("grandparent-dqo").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "grandparent-cohort").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("child-cq").
+					Cohort("parent-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("grandparent-dqo").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "100").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"soft validation: sibling cohorts do not conflict and both distribute successfully": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-a").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-a").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root-cohort").Obj(),
+				utiltestingapi.MakeCohort("cohort-a").Parent("root-cohort").Obj(),
+				utiltestingapi.MakeCohort("cohort-b").Parent("root-cohort").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-a").
+					Cohort("cohort-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-b").
+					Cohort("cohort-b").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			otherDQOs: []*kueuealpha.DynamicQuotaOrchestrator{
+				utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-b").
+					DiscoveryProvider("cp-1", nil).
+					SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-b").
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-a").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-a").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-a").
+					Cohort("cohort-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-a").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "100").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"soft validation: separate ClusterQueues do not conflict (ClusterQueue cannot be ancestor)": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			otherDQOs: []*kueuealpha.DynamicQuotaOrchestrator{
+				utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-2").
+					DiscoveryProvider("cp-1", nil).
+					SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-2").
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-1").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "100").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"soft validation: cyclic cohort hierarchy terminates safely without hanging": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-a").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cycle-a").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+				utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj(),
+				utiltestingapi.MakeCohort("other-cohort").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-a").
+					Cohort("cycle-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			otherDQOs: []*kueuealpha.DynamicQuotaOrchestrator{
+				utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-other").
+					DiscoveryProvider("cp-1", nil).
+					SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "other-cohort").
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-a").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cycle-a").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-a").
+					Cohort("cycle-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-a").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "100").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"soft validation: managed conflict where other DQO root is non-existent returns conflict error": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().Name("other-dqo").Obj()).
+					Obj(),
+			},
+			otherDQOs: []*kueuealpha.DynamicQuotaOrchestrator{
+				utiltestingalpha.MakeDynamicQuotaOrchestrator("other-dqo").
+					DiscoveryProvider("cp-1", nil).
+					SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "non-existent-cohort").
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonEffectiveQuotasConflict,
+					Message: "ClusterQueue \"cq-1\" already managed by DynamicQuotaOrchestrator/other-dqo",
+				}).
+				Obj(),
+			wantErr: false,
+		},
+		"distribution: root ClusterQueue not found sets Misconfigured condition": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-cq-not-found").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "missing-cq").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-cq-not-found").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "missing-cq").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
+					Message: "ClusterQueue \"missing-cq\" not found",
+				}).
+				Obj(),
+			wantErr: false,
+		},
+		"distribution: root Cohort not found sets Misconfigured condition": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-cohort-not-found").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "missing-cohort").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-cohort-not-found").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "missing-cohort").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
+					Message: "Cohort \"missing-cohort\" not found",
+				}).
+				Obj(),
+			wantErr: false,
+		},
+		"distribution: unsupported subtree root kind sets Misconfigured condition": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-unsupported-kind").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot("UnknownKind", "foo").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-unsupported-kind").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot("UnknownKind", "foo").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
+					Message: "unsupported subtree root kind \"UnknownKind\"",
+				}).
+				Obj(),
+			wantErr: false,
+		},
+		"distribution: to standalone Cohort with no child queues or cohorts": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-standalone-cohort").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root-cohort").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-standalone-cohort").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root-cohort").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-standalone-cohort").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "100").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"distribution: multi-level hierarchy excludes disjoint cohort trees": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-multi-level").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root-cohort").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root-cohort").Obj(),
+				utiltestingapi.MakeCohort("child-cohort").Parent("root-cohort").Obj(),
+				utiltestingapi.MakeCohort("other-root").Obj(),
+				utiltestingapi.MakeCohort("disjoint-child").Parent("other-root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("root-cq").
+					Cohort("root-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("child-cq").
+					Cohort("child-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("disjoint-cq").
+					Cohort("disjoint-child").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-multi-level").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root-cohort").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("root-cq").
+					Cohort("root-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-multi-level").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("child-cq").
+					Cohort("child-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-multi-level").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("disjoint-cq").
+					Cohort("disjoint-child").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"distribution: intermediate cohort only distributes to descendants, excludes ancestors and siblings": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-mid").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "mid-cohort").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("top-root").Obj(),
+				utiltestingapi.MakeCohort("mid-cohort").Parent("top-root").Obj(),
+				utiltestingapi.MakeCohort("sibling-cohort").Parent("top-root").Obj(),
+				utiltestingapi.MakeCohort("leaf-cohort").Parent("mid-cohort").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("top-cq").
+					Cohort("top-root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("mid-cq").
+					Cohort("mid-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("sibling-cq").
+					Cohort("sibling-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("leaf-cq").
+					Cohort("leaf-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-mid").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "mid-cohort").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("top-cq").
+					Cohort("top-root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("mid-cq").
+					Cohort("mid-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-mid").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("sibling-cq").
+					Cohort("sibling-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("leaf-cq").
+					Cohort("leaf-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-mid").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"distribution: cyclic cohort hierarchy in subtree resolution terminates safely": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-cycle").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root-cohort").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root-cohort").Parent("child-cohort").Obj(),
+				utiltestingapi.MakeCohort("child-cohort").Parent("root-cohort").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					Cohort("root-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					Cohort("child-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-cycle").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root-cohort").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					Cohort("root-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-cycle").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					Cohort("child-cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-cycle").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
+		"proportional distribution: zero sum spec nominal quota allocates zero effective quota": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero-sum").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-1").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					Cohort("cohort-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero-sum").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-1").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-zero-sum").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "0").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					Cohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-zero-sum").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "0").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"proportional distribution: remainder tie-breaker uses UUID ordering per KEP-12382": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-tie-breaker").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-1").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "10").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-1").
+					UID("uid-b").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "1").Obj(),
+					).
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					UID("uid-c").
+					Cohort("cohort-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "1").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					UID("uid-a").
+					Cohort("cohort-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "1").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-tie-breaker").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-1").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "10").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-tie-breaker").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "3333m").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					Cohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-tie-breaker").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "3333m").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					Cohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-tie-breaker").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "3334m").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
+		"proportional distribution: scalar resource distribution uses integer unit (scale 0)": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-scalar-scale").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-1").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceMemory, "10").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-1").
+					UID("uid-b").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceMemory, "1").Obj(),
+					).
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					UID("uid-c").
+					Cohort("cohort-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceMemory, "1").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					UID("uid-a").
+					Cohort("cohort-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceMemory, "1").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-scalar-scale").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cohort-1").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceMemory, "10").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantCohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-scalar-scale").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceMemory, "3").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					Cohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-scalar-scale").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceMemory, "3").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-2").
+					Cohort("cohort-1").
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-scalar-scale").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceMemory, "4").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -931,85 +2236,6 @@ func TestDynamicQuotaOrchestratorDistribution(t *testing.T) {
 				if diff := cmp.Diff(wantCohort.Status.EffectiveQuotas, gotCohort.Status.EffectiveQuotas, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected EffectiveQuotas for Cohort %s (-want +got):\n%s", wantCohort.Name, diff)
 				}
-			}
-		})
-	}
-}
-
-func TestDistributeCapacityProportionally(t *testing.T) {
-	cases := map[string]struct {
-		resource     corev1.ResourceName
-		capacity     resource.Quantity
-		participants []quotaParticipant
-		want         map[string]resource.Quantity
-	}{
-		"empty participants": {
-			resource:     corev1.ResourceCPU,
-			capacity:     resource.MustParse("100"),
-			participants: nil,
-			want:         map[string]resource.Quantity{},
-		},
-		"zero sum spec nominal quota": {
-			resource: corev1.ResourceCPU,
-			capacity: resource.MustParse("100"),
-			participants: []quotaParticipant{
-				{kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "cq-1", specNominalQuota: resource.MustParse("0")},
-				{kind: kueuealpha.CohortSubtreeRootRefKind, name: "cohort-1", specNominalQuota: resource.MustParse("0")},
-			},
-			want: map[string]resource.Quantity{
-				"ClusterQueue/cq-1": resource.MustParse("0"),
-				"Cohort/cohort-1":   resource.MustParse("0"),
-			},
-		},
-		"remainder tie-breaker: UUID ordering per KEP-12382": {
-			resource: corev1.ResourceCPU,
-			capacity: resource.MustParse("10"),
-			participants: []quotaParticipant{
-				{kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "cq-1", uid: "uid-c", specNominalQuota: resource.MustParse("1")},
-				{kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "cq-2", uid: "uid-a", specNominalQuota: resource.MustParse("1")},
-				{kind: kueuealpha.CohortSubtreeRootRefKind, name: "cohort-1", uid: "uid-b", specNominalQuota: resource.MustParse("1")},
-			},
-			want: map[string]resource.Quantity{
-				"ClusterQueue/cq-1": resource.MustParse("3333m"),
-				"ClusterQueue/cq-2": resource.MustParse("3334m"),
-				"Cohort/cohort-1":   resource.MustParse("3333m"),
-			},
-		},
-		"scalar resource distribution uses integer unit (scale 0)": {
-			resource: corev1.ResourceMemory,
-			capacity: resource.MustParse("10"),
-			participants: []quotaParticipant{
-				{kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "cq-1", uid: "uid-c", specNominalQuota: resource.MustParse("1")},
-				{kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "cq-2", uid: "uid-a", specNominalQuota: resource.MustParse("1")},
-				{kind: kueuealpha.CohortSubtreeRootRefKind, name: "cohort-1", uid: "uid-b", specNominalQuota: resource.MustParse("1")},
-			},
-			want: map[string]resource.Quantity{
-				"ClusterQueue/cq-1": resource.MustParse("3"),
-				"ClusterQueue/cq-2": resource.MustParse("4"),
-				"Cohort/cohort-1":   resource.MustParse("3"),
-			},
-		},
-		"proportional allocation without remainders across cohorts and clusterqueues": {
-			resource: corev1.ResourceCPU,
-			capacity: resource.MustParse("50"),
-			participants: []quotaParticipant{
-				{kind: kueuealpha.CohortSubtreeRootRefKind, name: "parent-cohort", uid: "uid-1", specNominalQuota: resource.MustParse("20")},
-				{kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "cq-1", uid: "uid-2", specNominalQuota: resource.MustParse("10")},
-				{kind: kueuealpha.ClusterQueueSubtreeRootRefKind, name: "cq-2", uid: "uid-3", specNominalQuota: resource.MustParse("10")},
-			},
-			want: map[string]resource.Quantity{
-				"Cohort/parent-cohort": resource.MustParse("25"),
-				"ClusterQueue/cq-1":    resource.MustParse("12500m"),
-				"ClusterQueue/cq-2":    resource.MustParse("12500m"),
-			},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := distributeCapacityProportionally(tc.resource, tc.capacity, tc.participants)
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("Unexpected distribution (-want +got):\n%s", diff)
 			}
 		})
 	}

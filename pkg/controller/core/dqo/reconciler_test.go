@@ -321,6 +321,38 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"discovery-only: provider reports flavor with empty resources": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty-res").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("empty-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("empty-flavor").Obj()).
+						Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty-res").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors().
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
 		"feature gate disabled": {
 			enableFeatureGate: new(bool),
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-disabled").
