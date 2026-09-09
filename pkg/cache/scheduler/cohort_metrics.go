@@ -212,7 +212,7 @@ func (c *Cache) recordCohortInfo(cohort *cohort, rootCohort *cohort) {
 	}
 	newRoot := rootCohort.GetName()
 	metrics.ClearCohortInfo(cohort.Name)
-	metrics.ReportCohortInfo(cohort.Name, newParent, newRoot, c.customLabels.CohortGet(cohort.Name), c.roleTracker)
+	metrics.ReportCohortInfo(cohort.Name, newParent, newRoot, cohort.DynamicQuotaOrchestrator, c.customLabels.CohortGet(cohort.Name), c.roleTracker)
 }
 
 // recordCQInfo records CQ info metrics.
@@ -222,7 +222,7 @@ func (c *Cache) recordCQInfo(cq *clusterQueue, parentCohort kueue.CohortReferenc
 	}
 	customLabels := c.customLabels.CQGet(cq.Name)
 	metrics.ClearClusterQueueInfo(cq.Name)
-	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, customLabels, c.roleTracker)
+	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, cq.DynamicQuotaOrchestrator, customLabels, c.roleTracker)
 }
 
 // updateCohortResourceAndInfoMetrics updates subtree resources then records info metrics.

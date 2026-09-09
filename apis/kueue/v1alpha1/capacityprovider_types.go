@@ -26,6 +26,7 @@ type CapacityProviderSpec struct {
 	// publish capacity. DQO ignores entries in status.capacity.flavors whose
 	// names are not listed here.
 	//
+	// +required
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=1
@@ -63,21 +64,21 @@ type CapacityProviderParametersReference struct {
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	APIGroup string `json:"apiGroup,omitempty"`
+	APIGroup string `json:"apiGroup"`
 
 	// kind is the type of the resource being referenced.
 	// +required
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern="^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$"
-	Kind string `json:"kind,omitempty"`
+	Kind string `json:"kind"`
 
 	// name is the name of the resource being referenced.
 	// +required
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
 }
 
 type CapacityProviderStatus struct {
@@ -100,6 +101,7 @@ type CapacityProviderStatus struct {
 type CapacityProviderNormalizedCapacity struct {
 	// flavors contains capacity per flavor and resource.
 	//
+	// +required
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64

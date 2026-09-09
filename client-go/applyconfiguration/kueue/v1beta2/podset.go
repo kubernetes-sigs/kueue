@@ -53,8 +53,10 @@ type PodSetApplyConfiguration struct {
 	// Only one podSet within the workload can use this.
 	//
 	// This is an alpha field and requires enabling PartialAdmission feature gate.
+	//
 	MinCount *int32 `json:"minCount,omitempty"`
 	// topologyRequest defines the topology request for the PodSet.
+	//
 	TopologyRequest *PodSetTopologyRequestApplyConfiguration `json:"topologyRequest,omitempty"`
 }
 

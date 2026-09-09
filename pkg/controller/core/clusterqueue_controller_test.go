@@ -229,7 +229,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			r := &ClusterQueueReconciler{
 				client:   cl,
-				logName:  "cluster-queue-reconciler",
+				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
 			}
@@ -307,7 +307,7 @@ func TestClusterQueueReconcile(t *testing.T) {
 
 			r := &ClusterQueueReconciler{
 				client:   cl,
-				logName:  "cluster-queue-reconciler",
+				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
 			}
