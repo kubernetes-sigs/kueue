@@ -37,7 +37,10 @@ import (
 
 // The RayCluster workload has two PodSets: the head, which cannot be shrunk, and the single
 // worker group, which is the one partial scale-up reduces.
-const workersPodSetIdx = 1
+const (
+	workersPodSetIdx = 1
+	workersGroupName = "workers-group-0"
+)
 
 // KEP-12100: Partial Replica ScaleUp for ElasticJob.
 var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jobs", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -63,16 +66,6 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			})
 			g.Expect(idx).ShouldNot(gomega.Equal(-1), "ClusterQueue reports no pods usage, only %v", resources)
 			g.Expect(resources[idx].Total.Value()).Should(gomega.Equal(pods))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
-
-	// expectAdmittedWorkers asserts how many pods of the worker group the slice was admitted with.
-	expectAdmittedWorkers := func(wl *kueue.Workload, count int32) {
-		ginkgo.GinkgoHelper()
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
-			g.Expect(wl.Status.Admission.PodSetAssignments[workersPodSetIdx].Count).Should(gomega.Equal(new(count)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 	// scaleFirstWorkerGroup emulates the KubeRay controller, which is what updates .replicas in
@@ -149,7 +142,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
 		gomega.Expect(initialSlice.Spec.PodSets).Should(gomega.HaveLen(2))
 		gomega.Expect(initialSlice.Spec.PodSets[workersPodSetIdx].Count).Should(gomega.Equal(int32(5)))
-		expectAdmittedWorkers(initialSlice, 5)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("quota usage reflects the full 6 pods (1 head + 5 workers)")
 		expectPodsUsage(6)
@@ -170,7 +163,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
 
 		ginkgo.By("only 6 of the 10 requested workers fit: 1 head + 6 workers = the whole quota")
-		expectAdmittedWorkers(partialSlice, 6)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
 		expectPodsUsage(7)
 
 		ginkgo.By("the old (pre-scale-up) slice is finished")
@@ -215,7 +208,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 		ginkgo.By("the partially-admitted slice still holds its 6 admitted workers")
-		expectAdmittedWorkers(partialSlice, 6)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
 
 		ginkgo.By("the probe workload is still pending")
 		util.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, probeKey)
@@ -234,7 +227,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the probe workload is admitted with the full 12 workers")
-		expectAdmittedWorkers(probe, 12)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, workersGroupName, 12)
 
 		ginkgo.By("the partially-admitted slice is finished, having been replaced by the probe")
 		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
@@ -278,7 +271,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		})
 		gomega.Expect(initialSliceIdx).ShouldNot(gomega.Equal(-1), "no RayCluster slice alongside the victim")
 		initialSlice := &workloads[initialSliceIdx]
-		expectAdmittedWorkers(initialSlice, 2)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 2)
 		expectPodsUsage(7)
 
 		// The scale-up wants 1 + 10 = 11 pods, which does not fit in the 7-pod quota even after
@@ -305,7 +298,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		// The whole 7-pod quota is now the RayCluster's: 1 head + 6 workers. MinCount is asserted
 		// in the spec above; this one is about the preemption interaction.
-		expectAdmittedWorkers(partialSlice, 6)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
 		expectPodsUsage(7)
 	})
 })

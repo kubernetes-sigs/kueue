@@ -158,6 +158,21 @@ func TestOrderedReduce(t *testing.T) {
 			wantCount: []int32{1, 2, 20},
 			wantFound: true,
 		},
+		"spare capacity goes to whichever competing podset comes first in podSets": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 20).SetMinimumCount(10).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 20).SetMinimumCount(10).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+			},
+			// ps0 capped at its minimum costs the shrink its whole budget, so all three land
+			// at 10 and the pool of 32 leaves 2 to give back.
+			ok: func(counts []int32) bool {
+				return counts[0] <= 10 && counts[0]+counts[1]+counts[2] <= 32
+			},
+			// ps1 and ps2 both have room for those 2, ps1 takes them, being ahead in podSets.
+			wantCount: []int32{10, 12, 10},
+			wantFound: true,
+		},
 		"a podset whose own capacity is partly exhausted is given back only as far as it fits": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("ps0", 1).Obj(),
@@ -203,6 +218,38 @@ func TestOrderedReduce(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestReduceWithoutRefine covers a reducer that leaves refine nil, which a strategy whose
+// shrink is already exact would do. It uses the inputs of the KEP scenario D case above, so
+// the counts it asserts are what that scenario would be admitted at without the give-back.
+func TestReduceWithoutRefine(t *testing.T) {
+	podSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("ps0", 1).Obj(),
+		*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
+		*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+	}
+
+	fits := func(counts []int32) ([]int32, bool) {
+		if counts[1] > 2 || counts[2] > 20 {
+			return nil, false
+		}
+		return slices.Clone(counts), true
+	}
+
+	red := newPodSetReducer(podSets, fits, distributeOrderBased)
+	if red.refine != nil {
+		t.Fatal("Expected newPodSetReducer to leave refine unset")
+	}
+
+	count, found := red.Reduce()
+	if !found {
+		t.Fatal("Expected a solution")
+	}
+	// ps2 stays drained, since only the give-back pass would restore it to 20.
+	if diff := cmp.Diff([]int32{1, 2, 10}, count); diff != "" {
+		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
 	}
 }
 

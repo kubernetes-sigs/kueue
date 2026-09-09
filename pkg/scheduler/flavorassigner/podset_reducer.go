@@ -39,14 +39,12 @@ type PodSetReducer[R any] struct {
 	fullCounts []int32
 	deltas     []int32
 	totalDelta int64
-	// fits reports whether the given counts can be admitted. The slice is scratch that is
-	// overwritten on every probe, including long after a successful one, so an implementation
-	// must not retain it - copy anything it needs to keep.
+	// fits reports whether the given counts can be admitted. The slice is scratch,
+	// overwritten on every probe, so an implementation must copy anything it keeps.
 	fits       func([]int32) (R, bool)
 	distribute distributeFunc
-	// refine optionally improves the counts the shrink settled on, for a shrink that can give
-	// up more than the constraints required. Only the ordered strategy sets it today; a
-	// strategy whose shrink is already exact leaves it nil.
+	// refine optionally grows back counts the shrink gave up needlessly. Nil for a
+	// strategy whose shrink is already exact.
 	refine func(counts []int32, best R) (R, bool)
 }
 
@@ -70,17 +68,13 @@ func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool
 	return psr
 }
 
-// NewOrderedPodSetReducer shrinks PodSets sequentially, starting from the
-// last one in podSets and moving towards the first only once the current one
-// has been shrunk down to its minimum count. A second pass then grows back
-// whatever that order cut beyond what the constraints required, so the counts
-// Reduce returns are not simply the result of one ordered shrink.
+// NewOrderedPodSetReducer shrinks PodSets from the last towards the first, moving on only
+// once the current one is at its minimum count, then gives back what that order cut
+// needlessly. The budget is a single number, but PodSets tied to different node groups draw
+// on separate capacity, so spending from the back can drain a PodSet whose own capacity was
+// never the constraint.
 func NewOrderedPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool)) *PodSetReducer[R] {
 	psr := newPodSetReducer(podSets, fits, distributeOrderBased)
-	// The budget is a single number, but PodSets can draw on separate capacity - different node
-	// selectors tied to different node groups, and so different flavors. Spending strictly from
-	// the back can therefore drain a PodSet whose own capacity was never the constraint, which
-	// the second pass gives back.
 	psr.refine = psr.giveBack
 	return psr
 }
@@ -94,10 +88,9 @@ func distributeOrderBased(out, fullCounts, deltas []int32, amount, _ int64) {
 	}
 }
 
-// Reduce returns the fits() result for the largest counts that fit, and false when no
-// combination does. It gives up as little of PodSets[*].Count as the reduction strategy allows
-// - which is not necessarily the smallest possible total, since a strategy may deliberately
-// favour some PodSets over others.
+// Reduce returns the fits() result for the largest counts the reduction strategy can admit,
+// and false when no combination fits. A strategy may favour some PodSets over others, so the
+// total is not necessarily the largest one possible.
 func (psr *PodSetReducer[R]) Reduce() (R, bool) {
 	var best R
 
@@ -105,13 +98,9 @@ func (psr *PodSetReducer[R]) Reduce() (R, bool) {
 		return best, false
 	}
 
-	// The searched range is [0, totalDelta], inclusive of totalDelta: cutting every PodSet down
-	// to its minimum count is a candidate like any other, and is the only one left when nothing
-	// smaller fits. sort.Search takes a half-open range, hence the +1.
 	current := make([]int32, len(psr.podSets))
-	// current is scratch for the budget being probed, and the binary search usually probes a
-	// failing budget last. bestCounts is copied only on success, so it always describes the
-	// same attempt as best - which refine needs as its starting point.
+	// current holds the budget probed last, usually a failing one, so the winning counts are
+	// kept separately for refine to start from.
 	bestCounts := make([]int32, len(psr.podSets))
 	idx := sort.Search(int(psr.totalDelta)+1, func(i int) bool {
 		psr.distribute(current, psr.fullCounts, psr.deltas, int64(i), psr.totalDelta)
@@ -133,19 +122,10 @@ func (psr *PodSetReducer[R]) Reduce() (R, bool) {
 	return best, true
 }
 
-// giveBack grows back the PodSets that the ordered shrink cut further than the constraints
-// required. It walks the PodSets from the first to the last, since those are the ones the
-// order-based policy protects, and commits each grown count before moving on so that later
-// PodSets are measured against the quota the earlier ones just took.
-//
-// It grows counts in place and returns the fits() result matching them.
-//
-// Two preconditions: counts must be a combination that fits, with best its fits() result; and a
-// count that fits must imply every smaller count fits, holding the other PodSets steady, since
-// the binary search below relies on it. The latter holds for a workload slice because it is
-// pinned to the assignment of the slice it replaces, so a PodSet's assignment cannot change
-// underneath the search. Were it ever violated the result would be a smaller admission, never
-// an invalid one, because every count committed here came back from a successful fits().
+// giveBack grows back the counts that the shrink cut more than it had to.
+// It goes through the PodSets from first to last and grows each one as far as
+// still fits before moving on - so a later PodSet only sees the capacity the earlier ones
+// left. It grows counts in place and returns what fits() gave for the final counts.
 func (psr *PodSetReducer[R]) giveBack(counts []int32, best R) (R, bool) {
 	reduced := 0
 	for i := range counts {
@@ -153,11 +133,9 @@ func (psr *PodSetReducer[R]) giveBack(counts []int32, best R) (R, bool) {
 			reduced++
 		}
 	}
-	// A single reduced PodSet has nothing to redistribute: the shrink already found the
-	// smallest budget that fits, and giving any of it back means a budget it has rejected.
-	// This also keeps the second pass away from classic partial admission, where a Workload
-	// may carry at most one minCount PodSet, so it only ever runs where the PodSets can draw
-	// on separate capacity.
+	// With one reduced PodSet there is nothing to redistribute: growing it means a budget the
+	// shrink already rejected. This also keeps the pass away from classic partial admission,
+	// which allows at most one minCount PodSet per Workload.
 	if reduced < 2 {
 		return best, true
 	}
@@ -177,8 +155,8 @@ func (psr *PodSetReducer[R]) giveBack(counts []int32, best R) (R, bool) {
 			continue
 		}
 
-		// Otherwise look for the largest count that still fits, between the count the shrink
-		// settled on (exclusive) and the full count (exclusive, having just failed).
+		// Otherwise find the largest count that still fits, between the count the shrink
+		// settled on and the full count, both exclusive.
 		lo, hi := counts[i]+1, psr.fullCounts[i]-1
 		grownTo, grownBest := counts[i], best
 		sort.Search(int(hi-lo+1), func(k int) bool {
