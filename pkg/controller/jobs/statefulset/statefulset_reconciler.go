@@ -252,6 +252,17 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = true
 	}
 
+	// Resync the pod set counts before the hold is released, otherwise a scale-up to a
+	// different size is re-admitted with the count captured at creation. A workload on
+	// hold holds no quota reservation, which is what makes spec.podSets mutable here.
+	if shouldClearOnHold {
+		desiredCounts := workload.PodSetsCounts{kueue.DefaultPodSetName: replicas}
+		if !desiredCounts.EqualTo(workload.ExtractPodSetCountsFromWorkload(wl)) {
+			workload.ApplyPodSetCounts(wl, desiredCounts)
+			shouldUpdate = true
+		}
+	}
+
 	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
 		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
