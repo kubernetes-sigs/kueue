@@ -67,6 +67,7 @@ func TestWorkloadCmd(t *testing.T) {
 		job              []runtime.Object
 		// forbiddenLocalQueues makes Get on these LocalQueues return Forbidden.
 		forbiddenLocalQueues []string
+		listPages            []runtime.Object
 		wantOut              string
 		wantOutErr           string
 		wantErr              error
@@ -928,6 +929,35 @@ wl1               j1         lq1          cq1            PENDING   12           
 wl2               j2         lq2          cq2            PENDING   22                              120m
 `,
 		},
+		"should print a single yaml document across pages": {
+			args: []string{"-o", "yaml"},
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					ListMeta: metav1.ListMeta{Continue: "page2"},
+					Items:    []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Namespace: metav1.NamespaceDefault}}},
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl2", Namespace: metav1.NamespaceDefault}}},
+				},
+			},
+			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2
+items:
+- metadata:
+    name: wl1
+    namespace: default
+  spec:
+    podSets: null
+  status: {}
+- metadata:
+    name: wl2
+    namespace: default
+  spec:
+    podSets: null
+  status: {}
+kind: WorkloadList
+metadata: {}
+`,
+		},
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
@@ -941,6 +971,9 @@ wl2               j2         lq2          cq2            PENDING   22           
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			clientset := fake.NewSimpleClientset(tc.objs...)
+			if len(tc.listPages) > 0 {
+				prependPagedListReactor(clientset, "workloads", tc.listPages)
+			}
 
 			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 			if len(tc.ns) > 0 {
