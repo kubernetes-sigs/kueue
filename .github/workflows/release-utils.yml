@@ -200,15 +200,19 @@ jobs:
           ref: main
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: 'go.mod'
-
       - name: Install release-notes tool
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          go install k8s.io/release/cmd/release-notes@v0.20.1
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          DOWNLOAD_DIR=$(mktemp -d)
+          gh release download v0.20.1 \
+            --repo kubernetes/release \
+            --pattern 'release-notes-amd64-linux' \
+            --pattern 'checksums.txt' \
+            --dir "$DOWNLOAD_DIR"
+          grep -E '(^|[[:space:]])release-notes-amd64-linux$' "$DOWNLOAD_DIR/checksums.txt" \
+            | (cd "$DOWNLOAD_DIR" && sha256sum -c -)
+          install -m 0755 "$DOWNLOAD_DIR/release-notes-amd64-linux" /usr/local/bin/release-notes
 
       - name: Run Sync Notes
         id: sync
