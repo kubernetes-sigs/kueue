@@ -128,12 +128,7 @@ func (p *listWorkloadPrinter) printWorkload(wl *kueue.Workload) metav1.TableRow 
 		Object: runtime.RawExtension{Object: wl},
 	}
 
-	var clusterQueueName string
-	if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
-		clusterQueueName = string(wl.Status.Admission.ClusterQueue)
-	} else if lq := p.resources.localQueues[localQueueKeyForWorkload(wl)]; lq != nil {
-		clusterQueueName = string(lq.Spec.ClusterQueue)
-	}
+	clusterQueueName := string(clusterQueueNameForWorkload(wl, p.resources.localQueues))
 
 	var positionInQueue string
 	if pendingWorkload, ok := p.resources.pendingWorkloads[workload.Key(wl)]; ok {
