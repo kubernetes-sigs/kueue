@@ -630,6 +630,34 @@ wl2    rayjob.ray.io             j2         lq2          cq2            PENDING 
 wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING                                   3h
 `,
 		},
+		"should print sorted job names for a workload with multiple owners": {
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "pod",
+							Kind:         "Pod",
+							Group:        "",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-c", "pod-uid-c").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-a", "pod-uid-a").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-b", "pod-uid-b").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME              LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    pod        pod-a, pod-b, pod-c   lq1          cq1            PENDING                                   60m
+`,
+		},
 		"should print workload list with resource filter": {
 			args: []string{"--for", "job.batch/job-test"},
 			apiResourceLists: []*metav1.APIResourceList{
