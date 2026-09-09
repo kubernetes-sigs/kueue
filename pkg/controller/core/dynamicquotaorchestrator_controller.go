@@ -35,8 +35,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -98,7 +101,34 @@ func (r *DynamicQuotaOrchestratorReconciler) SetupWithManager(mgr ctrl.Manager) 
 			&kueuealpha.CapacityProvider{},
 			handler.EnqueueRequestsFromMapFunc(r.mapCapacityProviderToDQOs),
 		).
+		Watches(
+			&kueue.Cohort{},
+			handler.EnqueueRequestsFromMapFunc(r.mapDistributingDQOs),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
+		Watches(
+			&kueue.ClusterQueue{},
+			handler.EnqueueRequestsFromMapFunc(r.mapDistributingDQOs),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
+		Watches(
+			&kueuealpha.DynamicQuotaOrchestrator{},
+			handler.EnqueueRequestsFromMapFunc(r.mapOtherDistributingDQOs),
+			builder.WithPredicates(dqoSpecOrDeletionChangedPredicate),
+		).
 		Complete(r)
+}
+
+var dqoSpecOrDeletionChangedPredicate = predicate.Funcs{
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		if e.ObjectOld == nil || e.ObjectNew == nil {
+			return false
+		}
+		if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+			return true
+		}
+		return e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero()
+	},
 }
 
 // mapCapacityProviderToDQOs maps a CapacityProvider event to reconcile requests for all DynamicQuotaOrchestrators referencing it.
@@ -118,6 +148,48 @@ func (r *DynamicQuotaOrchestratorReconciler) mapCapacityProviderToDQOs(ctx conte
 	for _, orchestrator := range orchestratorList.Items {
 		requests = append(requests, ctrl.Request{
 			NamespacedName: types.NamespacedName{Name: orchestrator.Name},
+		})
+	}
+	return requests
+}
+
+// mapDistributingDQOs maps Cohort or ClusterQueue events to reconcile requests for all distributing DynamicQuotaOrchestrators.
+func (r *DynamicQuotaOrchestratorReconciler) mapDistributingDQOs(ctx context.Context, _ client.Object) []ctrl.Request {
+	distributingDQOs, err := r.listDistributingDQOs(ctx)
+	if err != nil {
+		r.logger().Error(err, "Failed to list distributing DynamicQuotaOrchestrators")
+		return nil
+	}
+	requests := make([]ctrl.Request, 0, len(distributingDQOs))
+	for _, orchestrator := range distributingDQOs {
+		requests = append(requests, ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: orchestrator.Name},
+		})
+	}
+	return requests
+}
+
+// mapOtherDistributingDQOs maps a DynamicQuotaOrchestrator event to reconcile requests for other distributing DynamicQuotaOrchestrators.
+func (r *DynamicQuotaOrchestratorReconciler) mapOtherDistributingDQOs(ctx context.Context, obj client.Object) []ctrl.Request {
+	if obj == nil {
+		return nil
+	}
+	orchestrator, ok := obj.(*kueuealpha.DynamicQuotaOrchestrator)
+	if !ok || orchestrator == nil {
+		return nil
+	}
+	distributingDQOs, err := r.listDistributingDQOs(ctx)
+	if err != nil {
+		r.logger().Error(err, "Failed to list distributing DynamicQuotaOrchestrators")
+		return nil
+	}
+	requests := make([]ctrl.Request, 0, len(distributingDQOs))
+	for _, item := range distributingDQOs {
+		if item.Name == orchestrator.Name {
+			continue
+		}
+		requests = append(requests, ctrl.Request{
+			NamespacedName: types.NamespacedName{Name: item.Name},
 		})
 	}
 	return requests
