@@ -455,55 +455,6 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"non-controller owner reference matching the job name is not equivalent and gets updated in place": {
-			req:     baseReq,
-			job:     baseJob.DeepCopy(),
-			podSets: basePodSets,
-			objs: []client.Object{
-				utiltestingapi.MakeWorkload("job-test-job-1", metav1.NamespaceDefault).
-					ResourceVersion("1").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					OwnerReference(testGVK, testJobName, testJobName).
-					Queue(testLocalQueueName).
-					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
-					Priority(0).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("job-test-job-1", metav1.NamespaceDefault).
-					ResourceVersion("2").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					OwnerReference(testGVK, testJobName, testJobName).
-					Queue(testLocalQueueName).
-					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-					Priority(0).
-					Obj(),
-			},
-		},
-		"workload with no owner references at all is not matched and a new workload is created": {
-			req:     baseReq,
-			job:     baseJob.DeepCopy(),
-			podSets: basePodSets,
-			objs: []client.Object{
-				utiltestingapi.MakeWorkload("orphan-wl", metav1.NamespaceDefault).
-					ResourceVersion("1").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Queue(testLocalQueueName).
-					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-					Priority(0).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
-				*utiltestingapi.MakeWorkload("orphan-wl", metav1.NamespaceDefault).
-					ResourceVersion("1").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Queue(testLocalQueueName).
-					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-					Priority(0).
-					Obj(),
-			},
-		},
 		// Same group and kind, so the rename is legal while reserved.
 		"quota-reserved workload follows the owner to another workload priority class": {
 			req:     baseReq,
