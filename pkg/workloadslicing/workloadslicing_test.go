@@ -29,6 +29,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -110,36 +113,108 @@ func TestEnabled(t *testing.T) {
 
 func TestListPodsForWorkloadSlice(t *testing.T) {
 	errListPods := errors.New("list pods failed")
+	basePod := testingpod.MakePod("", "ns")
+	// Match the omitted fields after the fake client's JSON round trip.
+	basePod.Spec.Containers[0].Resources = corev1.ResourceRequirements{}
+	basePod.Spec.SchedulingGates = nil
+	originPod := basePod.Clone().Name("origin-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Annotation(kueue.WorkloadAnnotation, "origin").
+		Label("role", "worker").NodeName("node-a").Obj()
+	replacementPod := basePod.Clone().Name("replacement-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Annotation(kueue.WorkloadAnnotation, "replacement").
+		Label("role", "worker").NodeName("node-a").Obj()
+	succeededPod := basePod.Clone().Name("succeeded-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Label("role", "worker").NodeName("node-b").StatusPhase(corev1.PodSucceeded).Obj()
+	failedPod := basePod.Clone().Name("failed-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Label("role", "launcher").NodeName("node-a").StatusPhase(corev1.PodFailed).Obj()
+	regularPod := basePod.Clone().Name("regular-pod").
+		Annotation(kueue.WorkloadAnnotation, "regular").
+		Label("role", "worker").NodeName("node-a").Obj()
 	pods := []client.Object{
-		testingpod.MakePod("origin-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").Annotation(kueue.WorkloadAnnotation, "origin").Obj(),
-		testingpod.MakePod("replacement-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").Annotation(kueue.WorkloadAnnotation, "replacement").Label("role", "worker").Obj(),
-		testingpod.MakePod("succeeded-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").StatusPhase(corev1.PodSucceeded).Obj(),
-		testingpod.MakePod("failed-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").StatusPhase(corev1.PodFailed).Obj(),
-		testingpod.MakePod("other-namespace", "other").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").Obj(),
-		testingpod.MakePod("regular-pod", "ns").Annotation(kueue.WorkloadAnnotation, "regular").Obj(),
-		testingpod.MakePod("unrelated-pod", "ns").Obj(),
+		originPod,
+		replacementPod,
+		succeededPod,
+		failedPod,
+		regularPod,
+		basePod.Clone().Name("other-namespace").Namespace("other").
+			Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+			Label("role", "worker").NodeName("node-a").Obj(),
+		basePod.Clone().Name("other-slice-pod").
+			Annotation(kueue.WorkloadAnnotation, "origin").
+			Annotation(kueue.WorkloadSliceNameAnnotation, "other").
+			Label("role", "worker").NodeName("node-a").Obj(),
+		basePod.Clone().Name("unrelated-pod").
+			Label("role", "worker").NodeName("node-a").Obj(),
 	}
 	testCases := map[string]struct {
 		sliceName   string
 		listOptions []client.ListOption
-		wantNames   []string
+		wantPods    []*corev1.Pod
 		wantErr     error
 	}{
 		"all pods in the slice chain, including terminal pods": {
 			sliceName: "origin",
-			wantNames: []string{"failed-pod", "origin-pod", "replacement-pod", "succeeded-pod"},
+			wantPods:  []*corev1.Pod{originPod, replacementPod, succeededPod, failedPod},
 		},
 		"additional label selector": {
 			sliceName:   "origin",
 			listOptions: []client.ListOption{client.MatchingLabels{"role": "worker"}},
-			wantNames:   []string{"replacement-pod"},
+			wantPods:    []*corev1.Pod{originPod, replacementPod, succeededPod},
+		},
+		"matching fields": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{tasindexer.PodNodeNameKey: "node-a"}},
+			wantPods:    []*corev1.Pod{originPod, replacementPod, failedPod},
+		},
+		"field and label selectors": {
+			sliceName: "origin",
+			listOptions: []client.ListOption{
+				client.MatchingFields{tasindexer.PodNodeNameKey: "node-a"},
+				client.MatchingLabels{"role": "worker"},
+			},
+			wantPods: []*corev1.Pod{originPod, replacementPod},
+		},
+		"matching fields selector": {
+			sliceName: "origin",
+			listOptions: []client.ListOption{client.MatchingFieldsSelector{
+				Selector: fields.OneTermEqualSelector(tasindexer.PodNodeNameKey, "node-a"),
+			}},
+			wantPods: []*corev1.Pod{originPod, replacementPod, failedPod},
+		},
+		"list options with field and label selectors": {
+			sliceName: "origin",
+			listOptions: []client.ListOption{&client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(tasindexer.PodNodeNameKey, "node-a"),
+				LabelSelector: labels.SelectorFromSet(labels.Set{"role": "worker"}),
+			}},
+			wantPods: []*corev1.Pod{originPod, replacementPod},
+		},
+		"empty field selector": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{}},
+			wantPods:    []*corev1.Pod{originPod, replacementPod, succeededPod, failedPod},
+		},
+		"no pods match the node": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{tasindexer.PodNodeNameKey: "unknown-node"}},
+			wantPods:    []*corev1.Pod{},
+		},
+		"conflicting slice selector": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{indexer.WorkloadSliceNameKey: "regular"}},
+			wantPods:    []*corev1.Pod{},
 		},
 		"regular workload uses the workload annotation": {
 			sliceName: "regular",
-			wantNames: []string{"regular-pod"},
+			wantPods:  []*corev1.Pod{regularPod},
 		},
 		"no matching pods": {
 			sliceName: "missing",
+			wantPods:  []*corev1.Pod{},
 		},
 		"list failure is returned": {
 			sliceName: "origin",
@@ -149,7 +224,7 @@ func TestListPodsForWorkloadSlice(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().
+			builder := utiltesting.NewClientBuilder().
 				WithObjects(pods...).
 				WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
@@ -159,19 +234,18 @@ func TestListPodsForWorkloadSlice(t *testing.T) {
 						}
 						return c.List(ctx, objs, opts...)
 					},
-				}).
-				Build()
-			got, err := ListPodsForWorkloadSlice(ctx, cl, "ns", tc.sliceName, tc.listOptions...)
+				})
+			if err := tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(builder)); err != nil {
+				t.Fatalf("Failed to set up indexes: %v", err)
+			}
+			gotPods, err := ListPodsForWorkloadSlice(ctx, builder.Build(), "ns", tc.sliceName, tc.listOptions...)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
-			var gotNames []string
-			for _, pod := range got {
-				gotNames = append(gotNames, pod.Name)
-			}
-			if diff := cmp.Diff(tc.wantNames, gotNames, cmpopts.SortSlices(func(a, b string) bool {
-				return a < b
-			})); diff != "" {
+			if diff := cmp.Diff(tc.wantPods, gotPods,
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+				cmpopts.SortSlices(func(a, b *corev1.Pod) bool { return a.Name < b.Name }),
+			); diff != "" {
 				t.Errorf("Unexpected pods (-want,+got):\n%s", diff)
 			}
 		})

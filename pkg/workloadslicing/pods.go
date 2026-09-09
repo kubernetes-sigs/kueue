@@ -20,6 +20,7 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -44,15 +45,18 @@ func KeyForPod(pod *corev1.Pod) *types.NamespacedName {
 }
 
 // ListPodsForWorkloadSlice lists pods belonging to a workload slice by querying
-// the WorkloadSliceNameKey index. Additional list options (e.g., label selectors)
+// the WorkloadSliceNameKey index. Additional list options (e.g., field and label selectors)
 // can be passed for filtering. Returns pointers to avoid copying large Pod structs.
 func ListPodsForWorkloadSlice(ctx context.Context, c client.Client, namespace, workloadSliceName string, opts ...client.ListOption) ([]*corev1.Pod, error) {
 	var podList corev1.PodList
-	listOpts := append([]client.ListOption{
-		client.InNamespace(namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: workloadSliceName},
-	}, opts...)
-	if err := c.List(ctx, &podList, listOpts...); err != nil {
+	listOpts := (&client.ListOptions{Namespace: namespace}).ApplyOptions(opts)
+	fieldSelector := fields.OneTermEqualSelector(indexer.WorkloadSliceNameKey, workloadSliceName)
+	// MatchingFields replaces existing selectors, so merge the slice constraint explicitly.
+	if listOpts.FieldSelector != nil {
+		fieldSelector = fields.AndSelectors(fieldSelector, listOpts.FieldSelector)
+	}
+	listOpts.FieldSelector = fieldSelector
+	if err := c.List(ctx, &podList, listOpts); err != nil {
 		return nil, err
 	}
 	result := make([]*corev1.Pod, len(podList.Items))
