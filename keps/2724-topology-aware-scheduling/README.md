@@ -1890,12 +1890,13 @@ For a 3-level topology (block, rack, hostname), in the TopologyRequest, the user
 
 ### Support for topologies without a hostname level
 
-Kueue evaluates capacity and feasibility at the lowest level a Topology declares. When
-that level is not `kubernetes.io/hostname` a domain covers several nodes, so the checks
-answer a question about the domain rather than about any node inside it. A rack of
-CPU-only nodes passes for a Workload requesting devices, and a Workload fitting a rack's
-total capacity is admitted even when no single node can hold one of its Pods. Its Pods
-then stay Pending, since kube-scheduler places them per node.
+Before 0.20, Kueue evaluated capacity and feasibility at the lowest level a Topology
+declares. When that level is not `kubernetes.io/hostname` a domain covers several
+nodes, so the checks answered a question about the domain rather than about any node
+inside it. A rack of CPU-only nodes passed for a Workload requesting devices, and a
+Workload fitting a rack's total capacity was admitted even when no single node could
+hold one of its Pods. Its Pods then stayed Pending, since kube-scheduler places them
+per node.
 
 Behind the `TASNodeFeasibilityForAllLevels` feature gate Kueue appends
 `kubernetes.io/hostname` to such a Topology's levels internally. Every leaf is then

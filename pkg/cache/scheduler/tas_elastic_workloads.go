@@ -20,7 +20,6 @@ import (
 	"context"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -38,7 +37,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	ctx context.Context,
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
 ) elasticPlacementResult {
 	if workers.PreviousAssignment == nil {
@@ -83,7 +82,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	leader *TASPodSetRequests,
 	prevAssignment *utiltas.TopologyAssignment,
 	previousCount int32,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
@@ -136,7 +135,7 @@ func (s *TASFlavorSnapshot) handleScaleDown(
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
 	prevAssignment *utiltas.TopologyAssignment,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 ) elasticPlacementResult {
 	truncatedAssignment := utiltas.TruncateAssignment(prevAssignment, workers.Count)
 	return s.finalizeElasticAssignment(workers, truncatedAssignment, leader, assumedUsage)
@@ -149,7 +148,7 @@ func (s *TASFlavorSnapshot) finalizeElasticAssignment(
 	workers TASPodSetRequests,
 	workersAssignment *utiltas.TopologyAssignment,
 	leader *TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: workersAssignment}

@@ -1385,8 +1385,9 @@ func TestAddAssumedUsage(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			addAssumedUsage(tc.assumedUsage, tc.assignment, tc.tasRequests)
-			if diff := cmp.Diff(tc.want, tc.assumedUsage, cmp.Comparer(resources.Equal)); diff != "" {
+			assumedUsage := newAssumedUsage(tc.assumedUsage)
+			addAssumedUsage(assumedUsage, tc.assignment, tc.tasRequests)
+			if diff := cmp.Diff(tc.want, assumedUsage.perDomain, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -1740,6 +1741,221 @@ func TestUsageDomainIgnoresNodeNameCollision(t *testing.T) {
 	declaredLeaves := slices.Collect(declaredSnapshot.leavesOf(declaredSnapshot.usageDomain("node-a")))
 	if len(declaredLeaves) != 1 || declaredLeaves[0].node.Name != "node-a" {
 		t.Errorf("usageDomain(\"node-a\") holds %d leaves, want the node-a leaf", len(declaredLeaves))
+	}
+}
+
+// The domain-keyed side has to stay the map the sibling flavors were given, or
+// they stop seeing each other's placements. The leaf-keyed side must not, since
+// node names do not identify the same capacity across flavors.
+func TestAssumedUsageRecordsIntoTheSharedDomainMap(t *testing.T) {
+	shared := map[tas.TopologyDomainID]resources.Requests{}
+	assumedUsage := newAssumedUsage(shared)
+
+	assumedUsage.perDomain["r1"] = resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	assumedUsage.recordLeafUsage(map[tas.TopologyDomainID]resources.Requests{
+		"n1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000}),
+	})
+
+	want := map[tas.TopologyDomainID]resources.Requests{
+		"r1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+	}
+	if diff := cmp.Diff(want, shared, cmp.Comparer(resources.Equal)); diff != "" {
+		t.Errorf("shared cross-flavor usage mismatch (-want +got):\n%s", diff)
+	}
+	if newAssumedUsage(nil).perDomain == nil {
+		t.Error("newAssumedUsage(nil) left perDomain nil, recording domain usage would panic")
+	}
+}
+
+// A TopologyAssignment recovered from a Workload is keyed by the domain it
+// names, so it must not be charged to a leaf which is a node of the same name.
+// Only a Topology of a single level can collide: below that, domain IDs join
+// their level values with a separator no node name can hold.
+func TestAssumedDomainUsageIsNotChargedToNodeOfTheSameName(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	rack := rackLabel
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	// The node named "r1" is in rack r2, so rack r1's usage is not its own.
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("r1").Label(rackLabel, "r2").Obj(),
+		rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+	}
+
+	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	// What an elastic Workload's previous assignment on rack r1 records.
+	assumedUsage := newAssumedUsage(map[tas.TopologyDomainID]resources.Requests{
+		"r1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+			corev1.ResourceCPU:  1000,
+			corev1.ResourcePods: 1,
+		}),
+	})
+	tasRequests := TASPodSetRequests{
+		PodSet: &kueue.PodSet{
+			Name:            "ps",
+			TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: &rack},
+		},
+		SinglePodRequests: oneCPU,
+		Count:             1,
+	}
+
+	if _, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, false, "", nil); reason != "" {
+		t.Errorf("findTopologyAssignment() = %q, want the Pod to fit on the node named r1, which is in rack r2", reason)
+	}
+}
+
+// Two PodSets placed in one cycle both draw on the same usage domain. Recording
+// the placement against the leaf alone leaves the domain's own bound blind to
+// it, and recording it against the domain alone loses which node went, so both
+// have to be kept: neither implies the other.
+func TestTwoPodSetsShareTheDomainBudget(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+	block := blockLabel
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		Label(blockLabel, "b1").
+		Label(rackLabel, "r1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Obj(),
+		rackNode.Clone().Name("n2").Obj(),
+	}
+
+	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	// An admitted Workload holds one of the rack's two CPUs, and no node carries
+	// that usage.
+	snapshot.updateTASUsage(tas.DomainID([]string{"b1", "r1"}), oneCPU, add, 1)
+
+	podSet := func(name string) TASPodSetRequests {
+		groupName := name
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Required:        &block,
+					PodSetGroupName: &groupName,
+				},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             1,
+			PodSetGroupName:   &groupName,
+		}
+	}
+
+	// Two PodSets of one Pod each need two CPUs, one more than the rack keeps.
+	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{podSet("ps-a"), podSet("ps-b")})
+	if result.Failure() == nil {
+		var total int32
+		for _, podSetResult := range result {
+			for _, domain := range podSetResult.TopologyAssignment.Domains {
+				total += domain.Count
+			}
+		}
+		t.Errorf("FindTopologyAssignmentsForFlavor() admitted %d Pods, want no admission as rack r1 keeps one CPU", total)
+	}
+}
+
+// A usage domain has to be judged against its own remaining capacity for the
+// workers, for the leader, and for the two together. Its nodes carry none of
+// the usage recorded on it, so they always look emptier than the domain is.
+func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	twoCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000})
+
+	cases := map[string]struct {
+		rackUsage      int32
+		leaderRequests resources.Requests
+		workerCount    int32
+	}{
+		// The rack is spent, so neither PodSet may land in it even though its
+		// node reports five free CPUs.
+		"a spent rack takes no Pod of either PodSet": {
+			rackUsage:      5,
+			leaderRequests: oneCPU,
+			workerCount:    1,
+		},
+		// The rack keeps one CPU: room for a worker, not for the leader.
+		"a rack that fits a worker but not the leader takes no leader": {
+			rackUsage:      4,
+			leaderRequests: twoCPU,
+			workerCount:    1,
+		},
+		// The rack fits the leader, but then has nothing left beside it.
+		"a rack that fits only the leader takes no worker beside it": {
+			rackUsage:      3,
+			leaderRequests: twoCPU,
+			workerCount:    2,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			rackNode := node.MakeNode("").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("5"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).Ready()
+			nodes := []*corev1.Node{
+				rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+				rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
+			}
+			tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+			snapshot.updateTASUsage("r1", oneCPU.ScaledUp(int64(tc.rackUsage)), add, tc.rackUsage)
+
+			podSet := func(name kueue.PodSetReference, singlePodRequests resources.Requests, count int32) TASPodSetRequests {
+				return TASPodSetRequests{
+					PodSet: &kueue.PodSet{
+						Name:            name,
+						TopologyRequest: &kueue.PodSetTopologyRequest{Unconstrained: &unconstrained},
+					},
+					SinglePodRequests: singlePodRequests,
+					Count:             count,
+				}
+			}
+			workers := podSet("workers", oneCPU, tc.workerCount)
+			leader := podSet("leader", tc.leaderRequests, 1)
+
+			assignments, _, reason := snapshot.findTopologyAssignment(ctx, workers, &leader, newAssumedUsage(nil), false, "", nil)
+			if reason != "" {
+				t.Fatalf("findTopologyAssignment() = %q, want the Pods to fit in rack r2", reason)
+			}
+			// Rack r1 keeps 5 CPUs minus what the admitted Workload took.
+			wantFree := 5 - tc.rackUsage
+			var gotCPU int32
+			for _, tr := range []TASPodSetRequests{workers, leader} {
+				for _, domain := range assignments[tr.PodSet.Name].Domains {
+					if domain.Values[0] == "r1" {
+						gotCPU += domain.Count * int32(tr.SinglePodRequests.ResourceValue(corev1.ResourceCPU)/1000)
+					}
+				}
+			}
+			if gotCPU > wantFree {
+				t.Errorf("findTopologyAssignment() gave rack r1 %d CPU(s), want at most %d", gotCPU, wantFree)
+			}
+		})
 	}
 }
 

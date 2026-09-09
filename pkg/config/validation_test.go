@@ -2271,6 +2271,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
 				string(features.TASNodeFeasibilityForAllLevels):              true,
+				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2432,6 +2433,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASGroupedPodSetSlicing):                     true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
