@@ -187,7 +187,6 @@ var (
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
-	_ jobframework.JobWithPodLifecycle             = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -750,7 +749,23 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 
 	// If none of the pods in group are found,
 	// the respective workload should be finalized
-	return jobframework.NewLoadResult(!p.isFound, p.isFound), nil
+	if !p.isFound {
+		return jobframework.NewLoadResult(true, false), nil
+	}
+
+	// A group in which no member pod still requires Kueue's lifecycle management -
+	// every pod is terminating and none holds Kueue's finalizer - is treated like a
+	// terminating job: finalize instead of creating a Workload. Otherwise a pod
+	// stuck Terminating in the API (e.g. a kubelet-stuck teardown where the kubelet
+	// never confirms the kill) could regain a Workload built from its already
+	// admission-mutated spec, which may be permanently unschedulable (issue #15148).
+	for i := range p.list.Items {
+		if podNeedsWorkload(&p.list.Items[i]) {
+			return jobframework.NewLoadResult(false, p.isFound), nil
+		}
+	}
+	ctrl.LoggerFrom(ctx).V(2).Info("No pod needs lifecycle management (all pods terminating and finalized); treating the pod group as terminating")
+	return jobframework.NewLoadResult(true, p.isFound), nil
 }
 
 // fastAdmission determines if the pod is configured for fast admission based on specific annotations.
@@ -932,21 +947,6 @@ func (p *Pod) shouldFinalizeNow(pod *corev1.Pod, stopReason jobframework.StopRea
 	isDeletion := stopReason == jobframework.StopReasonWorkloadDeleted
 	isServingEviction := p.isServing() && strings.HasPrefix(string(stopReason), string(jobframework.StopReasonWorkloadEvicted))
 	return p.isGroup && (isDeletion || (isServingEviction && utilpod.IsTerminated(pod)))
-}
-
-// HasPodsNeedingWorkload reports whether any pod still requires Kueue's lifecycle management.
-// It implements jobframework.JobWithPodLifecycle.
-func (p *Pod) HasPodsNeedingWorkload() bool {
-	if p.isGroup {
-		for i := range p.list.Items {
-			if podNeedsWorkload(&p.list.Items[i]) {
-				return true
-			}
-		}
-		return false
-	}
-	// Terminating standalone pods are routed to finalization in Load, so only a found, non-terminating one reaches this.
-	return p.isFound && podNeedsWorkload(&p.pod)
 }
 
 // podNeedsWorkload returns whether Kueue still owes the pod lifecycle work.
