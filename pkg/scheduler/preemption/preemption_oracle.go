@@ -47,10 +47,10 @@ func (p *PreemptionOracle) SimulatePreemption(
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
-) (possibility preemptioncommon.PreemptionPossibility, borrow int, simErr error) {
+) (possibility preemptioncommon.PreemptionPossibility, borrow int, err error) {
 	log := log.FromContext(ctx)
-	simErr = simulation.SimulateNested(p.simulationContext, func(simCtx *simulation.SimulationContext) error {
-		candidates, err := p.preemptor.getTargets(simCtx, &preemptionCtx{
+	err = simulation.SimulateNested(p.simulationContext, func(simCtx *simulation.SimulationContext) (simErr error) {
+		candidates, simErr := p.preemptor.getTargets(simCtx, &preemptionCtx{
 			ctx:               ctx,
 			clock:             p.preemptor.clock,
 			log:               log,
@@ -64,14 +64,14 @@ func (p *PreemptionOracle) SimulatePreemption(
 			},
 		})
 
-		if err != nil {
-			return err
+		if simErr != nil {
+			return
 		}
 
 		if len(candidates) == 0 {
 			possibility = preemptioncommon.NoCandidates
 			borrow, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-			return nil
+			return
 		}
 
 		workloadsToPreempt := make([]*workload.Info, len(candidates))
@@ -84,14 +84,14 @@ func (p *PreemptionOracle) SimulatePreemption(
 		for _, candidate := range candidates {
 			if candidate.WorkloadInfo.ClusterQueue == cq.Name {
 				possibility, borrow = preemptioncommon.Preempt, borrowAfterPreemptions
-				return nil
+				return
 			}
 		}
 		possibility, borrow = preemptioncommon.Reclaim, borrowAfterPreemptions
-		return nil
+		return
 	})
-	if simErr != nil {
-		return preemptioncommon.NoCandidates, 0, simErr
+	if err != nil {
+		return preemptioncommon.NoCandidates, 0, err
 	}
 	return
 }

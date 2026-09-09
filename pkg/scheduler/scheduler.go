@@ -891,11 +891,10 @@ func (s *Scheduler) getAssignments(
 	preemptedWorkloads []*workload.Info,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, err error) {
 	resourceFlavors := snap.ResourceFlavors
-	err = simulation.Simulate(ctx, snap, func(simCtx *simulation.SimulationContext) error {
-		var inErr error
+	err = simulation.Simulate(ctx, snap, func(simCtx *simulation.SimulationContext) (simErr error) {
 		for _, w := range preemptedWorkloads {
-			if inErr = simCtx.PreemptWorkload(ctx, w); inErr != nil {
-				return inErr
+			if simErr = simCtx.PreemptWorkload(ctx, w); simErr != nil {
+				return
 			}
 		}
 		cq := simCtx.ClusterQueue(wl.ClusterQueue)
@@ -909,13 +908,11 @@ func (s *Scheduler) getAssignments(
 				"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
 			wl.LastAssignment = nil
 		}
-		if assignment, targets, inErr = s.getInitialAssignments(ctx, simCtx, wl, resourceFlavors); inErr != nil {
-			return inErr
+		if assignment, targets, simErr = s.getInitialAssignments(ctx, simCtx, wl, resourceFlavors); simErr != nil {
+			return
 		}
-		if inErr = updateAssignmentForTAS(ctx, simCtx, cq, wl, &assignment, targets); inErr != nil {
-			return inErr
-		}
-		return nil
+		simErr = updateAssignmentForTAS(ctx, simCtx, cq, wl, &assignment, targets)
+		return
 	})
 	return
 }
@@ -1069,7 +1066,7 @@ func updateAssignmentForTAS(
 			}
 			if err := simulation.SimulateNested(simCtx, func(simCtx *simulation.SimulationContext) error {
 				simCtx.RemoveUsage(targetWorkloads)
-				tasResult = cq.FindTopologyAssignmentsForWorkload(
+				tasResult = simCtx.ClusterQueue(cq.Name).FindTopologyAssignmentsForWorkload(
 					ctx,
 					tasRequests,
 					schdcache.WithWorkload(wl.Obj),
