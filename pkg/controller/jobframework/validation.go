@@ -150,7 +150,9 @@ func ValidateElasticJobAnnotation(obj client.Object, gvk schema.GroupVersionKind
 
 // validateElasticJobScaleUpStrategyAnnotation rejects kueue.x-k8s.io/elastic-job-scale-up-strategy
 // unless ElasticJobsViaWorkloadSlices is enabled, the job is opted into elastic-job, and the
-// value is "atomic" or "partial". Missing annotation is valid (defaults to atomic).
+// value is "atomic" or "partial". "partial" also requires
+// ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp. Missing annotation is valid (defaults
+// to atomic).
 func validateElasticJobScaleUpStrategyAnnotation(obj client.Object) field.ErrorList {
 	annotations := obj.GetAnnotations()
 	strategy, found := annotations[kueueconstants.ElasticJobScaleUpStrategyAnnotationKey]
@@ -161,6 +163,9 @@ func validateElasticJobScaleUpStrategyAnnotation(obj client.Object) field.ErrorL
 	var allErrs field.ErrorList
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlices feature gate"))
+	} else if strategy == kueueconstants.ElasticJobScaleUpStrategyPartial &&
+		!features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) {
+		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp feature gate"))
 	}
 	if annotations[workloadslicing.EnabledAnnotationKey] != workloadslicing.EnabledAnnotationValue {
 		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath,

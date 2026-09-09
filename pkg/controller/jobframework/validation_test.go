@@ -485,7 +485,22 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+		},
+		"scale-up strategy partial is rejected when partial replica scale-up gate is disabled": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
+				Obj(),
+			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+			wantErr: field.ErrorList{
+				field.Forbidden(scaleUpStrategyPath, "requires the ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp feature gate"),
 			},
 		},
 		"scale-up strategy without elastic job is rejected": {
@@ -494,7 +509,8 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			wantErr: field.ErrorList{
 				field.Forbidden(scaleUpStrategyPath,
