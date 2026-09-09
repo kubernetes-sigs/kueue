@@ -23,6 +23,8 @@ GO_CMD ?= go
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' go.mod|head -n1)
 
+export GOTOOLCHAIN := go1.26.6
+
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 GIT_COMMIT ?= $(shell git rev-parse HEAD)
 # Image URL to use all building/pushing image targets
