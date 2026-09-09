@@ -972,11 +972,8 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// What a transformation generated under the replaced name is not the request
-		// the DRA charge stands in for. Charging both is not new: an output on any
-		// other name is already charged beside the device, and this shape only stops
-		// losing the output along with the request. Issue 14160 has the question of
-		// whether the device belongs on that bill at all.
+		// A Replace consumes its input, so an output under that same name is not the
+		// container request and the DRA subtraction leaves it whole.
 		"replaceOutputOnItsOwnInputSurvivesTheDRASubtraction": {
 			workload: *utiltestingapi.MakeWorkload("dra", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
@@ -1112,9 +1109,6 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// An overhead beside the sidecar is not what the containers asked for, so it
-		// survives. Taking back the charge's 8 rather than the containers' 5 would put
-		// the remainder below zero and delete the overhead along with it.
 		"anOverheadSurvivesBesideANegativeSidecar": {
 			workload: *utiltestingapi.MakeWorkload("dra", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
