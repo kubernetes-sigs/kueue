@@ -8420,29 +8420,25 @@ func TestLastSchedulingContext(t *testing.T) {
 						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 					}
 
-					for _, workloadReference := range tc.deleteWorkloads {
-						var wl kueue.Workload
-						err := cl.Get(ctx, workloadReference, &wl)
-						if err != nil {
-							t.Errorf("Unable to get workload: %v", err)
+					if len(tc.deleteWorkloads) > 0 {
+						for _, workloadReference := range tc.deleteWorkloads {
+							var wl kueue.Workload
+							err := cl.Get(ctx, workloadReference, &wl)
+							if err != nil {
+								t.Errorf("Unable to get workload: %v", err)
+							}
+							err = cl.Delete(ctx, &wl)
+							if err != nil {
+								t.Errorf("Delete workload failed: %v", err)
+							}
+							err = cqCache.DeleteWorkload(log, workload.Key(&wl))
+							if err != nil {
+								t.Errorf("Delete workload failed: %v", err)
+							}
+							qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
 						}
-						err = cl.Delete(ctx, &wl)
-						if err != nil {
-							t.Errorf("Delete workload failed: %v", err)
-						}
-						err = cqCache.DeleteWorkload(log, workload.Key(&wl))
-						if err != nil {
-							t.Errorf("Delete workload failed: %v", err)
-						}
-						qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
-					}
-					watcher.ProcessRequeues(ctx)
+						watcher.ProcessRequeues(ctx)
 
-					scheduler.schedule(ctx)
-					wg.Wait()
-
-					if features.Enabled(features.WorkloadRequestUseMergePatch) {
-						// Schedule again to ensure all workloads are admitted, as with MergePatch we enforce stricter patching.
 						scheduler.schedule(ctx)
 						wg.Wait()
 					}
