@@ -224,7 +224,11 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
 		flvOpts := options
-		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
+		// The aggregation is limited to flavors with a user-declared hostname
+		// level, as only node names identify the same capacity across
+		// flavors. Aggregating at node granularity for virtual hostname
+		// topologies is left to a follow-up.
+		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.declaresHostnameLevel() {
 			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)
