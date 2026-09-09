@@ -47,6 +47,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -132,11 +133,31 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 	}
 
 	if c.ClientConnection != nil && features.Enabled(features.MultiKueueReuseClientConnectionConfigForWorkers) {
-		if c.ClientConnection.QPS != nil {
+		hasQPS := c.ClientConnection.QPS != nil
+		hasBurst := c.ClientConnection.Burst != nil
+		if hasQPS {
 			restConfig.QPS = *c.ClientConnection.QPS
 		}
-		if c.ClientConnection.Burst != nil {
+		if hasBurst {
 			restConfig.Burst = int(*c.ClientConnection.Burst)
+		}
+		if hasQPS || hasBurst {
+			// The direct client and remote cache are built from this config, so setting
+			// the limiter here makes both consume the same per-cluster request budget.
+			// It must replace an existing limiter because rest.Config ignores QPS and
+			// Burst when RateLimiter is already set.
+			restConfig.RateLimiter = nil
+			if restConfig.QPS >= 0 {
+				qps := restConfig.QPS
+				if qps == 0 {
+					qps = rest.DefaultQPS
+				}
+				burst := restConfig.Burst
+				if burst == 0 {
+					burst = rest.DefaultBurst
+				}
+				restConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(qps, burst)
+			}
 		}
 	}
 	return restConfig, nil
