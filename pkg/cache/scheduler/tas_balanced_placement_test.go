@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -162,6 +163,44 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, tc.prioritizeByEntropy)
 
 			if diff := cmp.Diff([]string{"leaf-z"}, domainIDs(got)); diff != "" {
+				t.Errorf("unexpected optimal domain set (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
+func TestSelectOptimalDomainSetToFitRespectsAffinity(t *testing.T) {
+	testCases := map[string]struct {
+		enableAffinity bool
+		want           []string
+	}{
+		"prefers higher-affinity domain when feature gate is enabled": {
+			enableAffinity: true,
+			want:           []string{"rack-high"},
+		},
+		"falls back to level values when feature gate is disabled": {
+			enableAffinity: false,
+			want:           []string{"rack-low"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableAffinity)
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, newDefaultSimulatorSnapshot())
+			domains := []*domain{
+				addDomainWithState(s, &domain{id: "rack-low", levelValues: []string{"a"}}, domainState{
+					podCount: 3, sliceCount: 3, podCountWithLeader: 3, sliceCountWithLeader: 3, affinityScore: 10,
+				}),
+				addDomainWithState(s, &domain{id: "rack-high", levelValues: []string{"b"}}, domainState{
+					podCount: 3, sliceCount: 3, podCountWithLeader: 3, sliceCountWithLeader: 3, affinityScore: 100,
+				}),
+			}
+
+			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, false)
+
+			if diff := cmp.Diff(tc.want, domainIDs(got)); diff != "" {
 				t.Errorf("unexpected optimal domain set (-want,+got): %s", diff)
 			}
 		})
