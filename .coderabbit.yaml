@@ -13,23 +13,26 @@ reviews:
   high_level_summary_instructions: |
     Keep the PR summary concise. Name the section "AI summary".
 
-    Add the "Release note assessment" sub-section that reviews the author's
-    `release-note` code block. Search it under the "Release note" section.
+    Add a "Suggested release note" sub-section with a release note suggestion describing
+    the user-facing change introduced by this PR.
 
-    If the existing release note accurately describes the user-facing change,
-    say "Ready". This includes `NONE` when there is no user-facing change.
-
-    Otherwise, or if you cannot locate the contributor supplied release note, provide
-    one alternative release note and briefly justify the adjustments.
-
-    Instructions:
-    * If the impact is unclear, ask one focused question instead of guessing.
-    * When feasible, use the narrowest applicable feature or sub-component prefix,
-      e.g. `FairSharing:`, `MultiKueue:`, or `TAS:`.
+    Follow the release-note guidance in cmd/experimental/skills/kueue-release-notes/SKILL.md.
+    In particular:
+    * Describe the user-facing behavior change rather than implementation details.
+    * For bug fixes, prefer wording such as: <ScopingPrefix>: Fixed a bug that caused
+      [<incorrect behavior>] when <scenario>. Now Kueue <correct behavior>.
+    * When feasible, use the corresponding feature or sub-component name as the scoping prefix.
+      Examples: `FairSharing:`, `MultiKueue:`, `Observability:`, `TAS:`, `Workloads:`.
+      For integrations you may use the integration name as prefix, eg. `JobSet:`.
+    * Treat logs, metrics, events, and visibility endpoints as user-facing observability changes.
+    * If the behavior change is controlled by a feature gate, mention that, e.g.
+      This behavior is gated by the <FeatureGate> feature gate.
+      Do not state whether the feature gate is enabled or disabled by default,
+      as this may differ across release branches and cherry-picks.
+    * Use `NONE` when there is no user-facing change.
     * Use `ACTION REQUIRED:` only when users must take action when upgrading.
 
-    Ask the author to verify the alternative and update the canonical
-    `release-note` block in the PR description.
+    If the user-facing impact cannot be determined, state that instead instead of guessing.
 
   path_filters:
     - "!client-go/**"
