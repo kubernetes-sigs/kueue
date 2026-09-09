@@ -924,6 +924,11 @@ func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }
 
+func (c *CohortWrapper) UID(uid types.UID) *CohortWrapper {
+	c.Cohort.UID = uid
+	return c
+}
+
 func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
 	c.Spec.ParentName = parentName
 	return c
@@ -1008,6 +1013,11 @@ func (c *ClusterQueueWrapper) Clone() *ClusterQueueWrapper {
 // Obj returns the inner ClusterQueue.
 func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 	return &c.ClusterQueue
+}
+
+func (c *ClusterQueueWrapper) UID(uid types.UID) *ClusterQueueWrapper {
+	c.ClusterQueue.UID = uid
+	return c
 }
 
 // Cohort sets the borrowing cohort.
