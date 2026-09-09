@@ -725,41 +725,11 @@ func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, 
 // ensuring proper cleanup during object deletion.
 func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob, jobNotFound bool) error {
 	if !jobNotFound {
-		// Remove job finalizer for job with finalizer.
 		if err := client.IgnoreNotFound(r.finalizeJob(ctx, job)); err != nil {
 			return err
 		}
-		// Also finalize workloads that are themselves being deleted. This handles the
-		// foreground-deletion deadlock: the GC sets deletionTimestamp on the workload
-		// (because blockOwnerDeletion=true in SetControllerReference) and waits for the
-		// workload to be gone before removing the foregroundDeletion finalizer from the
-		// job, but without this we would wait for the job to be gone before finalizing
-		// the workload.
-		return r.finalizeWorkloadsBeingDeleted(ctx, key, job)
 	}
-
-	// Remove the workload finalizer only if the Job was deleted.
-	return r.finalizeWorkloads(ctx, key, job)
-}
-
-// finalizeWorkloadsBeingDeleted removes the kueue finalizer from workloads that already
-// have a deletionTimestamp — i.e. workloads that the Kubernetes GC is actively trying
-// to delete as blocking dependents of the owner job.
-func (r *JobReconciler) finalizeWorkloadsBeingDeleted(ctx context.Context, key types.NamespacedName, job GenericJob) error {
-	workloads, err := r.getWorkloads(ctx, key, job)
-	if err != nil {
-		return err
-	}
-	for i := range workloads {
-		wl := &workloads[i]
-		if !wl.DeletionTimestamp.IsZero() {
-			err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
-			if client.IgnoreNotFound(err) != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return r.finalizeWorkloads(ctx, key, job, jobNotFound)
 }
 
 // getWorkloads retrieves a list of workloads associated with the specified job.
@@ -785,13 +755,21 @@ func (r *JobReconciler) getWorkloads(ctx context.Context, key types.NamespacedNa
 }
 
 // finalizeWorkloads removes finalizers from workloads associated with the specified job.
-func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+// When jobNotFound is false (job exists but has deletionTimestamp), only workloads that
+// themselves have a deletionTimestamp are processed. This avoids a deadlock with Kubernetes
+// foreground cascading deletion: the GC sets deletionTimestamp on the workload
+// (blockOwnerDeletion=true via SetControllerReference) and waits for it to disappear
+// before removing the foregroundDeletion finalizer from the job.
+func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob, jobNotFound bool) error {
 	workloads, err := r.getWorkloads(ctx, key, job)
 	if err != nil {
 		return err
 	}
 	for i := range workloads {
 		wl := &workloads[i]
+		if !jobNotFound && wl.DeletionTimestamp.IsZero() {
+			continue
+		}
 		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
 		if client.IgnoreNotFound(err) != nil {
 			return err
