@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -1777,11 +1778,14 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 
 func TestClientConfigToRESTConfig(t *testing.T) {
 	testKubeconfigData := []byte(testKubeconfig("worker1"))
+	existingRateLimiter := flowcontrol.NewFakeNeverRateLimiter()
 	cases := map[string]struct {
-		config            *clientConfig
-		enableFeatureGate bool
-		wantQPS           float32
-		wantBurst         int
+		config                  *clientConfig
+		enableFeatureGate       bool
+		wantQPS                 float32
+		wantBurst               int
+		wantRateLimiter         bool
+		wantRateLimiterReplaced bool
 	}{
 		"feature disabled with Kubeconfig": {
 			config: &clientConfig{
@@ -1822,7 +1826,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 				Kubeconfig:       testKubeconfigData,
 				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100), Burst: ptr.To[int32](200)},
 			},
-			wantQPS: 100, wantBurst: 200,
+			wantQPS: 100, wantBurst: 200, wantRateLimiter: true,
 		},
 		"feature enabled with custom QPS and Burst and RestConfig": {
 			enableFeatureGate: true,
@@ -1830,7 +1834,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 				RestConfig:       &rest.Config{QPS: 5, Burst: 10},
 				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100), Burst: ptr.To[int32](200)},
 			},
-			wantQPS: 100, wantBurst: 200,
+			wantQPS: 100, wantBurst: 200, wantRateLimiter: true,
 		},
 		"feature enabled with QPS-only and Kubeconfig": {
 			enableFeatureGate: true,
@@ -1838,7 +1842,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 				Kubeconfig:       testKubeconfigData,
 				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100)},
 			},
-			wantQPS: 100, wantBurst: 0,
+			wantQPS: 100, wantBurst: 0, wantRateLimiter: true,
 		},
 		"feature enabled with QPS-only and RestConfig": {
 			enableFeatureGate: true,
@@ -1846,7 +1850,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 				RestConfig:       &rest.Config{Burst: 10},
 				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](100)},
 			},
-			wantQPS: 100, wantBurst: 10,
+			wantQPS: 100, wantBurst: 10, wantRateLimiter: true,
 		},
 		"feature enabled with Burst-only and Kubeconfig": {
 			enableFeatureGate: true,
@@ -1854,7 +1858,7 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 				Kubeconfig:       testKubeconfigData,
 				ClientConnection: &configapi.ClientConnection{Burst: ptr.To[int32](200)},
 			},
-			wantQPS: 0, wantBurst: 200,
+			wantQPS: 0, wantBurst: 200, wantRateLimiter: true,
 		},
 		"feature enabled with Burst-only and RestConfig": {
 			enableFeatureGate: true,
@@ -1862,7 +1866,23 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 				RestConfig:       &rest.Config{QPS: 5},
 				ClientConnection: &configapi.ClientConnection{Burst: ptr.To[int32](200)},
 			},
-			wantQPS: 5, wantBurst: 200,
+			wantQPS: 5, wantBurst: 200, wantRateLimiter: true,
+		},
+		"feature enabled replaces existing RateLimiter": {
+			enableFeatureGate: true,
+			config: &clientConfig{
+				RestConfig:       &rest.Config{QPS: 5, Burst: 10, RateLimiter: existingRateLimiter},
+				ClientConnection: &configapi.ClientConnection{Burst: ptr.To[int32](200)},
+			},
+			wantQPS: 5, wantBurst: 200, wantRateLimiter: true, wantRateLimiterReplaced: true,
+		},
+		"feature enabled with negative QPS disables rate limiting": {
+			enableFeatureGate: true,
+			config: &clientConfig{
+				Kubeconfig:       testKubeconfigData,
+				ClientConnection: &configapi.ClientConnection{QPS: ptr.To[float32](-1), Burst: ptr.To[int32](200)},
+			},
+			wantQPS: -1, wantBurst: 200,
 		},
 	}
 
@@ -1876,7 +1896,41 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			if restConfig.QPS != tc.wantQPS || restConfig.Burst != tc.wantBurst {
 				t.Errorf("unexpected QPS/Burst: want %v/%v, got %v/%v", tc.wantQPS, tc.wantBurst, restConfig.QPS, restConfig.Burst)
 			}
+			if got := restConfig.RateLimiter != nil; got != tc.wantRateLimiter {
+				t.Errorf("unexpected RateLimiter presence: want %t, got %t", tc.wantRateLimiter, got)
+			}
+			if tc.wantRateLimiterReplaced && restConfig.RateLimiter == tc.config.RestConfig.RateLimiter {
+				t.Error("expected configured QPS/Burst to replace the existing RateLimiter")
+			}
 		})
+	}
+}
+
+func TestClientConfigRateLimiterSharedAcrossRESTConfigCopies(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueReuseClientConnectionConfigForWorkers, true)
+	config := &clientConfig{
+		Kubeconfig: []byte(testKubeconfig("worker1")),
+		ClientConnection: &configapi.ClientConnection{
+			QPS:   ptr.To[float32](0.0001),
+			Burst: ptr.To[int32](1),
+		},
+	}
+
+	restConfig, err := config.toRESTConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	directClientConfig := rest.CopyConfig(restConfig)
+	cacheConfig := rest.CopyConfig(restConfig)
+
+	if directClientConfig.RateLimiter != cacheConfig.RateLimiter {
+		t.Fatal("expected direct client and remote cache configs to share the same RateLimiter")
+	}
+	if !directClientConfig.RateLimiter.TryAccept() {
+		t.Fatal("expected the shared RateLimiter to allow its initial request")
+	}
+	if cacheConfig.RateLimiter.TryAccept() {
+		t.Fatal("expected the remote cache to observe the token consumed by the direct client")
 	}
 }
 
@@ -1886,12 +1940,14 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 		clientConn        *configapi.ClientConnection
 		wantQPS           float32
 		wantBurst         int
+		wantRateLimiter   bool
 	}{
 		"feature enabled propagates configured QPS and Burst": {
 			enableFeatureGate: true,
 			clientConn:        &configapi.ClientConnection{QPS: ptr.To[float32](120), Burst: ptr.To[int32](240)},
 			wantQPS:           120,
 			wantBurst:         240,
+			wantRateLimiter:   true,
 		},
 		"feature disabled preserves default behavior": {
 			clientConn: &configapi.ClientConnection{QPS: ptr.To[float32](120), Burst: ptr.To[int32](240)},
@@ -1944,6 +2000,9 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 			}
 			if constructedRESTConfig.QPS != tc.wantQPS || constructedRESTConfig.Burst != tc.wantBurst {
 				t.Errorf("unexpected constructed client QPS/Burst: want %v/%v, got %v/%v", tc.wantQPS, tc.wantBurst, constructedRESTConfig.QPS, constructedRESTConfig.Burst)
+			}
+			if got := constructedRESTConfig.RateLimiter != nil; got != tc.wantRateLimiter {
+				t.Errorf("unexpected constructed client RateLimiter presence: want %t, got %t", tc.wantRateLimiter, got)
 			}
 		})
 	}
