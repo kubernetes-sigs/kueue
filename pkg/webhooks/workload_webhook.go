@@ -193,6 +193,7 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.TASValidateWorkloadSliceSize) {
 		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
+	allErrs = append(allErrs, validateTASGroupedPodSetSlicing(ps.TopologyRequest, path.Child("topologyRequest"))...)
 
 	return allErrs
 }
@@ -538,4 +539,22 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 		}
 	}
 	return allErrs
+}
+
+// Direct Workload writes bypass the job framework's TAS validation, so enforce
+// the grouped PodSet slicing feature gate at the Workload API boundary as well.
+func validateTASGroupedPodSetSlicing(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
+	if features.Enabled(features.TASGroupedPodSetSlicing) || tr == nil || tr.PodSetGroupName == nil {
+		return nil
+	}
+
+	usesSlicing := tr.PodSetSliceRequiredTopology != nil ||
+		tr.PodSetSliceSize != nil ||
+		len(tr.PodsetSliceRequiredTopologyConstraints) > 0
+	if !usesSlicing {
+		return nil
+	}
+
+	return field.ErrorList{field.Forbidden(path.Child("podSetGroupName"),
+		fmt.Sprintf("may not be set with PodSet slicing unless the %s feature gate is enabled", features.TASGroupedPodSetSlicing))}
 }

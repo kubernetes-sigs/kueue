@@ -392,6 +392,76 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"should reject grouped PodSet slicing when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker", 4).
+						RequiredTopologyRequest("cloud.com/block").
+						PodSetGroup("group").
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(2).
+						Obj(),
+					*utiltestingapi.MakePodSet("launcher", 2).
+						RequiredTopologyRequest("cloud.com/block").
+						PodSetGroup("group").
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(1).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetGroupName"), ""),
+				field.Forbidden(podSetsPath.Index(1).Child("topologyRequest", "podSetGroupName"), ""),
+			}.ToAggregate(),
+		},
+		"should reject grouped multi-layer PodSet slicing when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker", 4).
+						RequiredTopologyRequest("cloud.com/block").
+						PodSetGroup("group").
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 2}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetGroupName"), ""),
+			}.ToAggregate(),
+		},
+		"should accept grouped PodSet slicing when TASGroupedPodSetSlicing is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker", 4).
+						RequiredTopologyRequest("cloud.com/block").
+						PodSetGroup("group").
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(2).
+						Obj(),
+				).
+				Obj(),
+		},
+		"should accept PodSet grouping without slicing when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker", 4).
+						RequiredTopologyRequest("cloud.com/block").
+						PodSetGroup("group").
+						Obj(),
+				).
+				Obj(),
+		},
 		"empty podSetUpdates": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
 			wantErr:  nil,
