@@ -369,7 +369,11 @@ is documented here:
      to resolve DeviceClasses deterministically.
    - Per KEP-5004, admins should ensure one `extendedResourceName` maps to at most one
      DeviceClass.
-   - Post-scheduling quota reconciliation will be evaluated for Beta.
+   - On a DeviceClass change, only pending Workloads (`QuotaReserved=False`) are requeued.
+     Workloads that have already reserved quota keep their admission-time charge and are
+     not revisited, because dropping an existing reservation to re-admit would need the
+     DeviceClass the scheduler actually allocated from, which the workload controller
+     does not watch today.
    - TAS + DRA is the longer-term path to closing this admission-scheduling gap.
 
 ## Design Details
