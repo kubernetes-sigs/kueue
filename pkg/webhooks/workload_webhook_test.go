@@ -62,6 +62,7 @@ func quotaReservedWithoutAdmission(now time.Time) *kueue.Workload {
 	return wl
 }
 
+// TestValidateWorkload verifies validation of directly created Workloads.
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")

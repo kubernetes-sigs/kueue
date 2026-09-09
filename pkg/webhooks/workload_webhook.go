@@ -164,6 +164,7 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	return allErrs
 }
 
+// validatePodSet validates the pod template and topology request of a Workload PodSet.
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
@@ -541,8 +542,8 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 	return allErrs
 }
 
-// Direct Workload writes bypass the job framework's TAS validation, so enforce
-// the grouped PodSet slicing feature gate at the Workload API boundary as well.
+// validateTASGroupedPodSetSlicing enforces the feature gate at the Workload API
+// boundary because direct Workload writes bypass the job framework's TAS validation.
 func validateTASGroupedPodSetSlicing(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
 	if features.Enabled(features.TASGroupedPodSetSlicing) || tr == nil || tr.PodSetGroupName == nil {
 		return nil
