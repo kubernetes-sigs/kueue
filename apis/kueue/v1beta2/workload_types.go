@@ -1137,6 +1137,10 @@ const (
 	// local queue was restarted after being stopped.
 	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
 
+	// WorkloadDRAResourcesResolved indicates that the workload was requeued because
+	// its DRA resources were resolved after a previous inadmissible marking.
+	WorkloadDRAResourcesResolved = "DRAResourcesResolved"
+
 	// WorkloadRequeuingLimitExceeded indicates that the workload exceeded max number
 	// of re-queuing retries.
 	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
