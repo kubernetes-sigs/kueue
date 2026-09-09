@@ -312,11 +312,15 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 					n := i % topo.nodes
 					rack := n / topo.nodesPerRack
 					block := rack / topo.racksPerBlock
-					values := []string{fmt.Sprintf("block-%d", block), fmt.Sprintf("rack-%d", rack)}
-					if len(scheme.levels) == 3 {
-						values = append(values, fmt.Sprintf("node-%d", n))
+					var values []string
+					switch len(scheme.levels) {
+					case 3:
+						values = []string{fmt.Sprintf("node-%d", n)}
+					case 2:
+						values = []string{fmt.Sprintf("block-%d", block), fmt.Sprintf("rack-%d", rack)}
+					default:
+						values = []string{fmt.Sprintf("block-%d", block)}
 					}
-					values = values[:len(scheme.levels)]
 					fc.addUsage(log, workload.Reference(fmt.Sprintf("wl-%d", i)), []workload.TopologyDomainRequests{{
 						Values:            values,
 						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
