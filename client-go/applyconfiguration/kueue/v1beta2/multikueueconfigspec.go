@@ -28,6 +28,7 @@ import (
 // MultiKueueConfigSpec defines the desired state of MultiKueueConfig
 type MultiKueueConfigSpecApplyConfiguration struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+	//
 	Clusters []string `json:"clusters,omitempty"`
 	// quotaManagement specifies the management of ClusterQueue quotas
 	// in the manager cluster.
