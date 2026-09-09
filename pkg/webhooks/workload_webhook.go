@@ -194,6 +194,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
 
+	if !features.Enabled(features.TASGroupedPodSetSlicing) {
+		allErrs = append(allErrs, validatePodSetGroupName(ps.TopologyRequest, path.Child("topologyRequest"))...)
+	}
+
 	return allErrs
 }
 
@@ -504,6 +508,30 @@ func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, statusPath *field
 		}
 	}
 
+	return allErrs
+}
+
+// validatePodSetGroupName enforces the TASGroupedPodSetSlicing feature gate for
+// directly-created Workloads. When the gate is disabled, a PodSet cannot combine
+// PodSetGroupName with any slice-level topology field. This mirrors the check
+// that job integrations apply to their replica metadata annotations in
+// pkg/controller/jobframework/tas_validation.go.
+func validatePodSetGroupName(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
+	if tr == nil || tr.PodSetGroupName == nil || features.Enabled(features.TASGroupedPodSetSlicing) {
+		return nil
+	}
+
+	groupPath := path.Child("podSetGroupName")
+	var allErrs field.ErrorList
+	if tr.PodSetSliceRequiredTopology != nil {
+		allErrs = append(allErrs, field.Forbidden(groupPath, "may not be set when 'podSetSliceRequiredTopology' is specified"))
+	}
+	if tr.PodSetSliceSize != nil {
+		allErrs = append(allErrs, field.Forbidden(groupPath, "may not be set when 'podSetSliceSize' is specified"))
+	}
+	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
+		allErrs = append(allErrs, field.Forbidden(groupPath, "may not be set when 'podsetSliceRequiredTopologyConstraints' is specified"))
+	}
 	return allErrs
 }
 

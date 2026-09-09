@@ -392,6 +392,55 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"should reject podSetGroupName combined with slice topology when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						PodSetGroup("group1").
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(1).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetGroupName"), "may not be set when 'podSetSliceRequiredTopology' is specified"),
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetGroupName"), "may not be set when 'podSetSliceSize' is specified"),
+			}.ToAggregate(),
+		},
+		"should reject podSetGroupName combined with multi-layer slice constraints when TASGroupedPodSetSlicing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						PodSetGroup("group1").
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 1}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetGroupName"), "may not be set when 'podsetSliceRequiredTopologyConstraints' is specified"),
+			}.ToAggregate(),
+		},
+		"should accept podSetGroupName combined with slice topology when TASGroupedPodSetSlicing is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						PodSetGroup("group1").
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(1).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
 		"empty podSetUpdates": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
 			wantErr:  nil,
