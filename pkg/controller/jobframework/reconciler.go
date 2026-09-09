@@ -1476,7 +1476,10 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 // EquivalentToWorkload checks if the job corresponds to the workload
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
-	if owner.Name != job.Object().GetName() {
+	// A Workload without a controller owner reference cannot belong to this job.
+	// The owner index that selects candidates matches any owner reference, not only
+	// controller ones, so wl may reach here with no controller owner.
+	if owner == nil || owner.Name != job.Object().GetName() {
 		return false, nil
 	}
 
@@ -1493,7 +1496,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	if err != nil {
 		return false, err
 	}
-	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
+	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
 	opts := make([]equality.ComparePodSetsOption, 0, 2)
 	if workload.IsAdmitted(wl) {
@@ -1819,12 +1822,22 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		return err
 	}
 
-	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
-
-	if WorkloadSliceEnabled(job) {
-		return prepareWorkloadSlice(ctx, r.client, job, wl)
+	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before
+	// clearUnusableMinCounts: MinCountsUsable recognizes elastic workloads by that annotation and
+	// would otherwise drop the minCounts of elastic partial scale-up workloads before the annotation
+	// exists to protect them.
+	workloadSliceEnabled := WorkloadSliceEnabled(job)
+	if workloadSliceEnabled {
+		if err := prepareWorkloadSlice(ctx, r.client, job, wl); err != nil {
+			return err
+		}
 	}
-	wl.Spec.Active = active
+
+	wl.Spec.PodSets = clearUnusableMinCounts(wl.Spec.PodSets, wl)
+
+	if !workloadSliceEnabled {
+		wl.Spec.Active = active
+	}
 	return nil
 }
 
@@ -2082,9 +2095,12 @@ func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return b.Complete(r)
 }
 
-// clearMinCountsIfFeatureDisabled sets the minCount for all podSets to nil if the PartialAdmission feature is not enabled
-func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
-	if features.Enabled(features.PartialAdmission) || len(in) == 0 {
+// clearUnusableMinCounts sets the minCount for all podSets to nil when no feature honors MinCount
+// for wl, so that a disabled feature's leftover minCount cannot be acted upon. The podSets are
+// passed separately from wl because callers compare job-derived podSets against wl, which supplies
+// only the feature/annotation state for the decision.
+func clearUnusableMinCounts(in []kueue.PodSet, wl *kueue.Workload) []kueue.PodSet {
+	if len(in) == 0 || workload.MinCountsUsable(wl) {
 		return in
 	}
 	for i := range in {

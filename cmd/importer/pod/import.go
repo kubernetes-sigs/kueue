@@ -201,7 +201,7 @@ func admitWorkload(
 ) error {
 	resourceFormatter := resources.NewResourceFormatter()
 	update := func(wl *kueue.Workload) (bool, error) {
-		info := workload.NewInfoWithLogger(ctrl.LoggerFrom(ctx), wl, workloadInfoOptions...)
+		info := workload.NewInfo(ctrl.LoggerFrom(ctx), wl, workloadInfoOptions...)
 		admission := kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
 			PodSetAssignments: []kueue.PodSetAssignment{

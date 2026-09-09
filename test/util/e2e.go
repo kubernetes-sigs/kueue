@@ -723,23 +723,35 @@ func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Clie
 	return ns
 }
 
-func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string) (string, error) {
+// GetKueueMetrics scrapes the Kueue metrics endpoint from the given curl pod, returning the
+// response body and curl's stderr.
+//
+// The fetch is bounded because callers poll this helper from an Eventually block, which
+// cannot interrupt a call that is already in flight. Left unbounded, curl falls back to its
+// built-in 300s connection timeout - far longer than the LongTimeout budget the callers poll
+// with - so a single stalled fetch consumes the whole budget and is never retried.
+// --fail keeps a failed response on that same retry path: ExcludeMetrics matches vacuously
+// against an error body, so an unauthorized response would otherwise be accepted as proof
+// that the metrics are gone.
+func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string) (string, string, error) {
 	kueueNS := GetKueueNamespace()
-	metricsOutput, _, err := KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName, []string{
+	ctx, cancel := context.WithTimeout(ctx, MediumTimeout)
+	defer cancel()
+	metricsOutput, stderr, err := KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName, []string{
 		"/bin/sh", "-c",
 		fmt.Sprintf(
-			"curl -s -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
+			"curl -sS --fail --connect-timeout 5 --max-time 15 -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
 			DefaultMetricsServiceName, kueueNS,
 		),
 	})
-	return string(metricsOutput), err
+	return string(metricsOutput), string(stderr), err
 }
 
 func ExpectMetricsToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
-		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
+		metricsOutput, stderr, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", stderr)
 		g.Expect(metricsOutput).Should(utiltesting.ContainMetrics(metrics))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
@@ -747,8 +759,8 @@ func ExpectMetricsToBeAvailable(ctx context.Context, cfg *rest.Config, restClien
 func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
-		metricsOutput, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
-		g.Expect(err).NotTo(gomega.HaveOccurred())
+		metricsOutput, stderr, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", stderr)
 		g.Expect(metricsOutput).Should(utiltesting.ExcludeMetrics(metrics))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }

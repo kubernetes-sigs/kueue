@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -35,17 +36,21 @@ import (
 )
 
 const (
-	WorkloadQueueKey                     = "spec.queueName"
-	WorkloadClusterQueueKey              = "status.admission.clusterQueue"
-	QueueClusterQueueKey                 = "spec.clusterQueue"
-	LimitRangeHasContainerOrPodType      = "spec.hasContainerOrPodType"
-	WorkloadQuotaReservedKey             = "status.quotaReserved"
-	WorkloadRuntimeClassKey              = "spec.runtimeClass"
-	OwnerReferenceUID                    = "metadata.ownerReferences.uid"
-	WorkloadAdmissionCheckKey            = "status.admissionChecks"
-	WorkloadPriorityClassKey             = "spec.priorityClassRef"
-	DeviceClassExtendedResourceNameIndex = "spec.extendedResourceName"
-	WorkloadExtendedResourceKey          = "spec.extendedResources"
+	WorkloadQueueKey                            = "spec.queueName"
+	WorkloadClusterQueueKey                     = "status.admission.clusterQueue"
+	QueueClusterQueueKey                        = "spec.clusterQueue"
+	LimitRangeHasContainerOrPodType             = "spec.hasContainerOrPodType"
+	WorkloadQuotaReservedKey                    = "status.quotaReserved"
+	WorkloadRuntimeClassKey                     = "spec.runtimeClass"
+	OwnerReferenceUID                           = "metadata.ownerReferences.uid"
+	WorkloadAdmissionCheckKey                   = "status.admissionChecks"
+	WorkloadPriorityClassKey                    = "spec.priorityClassRef"
+	DeviceClassExtendedResourceNameIndex        = "spec.extendedResourceName"
+	WorkloadExtendedResourceKey                 = "spec.extendedResources"
+	DynamicQuotaOrchestratorCapacityProviderKey = "spec.capacityDiscovery.providers.name"
+	DynamicQuotaOrchestratorIsDistributingKey   = "spec.capacityDistribution.isDistributing"
+	ClusterQueueCohortKey                       = "spec.cohortName"
+	CohortParentKey                             = "spec.parentName"
 	// WorkloadSliceNameKey is an index for pods by their workload slice name annotation.
 	// Used to find pods belonging to an elastic workload slice chain.
 	WorkloadSliceNameKey = "metadata.workloadSliceName"
@@ -275,6 +280,49 @@ func IndexDeviceClassExtendedResourceName(obj client.Object) []string {
 	return []string{*dc.Spec.ExtendedResourceName}
 }
 
+// IndexDynamicQuotaOrchestratorCapacityProvider indexes DynamicQuotaOrchestrator by referenced CapacityProvider names.
+func IndexDynamicQuotaOrchestratorCapacityProvider(obj client.Object) []string {
+	dqo, ok := obj.(*kueuealpha.DynamicQuotaOrchestrator)
+	if !ok {
+		return nil
+	}
+	providers := make([]string, 0, len(dqo.Spec.CapacityDiscovery.Providers))
+	for _, p := range dqo.Spec.CapacityDiscovery.Providers {
+		providers = append(providers, string(p.Name))
+	}
+	return providers
+}
+
+// IndexDynamicQuotaOrchestratorIsDistributing indexes DynamicQuotaOrchestrator by whether it has capacity distribution configured.
+func IndexDynamicQuotaOrchestratorIsDistributing(obj client.Object) []string {
+	dqo, ok := obj.(*kueuealpha.DynamicQuotaOrchestrator)
+	if !ok {
+		return nil
+	}
+	if dqo.Spec.CapacityDistribution != nil {
+		return []string{"true"}
+	}
+	return nil
+}
+
+// IndexClusterQueueCohort indexes ClusterQueue by spec.cohortName.
+func IndexClusterQueueCohort(obj client.Object) []string {
+	cq, ok := obj.(*kueue.ClusterQueue)
+	if !ok || cq == nil || cq.Spec.CohortName == "" {
+		return nil
+	}
+	return []string{string(cq.Spec.CohortName)}
+}
+
+// IndexCohortParent indexes Cohort by spec.parentName.
+func IndexCohortParent(obj client.Object) []string {
+	cohort, ok := obj.(*kueue.Cohort)
+	if !ok || cohort == nil || cohort.Spec.ParentName == "" {
+		return nil
+	}
+	return []string{string(cohort.Spec.ParentName)}
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -324,6 +372,20 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 		}
 		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadExtendedResourceKey, IndexWorkloadExtendedResources); err != nil {
 			return fmt.Errorf("setting index on extended resources for Workload: %w", err)
+		}
+	}
+	if features.Enabled(features.DynamicQuotaOrchestration) {
+		if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorCapacityProviderKey, IndexDynamicQuotaOrchestratorCapacityProvider); err != nil {
+			return fmt.Errorf("setting index on capacity provider for DynamicQuotaOrchestrator: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueuealpha.DynamicQuotaOrchestrator{}, DynamicQuotaOrchestratorIsDistributingKey, IndexDynamicQuotaOrchestratorIsDistributing); err != nil {
+			return fmt.Errorf("setting index on isDistributing for DynamicQuotaOrchestrator: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueue.ClusterQueue{}, ClusterQueueCohortKey, IndexClusterQueueCohort); err != nil {
+			return fmt.Errorf("setting index on cohort for ClusterQueue: %w", err)
+		}
+		if err := indexer.IndexField(ctx, &kueue.Cohort{}, CohortParentKey, IndexCohortParent); err != nil {
+			return fmt.Errorf("setting index on parent for Cohort: %w", err)
 		}
 	}
 	return nil

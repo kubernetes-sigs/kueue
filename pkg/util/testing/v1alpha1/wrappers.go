@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -78,6 +80,12 @@ func (w *DynamicQuotaOrchestratorWrapper) EffectiveCapacity(capacity *kueuealpha
 // Condition adds a condition to the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) Condition(condition metav1.Condition) *DynamicQuotaOrchestratorWrapper {
 	w.Status.Conditions = append(w.Status.Conditions, condition)
+	return w
+}
+
+// Creation sets the creation timestamp of the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) Creation(t time.Time) *DynamicQuotaOrchestratorWrapper {
+	w.CreationTimestamp = metav1.NewTime(t)
 	return w
 }
 

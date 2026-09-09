@@ -37,7 +37,7 @@ import (
 // 0. Workloads already marked for preemption first.
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
-// 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
+// 2. (AdmissionFairSharing only) Workloads with higher LocalQueue's usage first
 // 3. Workloads with lower priority first.
 // 4. Workloads admitted more recently first.
 func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {

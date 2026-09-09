@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1668,8 +1669,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 2)
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
-			wlHighAInfo := workload.NewInfo(wlHighA)
-			wlLowBInfo := workload.NewInfo(wlLowB)
+			wlHighAInfo := workload.NewInfo(ctrl.LoggerFrom(ctx), wlHighA)
+			wlLowBInfo := workload.NewInfo(ctrl.LoggerFrom(ctx), wlLowB)
 			ginkgo.By("Checking that the scheduler sees higher recent usage for lq-a")
 			gomega.Eventually(func(g gomega.Gomega) {
 				lqAUsage, err := wlHighAInfo.CalcLocalQueueFSUsage(

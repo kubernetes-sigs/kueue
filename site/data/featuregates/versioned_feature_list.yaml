@@ -285,6 +285,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: MultiKueueReuseClientConnectionConfigForWorkers
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PartialAdmission
   versionedSpecs:
   - default: false
@@ -459,6 +465,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASGroupedPodSetSlicing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASHandleOverlappingFlavors
   versionedSpecs:
   - default: true
