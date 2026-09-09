@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -426,6 +427,8 @@ type reconcileTestCase struct {
 	resourceClaimTemplates    []*resourcev1.ResourceClaimTemplate
 	patchErr                  error
 	listErr                   error
+	runtimeClassGetErr        error
+	limitRangeListErr         error
 	wantDRAResourceTotal      *int64
 	wantWorkloadsInQueue      *int
 	wantWorkload              *kueue.Workload
@@ -1726,6 +1729,9 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
 					panic(err)
 				}
+				if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+					panic(err)
+				}
 				qManager.Heads(ctx) // Pop from active heap
 				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
@@ -1764,6 +1770,9 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
 					panic(err)
 				}
+				if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+					panic(err)
+				}
 				qManager.Heads(ctx) // Pop from active heap
 				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
@@ -1794,6 +1803,9 @@ func TestReconcile(t *testing.T) {
 			beforeReconcile: func(ctx context.Context, cl client.Client, qManager *qcache.Manager) {
 				wl := &kueue.Workload{}
 				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
+					panic(err)
+				}
+				if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
@@ -1834,6 +1846,9 @@ func TestReconcile(t *testing.T) {
 				if err := cl.Get(ctx, types.NamespacedName{Name: "wl", Namespace: "ns"}, wl); err != nil {
 					panic(err)
 				}
+				if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+					panic(err)
+				}
 				qManager.Heads(ctx) // Pop from active heap
 				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
@@ -1854,6 +1869,85 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+		},
+		"missing RuntimeClass marks workload inadmissible": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing").Obj()).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing").Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: `runtimeClass not found "missing" for podSet "main": runtimeclasses.node.k8s.io "missing" not found`,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  workloadRuntimeClassNotFoundReason,
+					Message: `runtimeClass not found "missing" for podSet "main": runtimeclasses.node.k8s.io "missing" not found`,
+				}).
+				Obj(),
+			wantWorkloadsInQueue: ptr.To(0),
+		},
+		"RuntimeClass client error retries reconciliation": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime").Obj()).
+				Obj(),
+			cq:                 utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq:                 utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			runtimeClassGetErr: errTest,
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime").Obj()).
+				Obj(),
+			wantError:            errTest,
+			wantWorkloadsInQueue: ptr.To(0),
+		},
+		"available RuntimeClass clears the resource adjustment error": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime").Obj()).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadQuotaReservedReasonMisconfigured,
+				}).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadRequeued,
+					Status: metav1.ConditionFalse,
+					Reason: workloadRuntimeClassNotFoundReason,
+				}).
+				Obj(),
+			additionalObjects: []client.Object{utiltesting.MakeRuntimeClass("runtime", "handler").Obj()},
+			cq:                utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq:                utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime").Obj()).
+				Obj(),
+			wantWorkloadsInQueue: ptr.To(0),
+		},
+		"LimitRange client error retries reconciliation": {
+			workload:             utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj(),
+			cq:                   utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq:                   utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			limitRangeListErr:    errTest,
+			wantWorkload:         utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj(),
+			wantError:            errTest,
+			wantWorkloadsInQueue: ptr.To(0),
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
@@ -1937,7 +2031,14 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
+					WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
 					WithInterceptorFuncs(interceptor.Funcs{
+						Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+							if key.Name == "runtime" && tc.runtimeClassGetErr != nil {
+								return tc.runtimeClassGetErr
+							}
+							return c.Get(ctx, key, obj, opts...)
+						},
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							if tc.patchErr != nil {
 								return tc.patchErr
@@ -1945,6 +2046,9 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 							return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 						},
 						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+							if _, ok := list.(*corev1.LimitRangeList); ok && tc.limitRangeListErr != nil {
+								return tc.limitRangeListErr
+							}
 							if tc.listErr != nil {
 								if _, ok := list.(*resourcev1.ResourceSliceList); ok {
 									return tc.listErr
@@ -1965,18 +2069,12 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 					draCache = setupDRACache(objs)
 				}
 				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
-				if draCache != nil {
-					queueOptions = append(queueOptions, qcache.WithDRABackedResources(draCache))
-				}
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
 				reconcilerOpts := tc.reconcilerOpts
 				if draCache != nil {
 					reconcilerOpts = append(reconcilerOpts, WithDRABackedResources(draCache))
 				}
 				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, reconcilerOpts...)
-				if features.Enabled(features.KueueDRAIntegration) {
-					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
-				}
 				// use a fake clock with jitter = 0 to be able to assert on the requeueAt.
 				reconciler.clock = fakeClock
 
@@ -2070,6 +2168,14 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
+				if tc.wantWorkloadsInQueue != nil {
+					cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
+					if !found {
+						t.Errorf("Could not resolve ClusterQueue for workload")
+					} else if got := len(qManager.PendingWorkloadsInfo(cqName)); got != *tc.wantWorkloadsInQueue {
+						t.Errorf("Expected exactly %d workload(s) in queue, got %d", *tc.wantWorkloadsInQueue, got)
+					}
+				}
 
 				// For DRA tests, verify that workloads are properly queued/cached
 				if tc.featureGates[features.KueueDRAIntegration] && testWl != nil &&
@@ -2079,15 +2185,6 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 					if cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl)); found {
 						pendingWorkloads := qManager.PendingWorkloadsInfo(cqName)
-
-						if tc.wantWorkloadsInQueue != nil {
-							if len(pendingWorkloads) != *tc.wantWorkloadsInQueue {
-								t.Errorf("Expected exactly %d workload(s) in queue, got %d workloads", *tc.wantWorkloadsInQueue, len(pendingWorkloads))
-								for i, wl := range pendingWorkloads {
-									t.Logf("Workload %d: %s/%s", i, wl.Obj.Namespace, wl.Obj.Name)
-								}
-							}
-						}
 
 						var foundInQueue bool
 						for _, wlInfo := range pendingWorkloads {

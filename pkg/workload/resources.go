@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -41,6 +40,8 @@ var (
 	PodSetsPath          = field.NewPath("spec").Child("podSets")
 	ErrNamespaceMismatch = errors.New("workload namespace doesn't match ClusterQueue selector")
 	ErrInternal          = errors.New("internal lookup failure")
+	// ErrRuntimeClassNotFound identifies a RuntimeClass configuration error.
+	ErrRuntimeClassNotFound = errors.New("runtimeClass not found")
 )
 
 const (
@@ -61,7 +62,11 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
 			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
+				if apierrors.IsNotFound(err) {
+					errs = append(errs, fmt.Errorf("%w %q for podSet %q: %w", ErrRuntimeClassNotFound, *podSpec.RuntimeClassName, wl.Spec.PodSets[i].Name, err))
+				} else {
+					errs = append(errs, fmt.Errorf("getting runtimeClass %q for podSet %q: %w", *podSpec.RuntimeClassName, wl.Spec.PodSets[i].Name, err))
+				}
 				continue
 			}
 			if runtimeClass.Overhead != nil {
@@ -73,10 +78,9 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 }
 
 func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
-	// get the list of limit ranges
 	var limitRanges corev1.LimitRangeList
 	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
-		return err
+		return fmt.Errorf("listing LimitRanges in namespace %q: %w", wl.Namespace, err)
 	}
 
 	if len(limitRanges.Items) == 0 {
@@ -137,15 +141,13 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 	}
 }
 
-// AdjustResources adjusts the resource requests of a workload based on:
+// AdjustResources adjusts the resource requests of a workload and returns all
+// errors encountered while applying:
 // - PodOverhead
 // - LimitRanges
 // - Limits
-func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
-	log := ctrl.LoggerFrom(ctx)
-	for _, err := range handlePodOverhead(ctx, cl, wl) {
-		log.Error(err, "Failures adjusting requests for pod overhead")
-	}
+func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
+	errs := handlePodOverhead(ctx, cl, wl)
 	// Copy limits into missing requests before applying the LimitRange
 	// defaults, mirroring the API server, where requests default from limits
 	// at object defaulting, before the LimitRanger admission plugin runs.
@@ -153,8 +155,30 @@ func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) 
 	// must be accounted the same way.
 	handleLimitsToRequests(wl)
 	if err := handlePodLimitRange(ctx, cl, wl); err != nil {
-		log.Error(err, "Failed adjusting requests for LimitRanges")
+		errs = append(errs, err)
 	}
+	return errors.Join(errs...)
+}
+
+// SplitResourceAdjustmentError separates missing RuntimeClass errors, which
+// require an inadmissible status, from errors that should retry reconciliation.
+func SplitResourceAdjustmentError(err error) (missingRuntimeClass, retryable error) {
+	if err == nil {
+		return nil, nil
+	}
+	errs := []error{err}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		errs = joined.Unwrap()
+	}
+	var missingErrs, retryableErrs []error
+	for _, currentErr := range errs {
+		if errors.Is(currentErr, ErrRuntimeClassNotFound) {
+			missingErrs = append(missingErrs, currentErr)
+		} else {
+			retryableErrs = append(retryableErrs, currentErr)
+		}
+	}
+	return errors.Join(missingErrs...), errors.Join(retryableErrs...)
 }
 
 // ValidateResources validates that requested resources are less or equal

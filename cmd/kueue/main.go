@@ -365,9 +365,6 @@ func main() {
 
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
-	if draBackedResources != nil {
-		queueOptions = append(queueOptions, qcache.WithDRABackedResources(draBackedResources))
-	}
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
 
 	resourceSliceAPIAvailable := utildra.CheckResourceSliceAPIAvailable(mgr)

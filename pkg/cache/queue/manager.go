@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -55,6 +54,8 @@ var (
 	errClusterQueueAlreadyExists        = errors.New("clusterQueue already exists")
 	errWorkloadIsInadmissible           = errors.New("workload is inadmissible and can't be added to a LocalQueue")
 )
+
+const workloadReconcileChannelBuffer = 10
 
 // Option configures the manager.
 type Option func(*Manager)
@@ -134,18 +135,9 @@ func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
 	}
 }
 
-func WithDRABackedResources(cache *dra.ExtendedResourceCache) Option {
-	return func(m *Manager) {
-		m.draBackedResources = cache
-	}
-}
-
-// SetDRAReconcileChannel sets the DRA reconcile channel after manager creation.
-func (m *Manager) SetDRAReconcileChannel(ch chan<- event.TypedGenericEvent[*kueue.Workload]) {
-	m.draReconcileChannel = ch
-	if ch != nil {
-		ctrl.Log.WithName("queue-manager").Info("DRA reconcile channel connected")
-	}
+// WorkloadReconcileChannel returns the channel used to request Workload reconciliation.
+func (m *Manager) WorkloadReconcileChannel() chan event.TypedGenericEvent[*kueue.Workload] {
+	return m.workloadReconcileChannel
 }
 
 type TopologyUpdateWatcher interface {
@@ -181,8 +173,7 @@ type Manager struct {
 	AfsUsageLedger         *queueafs.AfsUsageLedger
 	workloadUpdateWatchers []WorkloadUpdateWatcher
 
-	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
-	draBackedResources  *dra.ExtendedResourceCache
+	workloadReconcileChannel chan event.TypedGenericEvent[*kueue.Workload]
 
 	roleTracker            *roletracker.RoleTracker
 	customLabels           *metrics.CustomLabels
@@ -217,11 +208,12 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		workloadInfoOptions: []workload.InfoOption{},
 		hm:                  hierarchy.NewManager(newCohort),
 
-		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
-		secondPassQueue:        newSecondPassQueue(),
-		AfsUsageLedger:         queueafs.NewAfsUsageLedger(),
-		requeuer:               requeuer,
-		resourceFormatter:      resources.NewResourceFormatter(),
+		topologyUpdateWatchers:   make([]TopologyUpdateWatcher, 0),
+		secondPassQueue:          newSecondPassQueue(),
+		AfsUsageLedger:           queueafs.NewAfsUsageLedger(),
+		workloadReconcileChannel: make(chan event.TypedGenericEvent[*kueue.Workload], workloadReconcileChannelBuffer),
+		requeuer:                 requeuer,
+		resourceFormatter:        resources.NewResourceFormatter(),
 	}
 	for _, option := range options {
 		option(m)
@@ -480,8 +472,8 @@ func (m *Manager) DefaultLocalQueueExist(namespace string) bool {
 }
 
 // addLocalQueueLocked registers the local queue under the manager lock and
-// returns the DRA reconcile channel and any workloads that need DRA reconciling.
-// Callers must send events to the channel after this returns (outside any lock).
+// returns pending workloads that need reconciling. Callers must send events to
+// the reconcile channel after this returns (outside any lock).
 func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) ([]*kueue.Workload, error) {
 	m.Lock()
 	defer m.Unlock()
@@ -504,7 +496,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 	if err := m.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
 		return nil, fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
-	var draWorkloads []*kueue.Workload
+	var workloadsToReconcile []*kueue.Workload
 	for _, w := range workloads.Items {
 		m.assignWorkload(workload.Key(&w), qImpl.Key)
 
@@ -520,40 +512,27 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
-		if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
-			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
-			// stable pointer since the range variable is reused each iteration.
-			draWorkloads = append(draWorkloads, w.DeepCopy())
-			continue
-		}
-
-		workload.AdjustResources(ctx, m.client, &w)
-		wInfo := workload.NewInfo(log, &w, m.workloadInfoOptions...)
-		qImpl.AddOrUpdate(wInfo)
+		// DeepCopy keeps a stable pointer since the range variable is reused.
+		workloadsToReconcile = append(workloadsToReconcile, w.DeepCopy())
 	}
 
 	if cq != nil && cq.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels) {
 		m.Broadcast()
 	}
 
-	return draWorkloads, nil
+	return workloadsToReconcile, nil
 }
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
-	draWorkloads, err := m.addLocalQueueLocked(ctx, q)
+	workloadsToReconcile, err := m.addLocalQueueLocked(ctx, q)
 	if err != nil {
 		return err
 	}
 
-	if !features.Enabled(features.KueueDRAIntegration) {
-		return nil
-	}
-
-	for _, wl := range draWorkloads {
+	for _, wl := range workloadsToReconcile {
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
-		m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
-		log.V(4).Info("Sent DRA workload to reconcile channel due to LocalQueue creation")
+		m.workloadReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
+		log.V(4).Info("Sent workload to reconcile channel due to LocalQueue creation")
 	}
 
 	return nil
@@ -611,8 +590,10 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 		clearLQMetrics(key)
 	}
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		for _, wInfo := range qImpl.items {
-			m.removeUnadmittedWorkloadWithoutLock(log, workload.Key(wInfo.Obj))
+		for wlKey, assignedQueue := range m.workloadAssignedQueues {
+			if assignedQueue == key {
+				m.removeUnadmittedWorkloadWithoutLock(log, wlKey)
+			}
 		}
 	}
 	delete(m.localQueues, key)
@@ -779,12 +760,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	log := ctrl.LoggerFrom(ctx)
-	workload.AdjustResources(ctx, m.client, &w)
-	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
-		info.Update(log, &w, workload.WithPreserveTotalRequests())
-	} else {
-		info.Update(log, &w, m.workloadInfoOptions...)
-	}
+	info.Update(log, &w, workload.WithPreserveTotalRequests())
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
