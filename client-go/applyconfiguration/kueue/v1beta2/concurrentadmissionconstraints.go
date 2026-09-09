@@ -30,6 +30,7 @@ type ConcurrentAdmissionConstraintsApplyConfiguration struct {
 	// It can only be used if the Mode is `TryPreferredFlavors`.
 	// If the Mode is `TryPreferredFlavors` and LastAcceptableFlavorName is not specified, then
 	// Workload can migrate to any flavor that is more preferable than the one it was admitted to.
+	//
 	LastAcceptableFlavorName *kueuev1beta2.ResourceFlavorReference `json:"lastAcceptableFlavorName,omitempty"`
 }
 

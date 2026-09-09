@@ -31,6 +31,7 @@ type WorkloadSpecApplyConfiguration struct {
 	// and a count.
 	// There must be at least one element and at most 10.
 	// podSets cannot be changed.
+	//
 	PodSets []PodSetApplyConfiguration `json:"podSets,omitempty"`
 	// queueName is the name of the LocalQueue the Workload is associated with.
 	// queueName cannot be changed while .status.admission is not null.
@@ -66,6 +67,7 @@ type WorkloadSpecApplyConfiguration struct {
 	// the workload can be admitted before it's automatically deactivated.
 	//
 	// If unspecified, no execution time limit is enforced on the Workload.
+	//
 	MaximumExecutionTimeSeconds *int32 `json:"maximumExecutionTimeSeconds,omitempty"`
 }
 
