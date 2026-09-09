@@ -753,18 +753,29 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		return jobframework.NewLoadResult(true, false), nil
 	}
 
-	// A group in which no member pod still requires Kueue's lifecycle management -
-	// every pod is terminating and none holds Kueue's finalizer - is treated like a
-	// terminating job: finalize instead of creating a Workload. Otherwise a pod
-	// stuck Terminating in the API (e.g. a kubelet-stuck teardown where the kubelet
-	// never confirms the kill) could regain a Workload built from its already
-	// admission-mutated spec, which may be permanently unschedulable (issue #15148).
+	// All group pods are terminating: once no Workload remains, finalize directly - re-creating one would re-adopt the group from admission-mutated specs and wedge finalizer removal (issue #15148).
 	for i := range p.list.Items {
-		if podNeedsWorkload(&p.list.Items[i]) {
+		if p.list.Items[i].DeletionTimestamp.IsZero() {
 			return jobframework.NewLoadResult(false, p.isFound), nil
 		}
 	}
-	ctrl.LoggerFrom(ctx).V(2).Info("No pod needs lifecycle management (all pods terminating and finalized); treating the pod group as terminating")
+	childWorkloads, err := p.ListChildWorkloads(ctx, c, p.key)
+	if err != nil {
+		return nil, err
+	}
+	if len(childWorkloads.Items) > 0 {
+		return jobframework.NewLoadResult(false, p.isFound), nil
+	}
+	if features.Enabled(features.PodIntegrationValidateGroupOwner) {
+		// ListChildWorkloads masks a foreign-owned same-named Workload as empty; check existence directly so it still blocks finalization.
+		wl := &kueue.Workload{}
+		if err := c.Get(ctx, types.NamespacedName{Name: p.key.Name, Namespace: p.key.Namespace}, wl); err == nil {
+			return jobframework.NewLoadResult(false, p.isFound), nil
+		} else if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+	}
+	ctrl.LoggerFrom(ctx).V(2).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
 	return jobframework.NewLoadResult(true, p.isFound), nil
 }
 
@@ -947,15 +958,6 @@ func (p *Pod) shouldFinalizeNow(pod *corev1.Pod, stopReason jobframework.StopRea
 	isDeletion := stopReason == jobframework.StopReasonWorkloadDeleted
 	isServingEviction := p.isServing() && strings.HasPrefix(string(stopReason), string(jobframework.StopReasonWorkloadEvicted))
 	return p.isGroup && (isDeletion || (isServingEviction && utilpod.IsTerminated(pod)))
-}
-
-// podNeedsWorkload returns whether Kueue still owes the pod lifecycle work.
-func podNeedsWorkload(p *corev1.Pod) bool {
-	if p.DeletionTimestamp.IsZero() {
-		return true
-	}
-	// A terminating pod pending removal of Kueue's finalizer may await finalization against a matching Workload.
-	return slices.Contains(p.Finalizers, podconstants.PodFinalizer)
 }
 
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
