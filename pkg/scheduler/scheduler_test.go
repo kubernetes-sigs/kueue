@@ -10416,11 +10416,11 @@ func TestScheduleSimulationErrors(t *testing.T) {
 	}{
 		"simulation error during nomination": {
 			failOnCall:  1,
-			wantMessage: "Error while getting initial assignments: simulated error",
+			wantMessage: "Error while getting initial assignments: simulation failed: simulated error",
 		},
 		"simulation error during admission (fits)": {
 			failOnCall:  2,
-			wantMessage: "Error while processing entry: simulated error",
+			wantMessage: "Error while processing entry: simulation failed: simulated error",
 		},
 	}
 
@@ -10552,7 +10552,7 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 		sim := &mockedSimulator{
 			snapshot: newFailingSimulatorSnapshot(onSimulate, 5, errSimulation),
 		}
-		wantMessage := "Error while processing entry: simulated error"
+		wantMessage := "Error while processing entry: simulation failed: simulated error"
 
 		topo := utiltestingapi.MakeTopology("tas-topology").Levels(corev1.LabelHostname).Obj()
 		rf := utiltestingapi.MakeResourceFlavor("default").TopologyName("tas-topology").Obj()
