@@ -83,27 +83,28 @@ func distributeOrderBased(out, fullCounts, deltas []int32, amount, _ int64) {
 // binary Search so the last call to fits() might not be a successful one
 // Returns nil if no solution was found
 func (psr *PodSetReducer[R]) Search() (R, bool) {
-	var lastR R
+	var best R
 
 	if psr.totalDelta == 0 {
-		return lastR, false
+		return best, false
 	}
 
+	// The searched range is [0, totalDelta], inclusive of totalDelta: cutting every PodSet down
+	// to its minimum count is a candidate like any other, and is the only one left when nothing
+	// smaller fits. sort.Search takes a half-open range, hence the +1.
 	current := make([]int32, len(psr.podSets))
-	idx := sort.Search(int(psr.totalDelta), func(i int) bool {
+	idx := sort.Search(int(psr.totalDelta)+1, func(i int) bool {
 		psr.distribute(current, psr.fullCounts, psr.deltas, int64(i), psr.totalDelta)
 		r, f := psr.fits(current)
 		if f {
-			lastR = r
+			best = r
 		}
 		return f
 	})
 
-	if idx < int(psr.totalDelta) {
-		return lastR, true
+	// Not even the full reduction fit.
+	if idx > int(psr.totalDelta) {
+		return best, false
 	}
-
-	// sort.Search searches [0, totalDelta), so check totalDelta separately.
-	psr.distribute(current, psr.fullCounts, psr.deltas, psr.totalDelta, psr.totalDelta)
-	return psr.fits(current)
+	return best, true
 }
