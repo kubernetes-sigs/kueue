@@ -142,7 +142,7 @@ func TestOrderedSearch(t *testing.T) {
 				return out, true
 			}
 			red := NewOrderedPodSetReducer(tc.podSets, fits)
-			count, found := red.Search()
+			count, found := red.Reduce()
 			if found != tc.wantFound {
 				t.Errorf("Unexpected found:%v, want: %v", found, tc.wantFound)
 			}
@@ -179,7 +179,7 @@ func TestSearchTotalDeltaLarge(t *testing.T) {
 		t.Fatalf("Unexpected totalDelta: %d, want %d", got, want)
 	}
 
-	count, found := red.Search()
+	count, found := red.Reduce()
 	if !found {
 		t.Fatal("Expected a solution")
 	}

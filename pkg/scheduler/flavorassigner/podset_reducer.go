@@ -79,10 +79,9 @@ func distributeOrderBased(out, fullCounts, deltas []int32, amount, _ int64) {
 	}
 }
 
-// Search find the first biggest set of counts that pass fits(), it's using
-// binary Search so the last call to fits() might not be a successful one
-// Returns nil if no solution was found
-func (psr *PodSetReducer[R]) Search() (R, bool) {
+// Reduce returns the fits() result for the largest counts that fit, giving up as little of
+// PodSets[*].Count as the constraints allow, and false when no combination fits.
+func (psr *PodSetReducer[R]) Reduce() (R, bool) {
 	var best R
 
 	if psr.totalDelta == 0 {

@@ -954,7 +954,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			}
 			return nil, false
 		})
-		if pa, found := reducer.Search(); found {
+		if pa, found := reducer.Reduce(); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
 	}
