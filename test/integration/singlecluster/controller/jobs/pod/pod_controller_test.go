@@ -1702,9 +1702,10 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that the terminating pods, not the Workload lifecycle, gate finalization: the Workload is untouched", func() {
-					// Regression guard for waitForPodsReady / pod-replacement flows: an
-					// existing Workload must survive a fully-Terminating group until the
-					// pods actually leave the API. Only creation is gated (#13830, #2212).
+					// Pins the finalizer-holding shape: pods lingering Terminating in the API
+					// must not disturb an existing Workload - only Workload *creation* is
+					// gated here (#15148). waitForPodsReady and pod-replacement flows are
+					// exercised by their dedicated suites, not this spec.
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 						g.Expect(createdWorkload.Finalizers).Should(gomega.ContainElement("kueue.x-k8s.io/resource-in-use"))

@@ -2868,6 +2868,81 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			// notably: no workloads and no CreatedWorkload event
 		},
+		"workload is created when one pod of the group is live and another is terminating and finalized": {
+			// Replacement-in-progress: a fresh gated (live) member coexists with the old
+			// terminating member that already lost Kueue's finalizer. The all-terminating
+			// skip must not fire while any member pod still needs lifecycle management.
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
 		"workload is created when every pod of the group is terminating but still holds the kueue finalizer": {
 			// Pods pending deletion whose Kueue finalizer has not been removed yet
 			// may still be pending finalization against a matching Workload, so
