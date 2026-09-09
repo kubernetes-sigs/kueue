@@ -39,6 +39,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -1086,6 +1087,76 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Errorf("Unexpected cohorts (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestAddClusterQueueAdjustsReconstructedWorkloadForTAS(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	const (
+		clusterQueueName = "cq"
+		flavorName       = "tas-flavor"
+		runtimeClassName = "kata"
+	)
+	workloadObj := utiltestingapi.MakeWorkload("workload", "ns").
+		Queue("queue").
+		RuntimeClass(runtimeClassName).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission(clusterQueueName).
+				PodSets(
+					utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, flavorName, "2").
+						TopologyAssignment(
+							utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).
+								Obj(),
+						).
+						Obj(),
+				).
+				Obj(),
+			time.Now(),
+		).
+		Obj()
+	runtimeClass := utiltesting.MakeRuntimeClass(runtimeClassName, "handler").
+		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+		Obj()
+	limitRange := utiltesting.MakeLimitRange("defaults", workloadObj.Namespace).
+		WithValue("DefaultRequest", corev1.ResourceCPU, "1").
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(workloadObj, runtimeClass, limitRange).
+		WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	cache := New(cl)
+	cache.AddOrUpdateResourceFlavor(log,
+		utiltestingapi.MakeResourceFlavor(flavorName).TopologyName("topology").Obj())
+	clusterQueue := utiltestingapi.MakeClusterQueue(clusterQueueName).
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorName).
+			Resource(corev1.ResourceCPU, "10").Obj()).
+		Obj()
+
+	if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("AddClusterQueue() error = %v", err)
+	}
+
+	got := cache.hm.ClusterQueue(clusterQueueName).Workloads[workload.Key(workloadObj)]
+	if got == nil {
+		t.Fatal("reconstructed workload not found")
+	}
+	if cpu := got.Obj.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests.Cpu(); cpu.Cmp(resource.MustParse("1")) != 0 {
+		t.Errorf("container CPU request = %s, want 1", cpu.String())
+	}
+	if cpu := got.Obj.Spec.PodSets[0].Template.Spec.Overhead.Cpu(); cpu.Cmp(resource.MustParse("1")) != 0 {
+		t.Errorf("pod overhead CPU = %s, want 1", cpu.String())
+	}
+	tasUsage := got.TASUsage()[flavorName]
+	if len(tasUsage) != 1 {
+		t.Fatalf("TAS usage = %v, want one domain", tasUsage)
+	}
+	if cpu := tasUsage[0].SinglePodRequests.ResourceValue(corev1.ResourceCPU); cpu != 2000 {
+		t.Errorf("TAS single-pod CPU request = %dm, want 2000m", cpu)
 	}
 }
 
