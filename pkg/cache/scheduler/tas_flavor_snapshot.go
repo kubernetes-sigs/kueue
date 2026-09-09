@@ -83,13 +83,21 @@ type domainState struct {
 	// For non-leaf domains, it is the sum of affinity scores of all children.
 	affinityScore int64
 
-	// podCap, leaderCap and podCapWithLeader mirror podCount, leaderCount and
-	// podCountWithLeader for the domain's own remaining capacity, which the
-	// leaves do not see. Without them the roll-up would overcount. Set by
-	// recordUsageDomainCaps, and read only at the level it writes.
-	podCap           int32
-	leaderCap        int32
-	podCapWithLeader int32
+	// capacityBound is set by recordUsageDomainCaps, and read only at the level
+	// it writes.
+	capacityBound domainCapacityBound
+}
+
+// domainCapacityBound bounds the counts rolled up from a domain's leaves by what
+// the domain's own remaining capacity allows, field for field against podCount,
+// leaderCount and podCountWithLeader. A leaf only sees its own node, so it
+// reports room the domain may already owe; domainTASUsage explains why.
+// Attributing that usage to the node holding each Pod would remove the need for
+// this bound.
+type domainCapacityBound struct {
+	podCount           int32
+	leaderCount        int32
+	podCountWithLeader int32
 }
 
 // leafCapacity is the per-snapshot mutable capacity data of a leaf domain,
@@ -402,8 +410,11 @@ func (s *TASFlavorSnapshot) domainRemainingCapacity(dom *domain, assumedUsage re
 	remaining := resources.NewLazyRequests(s.domainFreeCapacityOf(dom))
 	if !simulateEmpty {
 		remaining.Sub(s.domainTASUsage[dom.id])
-		remaining.Sub(assumedUsage)
 	}
+	// Placements made earlier in this cycle are always subtracted: they belong to
+	// the Workload being assigned, so preemption cannot reclaim them. fillLeafCounts
+	// subtracts the leaf-keyed side the same way.
+	remaining.Sub(assumedUsage)
 	return remaining
 }
 
@@ -892,11 +903,6 @@ func newAssumedUsage(perDomain map[utiltas.TopologyDomainID]resources.Requests) 
 	return &assumedUsage{perDomain: perDomain}
 }
 
-// recordDomainUsage adds usage keyed by the domain a TopologyAssignment names.
-func (u *assumedUsage) recordDomainUsage(usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
-	addUsagePerDomain(u.perDomain, usagePerDomain)
-}
-
 // recordLeafUsage adds usage keyed by leaf, allocating on first use.
 func (u *assumedUsage) recordLeafUsage(usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
 	if u.perLeaf == nil {
@@ -919,7 +925,7 @@ func addAssumedUsageForCycle(assumedUsage *assumedUsage, published, leaves *util
 }
 
 func addAssumedUsage(assumedUsage *assumedUsage, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
-	assumedUsage.recordDomainUsage(utiltas.ComputeUsagePerDomain(ta, tr.SinglePodRequests))
+	addUsagePerDomain(assumedUsage.perDomain, utiltas.ComputeUsagePerDomain(ta, tr.SinglePodRequests))
 }
 
 func addUsagePerDomain(tracked map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
@@ -2097,14 +2103,14 @@ func (s *TASFlavorSnapshot) recordUsageDomainCaps(requirements *topologyAssignme
 	for domainID, dom := range s.usageDomains() {
 		remaining := s.domainRemainingCapacity(dom, requirements.assumedUsage.perDomain[domainID], requirements.simulateEmpty)
 		domainState := s.domainStateOf(dom)
-		domainState.podCap = requirements.requests.CountIn(remaining.Get())
+		domainState.capacityBound.podCount = requirements.requests.CountIn(remaining.Get())
 
-		domainState.leaderCap = 0
+		domainState.capacityBound.leaderCount = 0
 		if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remaining.Get()) > 0 {
-			domainState.leaderCap = 1
+			domainState.capacityBound.leaderCount = 1
 			remaining.Sub(requirements.leaderRequests)
 		}
-		domainState.podCapWithLeader = requirements.requests.CountIn(remaining.Get())
+		domainState.capacityBound.podCountWithLeader = requirements.requests.CountIn(remaining.Get())
 	}
 }
 
@@ -2252,11 +2258,11 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	domainState.leaderCount = leaderCount
 	domainState.affinityScore = affinityScore
 	if s.virtualHostname && level == s.usageLevelIdx() {
-		domainState.podCount = min(domainState.podCount, domainState.podCap)
-		domainState.leaderCount = min(domainState.leaderCount, domainState.leaderCap)
+		domainState.podCount = min(domainState.podCount, domainState.capacityBound.podCount)
+		domainState.leaderCount = min(domainState.leaderCount, domainState.capacityBound.leaderCount)
 		// The leader's cost is measured against a leaf, so it can exceed the
 		// bounded pod count and drive the difference below zero.
-		domainState.podCountWithLeader = min(max(0, domainState.podCountWithLeader), domainState.podCapWithLeader)
+		domainState.podCountWithLeader = min(max(0, domainState.podCountWithLeader), domainState.capacityBound.podCountWithLeader)
 		sliceCapacity = min(sliceCapacity, domainState.podCount/sliceSize)
 		sliceCountWithLeader = min(max(0, sliceCountWithLeader), domainState.podCountWithLeader/sliceSize)
 	}
