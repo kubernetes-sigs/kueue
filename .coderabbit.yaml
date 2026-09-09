@@ -34,7 +34,7 @@ reviews:
         `Observability:`, `VisibilityOnDemand:`, `Security:`, `RBAC:`.
       - Tools and documentation: `CLI:`, `Helm:`, `KueueViz:`, `Kueue-populator:`,
         `Importer:`, `PriorityBooster:`, `Documentation:`, `Examples:`, `AgentSkills:`.
-      - Integrations: `JobSet:`, `Pod:`, `PodGroup:`, `LeaderWorkerSet:`, `StatefulSet:`,
+      - Integrations: `JobSet:`, `Pod:`, `PodGroup:`, `LeaderWorkerSet:`, `StatefulSet:`, `Deployment:`,
         `RayJob:`, `RayCluster:`, `RayService:`, `SparkApplication:`, `MPIJob:`.
       These examples are non-exhaustive. Use another feature, sub-component,
       or integration name when it describes the change more accurately.
