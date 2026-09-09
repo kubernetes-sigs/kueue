@@ -1822,12 +1822,22 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		return err
 	}
 
+	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before
+	// clearUnusableMinCounts: MinCountsUsable recognizes elastic workloads by that annotation and
+	// would otherwise drop the minCounts of elastic partial scale-up workloads before the annotation
+	// exists to protect them.
+	workloadSliceEnabled := WorkloadSliceEnabled(job)
+	if workloadSliceEnabled {
+		if err := prepareWorkloadSlice(ctx, r.client, job, wl); err != nil {
+			return err
+		}
+	}
+
 	wl.Spec.PodSets = clearUnusableMinCounts(wl.Spec.PodSets, wl)
 
-	if WorkloadSliceEnabled(job) {
-		return prepareWorkloadSlice(ctx, r.client, job, wl)
+	if !workloadSliceEnabled {
+		wl.Spec.Active = active
 	}
-	wl.Spec.Active = active
 	return nil
 }
 

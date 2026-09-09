@@ -285,6 +285,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: MultiKueueReuseClientConnectionConfigForWorkers
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PartialAdmission
   versionedSpecs:
   - default: false

@@ -10,6 +10,27 @@ knowledge_base:
 reviews:
   request_changes_workflow: false
 
+  high_level_summary_instructions: |
+    Keep the PR summary concise. Name the section "AI summary".
+
+    Add the "Release note assessment" sub-section that reviews the author's
+    `release-note` code block. Search it under the "Release note" section.
+
+    If the existing release note accurately describes the user-facing change,
+    say "Ready". This includes `NONE` when there is no user-facing change.
+
+    Otherwise, or if you cannot locate the contributor supplied release note, provide
+    one alternative release note and briefly justify the adjustments.
+
+    Instructions:
+    * If the impact is unclear, ask one focused question instead of guessing.
+    * When feasible, use the narrowest applicable feature or sub-component prefix,
+      e.g. `FairSharing:`, `MultiKueue:`, or `TAS:`.
+    * Use `ACTION REQUIRED:` only when users must take action when upgrading.
+
+    Ask the author to verify the alternative and update the canonical
+    `release-note` block in the PR description.
+
   path_filters:
     - "!client-go/**"
     - "!**/*_generated*.go"

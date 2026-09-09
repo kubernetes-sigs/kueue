@@ -26,8 +26,10 @@ import (
 // with apply.
 type CapacityProviderStatusApplyConfiguration struct {
 	// capacity is the normalized capacity published by the provider.
+	//
 	Capacity *CapacityProviderNormalizedCapacityApplyConfiguration `json:"capacity,omitempty"`
 	// conditions represents the current state of this provider.
+	//
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 

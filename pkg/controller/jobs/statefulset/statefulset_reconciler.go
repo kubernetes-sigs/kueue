@@ -78,8 +78,6 @@ type Reconciler struct {
 	customLabels                 *metrics.CustomLabels
 }
 
-const controllerName = "statefulset"
-
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet")
@@ -243,6 +241,17 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = true
 	}
 
+	// Resync the pod set counts before the hold is released, otherwise a scale-up to a
+	// different size is re-admitted with the count captured at creation. A workload on
+	// hold holds no quota reservation, which is what makes spec.podSets mutable here.
+	if shouldClearOnHold {
+		desiredCounts := workload.PodSetsCounts{kueue.DefaultPodSetName: replicas}
+		if !desiredCounts.EqualTo(workload.ExtractPodSetCountsFromWorkload(wl)) {
+			workload.ApplyPodSetCounts(wl, desiredCounts)
+			shouldUpdate = true
+		}
+	}
+
 	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
 		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
@@ -383,7 +392,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithEventFilter(r).
 		Watches(&corev1.Pod{}, &podHandler{}).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "statefulset-reconciler"),
 		}).
 		Complete(r)
 }

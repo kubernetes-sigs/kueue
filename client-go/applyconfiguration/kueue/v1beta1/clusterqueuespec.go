@@ -57,6 +57,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	// - BestEffortFIFO: workloads are ordered by creation time,
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
+	//
 	QueueingStrategy *kueuev1beta1.QueueingStrategy `json:"queueingStrategy,omitempty"`
 	// namespaceSelector defines which namespaces are allowed to submit workloads to
 	// this clusterQueue. Beyond this basic support for policy, a policy agent like
@@ -83,6 +84,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	// - None - Workloads are admitted
 	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
 	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
+	//
 	StopPolicy *kueuev1beta1.StopPolicy `json:"stopPolicy,omitempty"`
 	// fairSharing defines the properties of the ClusterQueue when
 	// participating in FairSharing.  The values are only relevant
