@@ -635,6 +635,11 @@ const (
 	//
 	// Reuse clientConnection (QPS and Burst) for MultiKueue worker clusters instead of creating a new client for each request.
 	MultiKueueReuseClientConnectionConfigForWorkers featuregate.Feature = "MultiKueueReuseClientConnectionConfigForWorkers"
+
+	// owner: @dpastuszka
+	//
+	// Switch the entire Assignment computing logic to WAS.
+	WASWorkloadScheduling featuregate.Feature = "WASWorkloadScheduling"
 )
 
 func init() {
@@ -663,6 +668,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	FlavorFungibilityPreserveScanProgress:           {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
+	WASWorkloadScheduling:                           {SchedulerLibraryIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -987,6 +993,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueReuseClientConnectionConfigForWorkers: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WASWorkloadScheduling: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

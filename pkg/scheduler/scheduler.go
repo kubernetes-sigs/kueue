@@ -755,14 +755,13 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
 
-	var revertRemoval func()
+	var victimsOfOtherPreemptions []*workload.Info
 	switch {
 	case needsOverlapRecompute:
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
 		// To get the projected cluster state after other preemptions complete,
 		// we simulate the removal of their victims.
-		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
-		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+		victimsOfOtherPreemptions = slices.Collect(maps.Values(preemptedWorkloads))
 	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
@@ -773,12 +772,9 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	// reach all flavors from the nomination.
 	e.LastAssignment = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot, victimsOfOtherPreemptions...)
 	e.recordAssignment(newAssignment, newTargets)
 	if needsOverlapRecompute {
-		if revertRemoval != nil {
-			revertRemoval()
-		}
 		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
 			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 		}
@@ -856,21 +852,31 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	cq := snap.ClusterQueue(wl.ClusterQueue)
+func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot, preemptedWorkloads ...*workload.Info) (flavorassigner.Assignment, []*preemption.Target) {
 	// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
+	cq := snap.ClusterQueue(wl.ClusterQueue)
 	if wl.LastAssignment != nil && lastAssignmentOutdated(wl.LastAssignment, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
 		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
 		wl.LastAssignment = nil
 	}
-	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
-	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
-	return assignment, targets
+	if features.Enabled(features.WASWorkloadScheduling) {
+		return s.getAssignmentWithWAS(ctx, wl, snap, preemptedWorkloads)
+	} else {
+		revertRemoval := snap.SimulateWorkloadRemoval(preemptedWorkloads)
+		defer revertRemoval()
+		assignment, targets := s.getInitialAssignments(ctx, wl, snap)
+		updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
+		return assignment, targets
+	}
+}
+
+func (s *Scheduler) getAssignmentWithWAS(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot, preemptedWorkloads []*workload.Info) (flavorassigner.Assignment, []*preemption.Target) {
+	return flavorassigner.Assignment{}, nil
 }
 
 // lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
@@ -919,6 +925,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
