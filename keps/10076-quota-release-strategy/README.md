@@ -32,7 +32,7 @@
 
 ## Summary
 
-This proposal introduces a per-integration configuration setting `.integrations.quotaReleaseStrategy` in Kueue's Configuration API (`apis/config/v1beta2`), gated by the `QuotaReleaseStrategy` Feature Gate (Alpha, disabled by default in v0.20). It allows cluster administrators to configure when Kueue releases workload quota reservation during eviction and preemption on a per-framework basis — either immediately upon deletion initiation / status change (`OnQuotaReleased`) or delayed until all underlying pods reach a terminal phase (`OnTerminal`).
+This proposal introduces a per-integration configuration setting `.integrations.frameworkConfigs[].quotaReleaseStrategy` in Kueue's Configuration API (`apis/config/v1beta2`), gated by the `QuotaReleaseStrategy` Feature Gate (Alpha, disabled by default in v0.20). It allows cluster administrators to configure when Kueue releases workload quota reservation during eviction and preemption on a per-framework basis — either immediately upon deletion initiation / status change (`OnQuotaReleased`) or delayed until all underlying pods reach a terminal phase (`OnTerminal`).
 
 ## Motivation
 
@@ -42,8 +42,8 @@ When a workload terminates, its pods may remain in the `Terminating` phase for m
 
 ### Goals
 
-- Provide a per-integration Configuration API setting `.integrations.quotaReleaseStrategy` to control quota release timing across Kueue integrations during eviction and preemption, guarded by the `QuotaReleaseStrategy` feature gate.
-- Support `OnQuotaReleased` (implicit default for all frameworks) for fast quota release upon workload eviction.
+- Provide a per-integration Configuration API setting `.integrations.frameworkConfigs[].quotaReleaseStrategy` to control quota release timing across Kueue integrations during eviction and preemption, guarded by the `QuotaReleaseStrategy` feature gate.
+- Support `OnQuotaReleased` (default for `batch/job` and non-pod frameworks) for fast quota release upon workload eviction.
 - Support `OnTerminal` in Alpha (v0.20) specifically for `batch/v1.Job` and `Pod` integrations to delay quota release until underlying pods physically transition to a terminal state (`Succeeded` or `Failed`) upon eviction.
 
 ### Non-Goals
@@ -57,12 +57,12 @@ When a workload terminates, its pods may remain in the `Terminating` phase for m
 
 ### Notes/Constraints/Caveats
 
-- **`QuotaReleaseStrategy` Feature Gate**: The feature is guarded by the `QuotaReleaseStrategy` feature gate (Alpha, disabled by default in v0.20). When disabled, Kueue defaults to `OnQuotaReleased`.
-- **Deprecation of `FastQuotaReleaseInPodIntegration`**: The `FastQuotaReleaseInPodIntegration` feature gate (introduced in KEP-6143 for Pod integration) is deprecated in v0.20 and superseded by `.quotaReleaseStrategy`. When `.quotaReleaseStrategy` is configured and enabled, it takes precedence over the legacy feature gate.
+- **`QuotaReleaseStrategy` Feature Gate**: The feature is guarded by the `QuotaReleaseStrategy` feature gate (Alpha, disabled by default in v0.20). When disabled, Kueue defaults to the current default strategy described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table.
+- **Deprecation of `FastQuotaReleaseInPodIntegration`**: The `FastQuotaReleaseInPodIntegration` feature gate (introduced in KEP-6143 for Pod integration) is deprecated in v0.20 and superseded by `.integrations.frameworkConfigs[].quotaReleaseStrategy`. When configured and enabled, it takes precedence over the legacy feature gate.
 
 ### Configuration Example
 
-Administrators configure the strategy under `integrations` in the Kueue `Configuration` ConfigMap:
+Administrators configure the strategy under `integrations.frameworkConfigs` in the Kueue `Configuration` ConfigMap:
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -72,8 +72,9 @@ integrations:
   frameworks:
   - "batch/job"
   - "pod"
-  quotaReleaseStrategy:
-    "batch/job": OnTerminal
+  frameworkConfigs:
+  - name: "batch/job"
+    quotaReleaseStrategy: OnTerminal
 waitForPodsReady:
   timeout: 30m
 ```
@@ -90,8 +91,9 @@ namespace: kueue-system
 integrations:
   frameworks:
   - "batch/job"
-  quotaReleaseStrategy:
-    "batch/job": OnTerminal
+  frameworkConfigs:
+  - name: "batch/job"
+    quotaReleaseStrategy: OnTerminal
 ```
 
 #### Story 2: Standard Batch Workload Administrator
@@ -104,8 +106,9 @@ namespace: kueue-system
 integrations:
   frameworks:
   - "batch/job"
-  quotaReleaseStrategy:
-    "batch/job": OnQuotaReleased
+  frameworkConfigs:
+  - name: "batch/job"
+    quotaReleaseStrategy: OnQuotaReleased
 ```
 
 ### Risks and Mitigations
@@ -117,7 +120,7 @@ integrations:
 
 ### Configuration API & YAML Manifest
 
-The `quotaReleaseStrategy` map is configured under `integrations` in the Kueue `Configuration` ConfigMap:
+Per-integration configuration is configured under `integrations.frameworkConfigs` in the Kueue `Configuration` ConfigMap:
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
@@ -127,15 +130,16 @@ integrations:
   frameworks:
   - "batch/job"
   - "pod"
-  quotaReleaseStrategy:
-    "batch/job": OnTerminal
+  frameworkConfigs:
+  - name: "batch/job"
+    quotaReleaseStrategy: OnTerminal
 waitForPodsReady:
   timeout: 30m
 ```
 
 ### Go API Surface
 
-In `apis/config/v1beta2/configuration_types.go`:
+Proposed API in `apis/config/v1beta2/configuration_types.go`:
 
 ```go
 type QuotaReleaseStrategy string
@@ -151,28 +155,35 @@ const (
 )
 
 type Integrations struct {
-    Frameworks []string `json:"frameworks,omitempty"`
-    ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
-    LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
+    // ... existing fields ...
 
-    // QuotaReleaseStrategy provides per-framework configuration options for controlling quota release timing.
-    // Keys correspond to framework names in Frameworks (e.g. "batch/job", "pod").
-    // In Alpha (v0.20), "OnTerminal" is supported only for "batch/job" and "pod".
-    // All other frameworks implicitly default to "OnQuotaReleased".
+    // FrameworkConfigs provides per-framework configuration options for controlling framework-specific behaviors.
     // +optional
-    QuotaReleaseStrategy map[string]QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
+    FrameworkConfigs []FrameworkConfig `json:"frameworkConfigs,omitempty"`
+}
+
+type FrameworkConfig struct {
+    // Name of the framework (must match an enabled framework in Frameworks, e.g. "batch/job", "pod").
+    // +required
+    Name string `json:"name"`
+
+    // QuotaReleaseStrategy controls when quota is released for this framework during eviction or preemption.
+    // In Alpha (v0.20), "OnTerminal" is supported only for "batch/job" and "pod".
+    // If omitted, the framework follows its default release behavior (see Integration Release Behavior Summary).
+    // +optional
+    QuotaReleaseStrategy *QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
 }
 ```
 
 ### Implementation overview
 
-The per-integration setting `.integrations.quotaReleaseStrategy[framework]` specifically governs the eviction and preemption lifecycle by configuring each integration's `job.IsActive(ctx, strategy)` behavior in the `JobReconciler`:
+The per-integration setting `.integrations.frameworkConfigs[].quotaReleaseStrategy` specifically governs the eviction and preemption lifecycle by configuring each integration's `job.IsActive(ctx, strategy)` behavior in the `JobReconciler`:
 
-- If `QuotaReleaseStrategy` feature gate is disabled, `r.quotaReleaseStrategy` defaults to `OnQuotaReleased`.
-- If enabled, each integration reconciler is initialized with its configured strategy (defaulting to `OnQuotaReleased` if omitted).
+- If `QuotaReleaseStrategy` feature gate is disabled, `r.quotaReleaseStrategy` defaults to the current default strategy described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table.
+- If enabled, each integration reconciler is initialized with its configured strategy from `frameworkConfigs` (falling back to its default strategy described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table if omitted).
 - **Eviction / Preemption path (`job.IsActive`)**: When a workload is evicted (eg. preempted), Kueue unsets the quota reservation once `!job.IsActive(ctx, strategy)`:
   - **`OnQuotaReleased`**: `IsActive(ctx, strategy)` returns `false` as soon as deletion is initiated or `job.Status.Active == 0`, allowing quota to be reclaimed promptly.
-  - **`OnTerminal`**: `IsActive(ctx, strategy)` returns `true` as long as underlying pods remain active or terminating (e.g., `ptr.Deref(job.Status.Terminating, 0) > 0` for `batch/v1.Job`, or pods are still running/terminating for `PodGroup`). Quota reservation and TAS capacity remain held until all pods finish terminating.
+  - **`OnTerminal`**: `IsActive(ctx, strategy)` returns `true` as long as underlying pods remain active or terminating (e.g., `ptr.Deref(job.Status.Terminating, 0) > 0` for `batch/v1.Job`; for `PodGroup`, member pods are active until reaching a terminal phase (`Succeeded`/`Failed`) or grace period cutoff). Quota reservation and TAS capacity remain held until pods finish terminating or grace period expires.
 - **Completion path (`job.Finished`)**: Normal job completion logic remains unchanged; `OnTerminal` does not alter `job.Finished(ctx)`.
 
 ### Integration Termination Criteria
@@ -182,7 +193,7 @@ In Alpha (v0.20), **`OnTerminal`** strategy support is specifically implemented 
 - Supported in Alpha (v0.20):
   - **`batch/v1.Job`**: Evaluates `job.Status.Active` and `job.Status.Terminating`. Fully terminated when `ptr.Deref(job.Status.Active, 0) == 0` AND `ptr.Deref(job.Status.Terminating, 0) == 0`.
   - **Single `Pod`**: Evaluates `pod.Status.Phase`. Fully terminated when `pod.Status.Phase == corev1.PodSucceeded` OR `pod.Status.Phase == corev1.PodFailed`.
-  - **`PodGroup` (StatefulSet, LeaderWorkerSet)**: Evaluates member Pod statuses. Fully terminated when all member Pods reach terminal phase (`Succeeded` or `Failed`).
+  - **`PodGroup` (StatefulSet, LeaderWorkerSet)**: Evaluates member Pod statuses. Fully terminated when all member Pods reach terminal phase (`Succeeded` or `Failed`) or exceed their deletion grace period.
 - Planned for Beta expansion:
   - **`JobSet`**: Evaluates `ReplicatedJobsStatus`. Fully terminated when for all replicated jobs, `Active == 0` AND `Terminating == 0`.
   - **`Kubeflow` (PyTorchJob, MPIJob, TFJob, PaddleJob, JAXJob, XGBoostJob)**: Evaluates operator replica statuses.
@@ -218,25 +229,26 @@ The following table summarizes the effective default quota release behavior acro
 
 ### Compatibility & Defaulting
 
-- **Default Strategy**: If not explicitly configured for a framework, the strategy implicitly defaults to `OnQuotaReleased`.
+- **Default Strategy**: If a framework is not specified in `frameworkConfigs` or its `quotaReleaseStrategy` is omitted, the strategy defaults to the framework's existing behavior described in the [Integration Release Behavior Summary](#integration-release-behavior-summary) table (e.g., `OnTerminal` for PodGroup unless `FastQuotaReleaseInPodIntegration` is enabled, and `OnQuotaReleased` for `batch/job` and other integrations).
 - **Feature Gate**: Guarded by the `QuotaReleaseStrategy` feature gate (Alpha, disabled by default in v0.20).
-- **Validation**: In Alpha (v0.20), configuration validation ensures that only supported frameworks (`"batch/job"` and `"pod"`) can be configured with `OnTerminal`. Attempting to configure `OnTerminal` for unsupported frameworks (e.g. `AppWrapper`) returns a validation error. As additional integrations support child pod observation in Beta, validation will be relaxed per framework.
+- **Validation**: In Alpha (v0.20), configuration validation ensures that:
+  - Each entry in `frameworkConfigs` has a non-empty `name` that matches an enabled framework in `frameworks`.
+  - Duplicate framework names in `frameworkConfigs` are rejected with a validation error (`field.Duplicate`).
+  - Only supported frameworks (`"batch/job"` and `"pod"`) can be configured with `OnTerminal`. Attempting to configure `OnTerminal` for unsupported frameworks (e.g. `AppWrapper`) returns a validation error. As additional integrations support child pod observation in Beta, validation will be relaxed per framework.
 - **Supported API Versions**: Supported in the `v1beta2` Configuration API. It is intentionally omitted from `v1beta1` to follow Kubernetes API evolution guidelines.
-- **Upgrade Impact on PodGroups/StatefulSets/LWS**: For `PodGroup` (and by extension `StatefulSet` and `LeaderWorkerSet` eviction paths), defaulting to `OnQuotaReleased` is an accepted upgrade change that releases quota upon termination initiation (equivalent to enabling the legacy `FastQuotaReleaseInPodIntegration` feature gate). This eliminates head-of-line blocking during PodGroup preemption.
-- **Opting into `OnTerminal`**: Cluster administrators who require delayed quota release until underlying pods reach terminal phase (`Succeeded`/`Failed`) can explicitly configure `integrations.quotaReleaseStrategy: { "batch/job": "OnTerminal" }`.
+- **Upgrade Impact on PodGroups/StatefulSets/LWS**: Existing defaults are preserved upon upgrade: if `frameworkConfigs` is omitted or unconfigured for `pod`, `PodGroup` (and by extension `StatefulSet` and `LeaderWorkerSet` eviction paths) retains its default `OnTerminal` behavior, while `batch/job` and other frameworks retain `OnQuotaReleased`. Cluster administrators seeking fast quota release for PodGroups can explicitly configure `name: "pod"` with `quotaReleaseStrategy: OnQuotaReleased`, which supersedes the deprecated `FastQuotaReleaseInPodIntegration` feature gate and eliminates head-of-line blocking during PodGroup preemption.
+- **Opting into `OnTerminal`**: Cluster administrators who require delayed quota release until underlying pods reach terminal phase (`Succeeded`/`Failed`) can explicitly configure `integrations.frameworkConfigs: [{ name: "batch/job", quotaReleaseStrategy: "OnTerminal" }]`.
 
 ### Test Plan
 
 #### Unit tests
-- `pkg/config`: Validate `QuotaReleaseStrategy` configuration parsing, defaulting, and field validation.
-- `pkg/controller/jobs/...`: Test `IsActive(ctx)` across **all** supported integrations under both `OnTerminating` and `OnTerminal` strategies:
-  - `pod`: Pod integration (`IsActive` returns true until pod is Succeeded/Failed under `OnTerminal`).
-  - `job`: `batch/v1.Job` integration (`IsActive` inspects `status.active` and `status.terminating`).
-  - `jobset`: JobSet integration.
-  - `kubeflow`: PyTorchJob, MPIJob, TFJob, PaddleJob, JAXJob, XGBoostJob integrations.
-  - `ray`: RayJob, RayCluster integrations.
-  - `appwrapper`: AppWrapper integration.
-  - `pod-based`: Deployment and StatefulSet integrations.
+- `pkg/config`: Validate `FrameworkConfigs` configuration parsing, defaulting, duplicate framework name validation, and field validation.
+- `pkg/controller/jobs/...`: Test `IsActive(ctx, strategy)` across integrations:
+  - Alpha scope (`OnTerminal` and `OnQuotaReleased`):
+    - `pod`: Pod integration (`IsActive` returns true until pod is Succeeded/Failed or grace period expires under `OnTerminal`).
+    - `job`: `batch/v1.Job` integration (`IsActive` inspects `status.active` and `status.terminating`).
+  - Default policy verification (`OnQuotaReleased`):
+    - `jobset`, `kubeflow`, `ray`, `appwrapper`, `deployment`, and `statefulset`.
 
 #### Integration tests
 - Verify quota release timing during eviction and preemption under both strategies.
@@ -245,7 +257,7 @@ The following table summarizes the effective default quota release behavior acro
 
 ### Alpha (v0.20)
 - Introduced `QuotaReleaseStrategy` Feature Gate (Alpha, disabled by default in v0.20).
-- Introduced `.integrations.quotaReleaseStrategy` in `v1beta2` Config API.
+- Introduced `.integrations.frameworkConfigs[].quotaReleaseStrategy` in `v1beta2` Config API.
 - Implemented `OnTerminal` strategy support and validation for core `batch/v1.Job` and `Pod` integrations.
 
 ### Beta
@@ -259,7 +271,7 @@ The following table summarizes the effective default quota release behavior acro
 
 ## Drawbacks
 
-- Under `OnTerminal`, keeping `IsActive()` true until all underlying pods reach a terminal phase (`Succeeded`/`Failed`) means that if pods get stuck terminating or an integration controller fails to report terminal status (e.g., #14811), Kueue's eviction reconciliation exits waiting for status updates without scheduling a retry. In these scenarios, quota reservations can be held indefinitely rather than merely delayed, completely stalling quota recovery until manual or external remediation occurs. This is mitigated by defaulting `.quotaReleaseStrategy` to `OnQuotaReleased`.
+- Under `OnTerminal`, keeping `IsActive()` true until all underlying pods reach a terminal phase (`Succeeded`/`Failed`) means that if pods get stuck terminating or an integration controller fails to report terminal status (e.g., #14811), Kueue's eviction reconciliation exits waiting for status updates without scheduling a retry. In these scenarios, quota reservations can be held indefinitely rather than merely delayed, completely stalling quota recovery until manual or external remediation occurs. This is mitigated by defaulting `.integrations.frameworkConfigs[].quotaReleaseStrategy` to the framework's default behavior (and leaving `OnTerminal` as an explicit opt-in for `batch/job`).
 
 ## Alternatives
 
