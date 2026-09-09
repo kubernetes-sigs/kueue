@@ -134,6 +134,49 @@ func TestPodsReady(t *testing.T) {
 	}
 }
 
+// A prebuilt Workload adopted by a Pod group must state at least the per-Pod
+// requests the Pods carry, since quota is charged from the Workload. The group
+// comparator reads the computed requests, not only the names and counts, so an
+// understated request is rejected while a legitimately higher count (the group
+// widening past the seed Pod) still matches.
+func TestGroupEquivalentToWorkloadComparesRequests(t *testing.T) {
+	p := &Pod{
+		pod:     *testingpod.MakePod("driver", "ns").GroupNameLabel("g").GroupTotalCount("2").Obj(),
+		isGroup: true,
+	}
+	jobPodSets := func(cpu string) []kueue.PodSet {
+		return []kueue.PodSet{*utiltestingapi.MakePodSet("role-a", 2).Request(corev1.ResourceCPU, cpu).Obj()}
+	}
+	workload := func(cpu string, count int32) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("g", "ns").
+			PodSets(*utiltestingapi.MakePodSet("role-a", int(count)).Request(corev1.ResourceCPU, cpu).Obj()).
+			Obj()
+	}
+
+	testCases := map[string]struct {
+		wl         *kueue.Workload
+		jobPodSets []kueue.PodSet
+		want       bool
+	}{
+		"same requests and count is equivalent": {
+			wl: workload("100", 2), jobPodSets: jobPodSets("100"), want: true,
+		},
+		"higher workload count with the same requests stays equivalent": {
+			wl: workload("100", 5), jobPodSets: jobPodSets("100"), want: true,
+		},
+		"understated cpu request is not equivalent": {
+			wl: workload("1", 2), jobPodSets: jobPodSets("100"), want: false,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := p.equivalentToWorkload(tc.wl, tc.jobPodSets); got != tc.want {
+				t.Errorf("equivalentToWorkload() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRun(t *testing.T) {
 	testCases := map[string]struct {
 		wl                   *kueue.Workload
