@@ -32,7 +32,7 @@ reviews:
     * Use `NONE` when there is no user-facing change.
     * Use `ACTION REQUIRED:` only when users must take action when upgrading.
 
-    If the user-facing impact cannot be determined, state that instead instead of guessing.
+    If the user-facing impact cannot be determined, state that instead of guessing.
 
   path_filters:
     - "!client-go/**"
