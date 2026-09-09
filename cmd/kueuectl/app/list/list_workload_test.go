@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -63,9 +65,11 @@ func TestWorkloadCmd(t *testing.T) {
 		args             []string
 		mapperKinds      []schema.GroupVersionKind
 		job              []runtime.Object
-		wantOut          string
-		wantOutErr       string
-		wantErr          error
+		// forbiddenLocalQueues makes Get on these LocalQueues return Forbidden.
+		forbiddenLocalQueues []string
+		wantOut              string
+		wantOutErr           string
+		wantErr              error
 	}{
 		"should print workload list with namespace filter": {
 			ns: "ns1",
@@ -151,6 +155,67 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
+`,
+		},
+		"should print pending workload list with clusterqueue filter resolved through localqueue": {
+			args: []string{"--clusterqueue", "cq1", "--status", "pending"},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).ClusterQueue("cq2").Obj(),
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j2", "test-uid").
+					Queue("lq2").
+					Active(true).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl3", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j3", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
+`,
+		},
+		"should not read localqueues of workloads excluded by other filters": {
+			args: []string{"--localqueue", "lq1", "--clusterqueue", "cq1"},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j2", "test-uid").
+					Queue("lq2").
+					Active(true).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			forbiddenLocalQueues: []string{"lq2"},
 			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
 wl1               j1         lq1          cq1            PENDING                                   60m
 `,
@@ -917,6 +982,16 @@ wl2               j2         lq2          cq2            PENDING   22           
 			// because of `PendingWorkload` resources not implement `runtime.Object`.
 			// Default `Reaction` handle all verbs and resources, so need to add on
 			// head of chain.
+			if len(tc.forbiddenLocalQueues) > 0 {
+				clientset.PrependReactor("get", "localqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+					name := action.(kubetesting.GetAction).GetName()
+					if slices.Contains(tc.forbiddenLocalQueues, name) {
+						return true, nil, apierrors.NewForbidden(kueue.Resource("localqueues"), name, nil)
+					}
+					return false, nil, nil
+				})
+			}
+
 			clientset.PrependReactor("get", "clusterqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
 				obj := &visibility.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
 				return true, obj, err
