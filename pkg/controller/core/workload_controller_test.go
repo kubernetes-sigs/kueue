@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -2969,12 +2970,7 @@ func needsDRAQueueVerification(tc reconcileTestCase, testWl *kueue.Workload) boo
 }
 
 func workloadRefInDump(dump map[kueue.ClusterQueueReference][]workload.Reference, cqName kueue.ClusterQueueReference, wlRef workload.Reference) bool {
-	for _, ref := range dump[cqName] {
-		if ref == wlRef {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(dump[cqName], wlRef)
 }
 
 func setupDRACache(objs []client.Object) *dra.ExtendedResourceCache {
