@@ -2575,7 +2575,7 @@ func TestBuildPodRequirementsMergesTolerations(t *testing.T) {
 			if reason != "" {
 				t.Fatalf("podSetInfo() = %q, want no reason", reason)
 			}
-			got, reason := snapshot.buildPodRequirements(info, podSet)
+			got, reason := snapshot.buildPodRequirements(info, podSet, "")
 			if reason != "" {
 				t.Fatalf("buildPodRequirements() = %q, want no reason", reason)
 			}
@@ -2760,5 +2760,63 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A counter stays invisible to the operator unless hasExclusions admits it, add carries
+// it across the per-PodSet merge, and formatReasons prints it. Each has to agree, or the
+// Workload's message drops the one reason that explains it.
+func TestExclusionStatsReachTheMessage(t *testing.T) {
+	testCases := map[string]struct {
+		stats            tasExclusionStats
+		wantHas          bool
+		wantInReasons    string
+		wantNotInReasons string
+	}{
+		"draNoFit alone is enough to report exclusions": {
+			stats:         tasExclusionStats{NodeExclusionStats: simulator.NodeExclusionStats{DRANoFit: 3}},
+			wantHas:       true,
+			wantInReasons: "draNoFit: 3",
+		},
+		"draNoFit is named separately from schedulerLibraryNoFit": {
+			stats: tasExclusionStats{NodeExclusionStats: simulator.NodeExclusionStats{
+				DRANoFit:              2,
+				SchedulerLibraryNoFit: 5,
+			}},
+			wantHas:       true,
+			wantInReasons: "draNoFit: 2",
+		},
+		"schedulerLibraryNoFit alone is enough to report exclusions": {
+			stats:         tasExclusionStats{NodeExclusionStats: simulator.NodeExclusionStats{SchedulerLibraryNoFit: 4}},
+			wantHas:       true,
+			wantInReasons: "schedulerLibraryNoFit: 4",
+		},
+		"no exclusions when nothing was counted": {
+			stats:            tasExclusionStats{},
+			wantHas:          false,
+			wantNotInReasons: "draNoFit",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.stats.hasExclusions(); got != tc.wantHas {
+				t.Errorf("hasExclusions() = %v, want %v", got, tc.wantHas)
+			}
+			reasons := tc.stats.formatReasons()
+			if tc.wantInReasons != "" && !strings.Contains(reasons, tc.wantInReasons) {
+				t.Errorf("formatReasons() = %q, want it to contain %q", reasons, tc.wantInReasons)
+			}
+			if tc.wantNotInReasons != "" && strings.Contains(reasons, tc.wantNotInReasons) {
+				t.Errorf("formatReasons() = %q, want it not to contain %q", reasons, tc.wantNotInReasons)
+			}
+
+			// add must carry the field across the per-PodSet merge.
+			var dst tasExclusionStats
+			dst.add(&tc.stats)
+			if dst.DRANoFit != tc.stats.DRANoFit {
+				t.Errorf("add() carried DRANoFit = %d, want %d", dst.DRANoFit, tc.stats.DRANoFit)
+			}
+		})
 	}
 }

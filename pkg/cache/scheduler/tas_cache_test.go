@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -48,6 +49,7 @@ type PodSetTestCase struct {
 	requests        map[corev1.ResourceName]int64
 
 	count              int32
+	resourceClaims     []corev1.PodResourceClaim
 	tolerations        []corev1.Toleration
 	nodeSelector       map[string]string
 	nodeAffinity       *corev1.NodeAffinity
@@ -490,7 +492,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// domain ID holds the total number of matching Workloads. Computing it
 		// is covered by TestTopologySpreadCounts.
 		spreadCounts PodSetGroupNameToTreeCount
-		podSets      []PodSetTestCase
+		// draObjects are the DeviceClasses, ResourceClaimTemplates and ResourceSlices
+		// the per-node device check reads. Setting them puts a DRAChecker in front of
+		// the simulator snapshot, the way main.go does under KueueDRADeviceFeasibility.
+		draObjects []client.Object
+		podSets    []PodSetTestCase
 	}{
 		"node replacement skipped for single-Pod-owned workload; gate on": {
 			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
@@ -1425,6 +1431,62 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Count: 1, Values: []string{"x5"}},
 						{Count: 1, Values: []string{"x2"}},
 						{Count: 2, Values: []string{"x6"}},
+					},
+				},
+			}},
+		},
+		"a PodSet's ResourceClaims are only satisfied by the node publishing the device": {
+			// Both hosts fit the CPU request and x1 sorts first, so an assignment
+			// landing on x2 can only come from the per-node device check.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				utiltesting.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-claim", "ns").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Obj(),
+				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+			},
+			// The claim templates are namespaced and the PodSet template is not, so
+			// the namespace has to come from the Workload.
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				resourceClaims: []corev1.PodResourceClaim{
+					{Name: "gpu", ResourceClaimTemplateName: new("gpu-claim")},
+				},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x2"}},
 					},
 				},
 			}},
@@ -10125,6 +10187,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				for i := range tc.pods {
 					initialObjects = append(initialObjects, &tc.pods[i])
 				}
+				initialObjects = append(initialObjects, tc.draObjects...)
 				clientBuilder := utiltesting.NewClientBuilder()
 				clientBuilder.WithObjects(initialObjects...)
 				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
@@ -10168,10 +10231,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
+				simulatorSnapshot := newDefaultSimulatorSnapshot()
+				if len(tc.draObjects) > 0 {
+					simulatorSnapshot = simulator.NewDRAChecker(simulatorSnapshot, client)
+				}
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					newDefaultSimulatorSnapshot(),
+					simulatorSnapshot,
 					aggregatedDomainUsage,
 				)
 				if err != nil {
@@ -10204,9 +10271,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 							TopologyRequest: topologyRequest,
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
-									Tolerations:  ps.tolerations,
-									NodeSelector: ps.nodeSelector,
-									Affinity:     affinity,
+									Tolerations:    ps.tolerations,
+									NodeSelector:   ps.nodeSelector,
+									Affinity:       affinity,
+									ResourceClaims: ps.resourceClaims,
 								},
 							},
 						},

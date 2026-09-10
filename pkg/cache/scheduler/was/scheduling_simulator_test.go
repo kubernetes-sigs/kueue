@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -603,6 +604,49 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			}
 			if got := feasible(); len(got) != 0 {
 				t.Errorf("after revert: want no feasible node, got %v", got)
+			}
+		})
+	}
+}
+
+// main.go is the only reader of KueueDRADeviceFeasibility, and it decides whether to
+// pass WithDRA. This pins that seam from both sides.
+func TestWithDRAControlsDeviceFiltering(t *testing.T) {
+	node := testingnode.MakeNode("node1").
+		Label(corev1.LabelHostname, "node1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("4"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready().
+		Obj()
+
+	cases := map[string]struct {
+		withDRA bool
+		wantDRA bool
+	}{
+		"gate off, so no WithDRA and no device filtering":      {},
+		"gate on, so WithDRA and the snapshot filters devices": {withDRA: true, wantDRA: true},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx := klog.NewContext(t.Context(), logr.Discard())
+			var opts []WASOption
+			if tc.withDRA {
+				opts = append(opts, WithDRA(fake.NewClientBuilder().Build()))
+			}
+			sim, err := NewWASSimulator(ctx, nil, opts...)
+			if err != nil {
+				t.Fatalf("NewWASSimulator failed: %v", err)
+			}
+			snapshot, err := sim.Snapshot(ctx, []*corev1.Node{node})
+			if err != nil {
+				t.Fatalf("Snapshot failed: %v", err)
+			}
+			_, gotDRA := snapshot.(*simulator.DRAChecker)
+			if gotDRA != tc.wantDRA {
+				t.Errorf("snapshot is a *simulator.DRAChecker = %v, want %v", gotDRA, tc.wantDRA)
 			}
 		})
 	}
