@@ -112,11 +112,16 @@ func (t *nodesCache) find(nodeLabels map[string]string, levels []string) ([]*cor
 		features.Enabled(features.SchedulerLibraryIntegration) &&
 			(len(levels) == 0 || !utiltas.IsLowestLevelHostname(levels))
 
+	labelsToMatch := nodeLabels
+	if features.Enabled(features.SchedulerLibraryIntegration) && len(levels) > 0 && utiltas.IsLowestLevelHostname(levels) {
+		labelsToMatch = nil
+	}
+
 	for _, node := range t.nodes {
 		if shouldExcludeUnschedulableAndNotReadyNodes && !t.schedulableAndReadyNodes.Has(node.Name) {
 			continue
 		}
-		if utiltas.NodeMatchesFlavor(node.Labels, nodeLabels, levels) {
+		if utiltas.NodeMatchesFlavor(node.Labels, labelsToMatch, levels) {
 			filteredNodes = append(filteredNodes, node)
 		}
 	}
