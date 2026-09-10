@@ -137,6 +137,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: KueueDRADeviceFeasibility
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
