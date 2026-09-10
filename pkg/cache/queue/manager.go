@@ -894,6 +894,15 @@ type Head struct {
 	IsPreemptor bool
 }
 
+func newHead(wInfo workload.Info, cq *ClusterQueue) Head {
+	head := Head{Info: wInfo}
+	if cq != nil {
+		head.ClusterQueue = cq.GetName()
+		head.IsPreemptor = cq.IsPreemptor(&head.Info)
+	}
+	return head
+}
+
 // Heads returns the heads of the queues, along with their associated ClusterQueue.
 // It blocks if the queues empty until they have elements or the context terminates.
 func (m *Manager) Heads(ctx context.Context) []Head {
@@ -919,14 +928,7 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 func (m *Manager) heads() []Head {
 	var heads []Head
 	for _, wInfo := range m.secondPassQueue.takeAllReady() {
-		isPreemptor := false
-		if cq := m.getClusterQueueLockless(wInfo.ClusterQueue); cq != nil {
-			isPreemptor = cq.IsPreemptor(&wInfo)
-		}
-		heads = append(heads, Head{
-			Info:        wInfo,
-			IsPreemptor: isPreemptor,
-		})
+		heads = append(heads, newHead(wInfo, m.getClusterQueueLockless(wInfo.ClusterQueue)))
 	}
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
@@ -938,13 +940,8 @@ func (m *Manager) heads() []Head {
 		if wl == nil {
 			continue
 		}
+		heads = append(heads, newHead(*wl, cq))
 		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		heads = append(heads, Head{
-			Info:        wlCopy,
-			IsPreemptor: cq.IsPreemptor(wl),
-		})
 		qKey := m.workloadAssignedQueues[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
