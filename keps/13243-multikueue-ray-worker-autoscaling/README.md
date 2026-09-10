@@ -187,31 +187,38 @@ the same hook — the reflection is **annotation-based for both**, leaving the
 manager spec untouched.
 
 ```go
+type FetchResult struct {
+	Counts   map[kueue.PodSetReference]int32
+	Revision string
+}
+
 type RuntimeReplicaSync[PtrT any] struct {
 	// Fetch reads the effective per-worker-group pod counts from the
 	// worker-side RayCluster's spec, plus a revision identifying the observed
-	// runtime state.
-	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (
-		counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
+	// runtime state. A nil result means the runtime object does not exist yet.
+	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (*FetchResult, error)
 	// Apply records them onto the manager copy (as annotations), returning
 	// whether anything changed.
-	Apply func(localJob client.Object, counts map[kueue.PodSetReference]int32, revision string) bool
+	Apply func(localJob client.Object, result FetchResult) bool
 }
 ```
 
 Each reconcile of an autoscaling object:
 
-1. `Fetch(remoteClient, remoteJob)` reads the effective per-worker-group pod counts
-   from the worker-side RayCluster's **spec** (the object's own remote copy, or a
-   RayJob's child cluster), plus a `UID-generation` **revision** of the object that
-   holds those counts. The revision's role is to give each reflected
-   scale-up a distinct workload-slice name (details under [Workload-slice
+1. `Fetch(remoteClient, remoteJob)` returns a `FetchResult` with the effective
+   per-worker-group pod counts from the worker-side RayCluster's **spec** (the
+   object's own remote copy, or a RayJob's child cluster), plus a
+   `UID-generation` **revision** of the object that holds those counts. A nil
+   result means the runtime object does not exist yet and the sync is skipped.
+   The revision's role is to give each reflected scale-up a distinct
+   workload-slice name (details under [Workload-slice
    naming](#workload-slice-naming-under-annotation-reflection)).
-2. `Apply(localJob, counts, revision)` records them on the **manager** copy as two
-   annotations — `raycluster-podset-replica-sizes` (the counts) and
-   `raycluster-generation` (the revision) — leaving the manager spec untouched.
-   Equality is decided on the counts alone, so a count-neutral revision bump does
-   not re-annotate or mint a replacement slice.
+2. `Apply(localJob, result)` receives the `FetchResult` and records its counts
+   and revision on the **manager** copy as two annotations —
+   `raycluster-podset-replica-sizes` (the counts) and `raycluster-generation`
+   (the revision) — leaving the manager spec untouched. Equality is decided on
+   the counts alone, so a count-neutral revision bump does not re-annotate or mint
+   a replacement slice.
 
 The manager's PodSets derivation reads `raycluster-podset-replica-sizes` (gated on
 `spec.managedBy`), so its admitted PodSet counts follow the worker autoscaler, and
