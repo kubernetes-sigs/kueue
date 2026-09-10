@@ -14,24 +14,21 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API](#api)
-    - [Workload Spec](#workload-spec)
     - [Resource Annotations](#resource-annotations)
   - [Controller](#controller)
     - [Workload](#workload)
     - [Jobs / Jobframework](#jobs--jobframework)
   - [Webhooks](#webhooks)
     - [Managed resources (Jobs, Deployments, StatefulSets, etc.)](#managed-resources-jobs-deployments-statefulsets-etc)
+  - [Future Work](#future-work)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Webhook unit tests](#webhook-unit-tests)
       - [webhooks/job (controller/jobframework/validation)](#webhooksjob-controllerjobframeworkvalidation)
-      - [webhooks/deployment](#webhooksdeployment)
-    - [Integration tests](#integration-tests)
-      - [controller/core/workload](#controllercoreworkload)
-      - [controller/jobs/job](#controllerjobsjob)
-      - [controller/jobs/deployment (Pod-template exception)](#controllerjobsdeployment-pod-template-exception)
+    - [e2e](#e2e)
   - [Graduation Criteria](#graduation-criteria)
-    - [Alpha](#alpha)
+    - [Alpha1 (0.20)](#alpha1-020)
+    - [Alpha2 (0.21)](#alpha2-021)
     - [Beta](#beta)
     - [Stable](#stable)
 - [Implementation History](#implementation-history)
@@ -51,37 +48,33 @@ not fit well all workloads.
 
 ### Goals
 
-- Introduce per-workload `WaitForPodsReady.TimeoutSeconds` field in `WorkloadSpec`.
-- Define a new annotation `kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds` applicable to any
-  Kueue-managed resource (Job, StatefulSet, etc.)
-  that is propagated to the corresponding `WorkloadSpec` field at Workload creation time.
-  For Deployment, the annotation needs to be defined at `spec.template.metadata.annotations`
-  to be propagated to the Pods and then workloads.
-- Per-workload timeouts take precedence over the global `WaitForPodsReady` timeout configuration when
+- Introduce the JSON-based annotation: `kueue.x-k8s.io/wait-for-pods-ready` applicable to any
+  Kueue-managed resource (Job, StatefulSet, etc.). For Deployment, the annotation needs to be
+  defined at `spec.template.metadata.annotations` to be propagated to the Pods and then workloads.
+- Per-workload timeouts take precedence over the global `WaitForPodsReady` timeouts configuration when
   both are present.
 - Introduce `MaxTimeoutOnWorkload` field in the configuration.
 
 ### Non-Goals
 
-- Change the cluster-wide `WaitForPodsReady` behaviour.
-- Change the recovery / backoff strategy; that remains cluster-wide only
+- Change the cluster-wide `WaitForPodsReady` behavior.
+- Change the backoff strategy; that remains cluster-wide only
 - Introduce per-workload `BlockAdmission` semantics.
+- Supporting MultiKueue in Alpha. Re-evaluate at Beta.
 
 ## Proposal
 
-One new optional field is added to `WorkloadSpec`. The
-`kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds` annotation is parsed at Workload creation
-and stored in `wl.Spec.WaitForPodsReady.TimeoutSeconds`. The eviction deadline
-is resolved exclusively from that stored field.
+The `kueue.x-k8s.io/wait-for-pods-ready` annotation with the values for `Timeout` and `recoveryTimeout`
+is read from the managed resource and stored in the workload annotation.
 
 A new optional configuration is added to the `WaitForPodsReady` that allows admins to control
-the maximum values they want to allow users to specify at the `kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds`
+the maximum timeout values they want to allow users to specify at the `kueue.x-k8s.io/wait-for-pods-ready`
 annotation.
 
 The managed-resource webhook (see [Webhooks](#webhooks)) rejects annotation
 changes while the resource is unsuspended. When the job is suspended and the
 annotation is changed, the mismatch is detected and the Workload spec is reconstructed.
-The webhooks also rejects timeouts that exceed the maximum defined by the admin.
+The webhooks also rejects timeouts that exceed the maximum timeout or are not valid integers.
 
 ### User Stories
 
@@ -103,11 +96,11 @@ As a platform administrator, I want to configure Kueue with `blockAdmission: tru
 ### Notes/Constraints/Caveats
 
 - When a per-workload timeout is enforced and `DisableWaitForPodsReady` feature gate is enabled
-the workload is forbbiden from being admitted.
+the timeout is ignored and a log warns about incompatible combination.
 
 ### Risks and Mitigations
 
-- **Conflicting values**: A user may set a per-workload timeout that conflicts
+- **Conflicting values**: A user may set per-workload timeouts that conflicts
   with a cluster-wide one.  Mitigation: per-workload values always take
   precedence; a clear precedence rule is documented and enforced in the webhook.
 
@@ -115,16 +108,105 @@ the workload is forbbiden from being admitted.
 
 ### API
 
-#### Workload Spec
+The `WaitForPodsReady` struct has a new field added `MaxTimeoutOnWorkload`:
 
-The `WaitForPodsReady` struct and its `TimeoutSeconds` field are added to
-`WorkloadSpec` in **v1beta2 only**.
+```go
+type WaitForPodsReady struct {
+  ...
+	// MaxTimeoutOnWorkload defines the upper bound allowed for a per-workload
+	// PodsReady timeout and recoveryTimeout override (set via the `kueue.x-k8s.io/wait-for-pods-ready`
+	// annotation). If a workload requests a timeout or recoveryTimeout greater than
+	// MaxTimeoutOnWorkload, the job is rejected by the admission webhook.
+	// When unset, the default maximum of 2 hours is enforced.
+	// It has no effect on workloads that don't set a per-workload override.
+	// +optional
+	MaxTimeoutOnWorkload *metav1.Duration `json:"maxTimeoutOnWorkload,omitempty"` 
+}
+```
+
+#### Resource Annotations
+
+One new annotation is defined in `pkg/controller/constants/constants.go`:
+
+```go
+  // WaitForPodsReadyAnnotation is the annotation key on any Kueue-managed resource that sets
+	// per-workload timeout and recoveryTimeout, overriding those values at cluster-wide WaitForPodsReady.
+  // The value is a JSON containing timeout in seconds and RecoveryTimeout in seconds.
+	// This annotation is alpha-level enabled by the WorkloadLevelWaitForPodsReady.
+	WaitForPodsReadyAnnotation = "kueue.x-k8s.io/wait-for-pods-ready"
+```
+
+Here is an example of the annotation definition:
+
+```yaml
+annotations:
+  kueue.x-k8s.io/wait-for-pods-ready: '{"timeoutSeconds": 30, "recoveryTimeoutSeconds": 40}'
+```
+
+### Controller
+
+#### Workload
+
+The workload controller is updated to resolve both the effective eviction deadline
+and the recovery timeout from the per-workload values carried in the workload's
+own annotations, falling back to the cluster-wide configuration for each field
+independently when no per-workload value is present. This means a workload may override 
+the timeout, the recovery timeout, or both. When only the timeout is specified,
+it is also used as the default for the recovery timeout. When neither field is
+specified, the cluster-wide values are used as the fallback for each.
+The annotation is propagated from the managed resource to the workload at
+construction time and re-evaluated on every reconciliation to keep the workload
+annotation in sync with any changes made while the job is suspended. Any attempt
+to change the annotation on the managed resource while the job is unsuspended is
+rejected by the managed-resource webhook before it can take effect.
+
+#### Jobs / Jobframework
+
+The job reconciler is updated so that the `WorkloadPodsReady` condition is also
+written when the workload carries the `kueue.x-k8s.io/wait-for-pods-ready`
+annotation, in addition to the existing cluster-wide trigger.
+
+When a workload is constructed for a managed resource, the
+`kueue.x-k8s.io/wait-for-pods-ready` annotation is read from that resource and
+copied to the resulting workload's annotations. This covers most integrations
+(Job, StatefulSet, RayJob, PyTorchJob, JobSet, etc.).
+
+The **Deployment** integration is an exception: Kueue tracks Deployment-owned
+workloads via the Pod integration rather than directly from the Deployment object.
+Users must therefore place the annotation on the Pod template
+(`spec.template.metadata.annotations`), from where it is read when the workload
+is constructed for the Pod — no additional propagation logic is needed in Kueue.
+
+### Webhooks
+
+#### Managed resources (Jobs, Deployments, StatefulSets, etc.)
+
+- Validate that the timeouts values in `kueue.x-k8s.io/wait-for-pods-ready` are
+  positive integers and does not exceed the maximum value set by the admin in the
+  cluster configuration.
+- Setting a recoveryTimeout without timeout set is not supported.
+- The annotation is immutable while the job is unsuspended. Changes are allowed
+  while the job is suspended (i.e. between eviction cycles), which is the
+  intended window for a user to adjust the timeout before re-admission. When a
+  change is detected during reconciliation, the workload's own annotation is
+  updated in place — no delete-and-recreate occurs.
+
+### Future Work
+
+The `kueue.x-k8s.io/wait-for-pods-ready` annotation is parsed at Workload creation
+and stored in the Workload spec fields `timeoutSeconds` and `recoveryTimeoutSeconds`
+instead of being carried as a workload annotation.
+
+The following APIs are considered for future releases and will be evaluated.
+
+The `WaitForPodsReady` struct and its `TimeoutSeconds` field are added to `WorkloadSpec`.
 
 ```go
 // WorkloadSpec defines the desired state of Workload
 type WorkloadSpec struct {
     // ...existing fields...
-
+    // WaitForPodsReady ensures the workload is ready within an specific timeout
+    // +optional
     WaitForPodsReady *WaitForPodsReady `json:"WaitForPodsReady,omitempty"`
 }
 
@@ -138,84 +220,19 @@ type WaitForPodsReady struct {
     // +optional
     // +kubebuilder:validation:Minimum=1
     TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
+
+    // RecoveryTimeoutSeconds defines a timeout, measured since the workload
+    // loses readiness after a Workload is Admitted and running.
+    // After exceeding the timeout the corresponding job gets suspended again
+    // and requeued after the backoff delay.
+    // If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
+    // are set, this field takes precedence. Defaults to timeoutSeconds when
+    // timeoutSeconds is set and this field is not. Setting 0 disables it.
+    // +optional
+    // +kubebuilder:validation:Minimum=0
+    RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
 }
 ```
-
-**Conversion** (`apis/kueue/v1beta1/workload_conversion.go`):
-
-No manual conversion function is needed. The generated `autoConvert_*` drops the
-field when converting v1beta2→v1beta1.
-
-#### Configuration
-
-The `WaitForPodsReady` struct is has a new field added `MaxTimeoutOnWorkload`:
-
-```go
-type WaitForPodsReady struct {
-  ...
-	// MaxTimeoutOnWorkload defines the upper bound allowed for a per-workload
-	// PodsReady timeout override (set via the `kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds`
-	// annotation). If a workload requests a timeout greater than
-	// MaxTimeoutOnWorkload, the job is rejected by the admission webhook.
-	// When unset, the default maximum of 2 hours is enforced.
-	// It has no effect on workloads that don't set a per-workload override.
-	// +optional
-	MaxTimeoutOnWorkload *metav1.Duration `json:"maxTimeoutOnWorkload,omitempty"`
-}
-```
-
-#### Resource Annotations
-
-One new annotation is defined in `pkg/controller/constants/constants.go`:
-
-```go
-// WaitForPodsReadyTimeoutSecondsAnnotation is the annotation key on any Kueue-managed resource that sets a
-	// per-workload pods-ready timeout, overriding the cluster-wide WaitForPodsReady.Timeout.
-	// Value must be an integer number of seconds.
-	WaitForPodsReadyTimeoutSecondsAnnotation = "kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds"
-```
-
-### Controller
-
-#### Workload
-
-`admittedNotReadyWorkload` in `pkg/controller/core/workload_controller.go` is
-updated to resolve the effective timeout exclusively from `wl.Spec.WaitForPodsReady.TimeoutSeconds`,
-falling back to the cluster-wide config only when that field is nil.
-The eviction deadline is resolved exclusively from `wl.Spec.WaitForPodsReady.TimeoutSeconds`
-and never from the live annotation. `prepareWorkload` does re-read the annotation
-during reconciliation to keep the stored field in sync, but any attempt to
-update `TimeoutSeconds` while the Job is unsuspended is rejected by the
-managed-resource webhook before the change can reach the API server.
-
-#### Jobs / Jobframework
-
-The check that decides to write the `WorkloadPodsReady` condition in the job reconciler
-(`pkg/controller/jobframework/reconciler.go`) is updated to also trigger when
-`wl.Spec.WaitForPodsReady` is non-nil.
-
-`ConstructWorkload` (in `pkg/controller/jobframework/reconciler.go`) reads the
-`kueue.x-k8s.io/pods-ready-timeout` annotation from the managed resource object
-and populates the corresponding `WorkloadSpec` field. This covers most integrations
-(Job, StatefulSet, RayJob, PyTorchJob, JobSet, etc.).
-
-The **Deployment** integration is an exception: it does not construct `Workload` objects directly. Kueue tracks Deployment-owned workloads via the Pod integration, so the annotation must be placed by the user on
-the Pod template (`spec.template.metadata.annotations`). The Pod
-integration then calls `ConstructWorkload` directly and reads the annotation from
-the Pod object, so no additional propagation logic is needed in Kueue.
-
-### Webhooks
-
-#### Managed resources (Jobs, Deployments, StatefulSets, etc.)
-
-- Validate that `kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds` is an int greater than zero
-  and doesn't exceed the maximum value set by the admin at the cluster configuration.
-- The annotation is immutable while the job is unsuspended. Changes are allowed
-  while the job is suspended (i.e. between eviction cycles), which is the
-  intended window for a user to adjust the timeout before re-admission.
-  `EquivalentToWorkload` detects the drift and `prepareWorkload` updates the
-  existing Workload's `spec.waitForPodsReady.TimeoutSeconds` field in place —
-  no delete-and-recreate occurs.
 
 ### Test Plan
 
@@ -233,50 +250,46 @@ No regressions in the existing `WaitForPodsReady` tests under
 
 ##### webhooks/job (controller/jobframework/validation)
 
-- "A Job annotated with kueue.x-k8s.io/pods-ready-timeout set to a valid
-  duration is accepted."
-- "A Job annotated with kueue.x-k8s.io/pods-ready-timeout set to a zero or
-  negative duration is rejected at admission time."
-- "A Job annotated with kueue.x-k8s.io/pods-ready-timeout set to a non-duration
-  string is rejected at admission time."
+- "A Job annotated with `kueue.x-k8s.io/wait-for-pods-ready` set to a valid
+  JSON with a positive timeout in seconds is accepted."
+- "A Job annotated with `kueue.x-k8s.io/wait-for-pods-ready` set to a valid
+  JSON with both timeout and recoveryTimeout in seconds is accepted."
+- "A Job annotated with `kueue.x-k8s.io/wait-for-pods-ready` set to a invalid
+  JSON with only recoveryTimeout is not accepted."
+- "A Job annotated with `kueue.x-k8s.io/wait-for-pods-ready` with a zero or
+  negative timeout is rejected at admission time."
+- "A Job annotated with `kueue.x-k8s.io/wait-for-pods-ready` with a timeout
+  exceeding `MaxTimeoutOnWorkload` is rejected at admission time."
+- "A Job annotated with `kueue.x-k8s.io/wait-for-pods-ready` set to malformed
+  JSON is rejected at admission time."
+- "Changing the annotation on an unsuspended Job is rejected at admission time."
 
-##### webhooks/deployment
+#### e2e
 
-- "A Deployment whose Pod template carries kueue.x-k8s.io/pods-ready-timeout
-  with a valid duration is accepted."
-- "A Deployment whose Pod template carries kueue.x-k8s.io/pods-ready-timeout
-  with an invalid value is rejected at admission time."
-
-#### Integration tests
-
-##### controller/core/workload
-
-- "The per-workload TimeoutSeconds takes precedence over the cluster-wide
-  timeout."
-- "RecoveryTimeout uses only the cluster-wide value even when a per-workload
-  TimeoutSeconds is set."
-
-##### controller/jobs/job
-
-- "A Job annotated with kueue.x-k8s.io/pods-ready-timeout has the timeout
-  propagated to its Workload spec."
-
-##### controller/jobs/deployment (Pod-template exception)
-
-- "A Deployment whose Pod template carries kueue.x-k8s.io/pods-ready-timeout
-  has the timeout propagated to the Workload created by the Pod integration."
+- "A job with a per-workload timeout shorter than the cluster wide timeout is evicted at
+  per workload deadline"
+- "A job with a per-workload timeout longer than the cluster wide timeout is evicted at
+  per workload deadline"
+- "Updating the annotation while the job is suspended causes the workload annotation
+  to be updated on the next reconciliation without delete-and-recreate."
+- "When `blockadmission:true`, a workload with a short per-workload timeout that expires
+  unblocks admission of other workloads sooner than the cluster wide timeout."
 
 ### Graduation Criteria
 
-#### Alpha
+#### Alpha1 (0.20)
 
 - Feature gate `WorkloadLevelWaitForPodsReady` introduced, disabled by default.
-- New `WorkloadSpec` fields and resource annotations implemented.
-- Unit tests for annotation parsing, webhook validation (duration, immutability),
-  and the Deployment Pod-template exception added.
-- Integration tests covering precedence, cluster-wide fallback, RecoveryTimeout
-  behaviour, and Job/Deployment propagation added.
+- New resource `kueue.x-k8s.io/wait-for-pods-ready` annotations implemented.
+- Introduce `MaxTimeoutOnWorkload` field in the cluster wide configuration.
+- Unit tests for annotation parsing, webhook validation (duration, immutability).
 - E2E tests added.
+
+#### Alpha2 (0.21)
+
+- Introduce per-workload `WaitForPodsReady.TimeoutSeconds` and `WaitForPodsReady.RecoveryTmeoutSeconds`
+  fields in `WorkloadSpec`.
+- Extend the support for `.unscheduledTimeout`.
 
 #### Beta
 
@@ -294,4 +307,4 @@ No regressions in the existing `WaitForPodsReady` tests under
 
 ## Drawbacks
 
-- Adds optional field to `WorkloadSpec`, increasing API surface area.
+- Increases the annotations surface on the workload.
