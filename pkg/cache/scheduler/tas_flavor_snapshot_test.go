@@ -17,8 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"slices"
 	"strings"
 	"testing"
@@ -34,6 +37,7 @@ import (
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -2292,4 +2296,314 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// TestLeaderPodSetFeasibility checks that a domain is only offered to a PodSet group
+// when the leader itself can run there. TAS filters nodes with the workers' PodSet,
+// so without this the leader inherits the workers' selector and tolerations, is
+// admitted onto a node it cannot run on, and stays Pending holding quota.
+func TestLeaderPodSetFeasibility(t *testing.T) {
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	gpuTaint := corev1.Taint{Key: "gpu", Value: "true", Effect: corev1.TaintEffectNoSchedule}
+	tolerateGPU := corev1.Toleration{Key: "gpu", Operator: corev1.TolerationOpExists}
+
+	cases := map[string]struct {
+		taintNodes    bool
+		leaderSpec    corev1.PodSpec
+		workersSpec   corev1.PodSpec
+		gateOff       bool
+		leavesAreRack bool
+		wantFit       bool
+	}{
+		// Where a leaf spans several nodes TAS filters neither PodSet per node, so
+		// the leader's selector cannot be honoured any more than the workers' is.
+		// Closing this needs TASNodeFeasibilityForAllLevels, not this gate.
+		"a leaf spanning several nodes is still chosen without node filters": {
+			leaderSpec:    corev1.PodSpec{NodeSelector: map[string]string{"accelerator": "true"}},
+			leavesAreRack: true,
+			wantFit:       true,
+		},
+		"leader node selector matches no node": {
+			leaderSpec: corev1.PodSpec{NodeSelector: map[string]string{"accelerator": "true"}},
+		},
+		"leader required node affinity matches no node": {
+			leaderSpec: corev1.PodSpec{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+						MatchExpressions: []corev1.NodeSelectorRequirement{{
+							Key:      "accelerator",
+							Operator: corev1.NodeSelectorOpIn,
+							Values:   []string{"true"},
+						}},
+					}},
+				},
+			}}},
+		},
+		"leader does not tolerate a taint the workers tolerate": {
+			taintNodes:  true,
+			workersSpec: corev1.PodSpec{Tolerations: []corev1.Toleration{tolerateGPU}},
+		},
+		"leader and workers share the template": {
+			wantFit: true,
+		},
+		"leader tolerates the taint like the workers": {
+			taintNodes:  true,
+			leaderSpec:  corev1.PodSpec{Tolerations: []corev1.Toleration{tolerateGPU}},
+			workersSpec: corev1.PodSpec{Tolerations: []corev1.Toleration{tolerateGPU}},
+			wantFit:     true,
+		},
+		"the gate off keeps the previous behaviour": {
+			leaderSpec: corev1.PodSpec{NodeSelector: map[string]string{"accelerator": "true"}},
+			gateOff:    true,
+			wantFit:    true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, !tc.leavesAreRack)
+			features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, !tc.gateOff)
+			ctx, log := utiltesting.ContextWithLog(t)
+			rackNode := node.MakeNode("").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("5"),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).Ready()
+			if tc.taintNodes {
+				rackNode = rackNode.Taints(gpuTaint)
+			}
+			nodes := []*corev1.Node{
+				rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+				rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
+			}
+			tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+
+			podSet := func(name string, count int32, spec corev1.PodSpec) TASPodSetRequests {
+				groupName := "group"
+				return TASPodSetRequests{
+					PodSet: &kueue.PodSet{
+						Name: kueue.PodSetReference(name),
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Unconstrained:   &unconstrained,
+							PodSetGroupName: &groupName,
+						},
+						Template: corev1.PodTemplateSpec{Spec: spec},
+					},
+					SinglePodRequests: oneCPU,
+					Count:             count,
+					PodSetGroupName:   &groupName,
+				}
+			}
+			// The leader is the PodSet with the lower Count.
+			requests := FlavorTASRequests{
+				podSet("workers", 2, tc.workersSpec),
+				podSet("leader", 1, tc.leaderSpec),
+			}
+			gotFit := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests).Failure() == nil
+			if gotFit != tc.wantFit {
+				t.Errorf("FindTopologyAssignmentsForFlavor() fit = %t, want %t", gotFit, tc.wantFit)
+			}
+		})
+	}
+}
+
+// TestLeaderPodSetFeasibilityIsNoOpForOneTemplate checks the gate does not change the
+// assignment for a group whose PodSets are filtered against nodes the same way. The
+// extra check can only repeat the workers' there, so any difference is a regression.
+func TestLeaderPodSetFeasibilityIsNoOpForOneTemplate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+
+	// The two PodSets differ only in what the node filters ignore.
+	spec := func(cpu string) corev1.PodSpec {
+		return corev1.PodSpec{
+			NodeSelector: map[string]string{rackLabel: "r1"},
+			Tolerations:  []corev1.Toleration{{Key: "gpu", Operator: corev1.TolerationOpExists}},
+			Containers: []corev1.Container{{
+				Name:      "c",
+				Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu)}},
+			}},
+		}
+	}
+
+	run := func(t *testing.T) TASAssignmentsResult {
+		ctx, log := utiltesting.ContextWithLog(t)
+		rackNode := node.MakeNode("").
+			Taints(corev1.Taint{Key: "gpu", Value: "true", Effect: corev1.TaintEffectNoSchedule}).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("5"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).Ready()
+		nodes := []*corev1.Node{
+			rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+			rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
+		}
+		tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+		snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+
+		podSet := func(name string, count int32, cpu string) TASPodSetRequests {
+			groupName := "group"
+			return TASPodSetRequests{
+				PodSet: &kueue.PodSet{
+					Name: kueue.PodSetReference(name),
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained:   &unconstrained,
+						PodSetGroupName: &groupName,
+					},
+					Template: corev1.PodTemplateSpec{Spec: spec(cpu)},
+				},
+				SinglePodRequests: oneCPU,
+				Count:             count,
+				PodSetGroupName:   &groupName,
+			}
+		}
+		return snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
+			podSet("workers", 2, "1"),
+			podSet("leader", 1, "2"),
+		})
+	}
+
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, false)
+	off := run(t)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	on := run(t)
+	if diff := cmp.Diff(off, on); diff != "" {
+		t.Errorf("the gate changed the assignment for one template (-off,+on):\n%s", diff)
+	}
+}
+
+// nodeDerefSimulatorSnapshot reads the node off every candidate the way the WAS
+// simulator does, so a leaf with no node of its own fails loudly here.
+type nodeDerefSimulatorSnapshot struct {
+	simulator.SimulatorSnapshot
+	// scoreEach is multiplied by the call number, so a second pass that is not undone
+	// leaves a different score behind rather than rewriting the same one.
+	scoreEach int64
+	calls     int64
+}
+
+func (s *nodeDerefSimulatorSnapshot) FindFeasibleNodes(
+	_ context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	_ *simulator.PodRequirements,
+	_ *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	s.calls++
+	var feasible []simulator.MatchedCandidate
+	for candidate := range candidates {
+		matched, ok := candidate.(simulator.MatchedCandidate)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast candidate %T", candidate)
+		}
+		if candidate.GetNode() == nil {
+			return nil, errors.New("candidate has no node; the simulator must not be asked about it")
+		}
+		matched.SetAffinityScore(s.scoreEach * s.calls)
+		feasible = append(feasible, matched)
+	}
+	return feasible, nil
+}
+
+// A leaf spanning several nodes has no node of its own, so the leader check must not
+// reach the simulator. The WAS simulator reads the node without a nil check.
+func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, false)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("5"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
+	}
+	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil,
+		&nodeDerefSimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot()})
+
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	podSet := func(name string, count int32, spec corev1.PodSpec) TASPodSetRequests {
+		groupName := "group"
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+				Template: corev1.PodTemplateSpec{Spec: spec},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
+		podSet("workers", 2, corev1.PodSpec{}),
+		podSet("leader", 1, corev1.PodSpec{NodeSelector: map[string]string{"accelerator": "true"}}),
+	})
+	if failure := result.Failure(); failure != nil {
+		t.Errorf("FindTopologyAssignmentsForFlavor() = %q, want a fit; the leader check reached the simulator", failure.Reason)
+	}
+}
+
+// The leader check must leave the affinity scores the workers' pass produced alone,
+// or domains are ranked by the leader's preferences instead of the workers'.
+func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("5"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
+	}
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	podSet := func(name string, count int32) TASPodSetRequests {
+		groupName := "group"
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+
+	// The fake scores a candidate differently on each pass, so a leader pass that is
+	// not undone leaves a score the workers' pass never produced.
+	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil,
+		&nodeDerefSimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot(), scoreEach: 7})
+	snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
+		podSet("workers", 2), podSet("leader", 1),
+	})
+
+	for _, leaf := range snapshot.leaves {
+		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 14 {
+			t.Errorf("leaf %s affinity score = %d, want 14 (the workers' score, scored once and added once)", leaf.id, got)
+		}
+	}
 }
