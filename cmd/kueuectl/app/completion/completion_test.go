@@ -135,13 +135,14 @@ func TestClusterQueueNameCompletionFunc(t *testing.T) {
 			wantNames:     []string{"cq2", "cq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
-		"shouldn't return cluster queue names because only one argument can be passed": {
+		"should return cluster queue names when positional args are present, as in flag completion": {
 			objs: []runtime.Object{
 				utiltestingapi.MakeClusterQueue("cq1").StopPolicy(kueue.None).Obj(),
 				utiltestingapi.MakeClusterQueue("cq2").StopPolicy(kueue.Hold).Obj(),
 				utiltestingapi.MakeClusterQueue("cq3").StopPolicy(kueue.HoldAndDrain).Obj(),
 			},
-			args:          []string{"cq2"},
+			args:          []string{"my-lq"},
+			wantNames:     []string{"cq1", "cq2", "cq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 	}
@@ -204,12 +205,13 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 			wantNames:     []string{"lq2", "lq3"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
-		"shouldn't return local queue names because only one argument can be passed": {
+		"should return local queue names when positional args are present, as in flag completion": {
 			objs: []runtime.Object{
 				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).Obj(),
 				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).Obj(),
 			},
-			args:          []string{"lq1"},
+			args:          []string{"wl1"},
+			wantNames:     []string{"lq1", "lq2"},
 			wantDirective: cobra.ShellCompDirectiveNoFileComp,
 		},
 	}
@@ -226,6 +228,37 @@ func TestLocalQueueNameCompletionFunc(t *testing.T) {
 				t.Errorf("Unexpected names (-want/+got)\n%s", diff)
 			}
 
+			if diff := cmp.Diff(tc.wantDirective, directive); diff != "" {
+				t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSingleArgCompletionFunc(t *testing.T) {
+	testCases := map[string]struct {
+		args          []string
+		wantNames     []string
+		wantDirective cobra.ShellCompDirective
+	}{
+		"should delegate when no positional args are present": {
+			wantNames:     []string{"cq1", "cq2"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+		"shouldn't return names once a positional arg is present": {
+			args:          []string{"cq1"},
+			wantDirective: cobra.ShellCompDirectiveNoFileComp,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			inner := func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+				return []string{"cq1", "cq2"}, cobra.ShellCompDirectiveNoFileComp
+			}
+			names, directive := SingleArg(inner)(&cobra.Command{}, tc.args, "")
+			if diff := cmp.Diff(tc.wantNames, names); diff != "" {
+				t.Errorf("Unexpected names (-want/+got)\n%s", diff)
+			}
 			if diff := cmp.Diff(tc.wantDirective, directive); diff != "" {
 				t.Errorf("Unexpected directive (-want/+got)\n%s", diff)
 			}
