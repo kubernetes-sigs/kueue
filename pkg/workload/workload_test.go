@@ -4310,3 +4310,68 @@ func TestTotalExecutionTime(t *testing.T) {
 		})
 	}
 }
+
+// An admitted Workload takes its quota from the admission status but rebuilds
+// the topology request from the PodSpec, so the spec is read again every time
+// the Workload is looked at and the two can drift apart.
+// A DRA logical name may match a pod-level request, since a mapping name only
+// has to be a label key. The merge adds into whatever the reader returned, so
+// this is the route that does not need an overhead to reach the same Quantity.
+func TestNewInfoLeavesAPodLevelRequestAloneWhenDRAChargesTheSameName(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	wl := utiltestingapi.MakeWorkload("pod-level-dra", "ns").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			PodLevelRequest(corev1.ResourceMemory, "1.5Gi").
+			Obj()).
+		Obj()
+	borrowed := wl.DeepCopy()
+
+	draResources := map[kueue.PodSetReference]corev1.ResourceList{
+		kueue.DefaultPodSetName: {corev1.ResourceMemory: resource.MustParse("1Gi")},
+	}
+	want := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+		corev1.ResourceMemory: 2560 * 1024 * 1024,
+	})
+	for pass := 1; pass <= 2; pass++ {
+		got := NewInfo(wl, WithPreprocessedDRAResources(draResources, nil)).TotalRequests[0].Requests
+		if !resources.Equal(got, want) {
+			t.Errorf("pass %d charged %v, want %v", pass, resources.ToMap(got), resources.ToMap(want))
+		}
+	}
+	if diff := cmp.Diff(borrowed, wl); diff != "" {
+		t.Errorf("NewInfo changed the Workload it was given (-before,+after):\n%s", diff)
+	}
+}
+
+func TestNewInfoLeavesAnAdmittedPodLevelRequestAlone(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	levels := utiltas.Levels(utiltestingapi.MakeDefaultOneLevelTopology("default"))
+	wl := utiltestingapi.MakeWorkload("pod-level", "ns").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			PodLevelRequest(corev1.ResourceMemory, "1.5Gi").
+			PodOverHead(corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("100Mi")}).
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				ResourceUsage(corev1.ResourceMemory, "1636Mi").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment(levels).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), time.Now()).
+		Obj()
+	borrowed := wl.DeepCopy()
+
+	want := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+		corev1.ResourceMemory: 1636 * 1024 * 1024,
+	})
+	for pass := 1; pass <= 2; pass++ {
+		got := NewInfo(wl).TotalRequests[0].TopologyRequest.DomainRequests[0].SinglePodRequests
+		if !resources.Equal(got, want) {
+			t.Errorf("pass %d placed %v, want %v", pass, resources.ToMap(got), resources.ToMap(want))
+		}
+	}
+	if diff := cmp.Diff(borrowed, wl); diff != "" {
+		t.Errorf("NewInfo changed the Workload it was given (-before,+after):\n%s", diff)
+	}
+}

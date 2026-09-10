@@ -67,13 +67,27 @@ func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 	return NewMapRequests(rl)
 }
 
+// PodRequests totals a PodSpec the way a Pod's own requests are totalled.
+// component-helpers assigns a pod-level request into that total and then adds
+// the overhead to it in place, so a quantity holding a decimal would be added to
+// through the spec's own copy. See
+// https://github.com/kubernetes/kubernetes/issues/141241.
+func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	spec := *podSpec
+	// Only the pod-level requests are aliased into the total (container totals are
+	// already deep-copied), so copying spec.Resources avoids a full-spec copy here.
+	if spec.Resources != nil {
+		spec.Resources = spec.Resources.DeepCopy()
+	}
+	return resourcehelpers.PodRequests(&corev1.Pod{Spec: spec}, resourcehelpers.PodResourcesOptions{})
+}
+
 // NewRequestsFromPodSpec creates a Requests instance from a PodSpec based on feature gates.
 func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
 		return NewRequests()
 	}
-	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	return NewRequestsFromResourceList(rl)
+	return NewRequestsFromResourceList(PodRequests(podSpec))
 }
 
 // ToMap converts any Requests instance into a MapRequests map.
