@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -40,6 +41,7 @@ import (
 )
 
 func TestReconcileDRA(t *testing.T) {
+	errTest := errors.New("test error")
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]reconcileTestCase{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {

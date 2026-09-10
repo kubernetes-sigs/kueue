@@ -179,8 +179,9 @@ combination of `reason` and `underlyingCause`:
   was set to `false`, either by a user or automatically by Kueue (for example, after
   exceeding the [requeuing limit](#exponential-backoff-requeueing)).
 - `underlyingCause` provides a finer-grained explanation that complements `reason`
-  (for example, `WaitForStart` under `PodsReadyTimeout`, or `RequeuingLimitExceeded`
-  under `Deactivated`). It is an empty string when `reason` is itself the root cause.
+  (for example, `WaitForStart`, `WaitForScheduling` or `WaitForRecovery` under
+  `PodsReadyTimeout`, or `RequeuingLimitExceeded` under `Deactivated`). It is an empty
+  string when `reason` is itself the root cause.
 - `count` is the number of times the Workload has been evicted for that `reason` and
   `underlyingCause`.
 
