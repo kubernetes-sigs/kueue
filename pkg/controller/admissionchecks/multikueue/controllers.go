@@ -160,10 +160,16 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	cRec := newClustersReconciler(
-		mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher,
-		options.adapters, cpAccessProvider, options.roleTracker,
-		mgr.GetEventRecorder("multikueue-cluster"),
-		options.clientConnection,
+		mgr.GetClient(),
+		namespace,
+		withGCInterval(options.gcInterval),
+		withOrigin(options.origin),
+		withFSWatcher(fsWatcher),
+		withAdapters(options.adapters),
+		withClusterProfileAccessProvider(cpAccessProvider),
+		withRoleTracker(options.roleTracker),
+		withEventRecorder(mgr.GetEventRecorder("multikueue-cluster")),
+		withClientConnection(options.clientConnection),
 	)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {

@@ -81,7 +81,7 @@ func TestCQReconcilerReportsClusterStatusMetric(t *testing.T) {
 		Build()
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{}, nil)
+	cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(&utiltesting.EventRecorder{}))
 	reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
 	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq1"}}
@@ -209,7 +209,7 @@ func TestCQReconcilerKeepsClusterStatusMetricOnReadError(t *testing.T) {
 				Build()
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-			cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{}, nil)
+			cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(&utiltesting.EventRecorder{}))
 			reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
 			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq1"}}
@@ -261,7 +261,7 @@ func TestCQReconcilerClearsClusterStatusMetricPerClusterQueue(t *testing.T) {
 		Build()
 	helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{}, nil)
+	cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(&utiltesting.EventRecorder{}))
 	reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
 	req1 := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq1"}}

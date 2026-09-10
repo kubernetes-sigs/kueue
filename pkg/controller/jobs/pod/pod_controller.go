@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -125,7 +126,13 @@ type Reconciler struct {
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithIntegrationManager(r.integrationManager), WithRoleTracker(r.RoleTracker())))
+	return r.ReconcileGenericJob(ctx, req, NewPod(
+		WithExcessPodExpectations(r.expectationsStore),
+		WithClock(r.clock),
+		WithIntegrationManager(r.integrationManager),
+		WithRoleTracker(r.RoleTracker()),
+		WithCustomLabels(r.CustomLabels()),
+	))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -169,6 +176,7 @@ type Pod struct {
 	satisfiedExcessPods   bool
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
+	customLabels          *metrics.CustomLabels
 }
 
 var (
@@ -212,6 +220,13 @@ func WithIntegrationManager(manager *jobframework.IntegrationManager) PodOption 
 func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
 	return func(pod *Pod) {
 		pod.roleTracker = tracker
+	}
+}
+
+// WithCustomLabels sets the labels the Pod's scheduling-gate-removal metric is recorded with.
+func WithCustomLabels(cl *metrics.CustomLabels) PodOption {
+	return func(pod *Pod) {
+		pod.customLabels = cl
 	}
 }
 
@@ -306,7 +321,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -345,7 +360,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
 
 		return nil
 	})
@@ -690,25 +705,25 @@ func getRoleHash(p corev1.Pod) (string, error) {
 }
 
 // Load loads all pods in the group
-func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error) {
+func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (*jobframework.LoadResult, error) {
 	nsKey := strings.Split(key.Namespace, "/")
 
 	if len(nsKey) == 1 {
 		if err := c.Get(ctx, *key, &p.pod); err != nil {
 			if client.IgnoreNotFound(err) != nil {
-				return false, err
+				return nil, err
 			}
-			return true, nil
+			return jobframework.NewLoadResult(true, false), nil
 		}
 		p.isFound = true
 
 		// If the key.Namespace doesn't contain a "group/" prefix, even though
 		// the pod has a group name, there's something wrong with the event handler.
 		if groupName := utilpod.GetPodGroupName(&p.pod); groupName != "" {
-			return false, errIncorrectReconcileRequest
+			return nil, errIncorrectReconcileRequest
 		}
 
-		return !p.pod.DeletionTimestamp.IsZero(), nil
+		return jobframework.NewLoadResult(!p.pod.DeletionTimestamp.IsZero(), true), nil
 	}
 
 	p.isGroup = true
@@ -723,7 +738,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 	if err := c.List(ctx, &p.list, client.MatchingFields{
 		PodGroupNameCacheKey: key.Name,
 	}, client.InNamespace(key.Namespace)); err != nil {
-		return false, err
+		return nil, err
 	}
 
 	if len(p.list.Items) > 0 {
@@ -734,7 +749,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 
 	// If none of the pods in group are found,
 	// the respective workload should be finalized
-	return !p.isFound, nil
+	return jobframework.NewLoadResult(!p.isFound, p.isFound), nil
 }
 
 // fastAdmission determines if the pod is configured for fast admission based on specific annotations.
