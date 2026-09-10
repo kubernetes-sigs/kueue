@@ -2708,18 +2708,18 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 	// pendingFlavors has a flavor left to try, so requeueing puts the Workload back on the
 	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
-	pendingFlavors := func() *workload.AssignmentClusterQueueState {
-		return &workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
-			ClusterQueueGeneration: 3,
-			SchedulingCycle:        7,
+	pendingFlavors := func() *workload.FlavorScanState {
+		return &workload.FlavorScanState{
+			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			AllocatableResourceGeneration: 3,
+			SchedulingCycle:               7,
 		}
 	}
-	exhaustedScan := func() *workload.AssignmentClusterQueueState {
-		return &workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
-			ClusterQueueGeneration: 3,
-			SchedulingCycle:        7,
+	exhaustedScan := func() *workload.FlavorScanState {
+		return &workload.FlavorScanState{
+			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
+			AllocatableResourceGeneration: 3,
+			SchedulingCycle:               7,
 		}
 	}
 
@@ -2734,7 +2734,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 		// changeShape alters the Workload's requests in the update, so its scheduling
 		// equivalence hash no longer matches the one the assignment was recorded for.
 		changeShape bool
-		recorded    *workload.AssignmentClusterQueueState
+		recorded    *workload.FlavorScanState
 		wantCarried bool
 	}{
 		"tracked in the heap": {
@@ -2809,7 +2809,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 				t.Fatal("Workload is not tracked by the ClusterQueue after being added")
 			}
 			tc.recorded.SchedulingHash = tracked.SchedulingHash
-			tracked.LastAssignment = tc.recorded
+			tracked.FlavorScanState = tc.recorded
 			if tc.inadmissible || tc.inflight {
 				if popped := cqImpl.Pop(); popped == nil {
 					t.Fatal("Popping the Workload returned nothing")
@@ -2844,14 +2844,14 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 			if got == nil {
 				t.Fatal("Workload is not tracked after the update")
 			}
-			var want *workload.AssignmentClusterQueueState
+			var want *workload.FlavorScanState
 			if tc.wantCarried {
 				want = tc.recorded
 			}
-			if diff := gocmp.Diff(want, got.LastAssignment); diff != "" {
+			if diff := gocmp.Diff(want, got.FlavorScanState); diff != "" {
 				t.Errorf("LastAssignment after the update (-want,+got):\n%s", diff)
 			}
-			if tc.wantCarried && got.LastAssignment == tc.recorded {
+			if tc.wantCarried && got.FlavorScanState == tc.recorded {
 				t.Error("LastAssignment was carried by reference; it must be cloned so the two Infos do not alias")
 			}
 		})

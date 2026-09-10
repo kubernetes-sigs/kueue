@@ -121,13 +121,22 @@ func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
 	return (prevStatus == StatusQuotaReserved || prevStatus == StatusAdmitted) && newStatus == StatusPending
 }
 
-type AssignmentClusterQueueState struct {
-	LastTriedFlavorIdx     []map[corev1.ResourceName]int
-	ClusterQueueGeneration int64
+type FlavorScanState struct {
+	// LastTriedFlavorIndexes records the last examined flavor index for each PodSet
+	// and resource, within the corresponding resource group's flavor list.
+	// A value of -1 means that pair's scan reached the end; its next attempt starts
+	// at index zero. Missing entries also start at zero.
+	LastTriedFlavorIndexes []map[corev1.ResourceName]int
+
+	// AllocatableResourceGeneration records the ClusterQueue's allocatable resource
+	// generation at the time of the scan, used to check whether the scan progress is stale.
+	AllocatableResourceGeneration int64
+
 	// SchedulingCycle is the scheduling cycle that computed this assignment. It lets the
 	// assignment from the immediately preceding cycle be treated as current even when the
 	// ClusterQueue generation has moved on.
 	SchedulingCycle int64
+
 	// SchedulingHash is the scheduling equivalence hash of the Workload this assignment was
 	// computed for. LastTriedFlavorIdx is indexed by PodSet and holds flavor indices chosen
 	// for a particular set of requests, so it only carries meaning while the Workload keeps
@@ -187,15 +196,15 @@ func WithPreprocessedDRAResources(
 	}
 }
 
-func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
-	c := AssignmentClusterQueueState{
-		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
-		ClusterQueueGeneration: s.ClusterQueueGeneration,
-		SchedulingCycle:        s.SchedulingCycle,
-		SchedulingHash:         s.SchedulingHash,
+func (s *FlavorScanState) Clone() *FlavorScanState {
+	c := FlavorScanState{
+		LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIndexes)),
+		AllocatableResourceGeneration: s.AllocatableResourceGeneration,
+		SchedulingCycle:               s.SchedulingCycle,
+		SchedulingHash:                s.SchedulingHash,
 	}
-	for ps, flavorIdx := range s.LastTriedFlavorIdx {
-		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)
+	for ps, flavorIdx := range s.LastTriedFlavorIndexes {
+		c.LastTriedFlavorIndexes[ps] = maps.Clone(flavorIdx)
 	}
 	return &c
 }
@@ -208,7 +217,7 @@ func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 // An unknown hash on either side means SchedulingEquivalenceHashing is disabled and there is
 // nothing to compare, so the shape is taken to be unchanged. That keeps the two features
 // independent, and NextFlavorToTryForPodSetResource still bounds-checks the PodSet index.
-func (s *AssignmentClusterQueueState) MatchesSchedulingShape(current string) bool {
+func (s *FlavorScanState) MatchesSchedulingShape(current string) bool {
 	if s.SchedulingHash == SchedulingHashUnknown || current == SchedulingHashUnknown {
 		return true
 	}
@@ -217,12 +226,12 @@ func (s *AssignmentClusterQueueState) MatchesSchedulingShape(current string) boo
 
 // PendingFlavors returns whether there are pending flavors to try
 // after the last attempt.
-func (s *AssignmentClusterQueueState) PendingFlavors() bool {
+func (s *FlavorScanState) PendingFlavors() bool {
 	if s == nil {
 		// This is only reached in unit tests.
 		return false
 	}
-	for _, podSetIdxs := range s.LastTriedFlavorIdx {
+	for _, podSetIdxs := range s.LastTriedFlavorIndexes {
 		for _, idx := range podSetIdxs {
 			if idx != -1 {
 				return true
@@ -232,14 +241,14 @@ func (s *AssignmentClusterQueueState) PendingFlavors() bool {
 	return false
 }
 
-func (s *AssignmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
+func (s *FlavorScanState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
 	if !features.Enabled(features.FlavorFungibility) {
 		return 0
 	}
-	if s == nil || ps >= len(s.LastTriedFlavorIdx) {
+	if s == nil || ps >= len(s.LastTriedFlavorIndexes) {
 		return 0
 	}
-	idx, ok := s.LastTriedFlavorIdx[ps][res]
+	idx, ok := s.LastTriedFlavorIndexes[ps][res]
 	if !ok {
 		return 0
 	}
@@ -257,8 +266,11 @@ type Info struct {
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
-	ClusterQueue   kueue.ClusterQueueReference
-	LastAssignment *AssignmentClusterQueueState
+	ClusterQueue kueue.ClusterQueueReference
+
+	// FlavorScanState records progress of the flavor scan for reuse in subsequent scheduling cycles.
+	// If nil, the next attempt scans flavors from the beginning.
+	FlavorScanState *FlavorScanState
 
 	// LocalQueueFSUsage indicates the historical usage of resource in the LocalQueue, needed for the
 	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
