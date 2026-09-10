@@ -32,7 +32,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -89,7 +88,7 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 		ginkgo.By("releasing its quota with a requeue backoff, allowing the other workload to run", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "By test", time.Now())
 					// Hold backoff until the other workload has quota; expire it explicitly below.
 					wl.Status.RequeueState = &kueue.RequeueState{
@@ -106,7 +105,7 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updated kueue.Workload
 				g.Expect(k8sClient.Get(ctx, wlKey, &updated)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updated, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workload.PatchAdmissionStatus(ctx, k8sClient, &updated, util.RealClock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.RequeueState.RequeueAt = new(metav1.NewTime(time.Now().Add(-time.Second)))
 					return true, nil
 				})).To(gomega.Succeed())
