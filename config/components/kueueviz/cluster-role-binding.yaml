@@ -8,5 +8,5 @@ roleRef:
   name: kueueviz-backend-read-access
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: kueueviz-backend
     namespace: system

@@ -292,8 +292,8 @@ kueueViz:
       # -- KueueViz dashboard backend ingress tls secret name
       tlsSecretName: "kueueviz-backend-tls"
     auth:
-      # -- Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default)
-      mode: "Disabled"
+      # -- Authentication mode. Helm deployments require "TokenReview"; "Disabled" is limited to loopback-only local development.
+      mode: "TokenReview"
       # -- TokenReview-specific configuration (only used when mode is "TokenReview")
       tokenReviewConfig:
         # -- Optional comma-separated list of audiences for TokenReview
