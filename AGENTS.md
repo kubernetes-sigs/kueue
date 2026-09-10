@@ -39,11 +39,25 @@ Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/d
 - **Disclose AI usage** when commenting or filing issues.
 - **No AI authorship markers.** Do not add AI co-author lines, `assisted-by`, `co-developed`, or similar commit trailers.
 - **No auto-close keywords or `#` mentions in commit messages.** [Keywords which can automatically close issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue) (for example `Fixes #123`) and `#` mentions are not allowed in commit messages — Prow flags them with the `do-not-merge/invalid-commit-message` label. Put issue references in the PR description instead.
-- For opening PRs always use the template in `.github/PULL_REQUEST_TEMPLATE.md`. Fit the content into the predefined sections.
-  Do not add, remove or rename any sections. 
-  The list of accepted AI agents that can inject new sections into the PR description: CodeRabbit AI (@coderabbitai).
-- For opening issues select a template from `.github/ISSUE_TEMPLATE` corresponding best to the issue type.
-  Fit the content into the predefined sections. Do not add, remove or rename any sections.
+
+### Opening pull requests
+
+- Read `.github/PULL_REQUEST_TEMPLATE.md` and fill its existing sections.
+ Preserve their titles and order; do not add, remove, rename, or combine
+ sections.
+- Before submitting or updating the description, check it against the template.
+- CodeRabbit AI (@coderabbitai) may append its `AI summary` section,
+ including `Suggested release note`.
+
+### Opening issues
+
+- Inspect `.github/ISSUE_TEMPLATE/`, select the single template that best
+ matches the issue type, and read it in full.
+- Apply all labels specified in the selected template's `labels` field,
+ including every `kind/*` label when multiple are listed.
+- Fill its existing sections. Preserve their titles and order; do not add,
+ remove, rename, or combine sections.
+- Start the title with the emoji from the template's `title` field.
 
 ## Skills
 
