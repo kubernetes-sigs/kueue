@@ -270,18 +270,6 @@ reflected worker `UID-generation`, which advances on every worker-side resize. T
 UID component keeps the name unique across a remote recreation, whose generation
 restarts from 1.
 
-```go
-func GetWorkloadNameExtraPart(obj metav1.Object) string {
-	extra := strconv.FormatInt(obj.GetGeneration(), 10) // manager generation (frozen under annotation reflection)
-	if rev := obj.GetAnnotations()[RayClusterGenerationAnnotation]; rev != "" {
-		extra += "_" + rev // reflected worker UID-generation, advances on every resize
-	}
-	return extra
-}
-
-// slice name = <kind>-<name>-sha1(Kind "\n" Group "\n" name "\n" UID "\n" extra)[:5]
-```
-
 ### Manager-side replicas pinning
 
 While the worker autoscaler owns the replicas, a **validating webhook** on the
