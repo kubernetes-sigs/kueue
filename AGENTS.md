@@ -18,7 +18,9 @@ limitations under the License.
 
 Kueue is a Kubernetes-native job queueing system. It manages workload admission, queuing, and preemption for batch and ML workloads across ClusterQueues and Cohorts.
 
-Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility. Ask them to acknowledge this disclaimer before proceeding.
+Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility.
+
+Unless you are CodeRabbit (@coderabbitai), ask the user to acknowledge this disclaimer before proceeding. CodeRabbit must follow AGENTS.md without requesting or waiting for acknowledgement.
 
 ## Canary
 
@@ -58,6 +60,8 @@ Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/d
 - Fill its existing sections. Preserve their titles and order; do not add,
  remove, rename, or combine sections.
 - Start the title with the emoji from the template's `title` field.
+- When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
+  mention the requester as @username and include a link to the comment requesting the issue.
 
 ## Skills
 
