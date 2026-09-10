@@ -790,9 +790,23 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	for _, podSets := range groupedRequests.InOrder {
 		requests := resources.NewRequests()
 		psIDs := make([]int, len(podSets))
+		var totalCount int64
 		for idx, podset := range podSets {
 			psIDs[idx] = podset.originalIndex
 			requests.Add(podset.podSet.Requests)
+			totalCount += int64(podset.podSet.Count)
+		}
+		var probeRequests resources.Requests
+		if totalCount == 0 {
+			probeRequests = resources.NewRequests()
+			for _, podset := range podSets {
+				if podset.podSet.PerPodRequests != nil {
+					probeRequests.Add(podset.podSet.PerPodRequests)
+				}
+			}
+			if a.cq.RGByResource(corev1.ResourcePods) != nil {
+				probeRequests.Set(corev1.ResourcePods, int64(len(podSets)))
+			}
 		}
 
 		consideredFlavors := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt)
@@ -822,7 +836,11 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, resName, assignment.Usage.Quota.Assigned)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, resName, assignment.Usage.Quota.Assigned)
+			if probeRequests != nil && len(flavors) == 0 && !status.IsError() {
+				// The probe is a preference, not an admission barrier for zero-count PodSets.
+				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, resName, assignment.Usage.Quota.Assigned)
+			}
 			mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
 			if status.IsError() || (len(flavors) == 0 && requests.Len() > 0) {
 				groupFlavors = nil
@@ -1067,6 +1085,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	log logr.Logger,
 	psIDs []int,
 	requests resources.Requests,
+	probeRequests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
@@ -1079,6 +1098,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	status := NewStatus()
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
+	if probeRequests != nil {
+		probeRequests = filterRequestedResources(probeRequests, resourceGroup.CoveredResources)
+	}
 
 	podSets := make([]*kueue.PodSet, len(psIDs))
 	for idx, psID := range psIDs {
@@ -1113,6 +1135,26 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 				return nil, status, consideredFlavors
 			}
 			continue
+		}
+
+		if probeRequests != nil {
+			probeStatus := NewStatus()
+			probeRequests.ForEach(func(rName corev1.ResourceName, val int64) {
+				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
+				maxCapacity := a.cq.PotentialAvailable(fr)
+				if maxCapacity.CmpInt64(val) < 0 {
+					probeStatus.appendf("insufficient quota for %s in flavor %s, one pod per zero-count podset request (%s) > maximum capacity (%s)",
+						rName, fName,
+						a.resourceFormatter.ResourceQuantityString(rName, val),
+						a.resourceFormatter.AmountQuantityString(rName, maxCapacity))
+				}
+			})
+			if !probeStatus.IsFit() {
+				probeStatus.noFitReason = kueue.WorkloadQuotaReservedReasonExceedsMaxQuota
+				status.reasons = append(status.reasons, probeStatus.reasons...)
+				consideredFlavors.AddNoFitFlavorAttempt(fName, probeStatus)
+				continue
+			}
 		}
 
 		assignments := make(ResourceAssignment, requests.Len())
