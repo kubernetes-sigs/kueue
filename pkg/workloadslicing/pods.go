@@ -14,16 +14,34 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tas
+package workloadslicing
 
 import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 )
+
+// nameForPod returns the annotated Workload name, preferring a present slice-chain annotation.
+func nameForPod(pod *corev1.Pod) string {
+	if name, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return name
+	}
+	return pod.Annotations[kueue.WorkloadAnnotation]
+}
+
+// KeyForPod returns the annotated Workload key, or nil if the name is empty.
+func KeyForPod(pod *corev1.Pod) *types.NamespacedName {
+	if name := nameForPod(pod); name != "" {
+		return &types.NamespacedName{Namespace: pod.Namespace, Name: name}
+	}
+	return nil
+}
 
 // ListPodsForWorkloadSlice lists pods belonging to a workload slice by querying
 // the WorkloadSliceNameKey index. Additional list options (e.g., label selectors)
