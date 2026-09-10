@@ -2367,6 +2367,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2423,6 +2424,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2455,6 +2457,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2476,6 +2479,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2490,6 +2494,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TopologyAwareScheduling):                     false,
 				string(features.TASNodeFeasibilityForAllLevels):              true,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2526,6 +2531,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2548,12 +2554,37 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "TASFailedNodeReplacement is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
+		"TASLeaderPodSetFeasibility requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASBalancedPlacement):                        false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASLeaderPodSetFeasibility is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2571,6 +2602,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2593,6 +2625,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2615,6 +2648,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       true,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2638,6 +2672,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2650,6 +2685,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASGroupedPodSetSlicing requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TASGroupedPodSetSlicing):                     true,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TopologyAwareScheduling):                     false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
@@ -2713,6 +2749,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2734,6 +2771,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2754,6 +2792,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRespectNodeAffinityPreferred):  true,
 				string(features.TASHandleOverlappingFlavors):      true,
 				string(features.TASGroupedPodSetSlicing):          true,
+				string(features.TASLeaderPodSetFeasibility):       false,
 			},
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
