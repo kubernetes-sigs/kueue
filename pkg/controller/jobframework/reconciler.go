@@ -2041,14 +2041,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 
 	switch {
 	case podsReadyCond == nil:
-		reason := kueue.WorkloadWaitForStart
-		if podsScheduledTracking && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
-			admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
-			if cur := workload.CurrentPodsScheduledCondition(wl, admittedAt); cur != nil && cur.Status == metav1.ConditionFalse {
-				reason = kueue.WorkloadWaitForScheduling
-			}
-		}
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse, reason, notReadyMsg, clock)
+		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
 
 	case podsReadyCond.Status == metav1.ConditionTrue:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
@@ -2063,15 +2056,19 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 			clock)
 
 	default:
-		reason := kueue.WorkloadWaitForStart
-		if podsScheduledTracking && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
-			admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
-			if cur := workload.CurrentPodsScheduledCondition(wl, admittedAt); cur != nil && cur.Status == metav1.ConditionFalse {
-				reason = kueue.WorkloadWaitForScheduling
-			}
-		}
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse, reason, notReadyMsg, clock)
+		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
 	}
+}
+
+func waitForSchedulingOrStartPodsReadyCondition(wl *kueue.Workload, clock clock.Clock, podsScheduledTracking bool) metav1.Condition {
+	reason := kueue.WorkloadWaitForStart
+	if podsScheduledTracking && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+		if cur := workload.CurrentPodsScheduledCondition(wl, admittedAt); cur != nil && cur.Status == metav1.ConditionFalse {
+			reason = kueue.WorkloadWaitForScheduling
+		}
+	}
+	return workload.CreatePodsReadyCondition(metav1.ConditionFalse, reason, workload.PodsNotReadyMessage, clock)
 }
 
 // GetPodSetsInfoFromWorkload retrieve the podSetsInfo slice from the
