@@ -39,7 +39,10 @@ import (
 var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	// The RayJob workload has the head PodSet at index 0 and the single worker group at index 1;
 	// the submitter PodSet is only added in K8sJobMode, which these specs avoid.
-	const workersPodSet = 1
+	const (
+		workersPodSet    = 1
+		workersGroupName = "workers-group-0"
+	)
 
 	var (
 		ns             *corev1.Namespace
@@ -53,15 +56,6 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
 			job.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(replicas)
 			g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
-
-	expectAdmittedWorkers := func(wl *kueue.Workload, count int32) {
-		ginkgo.GinkgoHelper()
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
-			g.Expect(wl.Status.Admission.PodSetAssignments[workersPodSet].Count).Should(gomega.Equal(new(count)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 
@@ -122,7 +116,7 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
 		gomega.Expect(initialSlice.Spec.PodSets).Should(gomega.HaveLen(2))
 		gomega.Expect(initialSlice.Spec.PodSets[workersPodSet].Count).Should(gomega.Equal(int32(2)))
-		expectAdmittedWorkers(initialSlice, 2)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 2)
 
 		// The full request is 1 + 5 = 6 pods against a 4-pod quota, so only 3 workers fit.
 		ginkgo.By("scaling the worker group to 5 replicas")
@@ -134,7 +128,7 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSet].MinCount).Should(gomega.Equal(new(int32(3))))
 
 		ginkgo.By("only 3 of the 5 requested workers fit: 1 head + 3 workers = the whole quota")
-		expectAdmittedWorkers(partialSlice, 3)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 3)
 
 		// This is what the RayCluster suite verifies too. RayJob overrides the workload slice name
 		// extra part with its own generation-derived value, so if that discards the probe's extra
