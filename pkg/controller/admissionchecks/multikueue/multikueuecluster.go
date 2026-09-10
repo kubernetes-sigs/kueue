@@ -47,6 +47,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -64,10 +65,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 )
@@ -107,15 +110,57 @@ func retryAfter(failedAttempts uint) time.Duration {
 type clientWithWatchBuilder func(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error)
 
 type clientConfig struct {
-	Kubeconfig []byte
-	RestConfig *rest.Config
+	Kubeconfig       []byte
+	RestConfig       *rest.Config
+	ClientConnection *configapi.ClientConnection
+}
+
+func (c *clientConfig) initialRESTConfig() (*rest.Config, error) {
+	if c.RestConfig != nil {
+		return rest.CopyConfig(c.RestConfig), nil
+	}
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+	return restConfig, nil
 }
 
 func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
-	if c.RestConfig != nil {
-		return c.RestConfig, nil
+	restConfig, err := c.initialRESTConfig()
+	if err != nil {
+		return nil, err
 	}
-	return clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+
+	if c.ClientConnection != nil && features.Enabled(features.MultiKueueReuseClientConnectionConfigForWorkers) {
+		hasQPS := c.ClientConnection.QPS != nil
+		hasBurst := c.ClientConnection.Burst != nil
+		if hasQPS {
+			restConfig.QPS = *c.ClientConnection.QPS
+		}
+		if hasBurst {
+			restConfig.Burst = int(*c.ClientConnection.Burst)
+		}
+		if hasQPS || hasBurst {
+			// The direct client and remote cache are built from this config, so setting
+			// the limiter here makes both consume the same per-cluster request budget.
+			// It must replace an existing limiter because rest.Config ignores QPS and
+			// Burst when RateLimiter is already set.
+			restConfig.RateLimiter = nil
+			if restConfig.QPS >= 0 {
+				qps := restConfig.QPS
+				if qps == 0 {
+					qps = rest.DefaultQPS
+				}
+				burst := restConfig.Burst
+				if burst == 0 {
+					burst = rest.DefaultBurst
+				}
+				restConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(qps, burst)
+			}
+		}
+	}
+	return restConfig, nil
 }
 
 type remoteClient struct {
@@ -783,6 +828,8 @@ type clustersReconciler struct {
 
 	logName     string
 	roleTracker *roletracker.RoleTracker
+
+	clientConnection *configapi.ClientConnection
 }
 
 type clusterProfileAccessProvider interface {
@@ -815,6 +862,7 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 		rc.StopWatchers()
 		delete(c.remoteClients, clusterName)
 	}
+	metrics.ClearMultiKueueClusterMetrics(clusterName)
 }
 
 // disconnectCluster marks the remoteClient for clusterName as disconnected
@@ -962,7 +1010,7 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 		if err := validateRestConfig(restConfig, opts); err != nil {
 			return nil, "BadRestConfig", err
 		}
-		return &clientConfig{RestConfig: restConfig}, "", nil
+		return &clientConfig{RestConfig: restConfig, ClientConnection: c.clientConnection}, "", nil
 	}
 
 	kubeConfig, err := c.getKubeConfig(ctx, cluster.Spec.ClusterSource.KubeConfig)
@@ -973,7 +1021,7 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 	if err := validateKubeconfig(kubeConfig); err != nil {
 		return nil, "InsecureKubeConfig", err
 	}
-	return &clientConfig{Kubeconfig: kubeConfig}, "", nil
+	return &clientConfig{Kubeconfig: kubeConfig, ClientConnection: c.clientConnection}, "", nil
 }
 
 // validateKubeconfig checks that the provided kubeconfig content is safe to use
@@ -1230,33 +1278,98 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
+type clustersReconcilerOptions struct {
+	gcInterval                   time.Duration
+	origin                       string
+	fsWatcher                    *KubeConfigFSWatcher
+	adapters                     map[string]jobframework.MultiKueueAdapter
+	clusterProfileAccessProvider clusterProfileAccessProvider
+	roleTracker                  *roletracker.RoleTracker
+	recorder                     events.EventRecorder
+	clientConnection             *configapi.ClientConnection
+}
+
+type clustersReconcilerOption func(*clustersReconcilerOptions)
+
+func withGCInterval(gcInterval time.Duration) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.gcInterval = gcInterval
+	}
+}
+
+func withOrigin(origin string) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.origin = origin
+	}
+}
+
+func withFSWatcher(fsWatcher *KubeConfigFSWatcher) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.fsWatcher = fsWatcher
+	}
+}
+
+func withAdapters(adapters map[string]jobframework.MultiKueueAdapter) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.adapters = adapters
+	}
+}
+
+func withClusterProfileAccessProvider(cpAccessProvider clusterProfileAccessProvider) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.clusterProfileAccessProvider = cpAccessProvider
+	}
+}
+
+func withRoleTracker(roleTracker *roletracker.RoleTracker) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.roleTracker = roleTracker
+	}
+}
+
+func withEventRecorder(recorder events.EventRecorder) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.recorder = recorder
+	}
+}
+
+func withClientConnection(clientConnection *configapi.ClientConnection) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.clientConnection = clientConnection
+	}
+}
+
 func newClustersReconciler(
 	c client.Client,
 	namespace string,
-	gcInterval time.Duration,
-	origin string,
-	fsWatcher *KubeConfigFSWatcher,
-	adapters map[string]jobframework.MultiKueueAdapter,
-	cpAccessProvider clusterProfileAccessProvider,
-	roleTracker *roletracker.RoleTracker,
-	recorder events.EventRecorder,
+	opts ...clustersReconcilerOption,
 ) *clustersReconciler {
+	options := clustersReconcilerOptions{
+		origin: defaultOrigin,
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.clusterProfileAccessProvider == nil {
+		options.clusterProfileAccessProvider = &NoOpClusterProfileAccessProvider{}
+	}
 	return &clustersReconciler{
 		localClient:                  c,
 		configNamespace:              namespace,
 		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
-		recorder:                     recorder,
+		recorder:                     options.recorder,
 		remoteClients:                make(map[string]*remoteClient),
 		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
 		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
 		cqUpdateCh:                   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
-		gcInterval:                   gcInterval,
-		origin:                       origin,
-		fsWatcher:                    fsWatcher,
-		adapters:                     adapters,
-		clusterProfileAccessProvider: cpAccessProvider,
+		gcInterval:                   options.gcInterval,
+		origin:                       options.origin,
+		fsWatcher:                    options.fsWatcher,
+		adapters:                     options.adapters,
+		clusterProfileAccessProvider: options.clusterProfileAccessProvider,
 		logName:                      "multikueue-multikueuecluster-reconciler",
-		roleTracker:                  roleTracker,
+		roleTracker:                  options.roleTracker,
+		clientConnection:             options.clientConnection,
 	}
 }
 

@@ -962,6 +962,7 @@ func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 
 		// Map from resource group index to the minimum severity blocker (alternative flavors) for that group.
 		rgMinReason := make(map[int]string)
+		podSetReason := ps.Status.noFitReason
 
 		for i, att := range ps.FlavorAssignmentAttempts {
 			if att.Mode != NoFit {
@@ -983,7 +984,6 @@ func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 		}
 
 		// Across groups, we take the maximum severity (co-requisites).
-		var podSetReason string
 		for _, reason := range rgMinReason {
 			podSetReason = mostSevereReason(podSetReason, reason)
 		}
@@ -1072,7 +1072,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 ) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
-		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)), nil
+		status := NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName))
+		status.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
+		return nil, status, nil
 	}
 
 	status := NewStatus()

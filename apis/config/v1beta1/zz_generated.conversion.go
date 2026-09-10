@@ -397,7 +397,6 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	} else {
 		out.WaitForPodsReady = nil
 	}
-	// WARNING: in.QuotaReleaseStrategy requires manual conversion: does not exist in peer-type
 	out.ClientConnection = (*ClientConnection)(unsafe.Pointer(in.ClientConnection))
 	if in.Integrations != nil {
 		in, out := &in.Integrations, &out.Integrations
@@ -917,6 +916,7 @@ func autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
+	// WARNING: in.UnscheduledTimeout requires manual conversion: does not exist in peer-type
 	return nil
 }
 

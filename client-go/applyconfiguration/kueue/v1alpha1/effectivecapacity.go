@@ -22,6 +22,7 @@ package v1alpha1
 // with apply.
 type EffectiveCapacityApplyConfiguration struct {
 	// flavors contains capacity per flavor and resource.
+	//
 	Flavors []EffectiveCapacityFlavorApplyConfiguration `json:"flavors,omitempty"`
 }
 

@@ -3888,7 +3888,9 @@ current state.</p>
 <li>Admitted: the Workload was admitted through a ClusterQueue.</li>
 <li>Finished: the associated workload finished running (failed or succeeded).</li>
 <li>PodsReady: at least <code>.spec.podSets[*].count</code> Pods are ready or have
-succeeded.
+succeeded.</li>
+<li>PodsScheduled: all the Pods required by the admission have been
+scheduled or have succeeded.
 conditions are limited to 16 items.</li>
 </ul>
 </td>

@@ -10,23 +10,48 @@ knowledge_base:
 reviews:
   request_changes_workflow: false
 
+  tone_instructions: >-
+    Before opening an issue, read and follow the instructions in AGENTS.md.
+    Keep issue title and description concise.
+
   high_level_summary_instructions: |
-    Keep the PR summary concise. Add a "Release note assessment" section that
-    reviews the author's `release-note` block.
+    Keep the PR summary concise. Name the section "AI summary".
 
-    If the existing release note accurately describes the user-facing change,
-    say "Ready". This includes `NONE` when there is no user-facing change.
+    Add a "Suggested release note" sub-section with a release note suggestion describing
+    the user-facing change introduced by this PR.
 
-    Otherwise, provide one alternative release note and briefly justify the
-    adjustments. Instructions:
-
-    * If the impact is unclear, ask one focused question instead of guessing.
-    * When feasible, use the narrowest applicable feature or sub-component prefix,
-      e.g. `FairSharing:`, `MultiKueue:`, or `TAS:`.
+    Follow the release-note guidance in cmd/experimental/skills/kueue-release-notes/SKILL.md.
+    In particular:
+    * Describe the user-facing behavior change rather than implementation details.
+    * For bug fixes, prefer wording such as: <ScopingPrefix>: Fixed a bug that caused
+      [<incorrect behavior>] when <scenario>. Now Kueue <correct behavior>.
+    * When feasible, scope the release note to the affected feature, sub-component,
+      or integration. Choose the most specific prefix that describes the user-facing
+      change. Examples include:
+      - Scheduling and admission: `Scheduling:`, `TAS:`, `DRA:`, `FairSharing:`,
+        `AFS:`, `ConcurrentAdmission:`, `AdmissionChecks:`, `MultiKueue:`,
+        `ProvisioningRequest:`, `WorkloadAwareScheduler:`.
+      - Workload lifecycle and resources: `Workloads:`, `LocalQueues:`,
+        `ElasticJobsViaWorkloadSlices:`, `WaitForPodsReady:`, `FailureRecovery:`,
+        `ObjectRetentionPolicies:`, `ResourceTransformations:`.
+      - Configuration and observability: `ConfigAPI:`, `FeatureGates:`,
+        `Observability:`, `VisibilityOnDemand:`, `Security:`, `RBAC:`.
+      - Tools and documentation: `CLI:`, `Helm:`, `KueueViz:`, `Kueue-populator:`,
+        `Importer:`, `PriorityBooster:`, `Documentation:`, `Examples:`, `AgentSkills:`.
+      - Integrations: `JobSet:`, `Pod:`, `PodGroup:`, `LeaderWorkerSet:`, `StatefulSet:`, `Deployment:`,
+        `RayJob:`, `RayCluster:`, `RayService:`, `SparkApplication:`, `MPIJob:`.
+      These examples are non-exhaustive. Use another feature, sub-component,
+      or integration name when it describes the change more accurately.
+      Combined scopes are also valid, e.g. `MultiKueue Observability:`.
+    * Treat logs, metrics, events, and visibility endpoints as user-facing observability changes.
+    * If the behavior change is controlled by a feature gate, mention that, e.g.
+      This behavior is gated by the <FeatureGate> feature gate.
+      Do not state whether the feature gate is enabled or disabled by default,
+      as this may differ across release branches and cherry-picks.
+    * Use `NONE` when there is no user-facing change.
     * Use `ACTION REQUIRED:` only when users must take action when upgrading.
 
-    Ask the author to verify the alternative and update the canonical
-    `release-note` block in the PR description.
+    If the user-facing impact cannot be determined, state that instead of guessing.
 
   path_filters:
     - "!client-go/**"

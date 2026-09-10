@@ -27,9 +27,11 @@ import (
 // with apply.
 type CapacityDiscoveryProviderContributionApplyConfiguration struct {
 	// name identifies a CapacityProvider.
+	//
 	Name *kueuev1alpha1.CapacityProviderName `json:"name,omitempty"`
 	// effectiveCapacityMultiplier specifies the multiplier applied to the
 	// discovered capacity from this provider. It defaults to 1.
+	//
 	EffectiveCapacityMultiplier *resource.Quantity `json:"effectiveCapacityMultiplier,omitempty"`
 }
 

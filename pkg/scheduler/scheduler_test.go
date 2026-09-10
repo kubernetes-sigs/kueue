@@ -82,6 +82,10 @@ type scheduleTestCase struct {
 	objects        []client.Object
 	admissionError error
 
+	additionalResourceFlavors []kueue.ResourceFlavor
+	topologies                []kueue.Topology
+	nodes                     []corev1.Node
+
 	// additional*Queues can hold any extra queues needed by the tc
 	additionalClusterQueues []kueue.ClusterQueue
 	additionalLocalQueues   []kueue.LocalQueue
@@ -222,6 +226,15 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					}
 					for i := range cfg.resourceFlavors {
 						cqCache.AddOrUpdateResourceFlavor(log, cfg.resourceFlavors[i])
+					}
+					for i := range tc.additionalResourceFlavors {
+						cqCache.AddOrUpdateResourceFlavor(log, &tc.additionalResourceFlavors[i])
+					}
+					for i := range tc.topologies {
+						cqCache.AddOrUpdateTopology(log, &tc.topologies[i])
+					}
+					for i := range tc.nodes {
+						cqCache.TASCache().SyncNode(&tc.nodes[i])
 					}
 					for _, cq := range allClusterQueues {
 						if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
@@ -2271,6 +2284,63 @@ func TestSchedule(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"eng-alpha": {"eng-alpha/new"},
+			},
+		},
+		"covered and uncovered resources": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("mixed-cq").
+					QueueingStrategy(kueue.StrictFIFO).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "50").
+							Resource(corev1.ResourceMemory, "50Gi").
+							Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("mixed", "eng-alpha").ClusterQueue("mixed-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("new-mixed", "eng-alpha").
+					Queue("mixed").
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Request("example.com/gpu", "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("new-mixed", "eng-alpha").
+					Queue("mixed").
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Request("example.com/gpu", "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+						Message:            "couldn't assign flavors to pod set main: resource example.com/gpu unavailable in ClusterQueue",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Mi"),
+							"example.com/gpu":     resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"mixed-cq": {"eng-alpha/new-mixed"},
 			},
 		},
 		"not enough resources to borrow, fallback to next flavor; WhenCanPreempt: TryNextFlavor": {
@@ -8923,29 +8993,25 @@ func TestLastSchedulingContext(t *testing.T) {
 						t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 					}
 
-					for _, workloadReference := range tc.deleteWorkloads {
-						var wl kueue.Workload
-						err := cl.Get(ctx, workloadReference, &wl)
-						if err != nil {
-							t.Errorf("Unable to get workload: %v", err)
+					if len(tc.deleteWorkloads) > 0 {
+						for _, workloadReference := range tc.deleteWorkloads {
+							var wl kueue.Workload
+							err := cl.Get(ctx, workloadReference, &wl)
+							if err != nil {
+								t.Errorf("Unable to get workload: %v", err)
+							}
+							err = cl.Delete(ctx, &wl)
+							if err != nil {
+								t.Errorf("Delete workload failed: %v", err)
+							}
+							err = cqCache.DeleteWorkload(log, workload.Key(&wl))
+							if err != nil {
+								t.Errorf("Delete workload failed: %v", err)
+							}
+							qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
 						}
-						err = cl.Delete(ctx, &wl)
-						if err != nil {
-							t.Errorf("Delete workload failed: %v", err)
-						}
-						err = cqCache.DeleteWorkload(log, workload.Key(&wl))
-						if err != nil {
-							t.Errorf("Delete workload failed: %v", err)
-						}
-						qManager.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(&wl), nil)
-					}
-					watcher.ProcessRequeues(ctx)
+						watcher.ProcessRequeues(ctx)
 
-					scheduler.schedule(ctx)
-					wg.Wait()
-
-					if features.Enabled(features.WorkloadRequestUseMergePatch) {
-						// Schedule again to ensure all workloads are admitted, as with MergePatch we enforce stricter patching.
 						scheduler.schedule(ctx)
 						wg.Wait()
 					}

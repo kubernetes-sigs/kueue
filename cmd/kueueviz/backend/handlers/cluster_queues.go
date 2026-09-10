@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
+	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -37,9 +38,10 @@ func (h *Handlers) ClusterQueuesWebSocketHandler() gin.HandlerFunc {
 func (h *Handlers) ClusterQueueDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterQueueName := c.Param("cluster_queue_name")
+		identity, _ := middleware.IdentityFromContext(c)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return h.fetchClusterQueueDetails(ctx, clusterQueueName)
+			return h.fetchClusterQueueDetails(ctx, clusterQueueName, identity)
 		}, ClusterQueuesGVK(), LocalQueuesGVK())(c)
 	}
 }
@@ -90,13 +92,15 @@ func (h *Handlers) fetchClusterQueues(ctx context.Context) ([]map[string]any, er
 }
 
 // Fetch details for a specific cluster queue
-func (h *Handlers) fetchClusterQueueDetails(ctx context.Context, name string) (any, error) {
+func (h *Handlers) fetchClusterQueueDetails(ctx context.Context, name string, identity middleware.Identity) (any, error) {
 	// Fetch the specific ClusterQueue
 	cq := &kueueapi.ClusterQueue{}
 	err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: name}, cq)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching cluster queue %s: %v", name, err)
 	}
+
+	var queuesUsingClusterQueue []map[string]any
 
 	// Retrieve all LocalQueues
 	lql := &kueueapi.LocalQueueList{}
@@ -105,19 +109,47 @@ func (h *Handlers) fetchClusterQueueDetails(ctx context.Context, name string) (a
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
 
+	authCache := make(map[string]bool)
+	queuesOmitted := false
+
 	// Filter LocalQueues based on the ClusterQueue name
-	var queuesUsingClusterQueue []map[string]any
 	for _, item := range lql.Items {
 		if name != string(item.Spec.ClusterQueue) {
 			continue
 		}
+		ns := item.GetNamespace()
+
+		allowed, ok := authCache[ns]
+		if !ok {
+			if h.authorizer != nil {
+				authRes, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", LocalQueuesGVR(), ns, ""))
+				allowed = authRes && err == nil
+			} else {
+				allowed = true
+			}
+			authCache[ns] = allowed
+		}
+
+		if !allowed {
+			queuesOmitted = true
+			continue
+		}
 
 		queuesUsingClusterQueue = append(queuesUsingClusterQueue, map[string]any{
-			"namespace":   item.GetNamespace(),
+			"namespace":   ns,
 			"name":        item.GetName(),
 			"reservation": convertLocalQueueFlavorsUsage(item.Status.FlavorsReservation),
 			"usage":       convertLocalQueueFlavorsUsage(item.Status.FlavorsUsage),
 		})
+	}
+
+	if queuesUsingClusterQueue == nil {
+		queuesUsingClusterQueue = []map[string]any{}
+	}
+
+	omittedPanels := []string{}
+	if queuesOmitted {
+		omittedPanels = append(omittedPanels, "queues")
 	}
 
 	// Build result with converted numeric resource values
@@ -139,7 +171,8 @@ func (h *Handlers) fetchClusterQueueDetails(ctx context.Context, name string) (a
 			"flavorsReservation": convertFlavorsUsage(cq.Status.FlavorsReservation),
 			"fairSharing":        cq.Status.FairSharing,
 		},
-		"queues": queuesUsingClusterQueue,
+		"queues":        queuesUsingClusterQueue,
+		"omittedPanels": omittedPanels,
 	}
 
 	return result, nil
