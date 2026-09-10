@@ -76,9 +76,10 @@ var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more th
 
 // Event reasons used by the pod controller
 const (
-	ReasonExcessPodDeleted     = "ExcessPodDeleted"
-	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
-	ReasonWorkloadNameConflict = "WorkloadNameConflict"
+	ReasonExcessPodDeleted       = "ExcessPodDeleted"
+	ReasonOwnerReferencesAdded   = "OwnerReferencesAdded"
+	ReasonWorkloadNameConflict   = "WorkloadNameConflict"
+	ReasonPodExceedsRoleRequests = "PodExceedsRoleRequests"
 )
 
 const (
@@ -323,6 +324,8 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 		}
 
 		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
+	} else if err := validatePodsBeforeUngating(p.list.Items, wl, recorder); err != nil {
+		return err
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -913,16 +916,62 @@ func podWithMaxRequests(pods []corev1.Pod) *corev1.Pod {
 // podExceedsRequests reports whether the pod requests more of any resource than reserved
 // for its role. Unreserved / missing reserved keys count as zero.
 func podExceedsRequests(pod *corev1.Pod, reserved resources.Requests) bool {
+	_, found := firstExceededResource(pod, reserved)
+	return found
+}
+
+// firstExceededResource returns the first resource the pod requests above the reservation.
+// A resource absent from the reservation is treated as zero.
+func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1.ResourceName, bool) {
 	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
 	if reserved == nil {
 		reserved = resources.NewRequests()
 	}
 	for name, val := range actual.Iter() {
 		if val > reserved.ResourceValue(name) {
-			return true
+			return name, true
 		}
 	}
-	return false
+	return "", false
+}
+
+// validatePodsBeforeUngating verifies that every gated pod fits the PodSet its
+// role-hash annotation names. The annotation is user-supplied and is treated as an
+// untrusted PodSet name: it selects the reservation to check against, it does not
+// assert anything about the pod. Verifying here rather than at admission means the
+// pod is in its final shape (admission-check nodeSelectors already applied) and no
+// pod annotation has to be rewritten to make the check sound.
+func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) error {
+	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
+		return nil
+	}
+	podSets := utilslices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
+	for i := range pods {
+		pod := &pods[i]
+		if !isGated(pod) {
+			continue
+		}
+		role, err := getRoleHash(*pod)
+		if err != nil {
+			return errRoleHashCalculation(pod.Name, err)
+		}
+		ps, found := podSets[kueue.NewPodSetReference(role)]
+		if !found {
+			return fmt.Errorf("%w: no podset named %q for pod %q", podset.ErrInvalidPodsetInfo, role, pod.Name)
+		}
+		reserved := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+		resourceName, exceeds := firstExceededResource(pod, reserved)
+		if !exceeds {
+			continue
+		}
+		msg := fmt.Sprintf("Pod %q requests more %s than podset %q reserves", pod.Name, resourceName, role)
+		if recorder != nil {
+			recorder.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodExceedsRoleRequests, "Admission", api.TruncateEventMessage(msg))
+		}
+		return fmt.Errorf("%w: pod %q requests more than podset %q reserves",
+			podset.ErrInvalidPodsetInfo, pod.Name, role)
+	}
+	return nil
 }
 
 func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {

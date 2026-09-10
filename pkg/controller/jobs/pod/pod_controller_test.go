@@ -138,11 +138,36 @@ func TestPodsReady(t *testing.T) {
 }
 
 func TestRun(t *testing.T) {
+	roleA := "role-a"
+	gpu := corev1.ResourceName("nvidia.com/gpu")
+	runInfoRoleA := []podset.PodSetInfo{{Name: kueue.NewPodSetReference(roleA)}}
+
+	gatedGroupPod := func(name, cpu string) corev1.Pod {
+		return *testingpod.MakePod(name, metav1.NamespaceDefault).
+			Image("", nil).
+			Request(corev1.ResourceCPU, cpu).
+			RoleHash(roleA).
+			KueueSchedulingGate().
+			Obj()
+	}
+
+	wlWithRoleA := func(cpu string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+			PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+				Request(corev1.ResourceCPU, cpu).
+				Obj()).
+			Obj()
+	}
+
 	testCases := map[string]struct {
-		wl                   *kueue.Workload
-		pods                 []corev1.Pod
-		runInfo, restoreInfo []podset.PodSetInfo
-		wantErr              error
+		wl           *kueue.Workload
+		pods         []corev1.Pod
+		runInfo      []podset.PodSetInfo
+		isGroup      bool
+		featureGates map[featuregate.Feature]bool
+		wantErr      error
+		wantGated    *bool
+		wantEvents   []utiltesting.EventRecord
 	}{
 		"pod set info > 1 for the single pod": {
 			wl:      utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).Obj(),
@@ -150,11 +175,173 @@ func TestRun(t *testing.T) {
 			runInfo: make([]podset.PodSetInfo, 2),
 			wantErr: podset.ErrInvalidPodsetInfo,
 		},
+		"honest group within reservation is ungated": {
+			wl:        wlWithRoleA("1"),
+			pods:      []corev1.Pod{gatedGroupPod("p1", "1"), gatedGroupPod("p2", "1")},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantGated: new(false),
+		},
+		"forged hash requesting more than the role reserves is permanent and atomic": {
+			wl:        wlWithRoleA("1"),
+			pods:      []corev1.Pod{gatedGroupPod("p1", "1"), gatedGroupPod("p2", "2")},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantErr:   podset.ErrInvalidPodsetInfo,
+			wantGated: new(true),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p2", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p2" requests more cpu than podset "role-a" reserves`,
+			}},
+		},
+		"pod requesting a resource the role reserves none of is rejected": {
+			wl: wlWithRoleA("1"),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("p1", metav1.NamespaceDefault).
+					Image("", nil).
+					Request(corev1.ResourceCPU, "1").
+					Request(gpu, "1").
+					RoleHash(roleA).
+					KueueSchedulingGate().
+					Obj(),
+			},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantErr:   podset.ErrInvalidPodsetInfo,
+			wantGated: new(true),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p1" requests more nvidia.com/gpu than podset "role-a" reserves`,
+			}},
+		},
+		"pod requesting less than the role reserves is ungated": {
+			wl:        wlWithRoleA("1"),
+			pods:      []corev1.Pod{gatedGroupPod("p1", "500m")},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantGated: new(false),
+		},
+		"unknown role name is a permanent error": {
+			wl: wlWithRoleA("1"),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("p1", metav1.NamespaceDefault).
+					Image("", nil).
+					Request(corev1.ResourceCPU, "1").
+					RoleHash("role-unknown").
+					KueueSchedulingGate().
+					Obj(),
+			},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantErr:   podset.ErrInvalidPodsetInfo,
+			wantGated: new(true),
+		},
+		"init-container requests above the reservation are rejected": {
+			wl: wlWithRoleA("1"),
+			pods: []corev1.Pod{
+				func() corev1.Pod {
+					p := podWithInitContainer("p1", roleA, "2")
+					p.Namespace = metav1.NamespaceDefault
+					gate(p)
+					return *p
+				}(),
+			},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantErr:   podset.ErrInvalidPodsetInfo,
+			wantGated: new(true),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
+			}},
+		},
+		"sidecar requests above the reservation are rejected": {
+			wl: wlWithRoleA("1"),
+			pods: []corev1.Pod{
+				func() corev1.Pod {
+					p := podWithSidecar("p1", roleA, "2")
+					p.Namespace = metav1.NamespaceDefault
+					gate(p)
+					return *p
+				}(),
+			},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantErr:   podset.ErrInvalidPodsetInfo,
+			wantGated: new(true),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
+			}},
+		},
+		"pod-level resource requests above the reservation are rejected": {
+			wl: wlWithRoleA("1"),
+			pods: []corev1.Pod{
+				func() corev1.Pod {
+					p := podWithPodLevelResources("p1", roleA, "2")
+					p.Namespace = metav1.NamespaceDefault
+					gate(p)
+					return *p
+				}(),
+			},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantErr:   podset.ErrInvalidPodsetInfo,
+			wantGated: new(true),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
+			}},
+		},
+		"gate off ungates a forged oversized pod": {
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
+			wl:           wlWithRoleA("1"),
+			pods:         []corev1.Pod{gatedGroupPod("p1", "1"), gatedGroupPod("p2", "2")},
+			runInfo:      runInfoRoleA,
+			isGroup:      true,
+			wantGated:    new(false),
+		},
+		"gate off ungates a pod requesting an unreserved resource": {
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
+			wl:           wlWithRoleA("1"),
+			pods: []corev1.Pod{
+				*testingpod.MakePod("p1", metav1.NamespaceDefault).
+					Image("", nil).
+					Request(corev1.ResourceCPU, "1").
+					Request(gpu, "1").
+					RoleHash(roleA).
+					KueueSchedulingGate().
+					Obj(),
+			},
+			runInfo:   runInfoRoleA,
+			isGroup:   true,
+			wantGated: new(false),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.featureGates != nil {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			} else {
+				features.SetFeatureGateDuringTest(t, features.PodIntegrationVerifyRoleRequests, true)
+			}
+
 			pod := FromObject(&tc.pods[0])
+			if tc.isGroup {
+				pod.isGroup = true
+				pod.list.Items = tc.pods
+			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
@@ -163,11 +350,33 @@ func TestRun(t *testing.T) {
 			}
 
 			kClient := clientBuilder.WithLists(&corev1.PodList{Items: tc.pods}).Build()
+			recorder := &utiltesting.EventRecorder{}
 
-			gotErr := pod.Run(ctx, kClient, tc.wl, tc.runInfo, nil, "")
+			gotErr := pod.Run(ctx, kClient, tc.wl, tc.runInfo, recorder, "")
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantErr != nil && podset.IsPermanent(tc.wantErr) && !podset.IsPermanent(gotErr) {
+				t.Errorf("got error %v, want permanent", gotErr)
+			}
+
+			if tc.wantGated != nil {
+				for i := range tc.pods {
+					got := &corev1.Pod{}
+					if err := kClient.Get(ctx, client.ObjectKeyFromObject(&tc.pods[i]), got); err != nil {
+						t.Fatalf("get pod %q: %v", tc.pods[i].Name, err)
+					}
+					if gated := isGated(got); gated != *tc.wantGated {
+						t.Errorf("pod %q gated = %v, want %v", got.Name, gated, *tc.wantGated)
+					}
+				}
+			}
+
+			if tc.wantEvents != nil {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("events mismatch (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}
@@ -513,6 +722,15 @@ func TestConstructGroupPodSets(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+
+			for i := range tc.pods {
+				gate(&tc.pods[i])
+			}
+			features.SetFeatureGateDuringTest(t, features.PodIntegrationVerifyRoleRequests, true)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").PodSets(gotPodSets...).Obj()
+			if err := validatePodsBeforeUngating(tc.pods, wl, nil); err != nil {
+				t.Errorf("honest max-merged group failed validatePodsBeforeUngating: %v", err)
 			}
 		})
 	}

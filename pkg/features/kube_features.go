@@ -614,6 +614,16 @@ const (
 	// by the pod-group framework (missing is-group-workload annotation).
 	PodIntegrationValidateGroupOwner featuregate.Feature = "PodIntegrationValidateGroupOwner"
 
+	// owner: @vladikkuzn
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13382
+	// Before ungating a pod-group Pod, verify that it fits the PodSet named by its
+	// kueue.x-k8s.io/role-hash annotation. The annotation is treated as an untrusted
+	// PodSet name, not a credential. Disable to restore the previous behavior of
+	// ungating without this check, at the cost of allowing a forged role hash to run
+	// an oversized Pod under a cheaper role's reservation.
+	PodIntegrationVerifyRoleRequests featuregate.Feature = "PodIntegrationVerifyRoleRequests"
+
 	// owner: @ivnovakov
 	//
 	// Validates an update in the RayCluster, RayJob, RayService and SparkApplication
@@ -1001,6 +1011,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	MultiKueueReuseClientConnectionConfigForWorkers: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodIntegrationVerifyRoleRequests: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
