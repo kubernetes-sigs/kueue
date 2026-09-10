@@ -140,6 +140,35 @@ func TestFindTopologyAssignments(t *testing.T) {
 			Ready().
 			Obj(),
 	}
+	// A rack whose two nodes differ only by an untolerated taint.
+	taintedRackNodes := []corev1.Node{
+		*testingnode.MakeNode("n-ok").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "n-ok").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("n-tainted").
+			Label(tasBlockLabel, "b1").
+			Label(tasRackLabel, "r1").
+			Label(corev1.LabelHostname, "n-tainted").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Taints(corev1.Taint{
+				Key:    "example.com/gpu",
+				Value:  "present",
+				Effect: corev1.TaintEffectNoSchedule,
+			}).
+			Obj(),
+	}
+
 	//nolint:dupword // suppress duplicate r1 word
 	//       b1           b2
 	//       |             |
@@ -1434,7 +1463,183 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 4000,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: resource "cpu": 4`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`,
+			}},
+		},
+		"hostname required on a topology which does not declare it; per-node feasibility": {
+			// The injected level is internal. It must not turn
+			// podset-required-topology: kubernetes.io/hostname into a valid
+			// request on a Topology which never declared the level.
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
+			nodes:        defaultNodes,
+			levels:       defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(corev1.LabelHostname),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      1,
+				wantReason: "no requested topology level: kubernetes.io/hostname",
+			}},
+		},
+		"rack required; untolerated taint inside the rack; feature gate off": {
+			// The rack is the leaf, so its nodes' taints are never consulted and
+			// both Pods are admitted. One of them cannot then be scheduled.
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: false},
+			nodes:        taintedRackNodes,
+			levels:       defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasRackLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultTwoLevels,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  2,
+							Values: []string{"b1", "r1"},
+						},
+					},
+				},
+			}},
+		},
+		"rack required; untolerated taint inside the rack; per-node feasibility": {
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
+			nodes:        taintedRackNodes,
+			levels:       defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasRackLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      2,
+				wantReason: `topology "default" allows to fit only 1 out of 2 pod(s). Total nodes: 2; excluded: taint "example.com/gpu=present:NoSchedule": 1`,
+			}},
+		},
+		"rack required; Pod fits in the rack's aggregated capacity but on no single node; feature gate off": {
+			// Without per-node feasibility the rack's 3 CPU aggregate admits the
+			// Pod, which is the behaviour every release so far has shipped.
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: false},
+			nodes:        defaultNodes,
+			levels:       defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasRackLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 2500,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultTwoLevels,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  1,
+							Values: []string{"b1", "r2"},
+						},
+					},
+				},
+			}},
+		},
+		"rack required; Pod fits in the rack's aggregated capacity but on no single node; BestFit": {
+			// Rack b1/r2 aggregates 3 CPU, but the largest node has 2 CPU.
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
+			nodes:        defaultNodes,
+			levels:       defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasRackLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 2500,
+				},
+				count:      1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`,
+			}},
+		},
+		"unconstrained; all nodes needed; non-hostname lowest level; BestFit": {
+			// The assignment must be published at the user-specified levels
+			// with per-rack counts summed over the underlying nodes.
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
+			nodes:        defaultNodes,
+			levels:       defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 7,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultTwoLevels,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  1,
+							Values: []string{"b1", "r1"},
+						},
+						{
+							Count:  3,
+							Values: []string{"b1", "r2"},
+						},
+						{
+							Count:  1,
+							Values: []string{"b2", "r1"},
+						},
+						{
+							Count:  2,
+							Values: []string{"b2", "r2"},
+						},
+					},
+				},
+			}},
+		},
+		"rack required; usage recorded on a rack bounds the rack, not its nodes; BestFit": {
+			// Which node inside b1/r2 holds the 1 CPU is unknown, so the usage
+			// bounds the rack: 3 CPU total less 1 CPU used fits both Pods. The
+			// nodes themselves stay at 1 CPU each, so each can hold one Pod.
+			// b2/r2 is bounded the other way: x4 has 2 CPU allocatable, but
+			// only 0.5 CPU of the rack is left, so it takes no Pod at all.
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
+			nodes:        defaultNodes,
+			levels:       defaultTwoLevels,
+			priorOwnUsage: []workload.TopologyDomainRequests{
+				{
+					Values:            []string{"b1", "r2"},
+					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
+					Count:             1,
+				},
+				{
+					Values:            []string{"b2", "r2"},
+					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1500}),
+					Count:             1,
+				},
+			},
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasRackLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultTwoLevels,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  2,
+							Values: []string{"b1", "r2"},
+						},
+					},
+				},
 			}},
 		},
 		"block required; too many Pods to fit requested; BestFit": {

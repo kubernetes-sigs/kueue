@@ -40,6 +40,7 @@ func TestClusterQueueRun(t *testing.T) {
 	testCases := map[string]struct {
 		ns         string
 		objs       []runtime.Object
+		listPages  []runtime.Object
 		args       []string
 		wantOut    string
 		wantOutErr string
@@ -140,12 +141,47 @@ cq1    cohort1   1                   2                    true     60m
 		"should print not found error": {
 			wantOutErr: "No resources found\n",
 		},
+		"should print a single yaml document across pages": {
+			args: []string{"-o", "yaml"},
+			listPages: []runtime.Object{
+				&kueue.ClusterQueueList{
+					ListMeta: metav1.ListMeta{Continue: "page2"},
+					Items:    []kueue.ClusterQueue{{ObjectMeta: metav1.ObjectMeta{Name: "a"}}},
+				},
+				&kueue.ClusterQueueList{
+					Items: []kueue.ClusterQueue{{ObjectMeta: metav1.ObjectMeta{Name: "b"}}},
+				},
+			},
+			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2
+items:
+- metadata:
+    name: a
+  spec: {}
+  status:
+    admittedWorkloads: 0
+    pendingWorkloads: 0
+    reservingWorkloads: 0
+- metadata:
+    name: b
+  spec: {}
+  status:
+    admittedWorkloads: 0
+    pendingWorkloads: 0
+    reservingWorkloads: 0
+kind: ClusterQueueList
+metadata: {}
+`,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			clientset := fake.NewSimpleClientset(tc.objs...)
+			if len(tc.listPages) > 0 {
+				prependPagedListReactor(clientset, "clusterqueues", tc.listPages)
+			}
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 
 			cmd := NewClusterQueueCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetArgs(tc.args)

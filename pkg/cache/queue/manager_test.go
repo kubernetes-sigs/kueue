@@ -2462,6 +2462,64 @@ func TestQueueSecondPassRefreshesMultipleNodeReplacementWorkload(t *testing.T) {
 	}
 }
 
+// TestSecondPassQueueIsPreemptor verifies that workloads queued in the second-pass queue retain their preemptor status.
+func TestSecondPassQueueIsPreemptor(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+
+	wl := baseWorkloadBuilder.Clone().
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj(),
+				).
+				Obj(),
+			time.Now(),
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).Obj()
+
+	fakeClock := testingclock.NewFakeClock(time.Now())
+	kClient := utiltesting.NewFakeClient(lq, cq, wl)
+	manager := NewManagerForUnitTests(kClient, nil, WithClock(fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQeueu: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding localQueue: %v", err)
+	}
+	wInfo := workload.NewInfo(log, wl)
+	manager.getClusterQueue(kueue.ClusterQueueReference("cq")).RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+
+	_ = manager.Heads(ctx)
+	got := manager.QueueSecondPassIfNeeded(ctx, wl, 0)
+	if !got {
+		t.Errorf("Expected workload to be queued")
+	}
+	fakeClock.Step(time.Second)
+
+	heads := manager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Errorf("Expected 1 head, got %d", len(heads))
+	}
+	if !heads[0].IsPreemptor {
+		t.Errorf("Expected second pass workload to be IsPreemptor = true, got false")
+	}
+}
+
 func TestUpdateUnadmittedWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
@@ -2696,29 +2754,29 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	}
 }
 
-// TestAddOrUpdateWorkloadCarriesLastAssignment covers the flavor scan progress surviving a
+// TestAddOrUpdateWorkloadCarriesFlavorScanState covers the flavor scan progress surviving a
 // Workload update. Updating a Workload rebuilds its Info, and rebuilding it used to drop
-// LastAssignment, so a cluster where Workloads are updated frequently sent the scan back to
+// FlavorScanState, so a cluster where Workloads are updated frequently sent the scan back to
 // the first flavor no matter what an earlier cycle had recorded.
 //
 // Both places a pending Workload can be tracked are covered. A Workload with flavors still
 // to try is pushed back onto the heap, while one whose scan has been exhausted is held in
 // inadmissibleWorkloads, which ClusterQueue.Info deliberately does not consult.
-func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
+func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 	// pendingFlavors has a flavor left to try, so requeueing puts the Workload back on the
 	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
-	pendingFlavors := func() *workload.AssignmentClusterQueueState {
-		return &workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
-			ClusterQueueGeneration: 3,
-			SchedulingCycle:        7,
+	pendingFlavors := func() *workload.FlavorScanState {
+		return &workload.FlavorScanState{
+			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			AllocatableResourceGeneration: 3,
+			SchedulingCycle:               7,
 		}
 	}
-	exhaustedScan := func() *workload.AssignmentClusterQueueState {
-		return &workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
-			ClusterQueueGeneration: 3,
-			SchedulingCycle:        7,
+	exhaustedScan := func() *workload.FlavorScanState {
+		return &workload.FlavorScanState{
+			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
+			AllocatableResourceGeneration: 3,
+			SchedulingCycle:               7,
 		}
 	}
 
@@ -2733,7 +2791,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 		// changeShape alters the Workload's requests in the update, so its scheduling
 		// equivalence hash no longer matches the one the assignment was recorded for.
 		changeShape bool
-		recorded    *workload.AssignmentClusterQueueState
+		recorded    *workload.FlavorScanState
 		wantCarried bool
 	}{
 		"tracked in the heap": {
@@ -2808,7 +2866,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 				t.Fatal("Workload is not tracked by the ClusterQueue after being added")
 			}
 			tc.recorded.SchedulingHash = tracked.SchedulingHash
-			tracked.LastAssignment = tc.recorded
+			tracked.FlavorScanState = tc.recorded
 			if tc.inadmissible || tc.inflight {
 				if popped := cqImpl.Pop(); popped == nil {
 					t.Fatal("Popping the Workload returned nothing")
@@ -2843,15 +2901,15 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 			if got == nil {
 				t.Fatal("Workload is not tracked after the update")
 			}
-			var want *workload.AssignmentClusterQueueState
+			var want *workload.FlavorScanState
 			if tc.wantCarried {
 				want = tc.recorded
 			}
-			if diff := gocmp.Diff(want, got.LastAssignment); diff != "" {
-				t.Errorf("LastAssignment after the update (-want,+got):\n%s", diff)
+			if diff := gocmp.Diff(want, got.FlavorScanState); diff != "" {
+				t.Errorf("FlavorScanState after the update (-want,+got):\n%s", diff)
 			}
-			if tc.wantCarried && got.LastAssignment == tc.recorded {
-				t.Error("LastAssignment was carried by reference; it must be cloned so the two Infos do not alias")
+			if tc.wantCarried && got.FlavorScanState == tc.recorded {
+				t.Error("FlavorScanState was carried by reference; it must be cloned so the two Infos do not alias")
 			}
 		})
 	}

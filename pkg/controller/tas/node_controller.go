@@ -258,7 +258,7 @@ func newNodeReconciler(
 	return &nodeReconciler{
 		client:      client,
 		cache:       cache,
-		logName:     TASNodeController,
+		logName:     "tas-node-reconciler",
 		clock:       clock.RealClock{},
 		recorder:    recorder,
 		roleTracker: roleTracker,
@@ -728,7 +728,7 @@ func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workl
 
 func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
 	sliceName := workloadslicing.SliceName(wl)
-	pods, err := ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
 		indexer.PodNodeNameKey: nodeName,
 	})
 	if err != nil {

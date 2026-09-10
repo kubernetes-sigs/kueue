@@ -17,6 +17,8 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"math"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -29,7 +31,7 @@ func TestDistributeOrderBased(t *testing.T) {
 	cases := map[string]struct {
 		fullCounts []int32
 		deltas     []int32
-		amount     int32
+		amount     int64
 		wantOut    []int32
 	}{
 		"zero amount leaves everything at full count": {
@@ -66,9 +68,9 @@ func TestDistributeOrderBased(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			out := make([]int32, len(tc.fullCounts))
-			totalDelta := int32(0)
+			totalDelta := int64(0)
 			for _, d := range tc.deltas {
-				totalDelta += d
+				totalDelta += int64(d)
 			}
 			distributeOrderBased(out, tc.fullCounts, tc.deltas, tc.amount, totalDelta)
 			if diff := cmp.Diff(tc.wantOut, out); diff != "" {
@@ -78,7 +80,7 @@ func TestDistributeOrderBased(t *testing.T) {
 	}
 }
 
-func TestOrderedSearch(t *testing.T) {
+func TestOrderedReduce(t *testing.T) {
 	cases := map[string]struct {
 		podSets   []kueue.PodSet
 		ok        func(counts []int32) bool
@@ -107,17 +109,82 @@ func TestOrderedSearch(t *testing.T) {
 			},
 			wantFound: false,
 		},
-		"KEP scenario D phase 1: independent flavors force draining a podset with its own slack": {
+		// The PodSets below draw on separate capacity, which is what lets a count be given back.
+		// In practice that separation comes from PodSets carrying different node selectors tied
+		// to different node groups, and so being assigned different resource flavors; here it is
+		// just a per-PodSet bound in the fake.
+		"KEP scenario A: only the last podset is cut, and only as far as needed": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("ps0", 1).Obj(),
 				*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
 				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
 			},
-			// ps1 tied to rf1 (quota 2), ps2 tied to rf2 (quota 20, never the bottleneck).
+			// One shared pool of 19 against the 25 requested, so 6 pods have to go.
 			ok: func(counts []int32) bool {
-				return counts[1] <= 2
+				return counts[0]+counts[1]+counts[2] <= 19
+			},
+			// ps2 alone absorbs the cut, so only one podset is reduced and there is nothing for
+			// the give-back phase to redistribute.
+			wantCount: []int32{1, 4, 14},
+			wantFound: true,
+		},
+		"KEP scenario B: the cut spills into the previous podset, and cannot be given back": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+			},
+			// One shared pool of 13, so every count competes with every other.
+			ok: func(counts []int32) bool {
+				return counts[0]+counts[1]+counts[2] <= 13
 			},
 			wantCount: []int32{1, 2, 10},
+			wantFound: true,
+		},
+		"KEP scenario D: a podset drained for another's sake is restored in full": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+			},
+			// ps1 capped at 2, ps2 at its full 20. Both bounds are modelled: with only the ps1
+			// bound, a give-back that restored ps2 without limit would pass just as happily as
+			// a correct one.
+			ok: func(counts []int32) bool {
+				return counts[1] <= 2 && counts[2] <= 20
+			},
+			// The ordered shrink drains ps2 to its minimum before it can touch ps1, even though
+			// ps2's own capacity was never the constraint, so ps2 is given back afterwards.
+			wantCount: []int32{1, 2, 20},
+			wantFound: true,
+		},
+		"spare capacity goes to whichever competing podset comes first in podSets": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 20).SetMinimumCount(10).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 20).SetMinimumCount(10).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+			},
+			// ps0 capped at its minimum costs the shrink its whole budget, so all three land
+			// at 10 and the pool of 32 leaves 2 to give back.
+			ok: func(counts []int32) bool {
+				return counts[0] <= 10 && counts[0]+counts[1]+counts[2] <= 32
+			},
+			// ps1 and ps2 both have room for those 2, ps1 takes them, being ahead in podSets.
+			wantCount: []int32{10, 12, 10},
+			wantFound: true,
+		},
+		"a podset whose own capacity is partly exhausted is given back only as far as it fits": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps0", 1).Obj(),
+				*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
+				*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+			},
+			// ps2 has room for 15 of its 20, so the give-back lands strictly between the count
+			// the shrink settled on and the full count.
+			ok: func(counts []int32) bool {
+				return counts[1] <= 2 && counts[2] <= 15
+			},
+			wantCount: []int32{1, 2, 15},
 			wantFound: true,
 		},
 		"no podset has room to shrink": {
@@ -134,14 +201,14 @@ func TestOrderedSearch(t *testing.T) {
 				if !tc.ok(counts) {
 					return nil, false
 				}
-				// counts is reused across calls by Search, so it must be
+				// counts is reused across calls by Reduce, so it must be
 				// cloned to be safely returned as the winning result.
 				out := make([]int32, len(counts))
 				copy(out, counts)
 				return out, true
 			}
 			red := NewOrderedPodSetReducer(tc.podSets, fits)
-			count, found := red.Search()
+			count, found := red.Reduce()
 			if found != tc.wantFound {
 				t.Errorf("Unexpected found:%v, want: %v", found, tc.wantFound)
 			}
@@ -149,6 +216,128 @@ func TestOrderedSearch(t *testing.T) {
 				if diff := cmp.Diff(tc.wantCount, count); diff != "" {
 					t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+// TestReduceWithoutRefine covers a reducer that leaves refine nil, which a strategy whose
+// shrink is already exact would do. It uses the inputs of the KEP scenario D case above, so
+// the counts it asserts are what that scenario would be admitted at without the give-back.
+func TestReduceWithoutRefine(t *testing.T) {
+	podSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("ps0", 1).Obj(),
+		*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
+		*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+	}
+
+	fits := func(counts []int32) ([]int32, bool) {
+		if counts[1] > 2 || counts[2] > 20 {
+			return nil, false
+		}
+		return slices.Clone(counts), true
+	}
+
+	red := newPodSetReducer(podSets, fits, distributeOrderBased)
+	if red.refine != nil {
+		t.Fatal("Expected newPodSetReducer to leave refine unset")
+	}
+
+	count, found := red.Reduce()
+	if !found {
+		t.Fatal("Expected a solution")
+	}
+	// ps2 stays drained, since only the give-back pass would restore it to 20.
+	if diff := cmp.Diff([]int32{1, 2, 10}, count); diff != "" {
+		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
+	}
+}
+
+func TestReduceTotalDeltaLarge(t *testing.T) {
+	podSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("ps1", math.MaxInt32).SetMinimumCount(0).Obj(),
+		*utiltestingapi.MakePodSet("ps2", math.MaxInt32).SetMinimumCount(0).Obj(),
+		*utiltestingapi.MakePodSet("ps3", 1).SetMinimumCount(0).Obj(),
+	}
+
+	fits := func(counts []int32) ([]int32, bool) {
+		total := int64(counts[0]) + int64(counts[1]) + int64(counts[2])
+		if total > 1 {
+			return nil, false
+		}
+
+		out := make([]int32, len(counts))
+		copy(out, counts)
+		return out, true
+	}
+
+	red := NewOrderedPodSetReducer(podSets, fits)
+
+	if want, got := int64(4_294_967_295), red.totalDelta; got != want {
+		t.Fatalf("Unexpected totalDelta: %d, want %d", got, want)
+	}
+
+	count, found := red.Reduce()
+	if !found {
+		t.Fatal("Expected a solution")
+	}
+
+	wantCount := []int32{1, 0, 0}
+	if diff := cmp.Diff(wantCount, count); diff != "" {
+		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
+	}
+}
+
+// TestGiveBack covers the guard that decides whether the second pass runs at all. It calls
+// giveBack directly with a fits() that accepts anything, so a pass that runs is visible in both
+// the counts it returns and the number of probes it makes - which a test going through Reduce
+// could not show, since with one reduced PodSet the pass provably cannot change the counts.
+func TestGiveBack(t *testing.T) {
+	podSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("ps1", 4).SetMinimumCount(2).Obj(),
+		*utiltestingapi.MakePodSet("ps2", 20).SetMinimumCount(10).Obj(),
+	}
+
+	cases := map[string]struct {
+		// counts stands in for what the ordered shrink settled on.
+		counts     []int32
+		wantCounts []int32
+		wantProbes int
+	}{
+		"one reduced podset: the pass is skipped": {
+			counts:     []int32{4, 15},
+			wantCounts: []int32{4, 15},
+			wantProbes: 0,
+		},
+		"two reduced podsets: both are restored": {
+			counts:     []int32{3, 15},
+			wantCounts: []int32{4, 20},
+			wantProbes: 2,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			probes := 0
+			fits := func(counts []int32) ([]int32, bool) {
+				probes++
+				return slices.Clone(counts), true
+			}
+			psr := NewOrderedPodSetReducer(podSets, fits)
+
+			counts := slices.Clone(tc.counts)
+			best, found := psr.giveBack(counts, slices.Clone(tc.counts))
+			if !found {
+				t.Fatal("Expected giveBack to keep the solution it was given")
+			}
+			if diff := cmp.Diff(tc.wantCounts, counts); diff != "" {
+				t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantCounts, best); diff != "" {
+				t.Errorf("Unexpected result, out of step with counts (-want,+got):\n%s", diff)
+			}
+			if probes != tc.wantProbes {
+				t.Errorf("Unexpected fits() probes: %d, want %d", probes, tc.wantProbes)
 			}
 		})
 	}

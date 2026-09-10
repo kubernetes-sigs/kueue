@@ -325,6 +325,21 @@ func TestParseResourceQuotas(t *testing.T) {
 			borrowingArgs: []string{"alpha:example.com/gpu=2"},
 			wantErr:       errInvalidFlavor,
 		},
+		"should create one resource group with decimal quantities": {
+			quotaArgs:     []string{"alpha:cpu=1.5;memory=1.5Gi"},
+			borrowingArgs: []string{"alpha:cpu=0.5;memory=2Gi"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1.5", "0.5").
+							Resource("memory", "1.5Gi", "2Gi").
+							Obj(),
+					},
+				},
+			},
+		},
 		"should fail when invalid resource quotas": {
 			quotaArgs: []string{"alpha:cpu=;memory=1"},
 			wantErr:   errInvalidResourcesSpec,
@@ -343,6 +358,10 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should fail when invalid quantity": {
 			quotaArgs: []string{"alpha:cpu=a;memory=1"},
+			wantErr:   errInvalidResourceQuota,
+		},
+		"should fail when invalid decimal quantity": {
+			quotaArgs: []string{"alpha:cpu=1.5.5;memory=1"},
 			wantErr:   errInvalidResourceQuota,
 		},
 	}

@@ -22,6 +22,7 @@ package v1alpha1
 // with apply.
 type CapacityDistributionApplyConfiguration struct {
 	// subtreeRootQuotaRef identifies the root of the quota subtree.
+	//
 	SubtreeRootQuotaRef *CapacityDistributionSubtreeRootRefApplyConfiguration `json:"subtreeRootQuotaRef,omitempty"`
 }
 

@@ -22,10 +22,12 @@ package v1alpha1
 // with apply.
 type DynamicQuotaOrchestratorSpecApplyConfiguration struct {
 	// capacityDiscovery specifies capacity aggregation.
+	//
 	CapacityDiscovery *CapacityDiscoveryApplyConfiguration `json:"capacityDiscovery,omitempty"`
 	// capacityDistribution specifies how aggregated capacity is distributed.
 	// When omitted, the DQO is discovery-only: it reports aggregated capacity
 	// but does not write effectiveQuotas status.
+	//
 	CapacityDistribution *CapacityDistributionApplyConfiguration `json:"capacityDistribution,omitempty"`
 }
 
