@@ -21,7 +21,6 @@ import (
 	"maps"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -9234,14 +9233,17 @@ func TestFindTopologyAssignments(t *testing.T) {
 				}
 
 				if features.Enabled(features.TASHandleOverlappingFlavors) {
-					tc.aggregatedDomainUsages = aggregatedDomainUsagesForPriorFlavorUsage(
-						log,
-						topologyInformation,
-						flavorInformation,
-						tc.priorFlavorUsage,
-						&tasCache,
-						tc.aggregatedDomainUsages,
-					)
+					siblingCache := tasCache.NewTASFlavorCache(topologyInformation, flavorInformation)
+					if len(tc.priorFlavorUsage) > 0 {
+						siblingCache.addUsage(log, "prior-wl", tc.priorFlavorUsage)
+					}
+					tc.aggregatedDomainUsages = maps.Clone(tc.aggregatedDomainUsages)
+					if tc.aggregatedDomainUsages == nil {
+						tc.aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.Requests, len(siblingCache.usage))
+					}
+					for domainID, usage := range siblingCache.usage {
+						tc.aggregatedDomainUsages[domainID] = usage.Clone()
+					}
 				}
 
 				var aggregatedDomainUsage map[tas.TopologyDomainID]resources.Requests
@@ -9309,29 +9311,4 @@ func TestFindTopologyAssignments(t *testing.T) {
 			})
 		}
 	}
-}
-
-// TODO: Once we commonize "TestFindTopologyAssignments" and "TestFindTopologyAssignmentsMultiLayerReplacement" into one,
-// we should remove this helper function.
-func aggregatedDomainUsagesForPriorFlavorUsage(
-	log logr.Logger,
-	topologyInfo topologyInformation,
-	flvInfo flavorInformation,
-	priorFlavorUsage []workload.TopologyDomainRequests,
-	cache *tasCache,
-	initialAggregatedDomainUsages map[tas.TopologyDomainID]resources.Requests,
-) map[tas.TopologyDomainID]resources.Requests {
-	siblingCache := cache.NewTASFlavorCache(topologyInfo, flvInfo)
-	if len(priorFlavorUsage) > 0 {
-		siblingCache.addUsage(log, "prior-wl", priorFlavorUsage)
-	}
-
-	aggregatedDomainUsages := maps.Clone(initialAggregatedDomainUsages)
-	if aggregatedDomainUsages == nil {
-		aggregatedDomainUsages = make(map[tas.TopologyDomainID]resources.Requests, len(siblingCache.usage))
-	}
-	for domainID, usage := range siblingCache.usage {
-		aggregatedDomainUsages[domainID] = usage.Clone()
-	}
-	return aggregatedDomainUsages
 }
