@@ -324,6 +324,43 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
+		"Node NotReady, another workload's running pod does not prevent replacement": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination:           true,
+				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
+			},
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				failedPod.DeepCopy(),
+				testingpod.MakePod("other-workload-pod", nsName).
+					Annotation(kueue.WorkloadAnnotation, "other-workload").
+					NodeName(nodeName).StatusPhase(corev1.PodRunning).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
+		"Node NotReady, an unmanaged running pod does not prevent replacement": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination:           true,
+				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
+			},
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				failedPod.DeepCopy(),
+				testingpod.MakePod("unmanaged-pod", nsName).
+					NodeName(nodeName).StatusPhase(corev1.PodRunning).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
 		"Node NotReady, pod failed, marked as unavailable": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
