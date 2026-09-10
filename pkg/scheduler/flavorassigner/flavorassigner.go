@@ -53,7 +53,10 @@ type Assignment struct {
 	// Borrowing is the height of the smallest cohort tree that fits
 	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int
-	LastState workload.FlavorScanState
+
+	// FlavorScanState records flavor scan progress from this assignment attempt
+	// for reuse in subsequent scheduling attempts.
+	FlavorScanState workload.FlavorScanState
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned. When workload slicing is enabled and replaceWorkloadSlice
@@ -724,7 +727,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		Usage: workload.Usage{
 			Quota: make(resources.FlavorResourceQuantities),
 		},
-		LastState: workload.FlavorScanState{
+		FlavorScanState: workload.FlavorScanState{
 			LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, 0, len(requests)),
 			AllocatableResourceGeneration: a.cq.AllocatableResourceGeneration,
 			SchedulingCycle:               a.schedulingCycle,
@@ -1033,7 +1036,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		a.Usage.Quota[fr] = a.Usage.Quota[fr].AddInt64(requestAmount)
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
-	a.LastState.LastTriedFlavorIndexes = append(a.LastState.LastTriedFlavorIndexes, flavorIdx)
+	a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, flavorIdx)
 }
 
 // findOldPodSetRequest returns the resource request from the old workload slice
