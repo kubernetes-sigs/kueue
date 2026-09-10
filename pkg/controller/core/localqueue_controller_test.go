@@ -92,6 +92,70 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Obj(),
 			wantError: nil,
 		},
+		"held local queue still updates AFS consumed usage": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq-hold-afs").
+				Active(metav1.ConditionTrue).
+				Obj(),
+			localQueue: utiltestingapi.MakeLocalQueue("lq-hold-afs", "default").
+				ClusterQueue("cq-hold-afs").
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				Obj(),
+			initialConsumedResources: queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("8"),
+				},
+				LastUpdate:      now.Add(-5 * time.Minute),
+				StatusAccounted: true,
+			},
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-hold-afs", "default").
+					Queue("lq-hold-afs").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("cq-hold-afs", "rf", clock.Now()).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("lq-hold-afs", "default").
+				ClusterQueue("cq-hold-afs").
+				StopPolicy(kueue.Hold).
+				Generation(1).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					StoppedReason,
+					localQueueIsInactiveMsg,
+					1,
+				).
+				FairSharing(&kueue.FairSharing{
+					Weight: new(resource.MustParse("1")),
+				}).
+				FairSharingStatus(
+					&kueue.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
+								corev1.ResourceCPU: resource.MustParse("6"),
+							},
+						},
+					}).
+				Obj(),
+			wantConsumedResources: &queueafs.UsageLedgerEntry{
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("6"),
+				},
+				LastUpdate:      clock.Now(),
+				StatusAccounted: true,
+			},
+			afsConfig: &config.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+			},
+		},
 		"local queue with HoldAndDrain StopPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
 				Obj(),
