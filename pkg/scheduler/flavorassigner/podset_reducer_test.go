@@ -17,7 +17,10 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"math"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -146,5 +149,40 @@ func TestSearch(t *testing.T) {
 				t.Errorf("Unexpected found:%v, want: %v", found, tc.wantFound)
 			}
 		})
+	}
+}
+
+func TestSearchTotalDeltaLarge(t *testing.T) {
+	podSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("ps1", math.MaxInt32).SetMinimumCount(0).Obj(),
+		*utiltestingapi.MakePodSet("ps2", math.MaxInt32).SetMinimumCount(0).Obj(),
+		*utiltestingapi.MakePodSet("ps3", 1).SetMinimumCount(0).Obj(),
+	}
+
+	fits := func(counts []int32) ([]int32, bool) {
+		total := int64(counts[0]) + int64(counts[1]) + int64(counts[2])
+		if total > 1 {
+			return nil, false
+		}
+
+		out := make([]int32, len(counts))
+		copy(out, counts)
+		return out, true
+	}
+
+	red := NewPodSetReducer(podSets, fits)
+
+	if want, got := int64(4_294_967_295), red.totalDelta; got != want {
+		t.Fatalf("Unexpected totalDelta: %d, want %d", got, want)
+	}
+
+	count, found := red.Search()
+	if !found {
+		t.Fatal("Expected a solution")
+	}
+
+	wantCount := []int32{0, 0, 0}
+	if diff := cmp.Diff(wantCount, count); diff != "" {
+		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
 	}
 }
