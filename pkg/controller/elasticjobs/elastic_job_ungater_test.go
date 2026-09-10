@@ -877,7 +877,7 @@ func TestReconcile(t *testing.T) {
 		"no-op for finished slice": {
 			// Slice replacement marks the previous slice Finished while keeping
 			// its Admitted and QuotaReserved conditions True. Reconciling the chain
-			// must not ungate any pods using this slice's stale count: activeSlice
+			// must not ungate any pods using this slice's stale count: the shared lookup
 			// skips finished slices and, with no other live slice in the chain,
 			// returns nil so nothing is ungated.
 			workloads: []kueue.Workload{
@@ -1115,10 +1115,10 @@ func TestReconcile(t *testing.T) {
 			}
 
 			// The ungater now reconciles by the chain's ACTIVE slice: the enqueue
-			// handlers resolve it via activeSlice, so mirror that here to pick the
+			// handlers resolve it via FindLatestAdmittedWorkload, so mirror that here to pick the
 			// request key. Expectations stay keyed by the stable chain key (the
 			// active slice's origin name).
-			active, err := ungater.activeSlice(ctx, &tc.workloads[0])
+			active, err := workloadslicing.FindLatestAdmittedWorkload(ctx, kClient, &tc.workloads[0], false)
 			if err != nil {
 				t.Fatalf("resolving active slice: %v", err)
 			}
