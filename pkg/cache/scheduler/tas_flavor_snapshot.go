@@ -296,10 +296,10 @@ func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, us
 	leafCapacity.cachedRemainingCapacity = resources.LazyRequests{}
 }
 
-func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp, count int32) {
+func (s *TASFlavorSnapshot) updateTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op UsageOp, count int32) {
 	u := usage.Clone()
 	u.Add(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(count)}))
-	if op == add {
+	if op == Add {
 		s.addTASUsage(domainID, u)
 	} else {
 		s.removeTASUsage(domainID, u)
@@ -422,7 +422,7 @@ func (s *TASFlavorSnapshot) domainRemainingCapacity(dom *domain, assumedUsage re
 // snapshot has a leaf for. An overlapping flavor holds only some of them, so an
 // unheld domain must not reach the skip report in addTASUsage and
 // removeTASUsage, which means the backing node went away.
-func (s *TASFlavorSnapshot) updateTASUsageForHeldDomains(usage workload.TASFlavorUsage, op usageOp) {
+func (s *TASFlavorSnapshot) UpdateTASUsageForHeldDomains(usage workload.TASFlavorUsage, op UsageOp) {
 	for _, tr := range usage {
 		domainID := utiltas.DomainID(tr.Values)
 		if !s.hasDomain(domainID) {
@@ -433,16 +433,16 @@ func (s *TASFlavorSnapshot) updateTASUsageForHeldDomains(usage workload.TASFlavo
 }
 
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
-	s.applyTASUsage(domainID, usage, add)
+	s.applyTASUsage(domainID, usage, Add)
 }
 
 func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
-	s.applyTASUsage(domainID, usage, subtract)
+	s.applyTASUsage(domainID, usage, Subtract)
 }
 
 // applyTASUsage records usage against the domain the TopologyAssignment names,
 // as resolved by usageDomain.
-func (s *TASFlavorSnapshot) applyTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op usageOp) {
+func (s *TASFlavorSnapshot) applyTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests, op UsageOp) {
 	dom := s.usageDomain(domainID)
 	if dom == nil {
 		// this can happen if there is an admitted workload for which the
@@ -462,11 +462,11 @@ func (s *TASFlavorSnapshot) applyTASUsage(domainID utiltas.TopologyDomainID, usa
 
 // updateUsage applies op to tracked and returns it, allocating on first use.
 // The result must be stored back, as tracked may have been nil.
-func updateUsage(tracked, usage resources.Requests, op usageOp) resources.Requests {
+func updateUsage(tracked, usage resources.Requests, op UsageOp) resources.Requests {
 	if tracked == nil {
 		tracked = resources.NewRequests()
 	}
-	if op == add {
+	if op == Add {
 		tracked.Add(usage)
 	} else {
 		tracked.Sub(usage)
@@ -2390,6 +2390,16 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 		Levels:  a.Levels,
 		Domains: mergedDomains,
 	}
+}
+
+func (s *TASFlavorSnapshot) GetDomainUsage() map[utiltas.TopologyDomainID]resources.Requests {
+	domainUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
+	for domainID, leaf := range s.leaves {
+		if leafCapacity := s.leafCapacityOf(leaf); leafCapacity.tasUsage != nil {
+			domainUsage[domainID] = leafCapacity.tasUsage
+		}
+	}
+	return domainUsage
 }
 
 func canMergeDomains(mergedDomains []utiltas.TopologyDomainAssignment, domain utiltas.TopologyDomainAssignment) bool {

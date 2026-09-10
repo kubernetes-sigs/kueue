@@ -28,9 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -45,8 +44,7 @@ type Simulation func(*SimulationContext) (simErr error)
 // All operations performed on the snapshot by the SimulationContext are scoped to the Simulation
 // and will be reverted when the Simulate function finishes.
 type SimulationContext struct {
-	cacheSnapshot     *hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]
-	simulatorSnapshot simulator.SimulatorSnapshot
+	schdcache.Snapshot
 
 	simulatedPreemptions  map[workloadKey]preemption
 	restoreUsageCallbacks []func()
@@ -64,8 +62,7 @@ type preemption struct {
 
 func newSimulationContext(ctx context.Context, snapshot *schdcache.Snapshot) *SimulationContext {
 	return &SimulationContext{
-		cacheSnapshot:         &snapshot.Manager,
-		simulatorSnapshot:     snapshot.SimulatorSnapshot,
+		Snapshot:              *snapshot,
 		simulatedPreemptions:  make(map[workloadKey]preemption),
 		restoreUsageCallbacks: make([]func(), 0),
 		log:                   ctrl.LoggerFrom(ctx).V(3),
@@ -124,7 +121,7 @@ func (s *SimulationContext) PreemptWorkload(ctx context.Context, candidate *work
 	}
 
 	wlKey := client.ObjectKeyFromObject(candidate.Obj)
-	revert, err := s.simulatorSnapshot.PreemptWorkload(ctx, wlKey)
+	revert, err := s.SimulatorSnapshot.PreemptWorkload(ctx, wlKey)
 	if err != nil {
 		preemptErr := fmt.Errorf("failed to preempt workload %s: %w", wlKey, err)
 		s.terminate(preemptErr)
@@ -165,11 +162,15 @@ func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
 	}
 	for _, cqUsage := range cqUsages {
-		s.cacheSnapshot.ClusterQueue(cqUsage.cq).RemoveUsage(cqUsage.usage)
+		cq := s.ClusterQueue(cqUsage.cq)
+		cq.RemoveUsage(cqUsage.usage)
+		s.updateOverlappingTASUsage(cq.TASFlavors, cqUsage.usage.TAS, schdcache.Subtract)
 	}
 	s.restoreUsageCallbacks = append(s.restoreUsageCallbacks, func() {
 		for _, cqUsage := range cqUsages {
-			s.cacheSnapshot.ClusterQueue(cqUsage.cq).AddUsage(cqUsage.usage)
+			cq := s.ClusterQueue(cqUsage.cq)
+			cq.AddUsage(cqUsage.usage)
+			s.updateOverlappingTASUsage(cq.TASFlavors, cqUsage.usage.TAS, schdcache.Add)
 		}
 	})
 }
@@ -179,7 +180,24 @@ func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *schdc
 		return nil
 	}
 
-	return s.cacheSnapshot.ClusterQueue(ref)
+	return s.Snapshot.ClusterQueue(ref)
+}
+
+func (s *SimulationContext) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot, usage workload.TASUsage, op schdcache.UsageOp) {
+	if len(usage) == 0 || !features.Enabled(features.TASHandleOverlappingFlavors) {
+		return
+	}
+	for sourceFlavor, tasUsage := range usage {
+		if sourceFlavors[sourceFlavor] == nil || s.HostnameLeafTASFlavors[sourceFlavor] == nil {
+			continue
+		}
+		for flavor, tasFlavor := range s.HostnameLeafTASFlavors {
+			if flavor == sourceFlavor {
+				continue
+			}
+			tasFlavor.UpdateTASUsageForHeldDomains(tasUsage, op)
+		}
+	}
 }
 
 func (s *SimulationContext) terminate(reason error) {
@@ -198,8 +216,7 @@ func (s *SimulationContext) errorTerminated() error {
 // childContext returns a new context for running a nested simulation.
 func (s *SimulationContext) childContext() *SimulationContext {
 	return &SimulationContext{
-		cacheSnapshot:         s.cacheSnapshot,
-		simulatorSnapshot:     s.simulatorSnapshot,
+		Snapshot:              s.Snapshot,
 		simulatedPreemptions:  make(map[workloadKey]preemption),
 		restoreUsageCallbacks: make([]func(), 0),
 		log:                   s.log,
@@ -210,9 +227,10 @@ func (s *SimulationContext) childContext() *SimulationContext {
 // removeWorkload removes a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *SimulationContext) removeWorkload(wl *workload.Info) {
-	cq := s.cacheSnapshot.ClusterQueue(wl.ClusterQueue)
+	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	cq.RemoveUsage(wl.Usage())
+	s.updateOverlappingTASUsage(cq.TASFlavors, wl.Usage().TAS, schdcache.Subtract)
 }
 
 // RestoreWorkload tries to restore preempted workloads as listed.
@@ -240,9 +258,10 @@ func (s *SimulationContext) restoreWorkloads(targets ...types.NamespacedName) er
 // addWorkload adds a workload to its corresponding ClusterQueue and
 // updates resource usage.
 func (s *SimulationContext) addWorkload(wl *workload.Info) {
-	cq := s.cacheSnapshot.ClusterQueue(wl.ClusterQueue)
+	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.Usage())
+	s.updateOverlappingTASUsage(cq.TASFlavors, wl.Usage().TAS, schdcache.Add)
 }
 
 func (s *SimulationContext) restoreUsage() {

@@ -20,23 +20,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -47,15 +55,16 @@ var simCmpOpts = []cmp.Option{
 
 var snapshotCmpOpts = cmp.Options{
 	cmpopts.EquateEmpty(),
-	cmpopts.IgnoreUnexported(schdcache.ClusterQueueSnapshot{}),
-	cmpopts.IgnoreUnexported(schdcache.CohortSnapshot{}),
-	cmpopts.IgnoreUnexported(hierarchy.Cohort[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*schdcache.CohortSnapshot]{}),
-	cmpopts.IgnoreUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(schedcache.Snapshot{}),
+	cmpopts.IgnoreUnexported(schedcache.ClusterQueueSnapshot{}),
+	cmpopts.IgnoreUnexported(schedcache.CohortSnapshot{}),
+	cmpopts.IgnoreUnexported(hierarchy.Cohort[*schedcache.ClusterQueueSnapshot, *schedcache.CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*schedcache.CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.Manager[*schedcache.ClusterQueueSnapshot, *schedcache.CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(resources.Amount{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(schdcache.Snapshot{}, "SimulatorSnapshot"),
-	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{},
+	cmpopts.IgnoreFields(schedcache.Snapshot{}, "SimulatorSnapshot"),
+	cmpopts.IgnoreFields(schedcache.ClusterQueueSnapshot{},
 		"NamespaceSelector",
 		"Preemption",
 		"Status",
@@ -65,7 +74,7 @@ var snapshotCmpOpts = cmp.Options{
 		"FlavorFungibility",
 		"FairWeight",
 	),
-	cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+	cmpopts.IgnoreFields(schedcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 	cmpopts.IgnoreTypes(&workload.Info{}),
 }
 
@@ -74,13 +83,13 @@ func setupSimulationTest(
 	flavors []*kueue.ResourceFlavor,
 	clusterQueues []*kueue.ClusterQueue,
 	workloads []kueue.Workload,
-) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
+) (context.Context, *schedcache.Cache, map[string]*workload.Info) {
 	t.Helper()
 
 	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
-	cqCache := schdcache.New(cl)
+	cqCache := schedcache.New(cl)
 	for _, flv := range flavors {
 		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}
@@ -103,7 +112,7 @@ func setupSimulationTest(
 	return ctx, cqCache, wlInfos
 }
 
-func defaultSetup(t *testing.T) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
+func defaultSetup(t *testing.T) (context.Context, *schedcache.Cache, map[string]*workload.Info) {
 	t.Helper()
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
@@ -137,362 +146,6 @@ func defaultSetup(t *testing.T) (context.Context, *schdcache.Cache, map[string]*
 	return setupSimulationTest(t, flavors, clusterQueues, workloads)
 }
 
-func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	flavors := []*kueue.ResourceFlavor{
-		utiltestingapi.MakeResourceFlavor("default").Obj(),
-	}
-	clusterQueues := []*kueue.ClusterQueue{
-		utiltestingapi.MakeClusterQueue("lend-a").
-			Cohort("lend").
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10", "", "4").Obj(),
-			).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
-			}).
-			Obj(),
-		utiltestingapi.MakeClusterQueue("lend-b").
-			Cohort("lend").
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10", "", "6").Obj(),
-			).
-			Preemption(kueue.ClusterQueuePreemption{
-				WithinClusterQueue:  kueue.PreemptionPolicyNever,
-				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-			}).
-			Obj(),
-	}
-	workloads := []kueue.Workload{
-		*utiltestingapi.MakeWorkload("lend-a-1", "").
-			Request(corev1.ResourceCPU, "1").
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-a").
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", "1").
-					Obj()).
-				Obj(), now).
-			Obj(),
-		*utiltestingapi.MakeWorkload("lend-a-2", "").
-			Request(corev1.ResourceCPU, "9").
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-a").
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", "9").
-					Obj()).
-				Obj(), now).
-			Obj(),
-		*utiltestingapi.MakeWorkload("lend-a-3", "").
-			Request(corev1.ResourceCPU, "6").
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-a").
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", "6").
-					Obj()).
-				Obj(), now).
-			Obj(),
-		*utiltestingapi.MakeWorkload("lend-b-1", "").
-			Request(corev1.ResourceCPU, "4").
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("lend-b").
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", "4").
-					Obj()).
-				Obj(), now).
-			Obj(),
-	}
-
-	ctx, cqCache, wlInfos := setupSimulationTest(t, flavors, clusterQueues, workloads)
-	initialSnapshot, err := cqCache.Snapshot(ctx)
-
-	if err != nil {
-		t.Fatalf("unexpected error while building snapshot: %v", err)
-	}
-
-	initialCohortResources := initialSnapshot.ClusterQueue("lend-a").Parent().ResourceNode.SubtreeQuota
-	cases := map[string]struct {
-		remove []workload.Reference
-		add    []workload.Reference
-		want   schdcache.Snapshot
-	}{
-		"remove all then add all": {
-			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			want:   *initialSnapshot,
-		},
-		"remove all": {
-			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			want: schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
-						"lend": makeCohortSnapshot(
-							"lend",
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							initialCohortResources,
-						),
-					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-						"lend-a": makeCQSnapshot("lend-a",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-						"lend-b": makeCQSnapshot("lend-b",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
-			},
-		},
-		"remove workload, but still using quota over GuaranteedQuota": {
-			remove: []workload.Reference{"/lend-a-2"},
-			want: schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
-						"lend": makeCohortSnapshot(
-							"lend",
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-							},
-							initialCohortResources,
-						),
-					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-						"lend-a": makeCQSnapshot("lend-a",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(7_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-						"lend-b": makeCQSnapshot("lend-b",
-							1,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
-			},
-		},
-		"remove wokload, using same quota as GuaranteedQuota": {
-			remove: []workload.Reference{"/lend-a-1", "/lend-a-2"},
-			want: schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
-						"lend": makeCohortSnapshot(
-							"lend",
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							initialCohortResources,
-						),
-					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-						"lend-a": makeCQSnapshot("lend-a",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-						"lend-b": makeCQSnapshot("lend-b",
-							1,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
-			},
-		},
-		"remove workload, using less quota than GuaranteedQuota": {
-			remove: []workload.Reference{"/lend-a-2", "/lend-a-3"},
-			want: schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
-						"lend": makeCohortSnapshot(
-							"lend",
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							initialCohortResources,
-						),
-					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-						"lend-a": makeCQSnapshot("lend-a",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-						"lend-b": makeCQSnapshot("lend-b",
-							1,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
-			},
-		},
-		"remove all then add workload, using less quota than GuaranteedQuota": {
-			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.Reference{"/lend-a-1"},
-			want: schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
-						"lend": makeCohortSnapshot(
-							"lend",
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							initialCohortResources,
-						),
-					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-						"lend-a": makeCQSnapshot("lend-a",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-						"lend-b": makeCQSnapshot("lend-b",
-							1,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
-			},
-		},
-		"remove all then add workload, using same quota as GuaranteedQuota": {
-			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.Reference{"/lend-a-3"},
-			want: schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
-						"lend": makeCohortSnapshot(
-							"lend",
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							initialCohortResources,
-						),
-					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-						"lend-a": makeCQSnapshot("lend-a",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-						"lend-b": makeCQSnapshot("lend-b",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
-			},
-		},
-		"remove all then add workload, using quota over GuaranteedQuota": {
-			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			add:    []workload.Reference{"/lend-a-2"},
-			want: schdcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
-						"lend": makeCohortSnapshot(
-							"lend",
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
-							},
-							initialCohortResources,
-						),
-					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-						"lend-a": makeCQSnapshot("lend-a",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-						"lend-b": makeCQSnapshot("lend-b",
-							1,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
-			},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			snap, err := cqCache.Snapshot(ctx)
-			sim := newSimulationContext(ctx, snap)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-			for _, name := range tc.remove {
-				sim.removeWorkload(wlInfos[string(name)])
-			}
-			for _, name := range tc.add {
-				sim.addWorkload(wlInfos[string(name)])
-			}
-			if diff := cmp.Diff(tc.want, *snap, snapshotCmpOpts...); diff != "" {
-				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestPreemptWorkload(t *testing.T) {
 	ctx, cqCache, wlInfos := defaultSetup(t)
 	errSimulatorFailed := errors.New("simulator preempt error")
@@ -501,15 +154,15 @@ func TestPreemptWorkload(t *testing.T) {
 		preempt             []string
 		injectSimErr        error
 		wantErr             bool
-		wantSnapshotState   schdcache.Snapshot
+		wantSnapshotState   schedcache.Snapshot
 		wantSimulationState map[workloadKey]preemption
 	}{
 		"preempt single workload": {
 			preempt: []string{"wl1"},
-			wantSnapshotState: schdcache.Snapshot{
+			wantSnapshotState: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -528,10 +181,10 @@ func TestPreemptWorkload(t *testing.T) {
 		},
 		"preempt multiple workloads": {
 			preempt: []string{"wl1", "wl2"},
-			wantSnapshotState: schdcache.Snapshot{
+			wantSnapshotState: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -553,10 +206,10 @@ func TestPreemptWorkload(t *testing.T) {
 			preempt:      []string{"wl1"},
 			injectSimErr: errSimulatorFailed,
 			wantErr:      true,
-			wantSnapshotState: schdcache.Snapshot{
+			wantSnapshotState: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -620,16 +273,16 @@ func TestRestoreWorkload(t *testing.T) {
 		injectError  map[string]error
 		restore      []string
 		wantErr      bool
-		want         schdcache.Snapshot
+		want         schedcache.Snapshot
 		wantSimState map[workloadKey]preemption
 	}{
 		"restore single preempted workload": {
 			preempt: []string{"wl1", "wl2"},
 			restore: []string{"wl1"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -649,10 +302,10 @@ func TestRestoreWorkload(t *testing.T) {
 		"restore all preempted workloads": {
 			preempt: []string{"wl1", "wl2"},
 			restore: []string{"wl1", "wl2"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -670,10 +323,10 @@ func TestRestoreWorkload(t *testing.T) {
 		"restore non-preempted workload (no-op)": {
 			preempt: []string{"wl1"},
 			restore: []string{"wl2"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -697,10 +350,10 @@ func TestRestoreWorkload(t *testing.T) {
 			},
 			restore: []string{"wl1"},
 			wantErr: true,
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -767,16 +420,16 @@ func TestRestoreSnapshot(t *testing.T) {
 		injectError    map[string]error
 		restoreTargets []string
 		wantErr        bool
-		want           schdcache.Snapshot
+		want           schedcache.Snapshot
 		wantSimState   map[workloadKey]preemption
 	}{
 		"restore subset of targets": {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{"wl1"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -796,10 +449,10 @@ func TestRestoreSnapshot(t *testing.T) {
 		"restore all targets": {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{"wl1", "wl2"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -817,10 +470,10 @@ func TestRestoreSnapshot(t *testing.T) {
 		"restore empty targets set": {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -842,10 +495,10 @@ func TestRestoreSnapshot(t *testing.T) {
 			},
 			restoreTargets: []string{"wl1"},
 			wantErr:        true,
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
 					nil,
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -979,6 +632,246 @@ func TestSimulation(t *testing.T) {
 	}
 }
 
+func TestSimulatingPreemptionsWithOverlappingTASUsage(t *testing.T) {
+	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+	testCases := map[string]struct {
+		cqs                            []*kueue.ClusterQueue
+		rfs                            []*kueue.ResourceFlavor
+		topologies                     []*kueue.Topology
+		wls                            []*kueue.Workload
+		nodes                          []*corev1.Node
+		wantTASUsage                   map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests
+		removalSimulationWorkload      workload.Reference
+		usageRemovalSimulationWorkload workload.Reference
+		wantSimulatedTASUsage          map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests
+		wantSimulatedWorkloads         []workload.Reference
+		featureGates                   map[featuregate.Feature]bool
+	}{
+		"overlapping flavors: simulated removal of a Workload frees its node on the sibling flavor": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: true,
+			},
+			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-victim").
+					TopologyName("topology").
+					NodeLabel("zone", "a").
+					Obj(),
+				utiltestingapi.MakeResourceFlavor("tas-sibling").
+					TopologyName("topology").
+					NodeLabel("zone", "a").
+					Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-victim").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+						*utiltestingapi.MakeFlavorQuotas("tas-sibling").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			},
+			nodes: []*corev1.Node{
+				node.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					Label("zone", "a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("victim", "").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "tas-victim", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).
+										Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						fakeClock.Now(),
+					).
+					AdmittedAt(true, fakeClock.Now()).
+					Obj(),
+			},
+			wantTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+			},
+			removalSimulationWorkload: "/victim",
+			wantSimulatedTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+			},
+			wantSimulatedWorkloads: nil,
+		},
+		"overlapping flavors: simulated removal of a Workload's usage keeps it on the ClusterQueue": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: true,
+			},
+			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-victim").
+					TopologyName("topology").
+					NodeLabel("zone", "a").
+					Obj(),
+				utiltestingapi.MakeResourceFlavor("tas-sibling").
+					TopologyName("topology").
+					NodeLabel("zone", "a").
+					Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("tas-victim").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+						*utiltestingapi.MakeFlavorQuotas("tas-sibling").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			},
+			nodes: []*corev1.Node{
+				node.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					Label("zone", "a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("victim", "").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "tas-victim", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).
+										Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						fakeClock.Now(),
+					).
+					AdmittedAt(true, fakeClock.Now()).
+					Obj(),
+			},
+			wantTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+			},
+			usageRemovalSimulationWorkload: "/victim",
+			wantSimulatedTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+			},
+			wantSimulatedWorkloads: []workload.Reference{"/victim"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := schedcache.New(utiltesting.NewFakeClient())
+			for _, cq := range tc.cqs {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding ClusterQueue: %v", err)
+				}
+			}
+			for _, rf := range tc.rfs {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range tc.topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			for _, wl := range tc.wls {
+				cache.AddOrUpdateWorkload(log, wl)
+			}
+			for _, n := range tc.nodes {
+				cache.TASCache().SyncNode(n)
+			}
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cqName := kueue.ClusterQueueReference(tc.cqs[0].Name)
+			cqSnapshot := snapshot.ClusterQueue(cqName)
+			if cqSnapshot == nil {
+				t.Fatalf("ClusterQueue %q is missing from the snapshot", cqName)
+			}
+			workloadsAsBuilt := slices.Sorted(maps.Keys(cqSnapshot.Workloads))
+
+			simErr := Simulate(ctx, snapshot, func(simCtx *SimulationContext) error {
+				if tc.removalSimulationWorkload != "" {
+					if err := simCtx.PreemptWorkload(ctx, cqSnapshot.Workloads[tc.removalSimulationWorkload]); err != nil {
+						return err
+					}
+				} else {
+					simCtx.RemoveUsage([]*workload.Info{cqSnapshot.Workloads[tc.usageRemovalSimulationWorkload]})
+				}
+				gotSimulatedTASUsage := make(map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests, len(tc.wantSimulatedTASUsage))
+				for flavor := range tc.wantSimulatedTASUsage {
+					flavorSnapshot := cqSnapshot.TASFlavors[flavor]
+					if flavorSnapshot == nil {
+						t.Fatalf("flavor %q is missing from the ClusterQueue snapshot", flavor)
+					}
+					gotSimulatedTASUsage[flavor] = flavorSnapshot.GetDomainUsage()
+				}
+				if diff := cmp.Diff(tc.wantSimulatedTASUsage, gotSimulatedTASUsage, cmp.Comparer(resources.Equal)); diff != "" {
+					t.Errorf("unexpected TAS usage while the simulation is in effect (-want,+got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.wantSimulatedWorkloads, slices.Sorted(maps.Keys(cqSnapshot.Workloads))); diff != "" {
+					t.Errorf("unexpected Workloads while the simulation is in effect (-want,+got):\n%s", diff)
+				}
+				return nil
+			})
+
+			if simErr != nil {
+				t.Errorf("simulation failed unexpectedly: %v", simErr)
+			}
+
+			if diff := cmp.Diff(workloadsAsBuilt, slices.Sorted(maps.Keys(cqSnapshot.Workloads))); diff != "" {
+				t.Errorf("unexpected Workloads after the simulation was reverted (-want,+got):\n%s", diff)
+			}
+
+			gotTASUsage := make(map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests, len(tc.wantTASUsage))
+			for flavor := range tc.wantTASUsage {
+				flavorSnapshot := cqSnapshot.TASFlavors[flavor]
+				if flavorSnapshot == nil {
+					t.Fatalf("flavor %q is missing from the ClusterQueue snapshot", flavor)
+				}
+				gotTASUsage[flavor] = flavorSnapshot.GetDomainUsage()
+			}
+			if diff := cmp.Diff(tc.wantTASUsage, gotTASUsage, cmp.Comparer(resources.Equal)); diff != "" {
+				t.Errorf("unexpected TAS usage in the flavor snapshots (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestAddRemoveWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
@@ -1057,7 +950,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 	cases := map[string]struct {
 		remove []workload.Reference
 		add    []workload.Reference
-		want   schdcache.Snapshot
+		want   schedcache.Snapshot
 	}{
 		"no-op remove add": {
 			remove: []workload.Reference{"/c1-cpu", "/c2-cpu-1"},
@@ -1066,9 +959,9 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 		"remove all": {
 			remove: []workload.Reference{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+					map[kueue.CohortReference]*schedcache.CohortSnapshot{
 						"cohort": makeCohortSnapshot(
 							"cohort",
 							resources.FlavorResourceQuantities{
@@ -1079,7 +972,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 							initialCohortResources,
 						),
 					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -1108,9 +1001,9 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 		"remove c1-cpu": {
 			remove: []workload.Reference{"/c1-cpu"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+					map[kueue.CohortReference]*schedcache.CohortSnapshot{
 						"cohort": makeCohortSnapshot(
 							"cohort",
 							resources.FlavorResourceQuantities{
@@ -1121,7 +1014,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 							initialCohortResources,
 						),
 					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -1150,9 +1043,9 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 		"remove c1-memory-alpha": {
 			remove: []workload.Reference{"/c1-memory-alpha"},
-			want: schdcache.Snapshot{
+			want: schedcache.Snapshot{
 				Manager: hierarchy.NewManagerForTest(
-					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+					map[kueue.CohortReference]*schedcache.CohortSnapshot{
 						"cohort": makeCohortSnapshot(
 							"cohort",
 							resources.FlavorResourceQuantities{
@@ -1163,7 +1056,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 							initialCohortResources,
 						),
 					},
-					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
 						"c1": makeCQSnapshot("c1",
 							0,
 							resources.FlavorResourceQuantities{
@@ -1223,7 +1116,7 @@ func TestContextTerminationOnError(t *testing.T) {
 	}{
 		"PreemptWorkload error terminates context": {
 			setupSim: func(_ *testing.T, _ context.Context, sim *SimulationContext, _ map[string]*workload.Info) {
-				sim.simulatorSnapshot = &errSimulatorSnapshot{err: errSimulator}
+				sim.SimulatorSnapshot = &errSimulatorSnapshot{err: errSimulator}
 			},
 			run: func(ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) error {
 				return sim.PreemptWorkload(ctx, wlInfos["wl1"])
@@ -1271,7 +1164,7 @@ func TestContextTerminationOnError(t *testing.T) {
 		"SimulateNested inner simulation succeeds but child context corrupted terminates parent context": {
 			run: func(ctx context.Context, sim *SimulationContext, wlInfos map[string]*workload.Info) error {
 				return SimulateNested(sim, func(child *SimulationContext) error {
-					child.simulatorSnapshot = &errSimulatorSnapshot{err: errSimulator}
+					child.SimulatorSnapshot = &errSimulatorSnapshot{err: errSimulator}
 					_ = child.PreemptWorkload(ctx, wlInfos["wl1"])
 					return nil
 				})
@@ -1358,21 +1251,21 @@ func TestTerminatedContextExportedMethods(t *testing.T) {
 	}
 }
 
-func makeCohortSnapshot(name kueue.CohortReference, usage, subtreeQuota resources.FlavorResourceQuantities) *schdcache.CohortSnapshot {
-	resourceNode := schdcache.NewResourceNode()
+func makeCohortSnapshot(name kueue.CohortReference, usage, subtreeQuota resources.FlavorResourceQuantities) *schedcache.CohortSnapshot {
+	resourceNode := schedcache.NewResourceNode()
 	resourceNode.Usage = usage
 	resourceNode.SubtreeQuota = subtreeQuota
-	return &schdcache.CohortSnapshot{
+	return &schedcache.CohortSnapshot{
 		Name:         name,
 		ResourceNode: resourceNode,
 	}
 }
 
-func makeCQSnapshot(name kueue.ClusterQueueReference, allocatableResourceGeneration int64, usage, subtreeQuota resources.FlavorResourceQuantities) *schdcache.ClusterQueueSnapshot {
-	resourceNode := schdcache.NewResourceNode()
+func makeCQSnapshot(name kueue.ClusterQueueReference, allocatableResourceGeneration int64, usage, subtreeQuota resources.FlavorResourceQuantities) *schedcache.ClusterQueueSnapshot {
+	resourceNode := schedcache.NewResourceNode()
 	resourceNode.Usage = usage
 	resourceNode.SubtreeQuota = subtreeQuota
-	return &schdcache.ClusterQueueSnapshot{
+	return &schedcache.ClusterQueueSnapshot{
 		Name:                          name,
 		AllocatableResourceGeneration: allocatableResourceGeneration,
 		ResourceNode:                  resourceNode,
