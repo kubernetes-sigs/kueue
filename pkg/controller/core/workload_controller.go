@@ -1662,12 +1662,14 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 	}
 
 	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+	if r.podsScheduledTrackingEnabled() && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
+	}
+
 	switch {
 	case podsReadyCond == nil, podsReadyCond.Reason == kueue.WorkloadWaitForStart, podsReadyCond.Reason == kueue.WorkloadPodsReady,
-		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling && !r.podsScheduledTrackingEnabled():
+		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
 		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(r.waitForPodsReady.timeout))
-	case podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
-		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
 	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil:
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)

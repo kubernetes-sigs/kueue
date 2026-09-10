@@ -1507,6 +1507,10 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 	}
 }
 
+// CurrentPodsScheduledCondition returns the current admission's scheduling state.
+// False means required Pods await scheduling.
+// True means all required Pods have been scheduled or succeeded.
+// Nil means no applicable scheduling observation exists.
 func CurrentPodsScheduledCondition(wl *kueue.Workload, admittedAt time.Time) *metav1.Condition {
 	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)
 	if cond == nil || !cond.LastTransitionTime.After(admittedAt) {
