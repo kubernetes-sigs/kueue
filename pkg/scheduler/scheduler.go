@@ -259,7 +259,7 @@ func (e *entry) markAssumed() {
 
 // recordAssignment stores a flavor assignment and its preemption
 // targets from nominate. FlavorScanState aliases the stored
-// assignment's LastState so it tracks any later mutation.
+// assignment's FlavorScanState so it tracks any later mutation.
 func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
 	e.assignment = a
 	e.preemptionTargets = targets

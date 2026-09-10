@@ -3666,7 +3666,7 @@ func TestAssignFlavors(t *testing.T) {
 					append(cmpOpts,
 						cmpopts.EquateEmpty(),
 						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}),
-						statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+						statusComparer, cmpopts.IgnoreFields(Assignment{}, "FlavorScanState"),
 						cmpopts.IgnoreFields(PodSetAssignment{}, "FlavorAssignmentAttempts"),
 					)...,
 				); diff != "" {
@@ -4008,7 +4008,7 @@ func TestDeletedFlavors(t *testing.T) {
 				if diff := cmp.Diff(tc.wantAssignment, assignment,
 					append(cmpOpts,
 						cmpopts.EquateEmpty(),
-						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "FlavorScanState"),
 					)...,
 				); diff != "" {
 					t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
