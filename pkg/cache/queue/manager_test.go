@@ -2635,15 +2635,15 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	}
 }
 
-// TestAddOrUpdateWorkloadCarriesLastAssignment covers the flavor scan progress surviving a
+// TestAddOrUpdateWorkloadCarriesFlavorScanState covers the flavor scan progress surviving a
 // Workload update. Updating a Workload rebuilds its Info, and rebuilding it used to drop
-// LastAssignment, so a cluster where Workloads are updated frequently sent the scan back to
+// FlavorScanState, so a cluster where Workloads are updated frequently sent the scan back to
 // the first flavor no matter what an earlier cycle had recorded.
 //
 // Both places a pending Workload can be tracked are covered. A Workload with flavors still
 // to try is pushed back onto the heap, while one whose scan has been exhausted is held in
 // inadmissibleWorkloads, which ClusterQueue.Info deliberately does not consult.
-func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
+func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 	// pendingFlavors has a flavor left to try, so requeueing puts the Workload back on the
 	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
 	pendingFlavors := func() *workload.FlavorScanState {
@@ -2787,10 +2787,10 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 				want = tc.recorded
 			}
 			if diff := gocmp.Diff(want, got.FlavorScanState); diff != "" {
-				t.Errorf("LastAssignment after the update (-want,+got):\n%s", diff)
+				t.Errorf("FlavorScanState after the update (-want,+got):\n%s", diff)
 			}
 			if tc.wantCarried && got.FlavorScanState == tc.recorded {
-				t.Error("LastAssignment was carried by reference; it must be cloned so the two Infos do not alias")
+				t.Error("FlavorScanState was carried by reference; it must be cloned so the two Infos do not alias")
 			}
 		})
 	}

@@ -469,7 +469,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 		}
 		// The name identifies a PodSet but does not affect how it is assigned.
 		// Two readers depend on this shape: the queue's equivalence classes, and
-		// LastAssignment reuse through MatchesSchedulingShape.
+		// FlavorScanState reuse through MatchesSchedulingShape.
 		if !features.Enabled(features.SchedulingEquivalenceHashingIgnorePodSetName) {
 			podSetShape["name"] = ps.Name
 		}

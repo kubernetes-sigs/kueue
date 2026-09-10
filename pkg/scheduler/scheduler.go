@@ -276,13 +276,13 @@ func (e *entry) markAssumed() {
 }
 
 // recordAssignment stores a flavor assignment and its preemption
-// targets from nominate. LastAssignment aliases the stored
+// targets from nominate. FlavorScanState aliases the stored
 // assignment's LastState so it tracks any later mutation.
 func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
 	e.assignment = a
 	e.preemptionTargets = targets
 	e.inadmissibleMsg = e.assignment.Message()
-	e.FlavorScanState = &e.assignment.LastState
+	e.FlavorScanState = &e.assignment.FlavorScanState
 }
 
 // markPreemptionOutcome records the outcome of IssuePreemptions and
@@ -482,7 +482,7 @@ func (s *Scheduler) processEntry(
 		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
-		// Clear LastAssignment to force a full re-evaluation of all flavors in the next cycle.
+		// Clear FlavorScanState to force a full re-evaluation of all flavors in the next cycle.
 		// Since we are deferring admission until in-flight preemptions complete, the cluster
 		// state will change. Retaining the current assignment could lock the workload into a
 		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
@@ -858,11 +858,11 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
+	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
-	if wl.FlavorScanState != nil && lastAssignmentOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+	if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
 		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
@@ -873,9 +873,9 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	return assignment, targets
 }
 
-// lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
+// flavorScanStateOutdated reports whether the recorded flavor assignment no longer describes
 // the current state, in which case the flavor scan has to start over.
-func lastAssignmentOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
+func flavorScanStateOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
 	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
 		// Checked before the cycle age, so that a Workload whose shape changed starts over
 		// even when it was assigned in the preceding cycle.
