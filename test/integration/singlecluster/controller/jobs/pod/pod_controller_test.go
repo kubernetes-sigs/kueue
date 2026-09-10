@@ -1352,8 +1352,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					Obj()
 				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{})
-				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{})
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, nil)
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
 
 				ginkgo.By("failing one pod and creating an oversized replacement with the same role-hash")
@@ -1430,8 +1430,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					Obj()
 				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{})
-				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{})
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, nil)
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
 
 				ginkgo.By("failing one pod and creating an honest replacement with the same role-hash")
@@ -1447,7 +1447,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				replacementKey := client.ObjectKeyFromObject(replacementPod)
 
 				ginkgo.By("checking that the honest replacement is ungated")
-				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementKey, map[string]string{})
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementKey, nil)
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, replacementPod)
 			})
 
