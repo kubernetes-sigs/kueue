@@ -24,7 +24,7 @@ package v1alpha1
 // PodGroupPolicy represents a PodGroup configuration for gang-scheduling.
 type PodGroupPolicyApplyConfiguration struct {
 	// Configuration for gang-scheduling using various plugins.
-	PodGroupPolicySourceApplyConfiguration `json:",inline"`
+	PodGroupPolicySourceApplyConfiguration `json:""`
 }
 
 // PodGroupPolicyApplyConfiguration constructs a declarative configuration of the PodGroupPolicy type for use with

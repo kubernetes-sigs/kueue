@@ -253,8 +253,6 @@ func (m *MPI) ReconcilerBuilders() []runtime.ReconcilerBuilder {
 	}
 }
 
-func (m *MPI) SyncParallelCount(_ *runtime.Info) error { return nil }
-
 func (m *MPI) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || info.RuntimePolicy.MLPolicySource == nil || info.RuntimePolicy.MLPolicySource.MPI == nil {
 		return nil, nil

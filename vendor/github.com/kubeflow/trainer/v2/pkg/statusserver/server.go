@@ -120,6 +120,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Handle graceful shutdown in background
 	serverShutdown := make(chan struct{})
 	go func() {
+		defer close(serverShutdown)
 		<-ctx.Done()
 		s.log.Info("Shutting down runtime status server")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -164,6 +165,11 @@ func (s *Server) handleTrainJobRuntimeStatus(w http.ResponseWriter, r *http.Requ
 	var updateRequest trainer.UpdateTrainJobStatusRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&updateRequest); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			badRequest(w, s.log, "Payload too large", metav1.StatusReasonRequestEntityTooLarge, http.StatusRequestEntityTooLarge)
+			return
+		}
 		s.log.V(5).Error(err, "Failed to parse runtime status", "namespace", namespace, "trainJobName", trainJobName)
 		badRequest(w, s.log, "Invalid payload", metav1.StatusReasonInvalid, http.StatusUnprocessableEntity)
 		return

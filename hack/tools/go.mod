@@ -36,7 +36,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/gotestsum v1.13.0
 	helm.sh/helm/v4 v4.2.4
-	k8s.io/code-generator v0.36.4 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
+	k8s.io/code-generator v0.37.0 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
 	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1
 	sigs.k8s.io/controller-tools v0.21.0
@@ -503,7 +503,7 @@ require (
 	howett.net/plist v1.0.1 // indirect
 	k8s.io/api v0.36.4 // indirect
 	k8s.io/apiextensions-apiserver v0.36.4 // indirect
-	k8s.io/apimachinery v0.36.4 // indirect
+	k8s.io/apimachinery v0.37.0 // indirect
 	k8s.io/apiserver v0.36.4 // indirect
 	k8s.io/cli-runtime v0.36.4 // indirect
 	k8s.io/client-go v0.36.4 // indirect
@@ -512,7 +512,7 @@ require (
 	k8s.io/component-base v0.36.4 // indirect
 	k8s.io/controller-manager v0.34.1 // indirect
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d // indirect
-	k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b // indirect
+	k8s.io/gengo/v2 v2.0.0-20260408192533-25e2208e0dc3 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-controller-manager v0.34.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect

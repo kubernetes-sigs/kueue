@@ -157,6 +157,7 @@ type CoschedulingPodGroupPolicySource struct {
 	// If the scheduling timeout is equal to 0, the default value is used.
 	// Defaults to 60 seconds.
 	// +kubebuilder:default=60
+	// +kubebuilder:validation:Minimum=0
 	// +optional
 	ScheduleTimeoutSeconds *int32 `json:"scheduleTimeoutSeconds,omitempty"`
 }
@@ -274,6 +275,7 @@ type MPIMLPolicySource struct {
 	// This value is equal to the number of slots for each node in the hostfile.
 	// Defaults to 1.
 	// +kubebuilder:default=1
+	// +kubebuilder:validation:XValidation:rule="self >= 1",message="NumProcPerNode in mpiPolicy must be >= 1"
 	// +optional
 	NumProcPerNode *int32 `json:"numProcPerNode,omitempty"`
 

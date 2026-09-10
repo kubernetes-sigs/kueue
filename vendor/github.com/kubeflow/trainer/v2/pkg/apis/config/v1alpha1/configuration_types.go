@@ -110,6 +110,21 @@ type ControllerMetrics struct {
 	// +optional
 	// +kubebuilder:default=true
 	SecureServing *bool `json:"secureServing,omitempty"`
+
+	// auth configures RBAC-based authentication and authorization for the metrics endpoint.
+	// +optional
+	Auth *MetricsAuthConfig `json:"auth,omitempty"`
+}
+
+// MetricsAuthConfig holds authentication and authorization settings for the metrics endpoint.
+type MetricsAuthConfig struct {
+	// enabled enables Kubernetes RBAC-based authentication and authorization
+	// for the metrics endpoint. When enabled, only principals with permission to access
+	// the /metrics path are allowed to scrape metrics. Requires secureServing to be true.
+	// Defaults to false.
+	// +optional
+	// +kubebuilder:default=false
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // ControllerHealth defines the health configs.
