@@ -279,6 +279,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	}
 
 	tabWriter := printers.GetNewTabWriter(o.Out)
+	pager := newPagedListPrinter(o.PrintFlags.OutputFlagSpecified())
 
 	var enableOwnerReferenceFilter bool
 	for {
@@ -325,7 +326,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if err := printer.PrintObj(list, tabWriter); err != nil {
+		if err := pager.printPage(list, list.Continue == "", printer, tabWriter); err != nil {
 			return err
 		}
 
