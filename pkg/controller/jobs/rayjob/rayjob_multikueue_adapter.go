@@ -26,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -63,28 +64,26 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 // revision — and with it the workload-slice name — unique when KubeRay
 // recreates the child and its generation restarts.
 //
-// A suspended remote is skipped (nil result): its worker state was restored by
+// A suspended remote is skipped (found=false): its worker state was restored by
 // the worker's Kueue while stopping the job, not set by the autoscaler.
-func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remoteJob *rayv1.RayJob) (*ray.FetchResult, error) {
+func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remoteJob *rayv1.RayJob) (map[kueue.PodSetReference]int32, string, bool, error) {
 	if remoteJob.Spec.Suspend {
-		return nil, nil
+		return nil, "", false, nil
 	}
 	childName := remoteJob.Status.RayClusterName
 	if childName == "" {
-		return nil, nil
+		return nil, "", false, nil
 	}
 	child := &rayv1.RayCluster{}
 	err := remoteClient.Get(ctx, types.NamespacedName{Namespace: remoteJob.Namespace, Name: childName}, child)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, nil
+			return nil, "", false, nil
 		}
-		return nil, err
+		return nil, "", false, err
 	}
-	return &ray.FetchResult{
-		Counts:   raycluster.WorkerGroupPodCounts(&child.Spec),
-		Revision: fmt.Sprintf("%s-%d", child.UID, child.Generation),
-	}, nil
+	revision := fmt.Sprintf("%s-%d", child.UID, child.Generation)
+	return raycluster.WorkerGroupPodCounts(&child.Spec), revision, true, nil
 }
 
 func copyJobStatus(dst, src *rayv1.RayJob) {
