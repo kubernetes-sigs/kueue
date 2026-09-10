@@ -72,7 +72,7 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 		Long:                  cqLong,
 		Example:               cqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, new(false)),
+		ValidArgsFunction:     completion.SingleArg(completion.ClusterQueueNameFunc(clientGetter, new(false))),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, cmd, args)

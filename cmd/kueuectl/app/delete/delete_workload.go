@@ -93,7 +93,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Short:                 "Delete the given Workload and its corresponding Job",
 		Long:                  wlLong,
 		Example:               wlExample,
-		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, new(true)),
+		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, nil),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 

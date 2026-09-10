@@ -76,7 +76,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 		Long:                  lqLong,
 		Example:               lqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, new(false)),
+		ValidArgsFunction:     completion.SingleArg(completion.LocalQueueNameFunc(clientGetter, new(false))),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, cmd, args)
