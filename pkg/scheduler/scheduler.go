@@ -278,7 +278,7 @@ func (e *entry) markAssumed() {
 // recordAssignment stores a flavor assignment and its preemption
 // targets from nominate. LastAssignment aliases the stored
 // assignment's LastState so it tracks any later mutation.
-func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
+func (e *entry) recordAssignment(a flavorassigner.Assignment, targets preemption.PreemptionTargets) {
 	e.assignment = a
 	e.preemptionTargets = targets
 	e.inadmissibleMsg = e.assignment.Message()
@@ -664,7 +664,7 @@ type entry struct {
 	status               entryStatus
 	inadmissibleMsg      string
 	requeueReason        qcache.RequeueReason
-	preemptionTargets    []*preemption.Target
+	preemptionTargets    preemption.PreemptionTargets
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
@@ -856,7 +856,7 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, preemption.PreemptionTargets) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
@@ -915,10 +915,12 @@ func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentC
 //     identified during scheduling.
 //
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
-func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, preemption.PreemptionTargets) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
-	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	replacedSliceTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	var preemptionTargets preemption.PreemptionTargets
+	preemptionTargets.Insert(replacedSliceTargets...)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
@@ -934,7 +936,8 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	if arm == flavorassigner.Preempt {
 		faPreemptionTargets := s.preemptor.GetTargets(ctx, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
-			return fullAssignment, append(preemptionTargets, faPreemptionTargets...)
+			preemptionTargets.Insert(faPreemptionTargets...)
+			return fullAssignment, preemptionTargets
 		}
 	}
 
@@ -955,7 +958,8 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			return nil, false
 		})
 		if pa, found := reducer.Search(); found {
-			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
+			preemptionTargets.Insert(pa.preemptionTargets...)
+			return pa.assignment, preemptionTargets
 		}
 	}
 	return fullAssignment, nil
