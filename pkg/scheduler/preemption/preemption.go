@@ -387,7 +387,7 @@ func fillBackWorkloads(simCtx *simulation.SimulationContext, pCtx *preemptionCtx
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
 		} else if _, err := preemptWorkload(simCtx, pCtx, target.WorkloadInfo, target.Reason); err != nil {
-			return nil, fmt.Errorf("snapshot corrupted, failed to fill back workloads: %w", err)
+			return nil, fmt.Errorf("failed to re-preempt following an unsuccessful backfill: %w", err)
 		}
 	}
 	return targets, nil

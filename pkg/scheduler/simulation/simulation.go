@@ -35,7 +35,7 @@ import (
 )
 
 // Simulation is a function encapsulating simulation logic.
-// The body of the function is provided with a ClusterSimulator object,
+// The body of the function is provided with a SimulationContext object,
 // which allows performing simulation-scoped mutations on the snapshotted cluster state.
 type Simulation func(*SimulationContext) (simErr error)
 
@@ -77,11 +77,11 @@ func newSimulationContext(ctx context.Context, snapshot *schdcache.Snapshot) *Si
 // The state of the snapshot is always reverted after the simulation finishes.
 // Returns an error if the simulation fails or the simulation function returns an error.
 // Only one simulation can be ran at the time.
-func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simulation) error {
+func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simFn Simulation) error {
 	err := snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
 		simCtx := newSimulationContext(ctx, snapshot)
 		defer simCtx.clear()
-		return simulate(simCtx)
+		return simFn(simCtx)
 	})
 	if err != nil {
 		err = fmt.Errorf("simulation failed: %w", err)
@@ -92,14 +92,14 @@ func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simula
 // SimulateNested allows running a nested simulation inisde of a closure passed to Simulate.
 // Returns an error if the simulation function returns an error
 // or if it fails to restore the context to its original state.
-func SimulateNested(parentCtx *SimulationContext, simulate Simulation) (err error) {
+func SimulateNested(parentCtx *SimulationContext, simFn Simulation) (err error) {
 	if err = parentCtx.errorTerminated(); err != nil {
 		return
 	}
 
 	childCtx := parentCtx.childContext()
 
-	err = simulate(childCtx)
+	err = simFn(childCtx)
 	if err == nil {
 		err = childCtx.terminalError
 	}
@@ -138,8 +138,7 @@ func (s *SimulationContext) PreemptWorkload(ctx context.Context, candidate *work
 	return nil
 }
 
-// RestoreWorkload tries to restore preempted workloads as listed.
-// If no targets are provided, it will attempt to restore all preempted workloads.
+// RestoreWorkload tries to restore the preempted workload.
 // If it fails, it stops and returns an error.
 func (s *SimulationContext) RestoreWorkload(target types.NamespacedName) error {
 	if err := s.errorTerminated(); err != nil {
