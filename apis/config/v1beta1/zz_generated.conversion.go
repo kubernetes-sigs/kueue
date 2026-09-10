@@ -336,6 +336,7 @@ func autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuratio
 	} else {
 		out.WaitForPodsReady = nil
 	}
+	// WARNING: in.Scheduling requires manual conversion: does not exist in peer-type
 	out.ClientConnection = (*v1beta2.ClientConnection)(unsafe.Pointer(in.ClientConnection))
 	if in.Integrations != nil {
 		in, out := &in.Integrations, &out.Integrations
