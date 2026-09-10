@@ -369,8 +369,8 @@ test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/
 .PHONY: test-e2e-certmanager-upgrade
 test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
-.PHONY: test-e2e-dra
-test-e2e-dra: setup-e2e-env run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
+.PHONY: test-e2e-dra-baseline
+test-e2e-dra-baseline: setup-e2e-env run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%)
