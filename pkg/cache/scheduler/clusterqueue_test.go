@@ -126,22 +126,22 @@ func TestClusterQueueUpdate(t *testing.T) {
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
 	cases := []struct {
-		name                         string
-		cq                           *kueue.ClusterQueue
-		newcq                        *kueue.ClusterQueue
-		wantLastAssignmentGeneration int64
+		name                              string
+		cq                                *kueue.ClusterQueue
+		newcq                             *kueue.ClusterQueue
+		wantAllocatableResourceGeneration int64
 	}{
 		{
-			name:                         "RGs not change",
-			cq:                           &clusterQueue,
-			newcq:                        clusterQueue.DeepCopy(),
-			wantLastAssignmentGeneration: 1,
+			name:                              "RGs not change",
+			cq:                                &clusterQueue,
+			newcq:                             clusterQueue.DeepCopy(),
+			wantAllocatableResourceGeneration: 1,
 		},
 		{
-			name:                         "RGs changed",
-			cq:                           &clusterQueue,
-			newcq:                        &newClusterQueue,
-			wantLastAssignmentGeneration: 2,
+			name:                              "RGs changed",
+			cq:                                &clusterQueue,
+			newcq:                             &newClusterQueue,
+			wantAllocatableResourceGeneration: 2,
 		},
 	}
 	for _, tc := range cases {
@@ -169,7 +169,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			if diff := cmp.Diff(
-				tc.wantLastAssignmentGeneration,
+				tc.wantAllocatableResourceGeneration,
 				snapshot.ClusterQueue("eng-alpha").AllocatableResourceGeneration); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
