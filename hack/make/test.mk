@@ -405,7 +405,7 @@ test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/
 test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager upgrade e2e test suite.
 
 .PHONY: test-e2e-dra
-test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
+test-e2e-dra: setup-e2e-env run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
 
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
@@ -567,8 +567,8 @@ run-test-e2e-certmanager-upgrade-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/testing/e2e-test.sh
 
-run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
-run-test-e2e-dra-%:
+run-test-e2e-dra-baseline-%: K8S_VERSION = $(@:run-test-e2e-dra-baseline-%=%)
+run-test-e2e-dra-baseline-%:
 	@echo Running DRA e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
