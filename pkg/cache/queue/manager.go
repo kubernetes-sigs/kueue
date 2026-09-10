@@ -926,8 +926,19 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 	}
 }
 
+// heads returns the heads of the queues and ready second-pass workloads.
 func (m *Manager) heads() []Head {
-	heads := m.secondPassQueue.takeAllReady()
+	var heads []Head
+	for _, wInfo := range m.secondPassQueue.takeAllReady() {
+		isPreemptor := false
+		if cq := m.getClusterQueueLockless(wInfo.ClusterQueue); cq != nil {
+			isPreemptor = cq.IsPreemptor(&wInfo)
+		}
+		heads = append(heads, Head{
+			Info:        wInfo,
+			IsPreemptor: isPreemptor,
+		})
+	}
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -945,11 +956,9 @@ func (m *Manager) heads() []Head {
 			Info:        wlCopy,
 			IsPreemptor: cq.IsPreemptor(wl),
 		})
-
 		qKey := m.workloadAssignedQueues[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
-
 		reportLQPendingWorkloads(m, q)
 	}
 	return heads
