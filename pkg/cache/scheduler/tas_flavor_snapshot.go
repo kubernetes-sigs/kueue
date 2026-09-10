@@ -705,7 +705,8 @@ func newTASExclusionStats() *tasExclusionStats {
 }
 
 func (s *tasExclusionStats) hasExclusions() bool {
-	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 || len(s.Resources) > 0
+	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 ||
+		len(s.Resources) > 0 || s.SchedulerLibraryNoFit > 0 || s.DRANoFit > 0
 }
 
 func (s *tasExclusionStats) formatReasons() string {
@@ -721,6 +722,9 @@ func (s *tasExclusionStats) formatReasons() string {
 	}
 	if s.SchedulerLibraryNoFit > 0 {
 		reasons = append(reasons, fmt.Sprintf("schedulerLibraryNoFit: %d", s.SchedulerLibraryNoFit))
+	}
+	if s.DRANoFit > 0 {
+		reasons = append(reasons, fmt.Sprintf("draNoFit: %d", s.DRANoFit))
 	}
 	for _, taint := range slices.Sorted(maps.Keys(s.Taints)) {
 		reasons = append(reasons, fmt.Sprintf("taint %q: %d", taint, s.Taints[taint]))
@@ -745,6 +749,7 @@ func (s *tasExclusionStats) add(other *tasExclusionStats) {
 	s.Affinity += other.Affinity
 	s.TopologyDomain += other.TopologyDomain
 	s.SchedulerLibraryNoFit += other.SchedulerLibraryNoFit
+	s.DRANoFit += other.DRANoFit
 	for k, v := range other.Taints {
 		if s.Taints == nil {
 			s.Taints = make(map[string]int)
@@ -1269,7 +1274,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
-	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet)
+	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet, workloadNamespace(wl))
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -1292,7 +1297,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if reason != "" {
 			return nil, nil, reason
 		}
-		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet)
+		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet, workloadNamespace(wl))
 		if reason != "" {
 			return nil, nil, reason
 		}
@@ -2248,10 +2253,19 @@ func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string)
 	return info, ""
 }
 
+// workloadNamespace returns the namespace the PodSet's claims live in, empty when
+// there is no Workload to take it from.
+func workloadNamespace(wl *workload.Info) string {
+	if wl == nil {
+		return ""
+	}
+	return wl.Obj.Namespace
+}
+
 // buildPodRequirements turns a PodSet into the node filters TAS applies to it, in the
 // field form the default simulator reads and in the Pod template the scheduler library
 // reads. A non-empty second return value is the reason the PodSet cannot be placed.
-func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
+func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet, namespace string) (simulator.PodRequirements, string) {
 	var podRequirements simulator.PodRequirements
 	podRequirements.Tolerations = utiltolerations.Merge(info.Tolerations, s.tolerations)
 
@@ -2291,6 +2305,9 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	podRequirements.PodTemplate = podSet.Template.DeepCopy()
 	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
 	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
+	// A PodSet template carries no namespace, and the simulator resolves the
+	// Workload's namespaced ResourceClaims through it.
+	podRequirements.PodTemplate.Namespace = namespace
 	return podRequirements, ""
 }
 
