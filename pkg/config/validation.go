@@ -63,7 +63,6 @@ var (
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
-	quotaReleaseStrategyPath              = field.NewPath("quotaReleaseStrategy")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath                        = field.NewPath("multiKueue")
@@ -109,7 +108,6 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
-	allErrs = append(allErrs, validateQuotaReleaseStrategy(c)...)
 	return allErrs
 }
 
@@ -134,24 +132,6 @@ func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
 				[]configapi.QuotaCheckStrategy{
 					configapi.QuotaCheckIgnoreUndeclared,
 					configapi.QuotaCheckBlockUndeclared,
-				},
-			))
-		}
-	}
-	return allErrs
-}
-
-func validateQuotaReleaseStrategy(c *configapi.Configuration) field.ErrorList {
-	var allErrs field.ErrorList
-	if c.QuotaReleaseStrategy != nil {
-		strategy := *c.QuotaReleaseStrategy
-		if strategy != configapi.QuotaReleaseOnTerminating && strategy != configapi.QuotaReleaseOnTerminal {
-			allErrs = append(allErrs, field.NotSupported(
-				quotaReleaseStrategyPath,
-				strategy,
-				[]configapi.QuotaReleaseStrategy{
-					configapi.QuotaReleaseOnTerminating,
-					configapi.QuotaReleaseOnTerminal,
 				},
 			))
 		}
@@ -296,6 +276,14 @@ func validateClusterProfileAccessProviders(providers []configapi.ClusterProfileA
 
 func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
+	if features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) && features.Enabled(features.DisableWaitForPodsReady) {
+		allErrs = append(allErrs, field.Forbidden(featureGatesPath.Key(string(features.WaitForPodsReadyUnscheduledTimeout)),
+			"cannot be enabled together with DisableWaitForPodsReady"))
+	}
+	if c.WaitForPodsReady != nil && c.WaitForPodsReady.UnscheduledTimeout != nil && !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		allErrs = append(allErrs, field.Forbidden(waitForPodsReadyPath.Child("unscheduledTimeout"),
+			"requires the WaitForPodsReadyUnscheduledTimeout feature gate"))
+	}
 	if !waitforpodsready.Enabled(c.WaitForPodsReady) {
 		return allErrs
 	}
@@ -309,6 +297,16 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 	if c.WaitForPodsReady.RecoveryTimeout != nil && c.WaitForPodsReady.RecoveryTimeout.Duration < 0 {
 		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("recoveryTimeout"),
 			c.WaitForPodsReady.RecoveryTimeout, apimachineryvalidation.IsNegativeErrorMsg))
+	}
+	if ut := c.WaitForPodsReady.UnscheduledTimeout; ut != nil {
+		switch {
+		case ut.Duration < 0:
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("unscheduledTimeout"),
+				ut, apimachineryvalidation.IsNegativeErrorMsg))
+		case ut.Duration > c.WaitForPodsReady.Timeout.Duration:
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("unscheduledTimeout"),
+				ut, "must not exceed waitForPodsReady.timeout"))
+		}
 	}
 	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil {
 		if strategy.Timestamp != nil &&

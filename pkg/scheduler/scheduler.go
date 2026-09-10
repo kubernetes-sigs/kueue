@@ -1018,7 +1018,7 @@ func (s *Scheduler) getInitialAssignments(
 			}
 			return nil, false
 		})
-		if pa, found := reducer.Search(); found {
+		if pa, found := reducer.Reduce(); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...), nil
 		}
 		if terminalError != nil {
