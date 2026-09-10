@@ -242,7 +242,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncAdmissionStatus(ctx, parent, variants); err != nil {
+	if err := r.syncAdmissionStatus(ctx, parent, variants, "ConcurrentAdmission", "No variant is running"); err != nil {
 		log.Error(err, "Failed to sync admission status")
 		return ctrl.Result{}, err
 	}
@@ -267,24 +267,8 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 func (r *variantReconciler) cleanupParentAndVariants(ctx context.Context, log logr.Logger, parent *kueue.Workload, variants []kueue.Workload) (ctrl.Result, error) {
 	log.V(2).Info("ConcurrentAdmission is no longer enabled for this ClusterQueue, cleaning up parent and variants")
 
-	admittedVariant := getAdmittedVariant(variants)
-	parentAdmitted := workload.IsAdmitted(parent)
-
-	if admittedVariant != nil && !parentAdmitted {
-		log.V(2).Info("Promoting admitted variant onto parent", "variant", klog.KObj(admittedVariant))
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			workload.SetQuotaReservation(wl, admittedVariant.Status.Admission, r.clock)
-			workload.SetAdmittedCondition(wl, r.clock.Now(), "Admitted", fmt.Sprintf("The variant %s is admitted", admittedVariant.Name))
-			return true, nil
-		}); err != nil {
-			return ctrl.Result{}, fmt.Errorf("promoting variant admission to parent: %w", err)
-		}
-	} else if parentAdmitted && admittedVariant == nil {
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmissionDisabled", "ConcurrentAdmission is no longer enabled for this ClusterQueue"), nil
-		}); err != nil {
-			return ctrl.Result{}, fmt.Errorf("evicting parent: %w", err)
-		}
+	if err := r.syncAdmissionStatus(ctx, parent, variants, "ConcurrentAdmissionDisabled", "ConcurrentAdmission is no longer enabled for this ClusterQueue"); err != nil {
+		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
 	}
 
 	for i := range variants {
@@ -703,7 +687,7 @@ func (r *variantReconciler) syncPodsReadyCond(parent, variant *kueue.Workload) b
 	return apimeta.SetStatusCondition(&variant.Status.Conditions, *parentCond)
 }
 
-func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
+func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, evictReason, evictMessage string) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(parent) {
 		return r.syncFinished(ctx, parent, variants)
@@ -714,7 +698,7 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant == nil && workload.IsAdmitted(parent):
 		log.V(2).Info("Parent admitted and no Variant is admitted, evicting parent", "parent", klog.KObj(parent))
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running"), nil
+			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), evictReason, evictMessage), nil
 		})
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
