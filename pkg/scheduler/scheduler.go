@@ -59,6 +59,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -519,6 +520,14 @@ func (s *Scheduler) processEntry(
 
 	if mode == flavorassigner.Preempt {
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+		if e.LastAssignment != nil {
+			e.LastAssignment.PreemptionTopologyAssignments = make(map[kueue.PodSetReference]*kueue.TopologyAssignment)
+			for _, ps := range e.assignment.PodSets {
+				if ps.TopologyAssignment != nil {
+					e.LastAssignment.PreemptionTopologyAssignments[ps.Name] = utiltas.V1Beta2From(ps.TopologyAssignment)
+				}
+			}
+		}
 		s.issuePreemptions(ctx, log, e, preemptionTargets)
 		return
 	}
@@ -866,7 +875,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
-		wl.LastAssignment = nil
+		if wl.LastAssignment.PreemptionTopologyAssignments != nil && wl.LastAssignment.MatchesSchedulingShape(wl.SchedulingHash) {
+			wl.LastAssignment = &workload.AssignmentClusterQueueState{
+				PreemptionTopologyAssignments: wl.LastAssignment.PreemptionTopologyAssignments,
+				SchedulingHash:                 wl.SchedulingHash,
+			}
+		} else {
+			wl.LastAssignment = nil
+		}
 	}
 	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
 	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
