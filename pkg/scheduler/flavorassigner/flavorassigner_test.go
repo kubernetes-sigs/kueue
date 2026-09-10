@@ -6300,10 +6300,10 @@ const bookmarkTestCycle int64 = 7
 
 // lastTriedFlavorIdx reads the bookmark the assignment recorded for the first PodSet.
 func lastTriedFlavorIdx(a Assignment, res corev1.ResourceName) (int, bool) {
-	if len(a.LastState.LastTriedFlavorIdx) == 0 {
+	if len(a.LastState.LastTriedFlavorIndexes) == 0 {
 		return 0, false
 	}
-	idx, ok := a.LastState.LastTriedFlavorIdx[0][res]
+	idx, ok := a.LastState.LastTriedFlavorIndexes[0][res]
 	return idx, ok
 }
 
@@ -6590,7 +6590,7 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			// The scheduler clears LastAssignment and pins the nominated flavors before
 			// replaying the assignment, so that the recomputation stays on the flavor
 			// quota was computed for.
-			wlInfo.LastAssignment = nil
+			wlInfo.FlavorScanState = nil
 			mapping := workload.PodSetResourcesToFlavors{}
 			for _, psa := range nominated.PodSets {
 				perResource := workload.ResourceToFlavor{}

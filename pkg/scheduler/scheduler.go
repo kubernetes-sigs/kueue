@@ -249,7 +249,7 @@ func (e *entry) markSkipped(msg string) {
 	e.status = skipped
 	e.inadmissibleMsg = msg
 	if !features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
-		e.LastAssignment = nil
+		e.FlavorScanState = nil
 	}
 }
 
@@ -260,7 +260,7 @@ func (e *entry) markPreemptionGated(msg string) {
 	e.status = preemptionGated
 	e.inadmissibleMsg = msg
 	e.requeueReason = qcache.RequeueReasonPreemptionGated
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 }
 
 func (e *entry) markEvicted() {
@@ -282,14 +282,14 @@ func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preempt
 	e.assignment = a
 	e.preemptionTargets = targets
 	e.inadmissibleMsg = e.assignment.Message()
-	e.LastAssignment = &e.assignment.LastState
+	e.FlavorScanState = &e.assignment.LastState
 }
 
 // markPreemptionOutcome records the outcome of IssuePreemptions and
 // clears the cached flavor assignment so the next cycle reconsiders
 // every flavor.
 func (e *entry) markPreemptionOutcome(preempted, errors int) {
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 	if preempted != 0 {
 		e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
@@ -487,7 +487,7 @@ func (s *Scheduler) processEntry(
 		// state will change. Retaining the current assignment could lock the workload into a
 		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
 		// become available.
-		e.LastAssignment = nil
+		e.FlavorScanState = nil
 		snapshot.AddUsage(cq, usage)
 		return
 	}
@@ -581,7 +581,7 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	if err != nil {
 		log.Error(err, "Failed to evict workload for migration")
 	}
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 	e.requeueReason = qcache.RequeueReasonPendingMigration
 	e.inadmissibleMsg += ". Pending the migration of 1 workload(s)"
 }
@@ -771,7 +771,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	}
 	// Clear the last assignment so that we can start from the first flavor again and
 	// reach all flavors from the nomination.
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
 	e.recordAssignment(newAssignment, newTargets)
@@ -862,11 +862,11 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
-	if wl.LastAssignment != nil && lastAssignmentOutdated(wl.LastAssignment, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+	if wl.FlavorScanState != nil && lastAssignmentOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
 		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
-			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
-		wl.LastAssignment = nil
+			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
+		wl.FlavorScanState = nil
 	}
 	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
 	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
@@ -875,7 +875,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 
 // lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
 // the current state, in which case the flavor scan has to start over.
-func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
+func lastAssignmentOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
 	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
 		// Checked before the cycle age, so that a Workload whose shape changed starts over
 		// even when it was assigned in the preceding cycle.
@@ -890,7 +890,7 @@ func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentC
 			return false
 		}
 	}
-	return currentCQGeneration > last.ClusterQueueGeneration
+	return currentCQGeneration > last.AllocatableResourceGeneration
 }
 
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets

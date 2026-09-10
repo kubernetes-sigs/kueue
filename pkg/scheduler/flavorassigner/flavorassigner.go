@@ -54,7 +54,7 @@ type Assignment struct {
 	// Borrowing is the height of the smallest cohort tree that fits
 	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int
-	LastState workload.AssignmentClusterQueueState
+	LastState workload.FlavorScanState
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned. When workload slicing is enabled and replaceWorkloadSlice
@@ -728,11 +728,11 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				Unassigned: make(resources.MapRequests),
 			},
 		},
-		LastState: workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
-			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
-			SchedulingCycle:        a.schedulingCycle,
-			SchedulingHash:         a.wl.SchedulingHash,
+		LastState: workload.FlavorScanState{
+			LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, 0, len(requests)),
+			AllocatableResourceGeneration: a.cq.AllocatableResourceGeneration,
+			SchedulingCycle:               a.schedulingCycle,
+			SchedulingHash:                a.wl.SchedulingHash,
 		},
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
@@ -1037,7 +1037,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		a.Usage.Quota.Assigned[fr] = a.Usage.Quota.Assigned[fr].AddInt64(requestAmount)
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
-	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
+	a.LastState.LastTriedFlavorIndexes = append(a.LastState.LastTriedFlavorIndexes, flavorIdx)
 }
 
 // findOldPodSetRequest returns the resource request from the old workload slice
@@ -1091,7 +1091,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
-	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psIDs[0], resName)
+	idx := a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
