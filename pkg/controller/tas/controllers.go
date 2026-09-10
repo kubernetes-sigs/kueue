@@ -18,7 +18,6 @@ package tas
 
 import (
 	"fmt"
-	"time"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -33,7 +32,6 @@ import (
 type SetupControllersOption func(*setupControllersOptions)
 
 type setupControllersOptions struct {
-	podUsageOpts []podUsageOption
 	customLabels *metrics.CustomLabels
 }
 
@@ -41,14 +39,6 @@ type setupControllersOptions struct {
 func WithCustomLabels(cl *metrics.CustomLabels) SetupControllersOption {
 	return func(o *setupControllersOptions) {
 		o.customLabels = cl
-	}
-}
-
-// WithRequeueBatchInterval overrides the interval at which freed non-TAS
-// capacity triggers requeue of inadmissible workloads. Defaults to 10s.
-func WithRequeueBatchInterval(d time.Duration) SetupControllersOption {
-	return func(o *setupControllersOptions) {
-		o.podUsageOpts = append(o.podUsageOpts, withRequeueBatchInterval(d))
 	}
 }
 

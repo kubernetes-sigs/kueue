@@ -129,7 +129,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	return r.ReconcileGenericJob(ctx, req, NewPod(
 		WithExcessPodExpectations(r.expectationsStore),
 		WithClock(r.clock),
-		WithIntegrationManager(r.integrationManager),
 		WithRoleTracker(r.RoleTracker()),
 		WithCustomLabels(r.CustomLabels()),
 	))

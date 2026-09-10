@@ -25,7 +25,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -40,27 +42,6 @@ func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count in
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)
-	}
-}
-
-func expectHistogramSampleSum(t *testing.T, vec *prometheus.HistogramVec, expected float64, labels ...string) {
-	t.Helper()
-	observer, err := vec.GetMetricWithLabelValues(labels...)
-	if err != nil {
-		t.Fatalf("Error getting metric for labels %v: %v", labels, err)
-	}
-	var dto dto.Metric
-
-	if err := observer.(prometheus.Metric).Write(&dto); err != nil {
-		t.Fatalf("Error writing metric: %v", err)
-	}
-
-	if dto.Histogram == nil {
-		t.Fatalf("Expected histogram metric for labels %v", labels)
-	}
-
-	if got := dto.GetHistogram().GetSampleSum(); got != expected {
-		t.Errorf("got %v want %v", got, expected)
 	}
 }
 
