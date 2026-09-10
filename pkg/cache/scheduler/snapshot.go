@@ -57,6 +57,10 @@ type Snapshot struct {
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SimulatorSnapshot        simulator.SimulatorSnapshot
+
+	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
+	// capacity, fixed once the snapshot is built.
+	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
@@ -168,6 +172,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		flvTASCache := c.tasCache.Clone()
 
 		if features.Enabled(features.TASHandleOverlappingFlavors) {
+			snap.hostnameLeafTASFlavors = make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
 			for _, cache := range flvTASCache {
 				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
@@ -190,6 +195,9 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			)
 			if err != nil {
 				return nil, err
+			}
+			if features.Enabled(features.TASHandleOverlappingFlavors) && tasSnapshots[flavor].declaresHostnameLevel() {
+				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
 			}
 		}
 	}

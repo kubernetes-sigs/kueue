@@ -119,11 +119,11 @@ jobs:
           TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
-          if [[ ! "$TITLE" =~ ^Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          if [[ ! "$TITLE" =~ ^(📦\ )?Release\ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             echo "error_message=❌ Invalid issue title: \`$TITLE\`. Expected format: \`Release vX.Y.Z\`." >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          VERSION="${BASH_REMATCH[1]}"
+          VERSION="${BASH_REMATCH[2]}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+ ]]; then

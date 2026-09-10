@@ -473,7 +473,7 @@ func (s *Scheduler) processEntry(
 		if len(e.preemptionTargets) == 0 {
 			e.requeueReason = qcache.RequeueReasonPreemptionNoCandidates
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
-			s.reserveCapacityForUnreclaimablePreempt(log, e, cq)
+			s.reserveCapacityForUnreclaimablePreempt(log, e, snapshot, cq)
 			return
 		}
 		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
@@ -572,10 +572,10 @@ func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Log
 // nominal capacity, or if the workload is an active preemptor waiting for evictions
 // to complete, we reserve up to the borrowing limit so that lower-priority
 // workloads in another Cohort cannot admit before us.
-func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) {
+func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) {
 	log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
 	if !preemption.CanAlwaysReclaim(cq) || (features.Enabled(features.PrioritizePreemptorWorkloads) && e.IsPreemptor) {
-		cq.AddUsage(resourcesToReserve(log, e, cq))
+		snapshot.AddUsage(cq, resourcesToReserve(log, e, cq))
 	}
 }
 

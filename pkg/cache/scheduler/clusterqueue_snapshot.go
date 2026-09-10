@@ -104,6 +104,7 @@ func (c *ClusterQueueSnapshot) SimulateUsageRemoval(usage workload.Usage) func()
 	}
 }
 
+// AddUsage skips sibling TAS flavors. Use Snapshot methods to sync them.
 func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
 	for fr, q := range usage.Quota.Assigned {
 		addUsage(c, fr, q)
@@ -111,6 +112,7 @@ func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
 	c.updateTASUsage(usage.TAS, add)
 }
 
+// RemoveUsage skips sibling TAS flavors. Use Snapshot methods to sync them.
 func (c *ClusterQueueSnapshot) RemoveUsage(usage workload.Usage) {
 	for fr, q := range usage.Quota.Assigned {
 		removeUsage(c, fr, q)
