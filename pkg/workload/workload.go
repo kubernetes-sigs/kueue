@@ -861,6 +861,8 @@ func SetConditionAndUpdate(ctx context.Context,
 	})
 }
 
+const PodsNotReadyMessage = "Not all pods are ready or succeeded"
+
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
