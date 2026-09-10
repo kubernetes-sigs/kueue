@@ -401,7 +401,10 @@ func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []
 // finishEntry concludes an entry's scheduling cycle and reports whether the
 // entry counts as a successful admission attempt. Assumed and evicted entries
 // need no requeue: assumed workloads are admitted, and evicted ones are
-// finalized by the workload controller. All other entries are requeued.
+// finalized by the workload controller. Inflight claims are held only by
+// workloads popped from a ClusterQueue's active heap. Evicted entries are
+// admitted second-pass workloads. They are never popped, so there is no claim
+// to release. All other entries are requeued.
 func (s *Scheduler) finishEntry(ctx context.Context, log logr.Logger, e *entry) bool {
 	logAdmissionAttemptIfVerbose(log, e)
 	if e.status == assumed || e.status == evicted {
@@ -696,6 +699,9 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
 		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
+			// The only exit where the popped workload is neither requeued nor
+			// deleted, so nothing else would release its inflight claim.
+			s.queues.ForgetInflight(h.ClusterQueue, workload.Key(h.Obj))
 			continue
 		}
 		if e, nominated := s.nominateWorkload(ctx, log, h, snap); nominated {
@@ -1207,6 +1213,8 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		e.requeueReason = qcache.RequeueReasonFailedAfterNomination
 	}
 
+	// A workload only needs a second pass once it holds a quota reservation, which
+	// a checked-out workload never does, so returning here leaves no checkout open.
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
 		log.V(2).
 			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
