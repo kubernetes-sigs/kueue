@@ -22,6 +22,7 @@ package v1alpha1
 // with apply.
 type CapacityDiscoveryApplyConfiguration struct {
 	// providers lists CapacityProvider objects consumed by this DQO.
+	//
 	Providers []CapacityDiscoveryProviderContributionApplyConfiguration `json:"providers,omitempty"`
 }
 

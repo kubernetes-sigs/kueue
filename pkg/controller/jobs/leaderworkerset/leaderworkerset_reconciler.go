@@ -125,7 +125,7 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Pod{}, &lwsPodHandler{}).
 		Watches(&appsv1.StatefulSet{}, &lwsStsHandler{}).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "leaderworkerset-reconciler"),
 		}).
 		Complete(r)
 }

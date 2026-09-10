@@ -449,11 +449,18 @@
   type: Annotation
   example: '`kueue.x-k8s.io/workload: "my-workload-name"`'
   used_on: |
-    Kueue-managed Jobs (Job PodTemplate).
+    Kueue-managed Jobs (Job PodTemplate) and the Pods of the pod-based integrations.
   description: |
     The annotation is set on the Job's PodTemplate to indicate the name
     of the admitted [Workload](/docs/concepts/workload/) corresponding to the Job.
     The annotation is set when starting the Job, and removed on stopping the Job.
+    For the pod-based integrations it is set on the gated Pods when they are started.
+
+    The annotation is set when the `WaitForPodsReadyUnscheduledTimeout` feature
+    gate is enabled and
+    [`waitForPodsReady.unscheduledTimeout`](/docs/tasks/manage/setup_wait_for_pods_ready/)
+    is positive, or when the `TopologyAwareScheduling` or `SchedulerLibraryIntegration`
+    feature gate is enabled.
 
 - key: kueue.x-k8s.io/workload-slice-name
   type: Annotation

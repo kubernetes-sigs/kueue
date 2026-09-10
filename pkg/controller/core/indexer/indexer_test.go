@@ -697,3 +697,115 @@ func TestIndexDynamicQuotaOrchestratorCapacityProvider(t *testing.T) {
 		})
 	}
 }
+
+func TestIndexDynamicQuotaOrchestratorIsDistributing(t *testing.T) {
+	cases := map[string]struct {
+		obj  client.Object
+		want []string
+	}{
+		"not DynamicQuotaOrchestrator": {
+			obj:  &kueue.Workload{},
+			want: nil,
+		},
+		"discovery-only DQO": {
+			obj:  &kueuealpha.DynamicQuotaOrchestrator{},
+			want: nil,
+		},
+		"distributing DQO": {
+			obj: &kueuealpha.DynamicQuotaOrchestrator{
+				Spec: kueuealpha.DynamicQuotaOrchestratorSpec{
+					CapacityDistribution: &kueuealpha.CapacityDistribution{
+						SubtreeRootQuotaRef: kueuealpha.CapacityDistributionSubtreeRootRef{
+							Kind: kueuealpha.CohortSubtreeRootRefKind,
+							Name: "root",
+						},
+					},
+				},
+			},
+			want: []string{"true"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := indexer.IndexDynamicQuotaOrchestratorIsDistributing(tc.obj)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestIndexClusterQueueCohort(t *testing.T) {
+	cases := map[string]struct {
+		obj  client.Object
+		want []string
+	}{
+		"not ClusterQueue": {
+			obj:  &kueue.Workload{},
+			want: nil,
+		},
+		"typed nil ClusterQueue": {
+			obj:  (*kueue.ClusterQueue)(nil),
+			want: nil,
+		},
+		"empty cohort": {
+			obj:  &kueue.ClusterQueue{},
+			want: nil,
+		},
+		"with cohort": {
+			obj: &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					CohortName: "my-cohort",
+				},
+			},
+			want: []string{"my-cohort"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := indexer.IndexClusterQueueCohort(tc.obj)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestIndexCohortParent(t *testing.T) {
+	cases := map[string]struct {
+		obj  client.Object
+		want []string
+	}{
+		"not Cohort": {
+			obj:  &kueue.Workload{},
+			want: nil,
+		},
+		"typed nil Cohort": {
+			obj:  (*kueue.Cohort)(nil),
+			want: nil,
+		},
+		"empty parent": {
+			obj:  &kueue.Cohort{},
+			want: nil,
+		},
+		"with parent": {
+			obj: &kueue.Cohort{
+				Spec: kueue.CohortSpec{
+					ParentName: "root-cohort",
+				},
+			},
+			want: []string{"root-cohort"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := indexer.IndexCohortParent(tc.obj)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

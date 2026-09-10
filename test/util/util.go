@@ -442,6 +442,25 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 	}
 }
 
+// ExpectPodSetAdmittedCount waits until wl is admitted with count pods assigned to the named
+// PodSet, refreshing wl. A partially admitted workload - an elastic job whose scale-up was
+// reduced to fit the available quota - is admitted with fewer pods than it requested, so the
+// assigned count is what says how far the scale-up actually got.
+func ExpectPodSetAdmittedCount(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, podSetName kueue.PodSetReference, count int32) {
+	ginkgo.GinkgoHelper()
+	ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+		g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		assignments := wl.Status.Admission.PodSetAssignments
+		idx := slices.IndexFunc(assignments, func(psa kueue.PodSetAssignment) bool {
+			return psa.Name == podSetName
+		})
+		g.Expect(idx).ShouldNot(gomega.Equal(-1), AssertMsg(fmt.Sprintf("No admitted podSet %q", podSetName), wl))
+		g.Expect(assignments[idx].Count).Should(gomega.Equal(new(count)))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
 	wlKeys := workloadKeys(wls)

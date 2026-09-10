@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package core
+package dqo
 
 import (
 	"testing"
@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
@@ -42,7 +43,12 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 		enableFeatureGate *bool
 		dqo               *kueuealpha.DynamicQuotaOrchestrator
 		capacityProviders []*kueuealpha.CapacityProvider
+		cohorts           []*kueue.Cohort
+		clusterQueues     []*kueue.ClusterQueue
+		otherDQOs         []*kueuealpha.DynamicQuotaOrchestrator
 		wantDQO           *kueuealpha.DynamicQuotaOrchestrator
+		wantCohorts       []*kueue.Cohort
+		wantClusterQueues []*kueue.ClusterQueue
 		wantErr           bool
 	}{
 		"discovery-only: provider not found": {
@@ -315,6 +321,38 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"discovery-only: provider reports flavor with empty resources": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty-res").
+				DiscoveryProvider("cp-1", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("empty-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("empty-flavor").Obj()).
+						Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty-res").
+				DiscoveryProvider("cp-1", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors().
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
 		"feature gate disabled": {
 			enableFeatureGate: new(bool),
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-disabled").
@@ -337,9 +375,18 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			for _, cp := range tc.capacityProviders {
 				objs = append(objs, cp)
 			}
+			for _, co := range tc.cohorts {
+				objs = append(objs, co)
+			}
+			for _, cq := range tc.clusterQueues {
+				objs = append(objs, cq)
+			}
+			for _, other := range tc.otherDQOs {
+				objs = append(objs, other)
+			}
 
 			cl := builder.WithObjects(objs...).WithStatusSubresource(objs...).Build()
-			r := NewDynamicQuotaOrchestratorReconciler(cl)
+			r := NewReconciler(cl)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := r.Reconcile(ctx, reconcile.Request{
@@ -361,6 +408,28 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				cmpopts.EquateEmpty(),
 			); diff != "" {
 				t.Errorf("Unexpected DQO (-want +got):\n%s", diff)
+			}
+
+			for _, wantCQ := range tc.wantClusterQueues {
+				var gotCQ kueue.ClusterQueue
+				if err := cl.Get(ctx, types.NamespacedName{Name: wantCQ.Name}, &gotCQ); err != nil {
+					t.Errorf("Failed to get ClusterQueue %s: %v", wantCQ.Name, err)
+					continue
+				}
+				if diff := cmp.Diff(wantCQ.Status.EffectiveQuotas, gotCQ.Status.EffectiveQuotas, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected EffectiveQuotas for ClusterQueue %s (-want +got):\n%s", wantCQ.Name, diff)
+				}
+			}
+
+			for _, wantCohort := range tc.wantCohorts {
+				var gotCohort kueue.Cohort
+				if err := cl.Get(ctx, types.NamespacedName{Name: wantCohort.Name}, &gotCohort); err != nil {
+					t.Errorf("Failed to get Cohort %s: %v", wantCohort.Name, err)
+					continue
+				}
+				if diff := cmp.Diff(wantCohort.Status.EffectiveQuotas, gotCohort.Status.EffectiveQuotas, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected EffectiveQuotas for Cohort %s (-want +got):\n%s", wantCohort.Name, diff)
+				}
 			}
 		})
 	}
