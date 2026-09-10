@@ -401,7 +401,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).
 				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)
@@ -411,7 +410,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			workerBuilder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).
 				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName)

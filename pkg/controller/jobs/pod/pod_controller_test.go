@@ -6669,7 +6669,6 @@ func TestReconciler(t *testing.T) {
 				ctx, log := utiltesting.ContextWithLog(t)
 
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 				indexer := utiltesting.AsIndexer(clientBuilder)
@@ -7014,7 +7013,6 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				WithLists(&corev1.PodList{Items: tc.pods}).
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 
@@ -7143,7 +7141,6 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 						}
 						return client.Patch(ctx, obj, patch, opts...)
 					},
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 

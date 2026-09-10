@@ -3729,7 +3729,7 @@ func TestScheduleForTAS(t *testing.T) {
 								if tc.patchStatusErr != nil {
 									return tc.patchStatusErr
 								}
-								return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+								return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 							},
 							SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 								if tc.patchStatusErr != nil {
@@ -3998,7 +3998,6 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							utiltesting.MakeNamespace("default"),
 						).
 						WithInterceptorFuncs(interceptor.Funcs{
-							SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 							SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 						}).
 						WithStatusSubresource(&kueue.Workload{})
@@ -10233,7 +10232,7 @@ func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
 									return err
 								}
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 						},
 						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							if subResourceName == "status" && !patched {
@@ -10461,7 +10460,7 @@ func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
 						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
 							statusPatches++
 						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 					},
 					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if subResourceName == "status" {

@@ -1821,7 +1821,6 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					}).
 					Build()

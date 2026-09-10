@@ -1288,7 +1288,6 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
 				WithStatusSubresource(&kueue.Workload{}).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 

@@ -674,9 +674,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
-						},
 						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
 						},
@@ -712,9 +709,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(_ context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return errors.New("test-patch-failure")
-						},
 						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							return errors.New("test-patch-failure")
 						},
@@ -797,7 +791,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					}).
 					Build(),
@@ -962,9 +955,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
-						},
 						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
 						},

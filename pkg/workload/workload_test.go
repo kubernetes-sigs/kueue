@@ -1237,7 +1237,7 @@ func TestSetConditionAndUpdate(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 						},
 						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							if tc.err != nil {
@@ -1318,7 +1318,7 @@ func TestUpdateReclaimablePods(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 						},
 						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							if tc.err != nil {

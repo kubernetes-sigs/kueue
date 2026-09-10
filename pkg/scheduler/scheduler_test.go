@@ -207,7 +207,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 								if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && tc.admissionError != nil {
 									return tc.admissionError
 								}
-								return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+								return client.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 							},
 							SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 								if subResourceName == "status" && tc.admissionError != nil {
@@ -8877,7 +8877,6 @@ func TestLastSchedulingContext(t *testing.T) {
 						).
 						WithStatusSubresource(&kueue.Workload{}).
 						WithInterceptorFuncs(interceptor.Funcs{
-							SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 							SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 						})
 
@@ -9125,7 +9124,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						updates++
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+						return client.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 					},
 					SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						updates++
@@ -9949,7 +9948,7 @@ func TestSchedulerWhenWorkloadModifiedConcurrently(t *testing.T) {
 										return err
 									}
 								}
-								return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+								return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
 							},
 							SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 								if subResourceName == "status" && !patched {
@@ -10067,10 +10066,6 @@ func TestSchedulerNotifiesWatchersWhenAssumedWorkloadAdmissionFailsWithNotFound(
 		WithObjects(ns, rf, cq, lq, wl).
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: func(context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption) error {
-				patchAttempted = true
-				return apierrors.NewNotFound(kueue.Resource("workload"), wl.Name)
-			},
 			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 				patchAttempted = true
 				return apierrors.NewNotFound(kueue.Resource("workload"), wl.Name)

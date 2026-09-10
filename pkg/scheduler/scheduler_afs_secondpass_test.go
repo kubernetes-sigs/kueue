@@ -127,7 +127,6 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 		WithObjects(utiltesting.MakeNamespace("default"), &provCheck).
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		})
 	if err := tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {

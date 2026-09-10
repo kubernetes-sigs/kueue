@@ -911,7 +911,6 @@ func TestLocalQueueReconcile(t *testing.T) {
 				WithObjects(objs...).
 				WithStatusSubresource(objs...).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).
 				Build()
@@ -1048,7 +1047,6 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 		WithObjects(objs...).
 		WithStatusSubresource(objs...).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		}).
 		Build()

@@ -2149,7 +2149,6 @@ func TestReconcile(t *testing.T) {
 				}
 
 				interceptorFuncs := interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}
 				if tc.interceptorFuncsCreate != nil {

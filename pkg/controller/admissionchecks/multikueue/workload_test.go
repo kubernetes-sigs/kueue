@@ -2101,7 +2101,6 @@ func TestWlReconcile(t *testing.T) {
 				ctx, _ := utiltesting.ContextWithLog(t)
 				managerBuilder := getClientBuilder(ctx)
 				managerBuilder = managerBuilder.WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 
@@ -2128,7 +2127,6 @@ func TestWlReconcile(t *testing.T) {
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
 					WithStatusSubresource(&kueue.Workload{}).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					}).
 					Build())
@@ -2295,7 +2293,6 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 
 	managerBuilder := getClientBuilder(ctx).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		}).
 		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{managerWl}}, &batchv1.JobList{Items: []batchv1.Job{*baseJobBuilder.DeepCopy()}}).
@@ -2315,7 +2312,6 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		}).
 		Build())
@@ -2326,7 +2322,6 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{remoteWl}}).
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		}).
 		Build())
@@ -2415,7 +2410,6 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 
 	managerClient := getClientBuilder(ctx).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		}).
 		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{managerWl}}, &batchv1.JobList{Items: []batchv1.Job{*baseJobBuilder.DeepCopy()}}).
@@ -2436,7 +2430,6 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{remoteWl}}).
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 		}).
 		Build())
@@ -2634,12 +2627,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				}
 			}
 			objs := []client.Object{local}
-			wlClientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
-				SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-					local.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
-					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
-				},
-			}).WithObjects(objs...).WithStatusSubresource(objs...)
+			wlClientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...)
 
 			remoteClientBuilders := make(map[string]*fake.ClientBuilder, len(tt.remotes))
 			for remote := range tt.remotes {

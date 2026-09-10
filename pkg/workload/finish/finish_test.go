@@ -113,12 +113,6 @@ func TestFinish(t *testing.T) {
 				WithObjects(tc.args.wl).
 				WithStatusSubresource(&kueue.Workload{}).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if tc.args.patchErr != nil {
-							return tc.args.patchErr
-						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
-					},
 					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if tc.args.patchErr != nil {
 							return tc.args.patchErr

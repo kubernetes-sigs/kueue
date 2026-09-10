@@ -130,20 +130,6 @@ func wrapSSAPatch(patch client.Patch) client.Patch {
 	return patch
 }
 
-// TreatSSAAsStrategicMerge - can be used as a SubResourcePatch interceptor function to treat SSA patches as StrategicMergePatchType.
-// Note: By doing so the values set in the patch will be updated but the call will have no knowledge of FieldManagement when it
-// comes to detecting conflicts between managers or removing fields that are missing from the patch.
-func TreatSSAAsStrategicMerge(ctx context.Context, clnt client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	filteredOpts := make([]client.SubResourcePatchOption, 0, len(opts))
-	for _, opt := range opts {
-		// Skip ForceOwnership for MergePatch to avoid invalid patch error, as it's only valid for ApplyPatch.
-		if opt != client.ForceOwnership {
-			filteredOpts = append(filteredOpts, opt)
-		}
-	}
-	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(patch), filteredOpts...)
-}
-
 func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 	patch, data, err := ConvertApplyConfigToObject(applyConf)
 	if err != nil {

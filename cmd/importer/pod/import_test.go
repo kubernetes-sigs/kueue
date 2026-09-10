@@ -411,7 +411,6 @@ func TestImportNamespace(t *testing.T) {
 
 			builder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).WithStatusSubresource(&kueue.Workload{}).
 				WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)

@@ -1321,12 +1321,6 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 				WithStatusSubresource(tc.workload, tc.job.Object()).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && tc.wantError != nil {
-							return tc.wantError
-						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
-					},
 					SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if subResourceName == "status" && tc.wantError != nil {
 							return tc.wantError

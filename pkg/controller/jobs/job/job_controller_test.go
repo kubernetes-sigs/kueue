@@ -5108,7 +5108,6 @@ func TestReconciler(t *testing.T) {
 				ctx, _ := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(
 					interceptor.Funcs{
-						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					})
 				indexer := utiltesting.AsIndexer(clientBuilder)

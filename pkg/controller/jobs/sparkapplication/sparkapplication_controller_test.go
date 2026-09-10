@@ -785,7 +785,6 @@ func TestReconciler(t *testing.T) {
 
 			clientBuilder := utiltesting.NewClientBuilder(sparkappv1beta2.AddToScheme).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 			kClient := clientBuilder.

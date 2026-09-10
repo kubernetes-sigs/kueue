@@ -641,7 +641,6 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			kcBuilder := utiltesting.NewClientBuilder(kftraining.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
-				SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 			})
 			indexer := utiltesting.AsIndexer(kcBuilder)

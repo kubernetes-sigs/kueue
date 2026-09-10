@@ -1138,17 +1138,6 @@ func TestNodeFailureReconciler(t *testing.T) {
 				WithObjects(initObjs...).
 				WithStatusSubresource(tc.initObjs...).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, client client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if tc.injectPatchError && subResource == "status" {
-							if wl, ok := obj.(*kueue.Workload); ok && wl.Name == wlName {
-								// Fail only if it's trying to remove the node (it's not in the list anymore).
-								if !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
-									return errors.New("injected patch error on removal")
-								}
-							}
-						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResource, obj, patch, opts...)
-					},
 					SubResourceApply: func(ctx context.Context, client client.Client, subResource string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if tc.injectPatchError && subResource == "status" {
 							wl := &kueue.Workload{}

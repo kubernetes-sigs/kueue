@@ -206,7 +206,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 					&kueue.LocalQueueList{Items: queues}).
 				WithObjects(utiltesting.MakeNamespace("default")).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				}).
 				WithStatusSubresource(&kueue.Workload{})

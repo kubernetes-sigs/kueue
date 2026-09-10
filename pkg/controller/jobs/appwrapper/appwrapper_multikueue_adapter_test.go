@@ -225,7 +225,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder(awv1beta2.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
-				SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 			})
 			managerBuilder = managerBuilder.WithLists(&awv1beta2.AppWrapperList{Items: tc.managersAppWrappers})
@@ -233,7 +232,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managerClient := managerBuilder.Build()
 
 			workerBuilder := utiltesting.NewClientBuilder(awv1beta2.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
-				SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 			})
 			workerBuilder = workerBuilder.WithLists(&awv1beta2.AppWrapperList{Items: tc.workerAppWrappers})
