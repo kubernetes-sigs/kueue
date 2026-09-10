@@ -18,6 +18,7 @@ package v1beta1
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -137,6 +138,21 @@ func TestConfigurationQueueConvertFrom(t *testing.T) {
 			input: &v1beta2.Configuration{
 				WaitForPodsReady: &v1beta2.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: defaultPodsReadyTimeout},
+				},
+			},
+			expected: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable:         true,
+					BlockAdmission: new(false),
+					Timeout:        &metav1.Duration{Duration: defaultPodsReadyTimeout},
+				},
+			},
+		},
+		"with WaitForPodsReady UnscheduledTimeout dropped": {
+			input: &v1beta2.Configuration{
+				WaitForPodsReady: &v1beta2.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: defaultPodsReadyTimeout},
+					UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
 				},
 			},
 			expected: &Configuration{
