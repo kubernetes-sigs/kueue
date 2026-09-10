@@ -197,7 +197,7 @@ func (sr *SliceRequests) Divide(f int64) {
 		if (*sr)[i].value == 0 && f == 0 {
 			continue
 		}
-		(*sr)[i].value /= f
+		(*sr)[i].value = utilmath.SaturatingDiv((*sr)[i].value, f)
 	}
 }
 

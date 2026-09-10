@@ -80,7 +80,7 @@ func (r MapRequests) Divide(f int64) {
 			// resources computed initially for all (0) Pods, and thus r[k] = 0.
 			continue
 		}
-		r[k] /= f
+		r[k] = utilmath.SaturatingDiv(r[k], f)
 	}
 }
 
