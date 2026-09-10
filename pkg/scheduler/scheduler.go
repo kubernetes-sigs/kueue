@@ -748,7 +748,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		// Short-circuit, nothing to recompute.
 		return usage, schdcache.FitsCheckOk == fitsCheck
 	}
-	// Clear the last assignment so that we can start from the first flavor again and
+	// Clear the flavor scan state so that we can start from the first flavor again and
 	// reach all flavors from the nomination.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
@@ -828,7 +828,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
 	if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
-		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
+		log.FromContext(ctx).V(6).Info("Clearing Workload's flavor scan state because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
 		wl.FlavorScanState = nil
