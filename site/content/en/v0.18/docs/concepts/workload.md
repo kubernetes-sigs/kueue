@@ -55,7 +55,7 @@ spec:
 ```
 ## Active
 
-You can stop or resume a running workload by setting the [Active](/v0.18/docs/reference/kueue.v1beta1#kueue-x-k8s-io-v1beta1-WorkloadSpec) field. The active field determines if a workload can be admitted into a queue or continue running, if already admitted.
+You can stop or resume a running workload by setting the [Active](/v0.18/docs/reference/kueue.v1beta2#kueue-x-k8s-io-v1beta2-WorkloadSpec) field. The active field determines if a workload can be admitted into a queue or continue running, if already admitted.
 Changing `.spec.Active` from true to false will cause a running workload to be evicted and not be requeued.
 
 ## Queue name
@@ -213,4 +213,4 @@ This effectively prevent External Dispatching mechanism to work properly in mult
 
 - Learn about [workload priority class](/v0.18/docs/concepts/workload_priority_class).
 - Learn how to [run jobs](/v0.18/docs/tasks/run/jobs)
-- Read the [API reference](/v0.18/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-Workload) for `Workload`
+- Read the [API reference](/v0.18/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-Workload) for `Workload`

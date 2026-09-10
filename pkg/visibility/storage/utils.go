@@ -21,6 +21,7 @@ import (
 
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -49,7 +50,7 @@ func newPendingWorkload(wlInfo *workload.Info, positionInLq int32, positionInCq 
 			CreationTimestamp: wlInfo.Obj.CreationTimestamp,
 		},
 		PositionInClusterQueue: int32(positionInCq),
-		Priority:               *wlInfo.Obj.Spec.Priority,
+		Priority:               priority.Priority(wlInfo.Obj),
 		LocalQueueName:         wlInfo.Obj.Spec.QueueName,
 		PositionInLocalQueue:   positionInLq,
 	}

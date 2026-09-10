@@ -33,6 +33,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	cfg "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -40,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/dqo"
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
@@ -102,6 +104,8 @@ type clusterQueue struct {
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
 
+	DynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference
+
 	roleTracker *roletracker.RoleTracker
 
 	// allows access to values extracted from K8s labels/annotations, used as custom Prometheus metric labels
@@ -155,7 +159,13 @@ func (c *clusterQueue) updateClusterQueue(
 	admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck,
 	oldParent *cohort,
 ) error {
-	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
+	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
+	if err != nil {
+		return err
+	}
+	c.NamespaceSelector = nsSelector
+
+	if c.updateQuotasAndResourceGroups(resourcegroups.EffectiveResourceGroups(in)) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
@@ -170,12 +180,6 @@ func (c *clusterQueue) updateClusterQueue(
 			updateClusterQueueResourceNode(c)
 		}
 	}
-
-	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
-	if err != nil {
-		return err
-	}
-	c.NamespaceSelector = nsSelector
 
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
@@ -207,6 +211,7 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas)
 	return nil
 }
 
@@ -417,8 +422,6 @@ func (c *clusterQueue) updateFlavorMetadata(log logr.Logger, flavors map[kueue.R
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
 func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kueue.AdmissionCheckReference]AdmissionCheck) {
-	checksPerController := make(map[string][]kueue.AdmissionCheckReference, len(c.AdmissionChecks))
-	singleInstanceControllers := sets.New[string]()
 	multiKueueAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
 	provisioningAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
 	var missing []kueue.AdmissionCheckReference
@@ -431,7 +434,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 			if !ac.Active {
 				inactive = append(inactive, acName)
 			}
-			checksPerController[ac.Controller] = append(checksPerController[ac.Controller], acName)
 			if ac.Controller == kueue.ProvisioningRequestControllerName {
 				provisioningAdmissionChecks.Insert(acName)
 			}
@@ -465,16 +467,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 		update = true
 	}
 
-	// remove the controllers which don't have more then one AC or are not single instance.
-	maps.DeleteFunc(checksPerController, func(controller string, acs []kueue.AdmissionCheckReference) bool {
-		return len(acs) < 2 || !singleInstanceControllers.Has(controller)
-	})
-
-	// sort the remaining set
-	for c := range checksPerController {
-		slices.Sort(checksPerController[c])
-	}
-
 	if !slices.Equal(c.multiKueueAdmissionChecks, multiKueueChecks) {
 		c.multiKueueAdmissionChecks = multiKueueChecks
 		update = true
@@ -500,8 +492,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
-	wi := workload.NewInfo(w, c.workloadInfoOptions...)
-	wi.UpdateSchedulingHash(log)
+	wi := workload.NewInfo(log, w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
 		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
@@ -545,10 +536,20 @@ func (c *clusterQueue) reportActiveWorkloads() {
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
 }
 
+func (c *clusterQueue) reportAdmittedActiveWorkloads(wlRef workload.Reference, wl *kueue.Workload, incr int) {
+	metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
+
+	qKey := queue.KeyFromWorkload(wl)
+	if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
+		lqRef := metrics.LocalQueueReference{Name: wl.Spec.QueueName, Namespace: wl.Namespace}
+		metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, incr, c.getLQLabelValuesFor(wlRef, string(qKey)), c.roleTracker)
+	}
+}
+
 func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
 	for wlRef, wl := range c.Workloads {
 		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
-			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
+			c.reportAdmittedActiveWorkloads(wlRef, wl.Obj, 1)
 		}
 	}
 }
@@ -614,7 +615,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		c.admittedWorkloadsCount += incr
 
 		wlRef := workload.Key(wi.Obj)
-		metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
+		c.reportAdmittedActiveWorkloads(wlRef, wi.Obj, incr)
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
@@ -634,6 +635,13 @@ func (c *clusterQueue) getLabelValuesFor(wlRef workload.Reference) []string {
 	return c.customLabels.GetFor(map[cfg.SourceKind]string{
 		cfg.SourceKindWorkload:     string(wlRef),
 		cfg.SourceKindClusterQueue: string(c.Name),
+	})
+}
+
+func (c *clusterQueue) getLQLabelValuesFor(wlRef workload.Reference, lqKey string) []string {
+	return c.customLabels.GetFor(map[cfg.SourceKind]string{
+		cfg.SourceKindWorkload:   string(wlRef),
+		cfg.SourceKindLocalQueue: lqKey,
 	})
 }
 

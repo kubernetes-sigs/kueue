@@ -41,16 +41,17 @@ var fuzzResourceNames = []corev1.ResourceName{
 //  1. Header (1 byte): data[0] is returned as opChoice to select the test operation (opAdd, opSub, opScaledUp, opCountIn).
 //  2. Map 1 parsing:
 //     - The next byte (data[0] % 5) defines len1, the number of resource entries to populate in m1 (0 to 4).
-//     - Each entry consumes 5 bytes:
+//     - Each entry consumes 9 bytes:
 //     - Byte 0: Resource name index into fuzzResourceNames array (data[0] % len(fuzzResourceNames)).
-//     - Bytes 1..4: 32-bit unsigned little-endian integer value for the resource quantity.
+//     - Bytes 1..8: 64-bit little-endian value for the resource quantity, taken as
+//     int64, so negative values and the saturation boundary are both reachable.
 //  3. Map 2 parsing:
 //     - If bytes remain, the next byte (data[0] % 5) defines len2 (0 to 4).
-//     - Up to len2 entries are parsed using 5 bytes each, exactly as in m1.
+//     - Up to len2 entries are parsed using 9 bytes each, exactly as in m1.
 //
 // Example:
 //
-//	Input data: []byte{0, 2, 0, 100, 0, 0, 0, 1, 50, 0, 0, 0}
+//	Input data: []byte{0, 2, 0, 100, 0, 0, 0, 0, 0, 0, 0, 1, 50, 0, 0, 0, 0, 0, 0, 0}
 //	- opChoice = 0 (opAdd)
 //	- m1 length = 2 % 5 = 2 entries
 //	  - Entry 1: index 0 -> fuzzResourceNames[0] ("cpu"), val = 100 -> m1["cpu"] = 100
@@ -76,13 +77,17 @@ func parseFuzzMap(data []byte) (MapRequests, []byte) {
 	m := make(MapRequests)
 	count := int(data[0] % 5)
 	data = data[1:]
-	for i := 0; i < count && len(data) >= 5; i++ {
+	for i := 0; i < count && len(data) >= 9; i++ {
 		res := fuzzResourceNames[int(data[0])%len(fuzzResourceNames)]
-		val := int64(data[1]) | int64(data[2])<<8 | int64(data[3])<<16 | int64(data[4])<<24
+		// Eight bytes rather than four: the values this fuzzer compares are int64,
+		// and a four-byte value can only reach 2^32 and is never negative, so the
+		// boundary where the two implementations could disagree was unreachable.
+		val := int64(uint64(data[1]) | uint64(data[2])<<8 | uint64(data[3])<<16 | uint64(data[4])<<24 |
+			uint64(data[5])<<32 | uint64(data[6])<<40 | uint64(data[7])<<48 | uint64(data[8])<<56)
 		if val != 0 {
 			m[res] = val
 		}
-		data = data[5:]
+		data = data[9:]
 	}
 	return m, data
 }
@@ -160,12 +165,16 @@ func (s fuzzSeed) encode() []byte {
 	buf := []byte{s.opChoice, byte(len(s.m1))}
 	for res, val := range s.m1 {
 		idx := resourceIndex(res)
-		buf = append(buf, idx, byte(val), byte(val>>8), byte(val>>16), byte(val>>24))
+		buf = append(buf, idx,
+			byte(val), byte(val>>8), byte(val>>16), byte(val>>24),
+			byte(val>>32), byte(val>>40), byte(val>>48), byte(val>>56))
 	}
 	buf = append(buf, byte(len(s.m2)))
 	for res, val := range s.m2 {
 		idx := resourceIndex(res)
-		buf = append(buf, idx, byte(val), byte(val>>8), byte(val>>16), byte(val>>24))
+		buf = append(buf, idx,
+			byte(val), byte(val>>8), byte(val>>16), byte(val>>24),
+			byte(val>>32), byte(val>>40), byte(val>>48), byte(val>>56))
 	}
 	return buf
 }
@@ -221,6 +230,24 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			opChoice: opCountIn,
 			m1:       MapRequests{corev1.ResourceMemory: 1},
 			m2:       MapRequests{corev1.ResourceMemory: math.MaxInt32 + 1},
+		},
+		// The int64 boundary, which the corpus could not encode while a value
+		// was four bytes wide. Both implementations saturate, so they have to
+		// saturate to the same place.
+		{
+			opChoice: opAdd,
+			m1:       MapRequests{corev1.ResourceCPU: math.MaxInt64},
+			m2:       MapRequests{corev1.ResourceCPU: 1},
+		},
+		{
+			opChoice: opSub,
+			m1:       MapRequests{corev1.ResourceCPU: math.MinInt64},
+			m2:       MapRequests{corev1.ResourceCPU: 1},
+		},
+		{
+			opChoice: opSub,
+			m1:       MapRequests{},
+			m2:       MapRequests{corev1.ResourceCPU: math.MinInt64},
 		},
 		{
 			opChoice: opSet,
@@ -326,8 +353,8 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			checkRequestsEquivalence(t, "Set", m1Copy, s1Copy)
 		case opGetValue:
 			res := fuzzResourceNames[int(opChoice)%len(fuzzResourceNames)]
-			mVal := m1.GetValue(res)
-			sVal := s1.GetValue(res)
+			mVal := m1.ResourceValue(res)
+			sVal := s1.ResourceValue(res)
 			if mVal != sVal {
 				t.Errorf("GetValue mismatch for %s: Map got %d, Slice got %d", res, mVal, sVal)
 			}

@@ -213,6 +213,16 @@ Hence, since v0.13 Kueue adds an entry penalty to FairSharingStatus every time i
 This an equivalent of a job's usage that has been admitted `samplingInterval` ago. The value of penalty is an arbitrary decision for now.
 After we collect customers' feedback, we'll consider introducing an API that allows to configure it.
 
+Starting with Kueue v0.18.5 and v0.19.1, entry penalties are applied only when Kueue first assumes
+a Workload for a quota reservation in a ClusterQueue that uses `UsageBasedAdmissionFairSharing`.
+Each quota reservation contributes at most one entry penalty. A Workload that needs a second
+scheduling pass, such as one using a
+[ProvisioningRequest AdmissionCheck](../2724-topology-aware-scheduling/README.md#support-for-provisioningrequests)
+or the [`TASFailedNodeReplacement` feature gate](../2724-topology-aware-scheduling/README.md#node-failures),
+is re-assumed while keeping its existing quota reservation. The second-pass assumption does not
+add another entry penalty. The penalty added during the first pass is settled on the transition to
+admission, unless the Workload is deactivated in the same update.
+
 ### User Stories (Optional)
 #### Story 1
 
@@ -294,4 +304,3 @@ for configuration examples.
 
 * Not having the feature.
 * Modifying/replacing the existing preemptive fair sharing algorithm.
-

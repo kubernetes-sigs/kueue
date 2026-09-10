@@ -8,6 +8,9 @@ inputs:
   repo:
     description: Target repository in owner/name format
     required: true
+  update-release-issue:
+    description: Whether to fill in the release link in the release issue checklist. Set to "false" for release candidates, since the checklist tracks the final release link only.
+    required: true
 
 outputs:
   message:
@@ -25,6 +28,7 @@ runs:
         VERSION: ${{ inputs.version }}
         ISSUE_NUMBER: ${{ github.event.issue.number }}
         TARGET_REPO: ${{ inputs.repo }}
+        UPDATE_RELEASE_ISSUE: ${{ inputs.update-release-issue }}
       run: |
         RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
@@ -53,4 +57,18 @@ runs:
         fi
 
         RELEASE_URL="https://github.com/${TARGET_REPO}/releases/tag/${VERSION}"
+
+        # Fill in the release link in the release issue checklist. Callers opt out
+        # via "update-release-issue: false" for release candidates, since the
+        # checklist tracks the final release link only.
+        if [[ "$UPDATE_RELEASE_ISSUE" == "true" ]]; then
+          ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --repo "$TARGET_REPO" --json body --jq '.body' || true)
+          if [[ -n "$ISSUE_BODY" && "$ISSUE_BODY" == *"<!-- RELEASE_LINK -->"* ]]; then
+            NEW_ISSUE_BODY=${ISSUE_BODY//<!-- RELEASE_LINK -->/${RELEASE_URL}}
+            gh issue edit "$ISSUE_NUMBER" --repo "$TARGET_REPO" --body "$NEW_ISSUE_BODY" || {
+              echo "!!! Failed to update release issue body with release link." >&2
+            }
+          fi
+        fi
+
         echo "message=✅ Release \`$VERSION\` has been successfully published. Link: ${RELEASE_URL}" >> "$GITHUB_OUTPUT"

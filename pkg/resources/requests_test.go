@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"maps"
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -336,6 +337,67 @@ func TestGreaterKeysRL(t *testing.T) {
 	want := []corev1.ResourceName{corev1.ResourceCPU}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("Unexpected result (-want, +got)\n%s", diff)
+	}
+}
+
+func TestResourceValueClampsOutsideInt64(t *testing.T) {
+	cases := map[string]struct {
+		resource corev1.ResourceName
+		quantity string
+		want     int64
+	}{
+		"an ordinary extended resource is unchanged": {
+			resource: "example.com/gpu",
+			quantity: "8",
+			want:     8,
+		},
+		"the largest representable value is kept": {
+			resource: "example.com/gpu",
+			quantity: strconv.FormatInt(math.MaxInt64, 10),
+			want:     math.MaxInt64,
+		},
+		"one past it is clamped rather than wrapped": {
+			resource: "example.com/gpu",
+			quantity: "9223372036854775808",
+			want:     math.MaxInt64,
+		},
+		"far past it is clamped as well": {
+			resource: "example.com/gpu",
+			quantity: "100000000000000000000",
+			want:     math.MaxInt64,
+		},
+		"an ordinary negative value is unchanged": {
+			resource: "example.com/gpu",
+			quantity: "-3",
+			want:     -3,
+		},
+		"far below the range is clamped rather than wrapped": {
+			resource: "example.com/gpu",
+			quantity: "-100000000000000000000",
+			want:     math.MinInt64,
+		},
+		"memory past the range is clamped too": {
+			resource: corev1.ResourceMemory,
+			quantity: "100Ei",
+			want:     math.MaxInt64,
+		},
+		"cpu is still read in milli-units": {
+			resource: corev1.ResourceCPU,
+			quantity: "1500m",
+			want:     1500,
+		},
+		"cpu past the milli range is clamped": {
+			resource: corev1.ResourceCPU,
+			quantity: "10000000000000000",
+			want:     math.MaxInt64,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := ResourceValue(tc.resource, resource.MustParse(tc.quantity)); got != tc.want {
+				t.Errorf("ResourceValue(%s, %s) = %d, want %d", tc.resource, tc.quantity, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -708,7 +770,7 @@ func TestMapRequestsGetValue(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := tc.req.GetValue(tc.resource); got != tc.want {
+			if got := tc.req.ResourceValue(tc.resource); got != tc.want {
 				t.Errorf("unexpected GetValue(), want=%d, got=%d", tc.want, got)
 			}
 		})
@@ -770,7 +832,7 @@ func TestMapRequestsClone(t *testing.T) {
 			t.Errorf("cloned map mismatch (-want +got):\n%s", cmp.Diff(m, cloned))
 		}
 		cloned.Add(MapRequests{corev1.ResourceMemory: 1024})
-		if m.GetValue(corev1.ResourceMemory) != 0 {
+		if m.ResourceValue(corev1.ResourceMemory) != 0 {
 			t.Errorf("original map was mutated after modifying clone")
 		}
 	})

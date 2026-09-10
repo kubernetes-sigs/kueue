@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -324,6 +323,43 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
 		},
+		"Node NotReady, another workload's running pod does not prevent replacement": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination:           true,
+				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
+			},
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				failedPod.DeepCopy(),
+				testingpod.MakePod("other-workload-pod", nsName).
+					Annotation(kueue.WorkloadAnnotation, "other-workload").
+					NodeName(nodeName).StatusPhase(corev1.PodRunning).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
+		"Node NotReady, an unmanaged running pod does not prevent replacement": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination:           true,
+				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
+			},
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				failedPod.DeepCopy(),
+				testingpod.MakePod("unmanaged-pod", nsName).
+					NodeName(nodeName).StatusPhase(corev1.PodRunning).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
 		"Node NotReady, pod failed, marked as unavailable": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
@@ -508,7 +544,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(
@@ -544,7 +580,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(
@@ -648,7 +684,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(
@@ -688,7 +724,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(
@@ -1348,7 +1384,7 @@ func TestGetWorkloadStatus(t *testing.T) {
 			_ = cl.Get(ctx, wlKey, wl)
 
 			sliceName := workloadslicing.SliceName(wl)
-			pods, err := ListPodsForWorkloadSlice(ctx, cl, wl.Namespace, sliceName, client.MatchingFields{indexer.PodNodeSelectorHostnameKey: tc.nodeName})
+			pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, cl, wl.Namespace, sliceName, client.MatchingFields{indexer.PodNodeSelectorHostnameKey: tc.nodeName})
 			if err != nil {
 				t.Fatalf("Failed to list pods: %v", err)
 			}

@@ -153,7 +153,7 @@ sum by (cluster_queue, reason) (
 )
 ```
 
-请参阅 [Prometheus 指标](/docs/reference/metrics)获取完整的 `reason` 标签值列表。
+请参阅 [Prometheus 指标](/zh-cn/docs/reference/metrics)获取完整的 `reason` 标签值列表。
 
 ## 集群队列状态
 

@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -48,7 +47,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 		ginkgo.By("Updating the visibilityServer configuration and restarting Kueue")
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.VisibilityServer = &configapi.VisibilityServerConfiguration{
-				BindPort: ptr.To[int32](customVisibilityPort),
+				BindPort: new(int32(customVisibilityPort)),
 			}
 		})
 	})

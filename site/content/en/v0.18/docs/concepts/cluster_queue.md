@@ -531,7 +531,7 @@ assignments are compared by setting `.spec.flavorFungibility.preference`:
 
 ## StopPolicy
 
-StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/v0.18/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) like:
+StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/v0.18/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ClusterQueueSpec) like:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -558,4 +558,4 @@ For an example ClusterQueue configuration using admission checks, see [Admission
 - Create [local queues](/v0.18/docs/concepts/local_queue)
 - Create [resource flavors](/v0.18/docs/concepts/resource_flavor) if you haven't already done so.
 - Learn how to [administer cluster quotas](/v0.18/docs/tasks/manage/administer_cluster_quotas).
-- Read the [API reference](/v0.18/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueue) for `ClusterQueue`
+- Read the [API reference](/v0.18/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ClusterQueue) for `ClusterQueue`

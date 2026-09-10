@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -297,8 +296,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 						Name:  kueue.DefaultPodSetName,
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(string(corev1.LabelHostname)),
-							PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
+							Required:      new(string(corev1.LabelHostname)),
+							PodIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
 						},
 					}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -328,7 +327,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
 					g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
-					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(ptr.To(kueue.DelayedTopologyRequestStateReady)))
+					g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(new(kueue.DelayedTopologyRequestStateReady)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

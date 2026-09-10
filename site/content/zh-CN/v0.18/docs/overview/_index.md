@@ -38,7 +38,7 @@ Kueue 的一个核心设计原则是避免重复 Kubernetes 组件和成熟的�
   [Kubeflow 训练作业](/v0.18/docs/tasks/run/kubeflow/)、[RayJob](/v0.18/docs/tasks/run/rayjobs/)、
   [RayCluster](/v0.18/docs/tasks/run/rayclusters/)、[JobSet](/v0.18/docs/tasks/run/jobsets/)、
   [AppWrappers](/v0.18/docs/tasks/run/appwrappers/)、[普通 Pod 和 Pod 组](/v0.18/docs/tasks/run/plain_pods/)。
-- **系统洞察：** 内置 [Prometheus 指标](/v0.18/docs/reference/metrics/)帮助监控系统状态，并提供按需可见性端点用于[监控待处理工作负载](/v0.18/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)。
+- **系统洞察：** 内置 [Prometheus 指标](/zh-cn/v0.18/docs/reference/metrics/)帮助监控系统状态，并提供按需可见性端点用于[监控待处理工作负载](/v0.18/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/)。
 - **准入检查(AdmissionChecks)：** 一种供内部或外部组件影响工作负载是否可以被[接纳](/v0.18/docs/concepts/admission_check/)的机制。
 - **高级自动扩缩支持：** 通过准入检查与 cluster-autoscaler 的 [provisioningRequest](/v0.18/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) 集成。
 - **All-or-nothing 与就绪 Pod：** 一种基于超时的 [All-or-nothing 调度](/v0.18/docs/tasks/manage/setup_wait_for_pods_ready/)实现。

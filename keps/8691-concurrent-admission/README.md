@@ -52,8 +52,9 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Number of Variants](#number-of-variants)
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
-  - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
-  - [Misconfiguration](#misconfiguration)
+    - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
+    - [Misconfiguration](#misconfiguration)
+  - [Limitations](#limitations)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -596,7 +597,7 @@ For Alpha and Beta version of this feature we don't plan to support `StrictFIFO`
 
 ### Risks and Mitigations
 
-### FlavorFungibility Misinterpretation
+#### FlavorFungibility Misinterpretation
 
 In the first iteration of the feature we don't plan to integrate with the `FlavorFungibility` on the
 inter-Variants level. It means that the decision about migrating to a different flavor is binary - if a Variant has been admitted or not.
@@ -609,7 +610,7 @@ the `FlavorFungibility` config.
 
 This may lead to confusion, so we need to address this use-case directly in the documentation.
 
-### Misconfiguration
+#### Misconfiguration
 
 The overall complexity of this feature may lead to misconfigurations. To mitigate this risk
 we should provide users with comprehensive documentation and examples.
@@ -620,6 +621,10 @@ change are understandable. This may include API specs (though not always
 required) or even code snippets. If there's any ambiguity about HOW your
 proposal will be implemented, this is the place to discuss them.
 -->
+
+### Limitations
+
+- Partial admission is not supported for concurrent admission.
 
 ### Test Plan
 

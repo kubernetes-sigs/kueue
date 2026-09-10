@@ -22,6 +22,12 @@ const WS_CLOSE_NORMAL = 1000;
 const WS_CLOSE_GOING_AWAY = 1001;
 const WS_CLOSE_POLICY_VIOLATION = 1008;
 
+// Custom WebSocket close codes for granular error reporting
+const WS_CLOSE_BAD_REQUEST = 4000;
+const WS_CLOSE_UNAUTHORIZED = 4001;
+const WS_CLOSE_SERVICE_UNAVAILABLE = 4002;
+const WS_CLOSE_FORBIDDEN = 4003;
+
 const WS_BASE_PROTOCOL = 'kueueviz.v1';
 const WS_TOKEN_PROTOCOL_PREFIX = 'kueueviz.auth.';
 
@@ -61,13 +67,11 @@ const useWebSocket = (url) => {
     ws.onopen = () => {
       handledErrorEvent = false;
       setError(null);
-      console.log(`Connected to WebSocket: ${fullUrl}`);
     };
 
     ws.onmessage = (event) => {
       const result = parseWebSocketMessage(event.data);
       if (result.error) {
-        console.error('Failed to parse WebSocket message:', event.data);
         setError(result.error);
       } else {
         setData(result.data);
@@ -75,18 +79,16 @@ const useWebSocket = (url) => {
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
       handledErrorEvent = true;
       if (ws.readyState === WebSocket.CONNECTING) {
         setError('Failed to connect to WebSocket.');
       } else {
         setError('WebSocket connection failed.');
       }
-      ws.close();
+      ws.close(WS_CLOSE_NORMAL);
     };
 
     ws.onclose = (event) => {
-      console.log('WebSocket connection closed', 'code:', event.code, 'reason:', event.reason);
       if (handledErrorEvent) {
         return;
       }
@@ -98,6 +100,18 @@ const useWebSocket = (url) => {
         case WS_CLOSE_POLICY_VIOLATION:
           setError('WebSocket connection closed: Token expired or revoked. Please log in again.');
           break;
+        case WS_CLOSE_BAD_REQUEST:
+          setError(event.reason || 'WebSocket connection closed: Bad Request.');
+          break;
+        case WS_CLOSE_UNAUTHORIZED:
+          setError(event.reason || 'WebSocket connection closed: Unauthorized.');
+          break;
+        case WS_CLOSE_SERVICE_UNAVAILABLE:
+          setError(event.reason || 'WebSocket connection closed: Service Unavailable.');
+          break;
+        case WS_CLOSE_FORBIDDEN:
+          setError(event.reason || 'WebSocket connection closed: Forbidden.');
+          break;
         default:
           setError(`WebSocket connection closed unexpectedly (code: ${event.code}). Please refresh the page.`);
           break;
@@ -105,7 +119,7 @@ const useWebSocket = (url) => {
     };
 
     return () => {
-      ws.close();
+      ws.close(WS_CLOSE_NORMAL);
     };
   }, [fullUrl, token]);
 

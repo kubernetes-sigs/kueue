@@ -27,13 +27,18 @@ type Requests interface {
 	Clone() Requests
 	ScaledUp(f int64) Requests
 	ScaledDown(f int64) Requests
+	// Add adds other into the receiver, element-wise. Values saturate at
+	// math.MaxInt64 and math.MinInt64 instead of wrapping, so a total too large
+	// to represent is never returned with the opposite sign. Implementations
+	// have to agree on this, since the one in use is chosen by feature gate.
 	Add(other Requests)
+	// Sub subtracts other from the receiver, element-wise, saturating like Add.
 	Sub(other Requests)
 	Divide(f int64)
 	Mul(f int64)
 	CountIn(capacity Requests) int32
 	CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName)
-	GetValue(name corev1.ResourceName) int64
+	ResourceValue(name corev1.ResourceName) int64
 	Set(name corev1.ResourceName, val int64)
 	ForEach(fn func(name corev1.ResourceName, val int64))
 	Iter() iter.Seq2[corev1.ResourceName, int64]

@@ -60,7 +60,7 @@ func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
 // ResourceClaimSpec. Returns field errors for unsupported request features
 // (FirstAvailable, AllocationMode All). AdminAccess requests are skipped (zero quota).
 func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
-	out := resources.CreateEmpty()
+	out := resources.NewRequests()
 	if claimSpec == nil {
 		return out, nil
 	}
@@ -122,7 +122,7 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
 		// (matching the scheduler's Amount arithmetic) rather than letting the
 		// sum wrap to a negative count.
-		out.Set(dc, utilmath.SaturatingAdd(out.GetValue(dc), q))
+		out.Set(dc, utilmath.SaturatingAdd(out.ResourceValue(dc), q))
 	}
 	return out, nil
 }

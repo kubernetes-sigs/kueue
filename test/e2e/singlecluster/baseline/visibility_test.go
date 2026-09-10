@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -135,54 +134,6 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityClass, true)
 		})
 
-		ginkgo.It("Should allow fetching information about pending workloads in ClusterQueue (v1beta1)", func() {
-			ginkgo.By("Verify there are zero pending workloads", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					info, err := kueueClientset.VisibilityV1beta1().ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(info.Items).Should(gomega.BeEmpty())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
-				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
-					Queue(kueue.LocalQueueName(localQueueA.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
-					RequestAndLimit(corev1.ResourceCPU, "1").
-					WorkloadPriorityClass(lowPriorityClass.Name).
-					Obj()
-				util.MustCreate(ctx, k8sClient, sampleJob2)
-			})
-
-			ginkgo.By("Verify there is one pending workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					info, err := kueueClientset.VisibilityV1beta1().ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(info.Items).Should(gomega.HaveLen(1))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Await for pods to be running", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
-				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, nsA)).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Verify there are zero pending workloads, after the second workload is admitted", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					info, err := kueueClientset.VisibilityV1beta1().ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(info.Items).Should(gomega.BeEmpty())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-		})
-
 		ginkgo.It("Should allow fetching information about pending workloads in ClusterQueue", func() {
 			ginkgo.By("Verify there are zero pending workloads", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -214,7 +165,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
+					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(new(int32(1))))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -312,7 +263,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingJob), createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(ptr.To[int32](1)))
+					g.Expect(createdJob.Status.Ready).Should(gomega.Equal(new(int32(1))))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -60,6 +59,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -111,9 +112,27 @@ func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
 	return (prevStatus == StatusQuotaReserved || prevStatus == StatusAdmitted) && newStatus == StatusPending
 }
 
-type AssignmentClusterQueueState struct {
-	LastTriedFlavorIdx     []map[corev1.ResourceName]int
-	ClusterQueueGeneration int64
+type FlavorScanState struct {
+	// LastTriedFlavorIndexes records the last examined flavor index for each PodSet
+	// and resource, within the corresponding resource group's flavor list.
+	// A value of -1 means that pair's scan reached the end; its next attempt starts
+	// at index zero. Missing entries also start at zero.
+	LastTriedFlavorIndexes []map[corev1.ResourceName]int
+
+	// AllocatableResourceGeneration records the ClusterQueue's allocatable resource
+	// generation at the time of the scan, used to check whether the scan progress is stale.
+	AllocatableResourceGeneration int64
+
+	// SchedulingCycle is the scheduling cycle that computed this assignment. It lets the
+	// assignment from the immediately preceding cycle be treated as current even when the
+	// ClusterQueue generation has moved on.
+	SchedulingCycle int64
+
+	// SchedulingHash is the scheduling equivalence hash of the Workload this assignment was
+	// computed for. LastTriedFlavorIdx is indexed by PodSet and holds flavor indices chosen
+	// for a particular set of requests, so it only carries meaning while the Workload keeps
+	// the shape it had then.
+	SchedulingHash EquivalenceHash
 }
 
 type dra struct {
@@ -168,25 +187,42 @@ func WithPreprocessedDRAResources(
 	}
 }
 
-func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
-	c := AssignmentClusterQueueState{
-		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
-		ClusterQueueGeneration: s.ClusterQueueGeneration,
+func (s *FlavorScanState) Clone() *FlavorScanState {
+	c := FlavorScanState{
+		LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIndexes)),
+		AllocatableResourceGeneration: s.AllocatableResourceGeneration,
+		SchedulingCycle:               s.SchedulingCycle,
+		SchedulingHash:                s.SchedulingHash,
 	}
-	for ps, flavorIdx := range s.LastTriedFlavorIdx {
-		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)
+	for ps, flavorIdx := range s.LastTriedFlavorIndexes {
+		c.LastTriedFlavorIndexes[ps] = maps.Clone(flavorIdx)
 	}
 	return &c
 }
 
+// MatchesSchedulingShape reports whether this assignment was computed for the scheduling
+// shape the Workload has now. A change to the PodSets or their requests makes the recorded
+// flavor indices describe a search that no longer applies: resuming from them could skip a
+// flavor the changed Workload would now fit.
+//
+// An unknown hash on either side means SchedulingEquivalenceHashing is disabled and there is
+// nothing to compare, so the shape is taken to be unchanged. That keeps the two features
+// independent, and NextFlavorToTryForPodSetResource still bounds-checks the PodSet index.
+func (s *FlavorScanState) MatchesSchedulingShape(current EquivalenceHash) bool {
+	if s.SchedulingHash == SchedulingHashUnknown || current == SchedulingHashUnknown {
+		return true
+	}
+	return s.SchedulingHash == current
+}
+
 // PendingFlavors returns whether there are pending flavors to try
 // after the last attempt.
-func (s *AssignmentClusterQueueState) PendingFlavors() bool {
+func (s *FlavorScanState) PendingFlavors() bool {
 	if s == nil {
 		// This is only reached in unit tests.
 		return false
 	}
-	for _, podSetIdxs := range s.LastTriedFlavorIdx {
+	for _, podSetIdxs := range s.LastTriedFlavorIndexes {
 		for _, idx := range podSetIdxs {
 			if idx != -1 {
 				return true
@@ -196,14 +232,14 @@ func (s *AssignmentClusterQueueState) PendingFlavors() bool {
 	return false
 }
 
-func (s *AssignmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
+func (s *FlavorScanState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
 	if !features.Enabled(features.FlavorFungibility) {
 		return 0
 	}
-	if s == nil || ps >= len(s.LastTriedFlavorIdx) {
+	if s == nil || ps >= len(s.LastTriedFlavorIndexes) {
 		return 0
 	}
-	idx, ok := s.LastTriedFlavorIdx[ps][res]
+	idx, ok := s.LastTriedFlavorIndexes[ps][res]
 	if !ok {
 		return 0
 	}
@@ -221,8 +257,11 @@ type Info struct {
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
-	ClusterQueue   kueue.ClusterQueueReference
-	LastAssignment *AssignmentClusterQueueState
+	ClusterQueue kueue.ClusterQueueReference
+
+	// FlavorScanState records progress of the flavor scan for reuse in subsequent scheduling cycles.
+	// If nil, the next attempt scans flavors from the beginning.
+	FlavorScanState *FlavorScanState
 
 	// LocalQueueFSUsage indicates the historical usage of resource in the LocalQueue, needed for the
 	// AdmissionFairSharing feature, it is only populated for Infos in cache.Snapshot (not in queue manager).
@@ -312,15 +351,16 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
+// NewInfo builds an Info, computing the scheduling hash with log.
+func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	info := &Info{}
-	info.Update(klog.Background(), w, opts...)
+	info.Update(log, w, opts...)
 	return info
 }
 
-// UpdateSchedulingHash computes and sets the scheduling hash using the
+// updateSchedulingHash computes and sets the scheduling hash using the
 // provided contextual logger. Called internally by Update.
-func (i *Info) UpdateSchedulingHash(log logr.Logger) {
+func (i *Info) updateSchedulingHash(log logr.Logger) {
 	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
 }
 
@@ -328,9 +368,57 @@ func (i *Info) UpdateSchedulingHash(log logr.Logger) {
 // recomputes the scheduling hash. Pass WithPreserveTotalRequests to skip
 // the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
+	prev := i.snapshotHashInputs()
 	i.Obj = wl
 	i.rebuildTotalRequests(opts...)
-	i.UpdateSchedulingHash(log)
+	if i.shouldUpdateSchedulingHash(prev) {
+		i.updateSchedulingHash(log)
+	}
+}
+
+// schedulingHashInputs is what an Info's SchedulingHash was computed from,
+// snapshotted before the Info is updated in place.
+type schedulingHashInputs struct {
+	hash     EquivalenceHash
+	obj      *kueue.Workload
+	requests []PodSetResources
+}
+
+func (i *Info) snapshotHashInputs() schedulingHashInputs {
+	return schedulingHashInputs{hash: i.SchedulingHash, obj: i.Obj, requests: i.TotalRequests}
+}
+
+// shouldUpdateSchedulingHash reports whether prev's hash is missing or no longer
+// describes the Info. The effective requests are re-derived from cluster state,
+// so the Workload's version cannot vouch for them and both inputs are checked.
+func (i *Info) shouldUpdateSchedulingHash(prev schedulingHashInputs) bool {
+	return prev.hash == "" ||
+		!prev.sameWorkloadVersion(i.Obj) ||
+		!sameHashedRequests(prev.requests, i.TotalRequests)
+}
+
+// sameWorkloadVersion reports whether wl is the version the hash was computed
+// from. ResourceVersion covers the whole object, which is what the hash reads:
+// status and annotations included, not just the spec.
+func (p schedulingHashInputs) sameWorkloadVersion(wl *kueue.Workload) bool {
+	return p.obj != nil &&
+		p.obj.UID == wl.UID &&
+		p.obj.ResourceVersion != "" &&
+		p.obj.ResourceVersion == wl.ResourceVersion
+}
+
+// sameHashedRequests compares only what the scheduling shape is built from:
+// PodSetResources carries more fields than the hash reads.
+func sameHashedRequests(prev, current []PodSetResources) bool {
+	if len(prev) != len(current) {
+		return false
+	}
+	for i := range prev {
+		if prev[i].Count != current[i].Count || !resources.Equal(prev[i].Requests, current[i].Requests) {
+			return false
+		}
+	}
+	return true
 }
 
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
@@ -372,14 +460,20 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			effectiveCount = totalRequests[i].Count
 			effectiveRequests = totalRequests[i].Requests
 		}
-		podSetShapes = append(podSetShapes, map[string]any{
-			"name":            ps.Name,
+		podSetShape := map[string]any{
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
 			"requests":        resources.ToMap(effectiveRequests),
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
-		})
+		}
+		// The name identifies a PodSet but does not affect how it is assigned.
+		// Two readers depend on this shape: the queue's equivalence classes, and
+		// FlavorScanState reuse through MatchesSchedulingShape.
+		if !features.Enabled(features.SchedulingEquivalenceHashingIgnorePodSetName) {
+			podSetShape["name"] = ps.Name
+		}
+		podSetShapes = append(podSetShapes, podSetShape)
 	}
 	shape := map[string]any{
 		"podSets":  podSetShapes,
@@ -458,34 +552,42 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
+// ComputeLocalQueueFSUsage returns the fair-sharing usage for the workload's
+// LocalQueue using the given weight, without any API read. The persistent heap
+// comparator uses this with a cached weight so its ordering stays consistent even
+// if a LocalQueue lookup fails. See Kueue#13476.
+func (i *Info) ComputeLocalQueueFSUsage(
+	weight float64,
+	resWeights map[corev1.ResourceName]float64,
+	afsUsageLedger *queueafs.AfsUsageLedger,
+) float64 {
+	lqKey := queue.KeyFromWorkload(i.Obj)
+
+	// One Get, so the (consumed, penalty) pair is consistent.
+	consumed := corev1.ResourceList{}
+	penalty := corev1.ResourceList{}
+	if afsUsageLedger != nil {
+		if entry, found := afsUsageLedger.Get(lqKey); found {
+			consumed = entry.Resources
+			penalty = entry.PendingPenalty()
+		}
+	}
+
+	return afs.CalculateUsage(consumed, penalty, weight, resWeights)
+}
+
 func (i *Info) CalcLocalQueueFSUsage(
 	ctx context.Context,
 	c client.Client,
 	resWeights map[corev1.ResourceName]float64,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) (float64, error) {
-	lqKey := queue.KeyFromWorkload(i.Obj)
-
-	consumed := corev1.ResourceList{}
-	if afsConsumedResources != nil {
-		entry, found := afsConsumedResources.Get(lqKey)
-		if found {
-			consumed = entry.Resources
-		}
-	}
-
-	penalty := corev1.ResourceList{}
-	if afsEntryPenalties != nil {
-		penalty = afsEntryPenalties.Peek(lqKey)
-	}
-
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
 	if err != nil {
 		return 0, err
 	}
-	return afs.CalculateUsage(consumed, penalty, lqWeight, resWeights), nil
+	return i.ComputeLocalQueueFSUsage(lqWeight, resWeights, afsUsageLedger), nil
 }
 
 // IsUsingTAS returns information if the workload is using TAS
@@ -500,9 +602,7 @@ func (i *Info) IsUsingTAS() bool {
 func IsExplicitlyRequestingTAS(podSets ...kueue.PodSet) bool {
 	return slices.ContainsFunc(podSets,
 		func(ps kueue.PodSet) bool {
-			tr := ps.TopologyRequest
-			return tr != nil &&
-				(tr.Unconstrained != nil || tr.Required != nil || tr.Preferred != nil || tr.PodSetSliceRequiredTopology != nil || tr.PodSetSliceSize != nil || len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
+			return tas.HasTopologyConstraint(ps.TopologyRequest)
 		})
 }
 
@@ -513,7 +613,10 @@ func (i *Info) TASUsage() TASUsage {
 	}
 	result := make(TASUsage, 0)
 	for _, ps := range i.TotalRequests {
-		if ps.TopologyRequest != nil {
+		// Do not count PodSets which can be fully reclaimed towards TAS usage.
+		// This way the assigned topology of the finished parts in a multi-PodSet workload (like JobSet) is freed.
+		// See: https://github.com/kubernetes-sigs/kueue/pull/15219
+		if ps.TopologyRequest != nil && (!features.Enabled(features.ReclaimablePods) || ps.Count > 0) {
 			psFlavors := sets.New[kueue.ResourceFlavorReference]()
 			for _, psFlavor := range ps.Flavors {
 				psFlavors.Insert(psFlavor)
@@ -527,7 +630,7 @@ func (i *Info) TASUsage() TASUsage {
 }
 
 func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.ResourceList {
-	reqs := resources.CreateEmpty()
+	reqs := resources.NewRequests()
 	for _, psReqs := range i.TotalRequests {
 		if psReqs.Requests != nil {
 			reqs.Add(psReqs.Requests)
@@ -547,40 +650,47 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	if !match {
 		return input
 	}
-	output := make(corev1.ResourceList)
+	// What the transformations produce is kept apart from what the PodSet asked
+	// for until the end. A negative output factor is how an allowance is
+	// written, so outputs still cancel each other, but the total one resource
+	// generates cannot go on to reduce a request that was never part of that
+	// arithmetic: an ordinary request under the same name, or the DRA charge
+	// merged in after this returns.
+	retained := make(corev1.ResourceList)
+	generated := make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
-		if mapping, ok := transforms[inputName]; ok {
-			// If MultiplyBy is specified, multiply the input quantity by
-			// the value of the resource specified in MultiplyBy.
-			if mapping.MultiplyBy != "" {
-				if q, ok := input[mapping.MultiplyBy]; ok {
-					inputQuantity = multiplyResourceQuantities(inputQuantity, q)
-				}
+		mapping, ok := transforms[inputName]
+		if !ok {
+			retained[inputName] = inputQuantity
+			continue
+		}
+		// MultiplyBy scales the value the outputs are computed from by the
+		// quantity of the resource it names. Retain keeps the input as it was
+		// requested, so the multiplier does not reach that as well.
+		outputInputVal := inputQuantity
+		if mapping.MultiplyBy != "" {
+			if q, ok := input[mapping.MultiplyBy]; ok {
+				outputInputVal = utilresource.MultiplyQuantity(inputQuantity, q)
 			}
+		}
 
-			for outputName, baseFactor := range mapping.Outputs {
-				outputQuantity := multiplyResourceQuantities(inputQuantity, baseFactor)
-				if accumulated, ok := output[outputName]; ok {
-					outputQuantity.Add(accumulated)
-				}
-				output[outputName] = outputQuantity
-			}
-			if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
-				output[inputName] = inputQuantity
-			}
-		} else {
-			output[inputName] = inputQuantity
+		outputs := make(corev1.ResourceList, len(mapping.Outputs))
+		for outputName, baseFactor := range mapping.Outputs {
+			outputs[outputName] = utilresource.MultiplyQuantity(outputInputVal, baseFactor)
+		}
+		// Summed rather than assigned, so which order the input map is walked
+		// in does not decide which contribution to a name survives.
+		generated = utilresource.MergeResourceListKeepSum(generated, outputs)
+		if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
+			retained[inputName] = inputQuantity
 		}
 	}
-	return output
-}
-
-func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
-	value = value.DeepCopy()
-	mul = mul.DeepCopy()
-	product := inf.Dec{}
-	product.Mul(value.AsDec(), mul.AsDec())
-	return *resource.NewDecimalQuantity(product, value.Format)
+	for name, quantity := range generated {
+		if quantity.Sign() < 0 {
+			generated[name] = resource.Quantity{}
+		}
+	}
+	return utilresource.MergeResourceListKeepSum(retained, generated)
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -654,6 +764,11 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 				}
 			}
 			// Then, add the DRA logical resources
+			//
+			// A producer must not emit corev1.ResourcePods here: claim charges use
+			// mapping names, which validation refuses under this gate, and the
+			// extended-resource path treats pods as native. A ClusterQueue that
+			// tracks the key has it overwritten with PodSet.Count at assignment.
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					q := effectiveRequests[resName]
@@ -758,6 +873,8 @@ func SetConditionAndUpdate(ctx context.Context,
 	})
 }
 
+const PodsNotReadyMessage = "Not all pods are ready or succeeded"
+
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
 // the admission and set the WorkloadRequeued status.
 // Returns whether any change was done.
@@ -852,8 +969,7 @@ func TotalExecutionTime(wl *kueue.Workload) *time.Duration {
 		return nil
 	}
 	accumulatedPast := time.Duration(ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0)) * time.Second
-	total := accumulatedPast + finishedCond.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-	return &total
+	return new(accumulatedPast + finishedCond.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time))
 }
 
 func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
@@ -1399,8 +1515,24 @@ func CreatePodsReadyCondition(status metav1.ConditionStatus, reason, message str
 		Reason:             reason,
 		Message:            message,
 		LastTransitionTime: metav1.NewTime(clock.Now()),
-		// ObservedGeneration is added via workload.SetConditionAndUpdate
+		// ObservedGeneration is added by the caller.
 	}
+}
+
+// CurrentPodsScheduledCondition returns the current admission's scheduling state.
+// False means required Pods await scheduling.
+// True means all required Pods have been scheduled or succeeded.
+// Nil means no applicable scheduling observation exists.
+func CurrentPodsScheduledCondition(wl *kueue.Workload, admittedAt time.Time) *metav1.Condition {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)
+	if cond == nil || !cond.LastTransitionTime.After(admittedAt) {
+		return nil
+	}
+	if cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadWaitForScheduling ||
+		cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadAllRequiredPodsScheduled {
+		return cond
+	}
+	return nil
 }
 
 func FinalizeOrphanedWorkload(ctx context.Context, c client.Client, clk clock.Clock, wl *kueue.Workload, canFinish bool) error {
@@ -1474,7 +1606,7 @@ func AdmissionChecksForWorkload(log logr.Logger, wl *kueue.Workload, cq *kueue.C
 
 	// If no admission is present yet we can only list
 	// the checks which apply to all flavors supported by the ClusterQueue
-	allFlavors := queue.AllFlavors(cq.Spec.ResourceGroups)
+	allFlavors := queue.AllFlavors(resourcegroups.EffectiveResourceGroups(cq))
 	checksForAllFlavors := filterChecks(allChecks, func(acFlavors flavorSet) bool {
 		return acFlavors.IsSuperset(allFlavors)
 	})
@@ -1604,6 +1736,24 @@ func IsElasticWorkload(wl *kueue.Workload) bool {
 		return false
 	}
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && wl.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
+}
+
+// MinCountsUsable reports whether PodSet.MinCount is honored for the given Workload, i.e. whether
+// the workload may be partially admitted. MinCount is populated by two independent mechanisms, each
+// with its own feature gate: PartialAdmission (classic, e.g. batch/Job's job-min-parallelism) and
+// ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp (elastic partial scale-up).
+//
+// Both the scheduler and the job reconciler must agree on this predicate: the reconciler clears
+// MinCounts it reports as unusable, so a looser check in the scheduler would admit on values the
+// reconciler already erased.
+//
+// The elastic branch cannot narrow further to workloads that actually opted into the "partial"
+// scale-up strategy, because the elastic-job-scale-up-strategy annotation is set on the Job and is
+// not propagated to the Workload. Opting in is instead enforced where MinCount is produced, so an
+// "atomic" workload reaches the scheduler with no MinCount to act on.
+func MinCountsUsable(wl *kueue.Workload) bool {
+	return features.Enabled(features.PartialAdmission) ||
+		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && IsElasticWorkload(wl))
 }
 
 // UnadmittedWorkloadReasonWithFallback returns the granularReason if the UnadmittedWorkloadsObservability

@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -504,7 +503,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						ResourceUsage: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("2"),
 						},
-						Count: ptr.To[int32](2),
+						Count: new(int32(2)),
 					},
 					kueue.PodSetAssignment{
 						Name: "workers",
@@ -514,7 +513,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						ResourceUsage: corev1.ResourceList{
 							resourceGPU: resource.MustParse("5"),
 						},
-						Count: ptr.To[int32](5),
+						Count: new(int32(5)),
 					},
 				).Obj()
 
@@ -958,7 +957,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						ResourceUsage: corev1.ResourceList{
 							resourceGPU: resource.MustParse("5"),
 						},
-						Count: ptr.To[int32](5),
+						Count: new(int32(5)),
 					},
 				).Obj()
 				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)

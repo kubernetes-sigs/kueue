@@ -66,8 +66,10 @@ func (w *WorkloadWebhook) Default(ctx context.Context, wl *kueue.Workload) error
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Applying defaults")
 
-	// drop minCounts if PartialAdmission is not enabled
-	if !features.Enabled(features.PartialAdmission) {
+	// Drop minCounts unless a feature that honors them is enabled for this Workload: classic
+	// PartialAdmission, or elastic partial scale-up (KEP-12100) for elastic jobs. minCounts of a
+	// disabled feature must not reach the scheduler.
+	if !workload.MinCountsUsable(wl) {
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
@@ -91,6 +93,11 @@ func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
+	if reservesQuotaWithoutAdmission(oldWL) && reservesQuotaWithoutAdmission(newWL) {
+		// An update that introduces this is refused and says so, so the one
+		// worth a trace is the one that was already like this and goes through.
+		log.V(3).Info("Workload already reserves quota with no admission recorded, letting the update through so it can converge")
+	}
 	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
@@ -115,17 +122,22 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		}
 	}
 
-	if variableCountPodSets > 1 {
+	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
+	// so both checks below are skipped for them.
+	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		workloadslicing.Enabled(obj)
+
+	if variableCountPodSets > 1 && !elasticPartialScaleUp {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
 	statusPath := field.NewPath("status")
 	if workload.HasQuotaReservation(obj) {
-		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
+		allErrs = append(allErrs, validateAdmission(obj, oldObj, statusPath.Child("admission"))...)
 	}
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
@@ -267,8 +279,24 @@ func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) f
 	return allErrors
 }
 
-func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
+// reservesQuotaWithoutAdmission reports a Workload carrying the QuotaReserved
+// condition with no status.admission.
+func reservesQuotaWithoutAdmission(wl *kueue.Workload) bool {
+	return wl != nil && workload.HasQuotaReservation(wl) && wl.Status.Admission == nil
+}
+
+// validateAdmission is reached on the QuotaReserved condition rather than on the
+// field, so it has to answer for a Workload that carries one without the other.
+func validateAdmission(obj, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
 	admission := obj.Status.Admission
+	if admission == nil {
+		// One that was already like this goes through, so it can converge and be
+		// removed, the way validateReclaimablePods lets a stale count through.
+		if reservesQuotaWithoutAdmission(oldObj) {
+			return nil
+		}
+		return field.ErrorList{field.Required(path, "must be set while the QuotaReserved condition is true")}
+	}
 	var allErrs field.ErrorList
 
 	names := sets.New[kueue.PodSetReference]()
@@ -410,7 +438,7 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		}
 		oldCount, found := knowPodSets[newCount.Name]
 		if found && newCount.Count < oldCount.Count && !scaledDownPodSets.Has(newCount.Name) {
-			ret = append(ret, field.Invalid(basePath.Key(string(newCount.Name)).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
+			ret = append(ret, field.Invalid(basePath.Key(string(newCount.Name)).Child("count"), newCount.Count, fmt.Sprintf("cannot be less than %d", oldCount.Count)))
 		}
 	}
 

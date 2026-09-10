@@ -4,7 +4,11 @@
   </div>
 </div>
 
-<script src="/pagefind/pagefind-ui.js"></script>
+{{- $bundlePath := "/pagefind/" -}}
+{{- with .Page.Param "docs_minor" -}}
+  {{- $bundlePath = printf "/%s/pagefind/" . -}}
+{{- end -}}
+<script src="{{ $bundlePath }}pagefind-ui.js"></script>
 <script>
 window.addEventListener('DOMContentLoaded', function() {
   var overlay = document.getElementById('pagefind-search-overlay');
@@ -43,7 +47,7 @@ window.addEventListener('DOMContentLoaded', function() {
 
   if (document.getElementById("pagefind-sidebar-search")) {
     try {
-      new PagefindUI({ element: "#pagefind-sidebar-search", showImages: false, resetStyles: false });
+      new PagefindUI({ element: "#pagefind-sidebar-search", bundlePath: {{ $bundlePath }}, baseUrl: "/", showImages: false, resetStyles: false });
     } catch (e) {
       console.error("Failed to initialize sidebar search", e);
     }
@@ -51,7 +55,7 @@ window.addEventListener('DOMContentLoaded', function() {
 
   if (document.getElementById("pagefind-modal-search")) {
     try {
-      new PagefindUI({ element: "#pagefind-modal-search", showImages: false });
+      new PagefindUI({ element: "#pagefind-modal-search", bundlePath: {{ $bundlePath }}, baseUrl: "/", showImages: false });
     } catch (e) {
       console.error("Failed to initialize modal search", e);
     }

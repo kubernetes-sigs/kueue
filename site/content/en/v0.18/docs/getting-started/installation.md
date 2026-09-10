@@ -145,7 +145,7 @@ wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "versi
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
    `controller_manager_config.yaml` data entry. The entry represents
-   the default [KueueConfiguration](/v0.18/docs/reference/kueue-config.v1beta1).
+   the default [KueueConfiguration](/v0.18/docs/reference/kueue-config.v1beta2).
    The contents of the ConfigMap are similar to the following:
 
 ```yaml
@@ -262,7 +262,7 @@ metadata:
   namespace: kueue-system
 data:
   controller_manager_config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1beta1
+    apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     featureGates:
       ManagedJobsNamespaceSelectorAlwaysRespected: true
@@ -311,4 +311,4 @@ The ShortWorkloadNames features are available starting from versions 0.15.7 and 
 ## What's next
 
 - Follow the [Quick Start](/v0.18/docs/getting-started/quick-start) guide to run your first Job with Kueue.
-- Read the [API reference](/v0.18/docs/reference/kueue-config.v1beta1/#Configuration) for `Configuration`
+- Read the [API reference](/v0.18/docs/reference/kueue-config.v1beta2/#config-kueue-x-k8s-io-v1beta2-Configuration) for `Configuration`

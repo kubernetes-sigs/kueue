@@ -17,7 +17,12 @@ limitations under the License.
 package multikueue
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -26,8 +31,10 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,6 +61,7 @@ import (
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/dra"
@@ -90,8 +98,10 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
 }
 
-func (c *cluster) StopAndTeardown() {
-	c.fwk.StopManager(c.ctx)
+func (c *cluster) stopAndTeardown() {
+	ctx, cancel := context.WithTimeout(c.ctx, util.LongTimeout)
+	defer cancel()
+	c.fwk.StopManager(ctx)
 	c.fwk.Teardown()
 }
 
@@ -126,7 +136,8 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 			util.AutoscalerCrds,
 			util.ClusterProfileCrds,
 		},
-		APIServerFeatureGates: apiFeatureGates,
+		APIServerFeatureGates:     apiFeatureGates,
+		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
 	}
 	mu.Lock()
 	c.cfg = c.fwk.Init()
@@ -214,6 +225,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 		workloadpod.FrameworkName,
 		workloadrayjob.FrameworkName,
 		workloadraycluster.FrameworkName,
+		workloadrayservice.FrameworkName,
 		workloadaw.FrameworkName,
 		workloadtrainjob.FrameworkName,
 	} {
@@ -402,6 +414,21 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 	err = workloadraycluster.SetupRayClusterWebhook(mgr, jobOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	err = workloadrayservice.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	rayServiceReconciler, err := workloadrayservice.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorder(constants.JobControllerName), jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = rayServiceReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadrayservice.SetupRayServiceWebhook(mgr, jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	err = workloadaw.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -488,7 +515,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
-			managerTestCluster = createCluster(nil)
+			managerTestCluster = createCluster(nil, "MutatingAdmissionPolicy=true")
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
@@ -518,10 +545,31 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
 	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
+
+	ginkgo.By("deploying MutatingAdmissionPolicy manifests to manager cluster", func() {
+		mapManifestPath := filepath.Join(util.ProjectBaseDir, "config", "components", "map", "manifests.yaml")
+		manifestBytes, err := os.ReadFile(mapManifestPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		decoder := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 4096)
+		for {
+			var rawObj unstructured.Unstructured
+			if err := decoder.Decode(&rawObj); err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if len(rawObj.Object) == 0 {
+				continue
+			}
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, &rawObj)
+		}
+	})
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.StopAndTeardown()
-	worker1TestCluster.StopAndTeardown()
-	worker2TestCluster.StopAndTeardown()
+	managerTestCluster.stopAndTeardown()
+	worker1TestCluster.stopAndTeardown()
+	worker2TestCluster.stopAndTeardown()
 })

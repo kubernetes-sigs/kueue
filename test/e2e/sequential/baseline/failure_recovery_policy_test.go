@@ -25,7 +25,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -65,7 +64,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			RequestAndLimit(corev1.ResourceMemory, "40Mi").
 			Parallelism(1).
 			TerminationGracePeriod(podTerminationGracePeriodSeconds).
-			PodReplacementPolicy(ptr.To(batchv1.Failed)).
+			PodReplacementPolicy(new(batchv1.Failed)).
 			PodAnnotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue).
 			PodAffinity(&corev1.Affinity{
 				PodAntiAffinity: &corev1.PodAntiAffinity{
@@ -85,7 +84,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 				Key:               corev1.TaintNodeUnreachable,
 				Operator:          corev1.TolerationOpExists,
 				Effect:            corev1.TaintEffectNoExecute,
-				TolerationSeconds: ptr.To[int64](1),
+				TolerationSeconds: new(int64(1)),
 			}).
 			Obj()
 	})
@@ -181,7 +180,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 
 			ginkgo.By("deleting the job with foreground propagation", func() {
-				gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Delete(ctx, job, &client.DeleteOptions{PropagationPolicy: new(metav1.DeletePropagationForeground)})).To(gomega.Succeed())
 			})
 
 			ginkgo.By("ensuring the job is deleted", func() {

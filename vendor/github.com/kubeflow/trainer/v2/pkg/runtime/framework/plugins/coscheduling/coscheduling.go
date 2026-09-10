@@ -90,6 +90,8 @@ func (c *CoScheduling) EnforcePodGroupPolicy(info *runtime.Info, trainJob *train
 	return nil
 }
 
+func (c *CoScheduling) SyncParallelCount(_ *runtime.Info) error { return nil }
+
 func (c *CoScheduling) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	if info == nil || info.RuntimePolicy.PodGroupPolicy == nil || info.RuntimePolicy.PodGroupPolicy.Coscheduling == nil || trainJob == nil {
 		return nil, nil

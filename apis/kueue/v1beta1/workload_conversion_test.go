@@ -21,7 +21,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
@@ -54,13 +53,13 @@ func TestWorkloadConvertTo(t *testing.T) {
 			input: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](0),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(0)),
 				},
 			},
 			expected: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: v1beta2.WorkloadStatus{
-					AccumulatedPastExecutionTimeSeconds: ptr.To[int32](0),
+					AccumulatedPastExecutionTimeSeconds: new(int32(0)),
 				},
 			},
 		},
@@ -68,13 +67,13 @@ func TestWorkloadConvertTo(t *testing.T) {
 			input: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](3600),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(3600)),
 				},
 			},
 			expected: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: v1beta2.WorkloadStatus{
-					AccumulatedPastExecutionTimeSeconds: ptr.To[int32](3600),
+					AccumulatedPastExecutionTimeSeconds: new(int32(3600)),
 				},
 			},
 		},
@@ -89,7 +88,7 @@ func TestWorkloadConvertTo(t *testing.T) {
 							Reason: "AdmittedByClusterQueue",
 						},
 					},
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](7200),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(7200)),
 				},
 			},
 			expected: &v1beta2.Workload{
@@ -102,7 +101,7 @@ func TestWorkloadConvertTo(t *testing.T) {
 							Reason: "AdmittedByClusterQueue",
 						},
 					},
-					AccumulatedPastExecutionTimeSeconds: ptr.To[int32](7200),
+					AccumulatedPastExecutionTimeSeconds: new(int32(7200)),
 				},
 			},
 		},
@@ -110,7 +109,7 @@ func TestWorkloadConvertTo(t *testing.T) {
 			input: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
-					Priority:            ptr.To[int32](100),
+					Priority:            new(int32(100)),
 					PriorityClassSource: PodPriorityClassSource,
 					PriorityClassName:   "low",
 				},
@@ -118,7 +117,7 @@ func TestWorkloadConvertTo(t *testing.T) {
 			expected: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: v1beta2.WorkloadSpec{
-					Priority: ptr.To[int32](100),
+					Priority: new(int32(100)),
 					PriorityClassRef: &v1beta2.PriorityClassRef{
 						Group: v1beta2.PodPriorityClassGroup,
 						Kind:  v1beta2.PodPriorityClassKind,
@@ -131,7 +130,7 @@ func TestWorkloadConvertTo(t *testing.T) {
 			input: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
-					Priority:            ptr.To[int32](100),
+					Priority:            new(int32(100)),
 					PriorityClassSource: WorkloadPriorityClassSource,
 					PriorityClassName:   "low",
 				},
@@ -139,7 +138,7 @@ func TestWorkloadConvertTo(t *testing.T) {
 			expected: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: v1beta2.WorkloadSpec{
-					Priority: ptr.To[int32](100),
+					Priority: new(int32(100)),
 					PriorityClassRef: &v1beta2.PriorityClassRef{
 						Group: v1beta2.WorkloadPriorityClassGroup,
 						Kind:  v1beta2.WorkloadPriorityClassKind,
@@ -250,13 +249,13 @@ func TestWorkloadConvertFrom(t *testing.T) {
 			input: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: v1beta2.WorkloadStatus{
-					AccumulatedPastExecutionTimeSeconds: ptr.To[int32](0),
+					AccumulatedPastExecutionTimeSeconds: new(int32(0)),
 				},
 			},
 			expected: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](0),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(0)),
 				},
 			},
 		},
@@ -264,13 +263,13 @@ func TestWorkloadConvertFrom(t *testing.T) {
 			input: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: v1beta2.WorkloadStatus{
-					AccumulatedPastExecutionTimeSeconds: ptr.To[int32](3600),
+					AccumulatedPastExecutionTimeSeconds: new(int32(3600)),
 				},
 			},
 			expected: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](3600),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(3600)),
 				},
 			},
 		},
@@ -285,7 +284,7 @@ func TestWorkloadConvertFrom(t *testing.T) {
 							Reason: "JobFinished",
 						},
 					},
-					AccumulatedPastExecutionTimeSeconds: ptr.To[int32](1800),
+					AccumulatedPastExecutionTimeSeconds: new(int32(1800)),
 				},
 			},
 			expected: &Workload{
@@ -298,7 +297,7 @@ func TestWorkloadConvertFrom(t *testing.T) {
 							Reason: "JobFinished",
 						},
 					},
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](1800),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(1800)),
 				},
 			},
 		},
@@ -306,7 +305,7 @@ func TestWorkloadConvertFrom(t *testing.T) {
 			input: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: v1beta2.WorkloadSpec{
-					Priority: ptr.To[int32](100),
+					Priority: new(int32(100)),
 					PriorityClassRef: &v1beta2.PriorityClassRef{
 						Group: v1beta2.PodPriorityClassGroup,
 						Kind:  v1beta2.PodPriorityClassKind,
@@ -317,7 +316,7 @@ func TestWorkloadConvertFrom(t *testing.T) {
 			expected: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
-					Priority:            ptr.To[int32](100),
+					Priority:            new(int32(100)),
 					PriorityClassSource: PodPriorityClassSource,
 					PriorityClassName:   "low",
 				},
@@ -327,7 +326,7 @@ func TestWorkloadConvertFrom(t *testing.T) {
 			input: &v1beta2.Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: v1beta2.WorkloadSpec{
-					Priority: ptr.To[int32](100),
+					Priority: new(int32(100)),
 					PriorityClassRef: &v1beta2.PriorityClassRef{
 						Group: v1beta2.WorkloadPriorityClassGroup,
 						Kind:  v1beta2.WorkloadPriorityClassKind,
@@ -338,7 +337,7 @@ func TestWorkloadConvertFrom(t *testing.T) {
 			expected: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
-					Priority:            ptr.To[int32](100),
+					Priority:            new(int32(100)),
 					PriorityClassSource: WorkloadPriorityClassSource,
 					PriorityClassName:   "low",
 				},
@@ -522,7 +521,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 							Reason: "AdmittedByClusterQueue",
 						},
 					},
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](5400),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(5400)),
 				},
 			},
 		},
@@ -538,7 +537,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 			v1beta1Obj: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Status: WorkloadStatus{
-					AccumulatedPastExexcutionTimeSeconds: ptr.To[int32](0),
+					AccumulatedPastExexcutionTimeSeconds: new(int32(0)),
 				},
 			},
 		},
@@ -546,7 +545,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 			v1beta1Obj: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
-					Priority:            ptr.To[int32](100),
+					Priority:            new(int32(100)),
 					PriorityClassSource: PodPriorityClassSource,
 					PriorityClassName:   "low",
 				},
@@ -556,7 +555,7 @@ func TestWorkloadConversion_RoundTrip(t *testing.T) {
 			v1beta1Obj: &Workload{
 				ObjectMeta: defaultObjectMeta,
 				Spec: WorkloadSpec{
-					Priority:            ptr.To[int32](100),
+					Priority:            new(int32(100)),
 					PriorityClassSource: WorkloadPriorityClassSource,
 					PriorityClassName:   "low",
 				},

@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,6 +39,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -224,8 +225,8 @@ func (r *ResourceFlavorReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.
 		return
 	}
 
-	oldFlavors := resourceFlavors(oldCQ)
-	newFlavors := resourceFlavors(newCQ)
+	oldFlavors := utilqueue.AllFlavors(resourcegroups.EffectiveResourceGroups(oldCQ))
+	newFlavors := utilqueue.AllFlavors(resourcegroups.EffectiveResourceGroups(newCQ))
 	if !oldFlavors.Equal(newFlavors) {
 		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
 	}
@@ -258,7 +259,7 @@ func (h *cqHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue
 		return
 	}
 
-	for _, rg := range cq.Spec.ResourceGroups {
+	for _, rg := range resourcegroups.EffectiveResourceGroups(cq) {
 		for _, flavor := range rg.Flavors {
 			if cqs := h.cache.ClusterQueuesUsingFlavor(flavor.Name); len(cqs) == 0 {
 				req := reconcile.Request{
@@ -292,14 +293,4 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		}).
 		WatchesRawSource(source.Channel(r.cqUpdateCh, &h)).
 		Complete(WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
-}
-
-func resourceFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
-	flavors := sets.New[kueue.ResourceFlavorReference]()
-	for _, rg := range cq.Spec.ResourceGroups {
-		for _, flavor := range rg.Flavors {
-			flavors.Insert(flavor.Name)
-		}
-	}
-	return flavors
 }

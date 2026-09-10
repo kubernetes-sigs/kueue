@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -390,16 +389,16 @@ var _ = ginkgo.Describe("PaddleJob controller with TopologyAwareScheduling", fra
 						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeMaster)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(utiltesting.DefaultRackTopologyLevel),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
+							Required:      new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel: new(kftraining.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(utiltesting.DefaultBlockTopologyLevel),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
+							Preferred:     new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel: new(kftraining.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

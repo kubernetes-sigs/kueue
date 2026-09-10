@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Suspend(false).
 			Obj()
@@ -446,7 +446,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Obj()
@@ -497,7 +497,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		trainJob1 := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "tr-1",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Suspend(true).
@@ -536,7 +536,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		trainJob2 := testingtrainjob.MakeTrainJob("trainjob-test-2", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "tr-2",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Suspend(true).
@@ -685,7 +685,7 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Suspend(false).
@@ -710,20 +710,20 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 						Name:  "node-1",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:           ptr.To(utiltesting.DefaultBlockTopologyLevel),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](1),
+							Required:           new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel:      new(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+							SubGroupCount:      new(int32(1)),
 						},
 					},
 					{
 						Name:  "node-2",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:          ptr.To(utiltesting.DefaultRackTopologyLevel),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](1),
+							Preferred:          new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel:      new(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+							SubGroupCount:      new(int32(1)),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

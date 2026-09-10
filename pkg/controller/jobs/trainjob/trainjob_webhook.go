@@ -79,22 +79,30 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	}
 	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
-	suspend, err := w.integrationManager.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
+	suspend, err := w.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		trainJob.Object(),
+		w.client,
+		w.manageJobsWithoutQueueName,
+		w.managedJobsNamespaceSelector,
+		jobframework.WithDeletingObjectTolerance(true),
+	)
 	if err != nil {
 		return err
-	}
-	runtimePatch := kftrainerapi.RuntimePatch{
-		Manager: runtimePatchManagerName,
-		TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-			Template: &kftrainerapi.JobSetTemplatePatch{
-				Spec: &kftrainerapi.JobSetSpecPatch{},
-			},
-		},
 	}
 	if suspend {
 		trainJob.Suspend()
 	}
-	trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, runtimePatch)
+	if getKueueRuntimePatch(trainJob) == nil {
+		trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, kftrainerapi.RuntimePatch{
+			Manager: runtimePatchManagerName,
+			TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
+				Template: &kftrainerapi.JobSetTemplatePatch{
+					Spec: &kftrainerapi.JobSetSpecPatch{},
+				},
+			},
+		})
+	}
 	return nil
 }
 

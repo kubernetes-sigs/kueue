@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clocktesting "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -364,7 +363,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](0),
+							MaxPriorityThreshold: new(int32(0)),
 						},
 					}).Obj(),
 				utiltestingapi.MakeClusterQueue("q_same_cohort").
@@ -579,7 +578,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](0),
+							MaxPriorityThreshold: new(int32(0)),
 						},
 					}).Obj(),
 				utiltestingapi.MakeClusterQueue("q_nominal").
@@ -800,7 +799,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](0),
+							MaxPriorityThreshold: new(int32(0)),
 						},
 					}).Obj(),
 				utiltestingapi.MakeClusterQueue("q_borrowing").
@@ -934,7 +933,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](0),
+							MaxPriorityThreshold: new(int32(0)),
 						},
 					}).Obj(),
 				utiltestingapi.MakeClusterQueue("q_borrowing").
@@ -1409,7 +1408,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](0),
+							MaxPriorityThreshold: new(int32(0)),
 						},
 					}).Obj(),
 				utiltestingapi.MakeClusterQueue("q_borrowing").
@@ -1851,7 +1850,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error while building snapshot: %v", err)
 				}
-				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))

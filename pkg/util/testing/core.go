@@ -87,10 +87,3 @@ func HasMatchingEventAppeared(ctx context.Context, k8sClient client.Client, matc
 	count, err := HasMatchingEventAppearedTimes(ctx, k8sClient, matcher)
 	return count > 0, err
 }
-
-// HasEventAppeared returns if an event has been emitted
-func HasEventAppeared(ctx context.Context, k8sClient client.Client, event eventsv1.Event) (bool, error) {
-	return HasMatchingEventAppeared(ctx, k8sClient, func(item *eventsv1.Event) bool {
-		return item.Reason == event.Reason && item.Type == event.Type && item.Note == event.Note
-	})
-}

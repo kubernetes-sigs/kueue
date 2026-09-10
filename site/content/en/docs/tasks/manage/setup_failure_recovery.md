@@ -157,7 +157,7 @@ This will cause the node to stop sending health pings to the control plane.
 ## 3. Observe the node being down
 
 The `kubelet` on worker nodes periodically sends heartbeat pings to the control plane to report their health.
-If this this does not happen for `node-monitor-grace-period` (by default 50 seconds), the node's readiness status will be
+If this does not happen for `node-monitor-grace-period` (by default 50 seconds), the node's readiness status will be
 deemed `Unknown` and a `node.kubernetes.io/unreachable` taint will be added to the node.
 
 After waiting for the `node-monitor-grace-period` to elapse and running:
@@ -195,7 +195,7 @@ Without the failure recovery policy, the pod will be unable to progress past thi
 
 By default, pods have a 30 second grace period to terminate gracefully.
 Additionally, the failure recovery controller also waits 60 seconds before forcefully marking the stuck pod as `Failed`.
-In total, the pod should transition to `Failed` after 90 seconds since the it was marked for termination.
+In total, the pod should transition to `Failed` after 90 seconds since it was marked for termination.
 
 Fetching all the pods after it elapses:
 ```sh

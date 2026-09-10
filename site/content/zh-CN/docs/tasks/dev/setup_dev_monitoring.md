@@ -156,7 +156,7 @@ Verify the optional metrics are available:
 kueue_cluster_queue_nominal_quota
 ```
 
-See [Prometheus Metrics](/docs/reference/metrics#optional-metrics) for the full list of optional metrics.
+See [Prometheus Metrics](/zh-cn/docs/reference/metrics#optional-metrics) for the full list of optional metrics.
 
 ## What's next
 

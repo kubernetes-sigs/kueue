@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -304,7 +303,7 @@ func TestValidateClusterQueue(t *testing.T) {
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 						BorrowWithinCohort: &kueue.BorrowWithinCohort{
 							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-							MaxPriorityThreshold: ptr.To[int32](10),
+							MaxPriorityThreshold: new(int32(10)),
 						},
 					},
 				},
@@ -329,7 +328,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
 					WhenCanPreempt: kueue.MayStopSearch,
-					Preference:     ptr.To(kueue.BorrowingOverPreemption),
+					Preference:     new(kueue.BorrowingOverPreemption),
 				}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specPath.Child("flavorFungibility", "preference"), "", ""),
@@ -343,7 +342,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.MayStopSearch,
 					WhenCanPreempt: kueue.MayStopSearch,
-					Preference:     ptr.To(kueue.BorrowingOverPreemption),
+					Preference:     new(kueue.BorrowingOverPreemption),
 				}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specPath.Child("flavorFungibility", "preference"), "", ""),
@@ -357,7 +356,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
 					WhenCanPreempt: kueue.TryNextFlavor,
-					Preference:     ptr.To(kueue.BorrowingOverPreemption),
+					Preference:     new(kueue.BorrowingOverPreemption),
 				}).Obj(),
 		},
 		{
@@ -366,7 +365,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.TryNextFlavor,
 					WhenCanPreempt: kueue.TryNextFlavor,
-					Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+					Preference:     new(kueue.PreemptionOverBorrowing),
 				}).Obj(),
 		},
 		{
@@ -375,7 +374,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanBorrow:  kueue.MayStopSearch,
 					WhenCanPreempt: kueue.TryNextFlavor,
-					Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+					Preference:     new(kueue.PreemptionOverBorrowing),
 				}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specPath.Child("flavorFungibility", "preference"), "", ""),

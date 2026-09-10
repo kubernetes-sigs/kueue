@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"sync"
@@ -106,15 +107,20 @@ func (t *tasCache) AddTopology(topology *kueue.Topology) {
 	t.Lock()
 	defer t.Unlock()
 	name := kueue.TopologyReference(topology.Name)
-	if _, ok := t.topologies[name]; !ok {
-		tInfo := topologyInformation{
-			Levels: utiltas.Levels(topology),
+	tInfo := topologyInformation{
+		Levels: utiltas.Levels(topology),
+	}
+	t.topologies[name] = tInfo
+	for fName, flavorInfo := range t.flavors {
+		if flavorInfo.TopologyName != name {
+			continue
 		}
-		t.topologies[name] = tInfo
-		for fName, flavorInfo := range t.flavors {
-			if flavorInfo.TopologyName == name {
-				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
-			}
+		if c, ok := t.flavorCache[fName]; ok {
+			// Update the levels in place: rebuilding the cache entry would drop
+			// the usage accumulated from admitted workloads.
+			c.updateTopology(tInfo)
+		} else {
+			t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
 		}
 	}
 }
@@ -150,13 +156,13 @@ func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger)
 }
 
 // TrackPod notifies the scheduling simulator that a pod is running on a node.
-func (t *tasCache) TrackPod(pod *corev1.Pod) {
-	t.schedulingSimulator.TrackPod(pod)
+func (t *tasCache) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	t.schedulingSimulator.TrackPod(ctx, pod)
 }
 
 // UntrackPod notifies the scheduling simulator that a pod has been removed.
-func (t *tasCache) UntrackPod(key client.ObjectKey) {
-	t.schedulingSimulator.UntrackPod(key)
+func (t *tasCache) UntrackPod(ctx context.Context, key client.ObjectKey) {
+	t.schedulingSimulator.UntrackPod(ctx, key)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {

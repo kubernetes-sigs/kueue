@@ -90,4 +90,4 @@ Kueue 不会为 flavor 污点自动添加容忍度。
 ## 下一步？
 
 - 了解[集群队列（cluster queues）](/v0.18/docs/concepts/cluster_queue)。
-- 阅读 `ResourceFlavor` 的 [API 参考](/v0.18/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceFlavor)。
+- 阅读 `ResourceFlavor` 的 [API 参考](/zh-cn/v0.18/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ResourceFlavor)。

@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -76,7 +75,7 @@ func TestSetCheckState(t *testing.T) {
 				Operator:          corev1.TolerationOpEqual,
 				Value:             "t1v",
 				Effect:            corev1.TaintEffectNoSchedule,
-				TolerationSeconds: ptr.To[int64](5),
+				TolerationSeconds: new(int64(5)),
 			},
 		},
 	}

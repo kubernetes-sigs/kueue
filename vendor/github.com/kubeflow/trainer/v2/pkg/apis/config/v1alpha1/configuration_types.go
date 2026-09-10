@@ -68,6 +68,10 @@ type Configuration struct {
 	// default enablement status of a feature.
 	// +optional
 	FeatureGates map[string]bool `json:"featureGates,omitempty"`
+
+	// tls contains TLS configuration for the controller manager servers.
+	// +optional
+	TLS *TLSOptions `json:"tls,omitempty"`
 }
 
 // ControllerWebhook defines the webhook server for the controller.
@@ -221,4 +225,39 @@ type StatusServer struct {
 	// +optional
 	// +kubebuilder:default=10
 	Burst *int32 `json:"burst,omitempty"`
+}
+
+const (
+	// TLSVersion10 is the TLS 1.0 version string.
+	TLSVersion10 = "1.0"
+	// TLSVersion11 is the TLS 1.1 version string.
+	TLSVersion11 = "1.1"
+	// TLSVersion12 is the TLS 1.2 version string.
+	TLSVersion12 = "1.2"
+	// TLSVersion13 is the TLS 1.3 version string.
+	TLSVersion13 = "1.3"
+)
+
+// TLSOptions contains TLS configuration for the controller manager.
+type TLSOptions struct {
+	// minVersion is the minimum TLS version supported.
+	// +optional
+	// +kubebuilder:validation:Enum=1.0;1.1;1.2;1.3
+	MinVersion string `json:"minVersion,omitempty"`
+
+	// cipherSuites is the list of allowed cipher suites.
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:MaxLength=100
+	CipherSuites []string `json:"cipherSuites,omitempty"`
+
+	// nextProtos is the list of application-level protocols negotiated during
+	// the TLS handshake. Set to ["h2", "http/1.1"] to enable HTTP/2, or omit
+	// to disable it (mitigates CVE-2023-44487 and CVE-2023-39325).
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=10
+	// +kubebuilder:validation:items:MaxLength=32
+	NextProtos []string `json:"nextProtos,omitempty"`
 }

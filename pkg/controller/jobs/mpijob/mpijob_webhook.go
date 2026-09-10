@@ -105,19 +105,18 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error 
 
 	jobframework.ApplyDefaultForManagedBy(mpiJob, w.queues, w.cache, log)
 
-	if features.Enabled(features.TopologyAwareScheduling) {
-		if replicaSpecs := mpiJob.Spec.MPIReplicaSpecs; ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) &&
-			len(replicaSpecs) == 2 && replicaSpecs[v2beta1.MPIReplicaTypeWorker] != nil {
+	if replicaSpecs := mpiJob.Spec.MPIReplicaSpecs; features.Enabled(features.TopologyAwareScheduling) && ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) {
+		if launcherSpec, workerSpec := replicaSpecs[v2beta1.MPIReplicaTypeLauncher], replicaSpecs[v2beta1.MPIReplicaTypeWorker]; launcherSpec != nil && workerSpec != nil {
 			// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
 			// when the MPIJob constructs PodSet group across Launcher and Worker.
-			if _, isPodSetGroup := replicaSpecs[v2beta1.MPIReplicaTypeLauncher].Template.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
+			if _, isPodSetGroup := launcherSpec.Template.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
 				return nil
 			}
 
-			if mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations == nil {
-				mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations = make(map[string]string)
+			if workerSpec.Template.Annotations == nil {
+				workerSpec.Template.Annotations = make(map[string]string)
 			}
-			mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].Template.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+			workerSpec.Template.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
 		}
 	}
 
@@ -155,7 +154,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
-	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+	slices.SortFunc(allErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, allErrs.ToAggregate()

@@ -117,6 +117,42 @@ histogram_quantile(0.99,
 )
 ```
 
+## Post-admission startup latency
+
+Monitor the time from Workload admission until Kueue removes one of its scheduling
+gates from the associated Pods. Kueue records this latency for the
+`kueue.x-k8s.io/admission` (Pod integration), the `kueue.x-k8s.io/topology`
+ (Topology-Aware Scheduling, for any supported job framework), and the
+`kueue.x-k8s.io/elastic-job` scheduling gates (elastic jobs). For example, the following query
+shows the 95th percentile (P95) by ClusterQueue, gate name, and whether the Pods
+belong to a group:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, cluster_queue, name, is_group) (
+    rate(kueue_pod_scheduling_gate_removal_seconds_bucket[5m])
+  )
+)
+```
+
+This latency isolates the controller handoff after admission. It does not include
+the time that Kubernetes takes to schedule or start the Pods.
+
+When `waitForPodsReady` is enabled, monitor the time from Workload admission until
+the Workload reaches `PodsReady=True`. For example, the following query shows the
+P95 by ClusterQueue and priority class:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, cluster_queue, priority_class) (
+    rate(kueue_admitted_until_ready_wait_time_seconds_bucket[5m])
+  )
+)
+```
+
+This latency includes Kubernetes scheduling, container startup, and Pod readiness.
+It does not establish that the application has started useful work.
+
 ## Workload throughput
 
 To monitor how many workloads are being admitted per hour:
@@ -155,6 +191,20 @@ sum by (cluster_queue, reason) (
 
 See [Prometheus Metrics](/docs/reference/metrics) for the full list of `reason` label values.
 
+## Eviction recovery latency
+
+To monitor the time from Workload eviction until quota is released and the
+Workload returns to Pending, use the workload eviction latency histogram. For
+example, the following query shows the P95 by ClusterQueue and eviction reason:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, cluster_queue, reason) (
+    rate(kueue_workload_eviction_latency_seconds_bucket[5m])
+  )
+)
+```
+
 ## ClusterQueue status
 
 To see which ClusterQueues are active:
@@ -167,6 +217,57 @@ To see ClusterQueues that are not active (pending or terminating):
 
 ```promql
 kueue_cluster_queue_status{status!="active"} == 1
+```
+
+## MultiKueue worker cluster health
+
+`multikueue_cluster_status` reports each worker cluster's `Active` condition, per
+manager ClusterQueue referencing it. `Unknown` means the worker cluster exists but has
+not been reconciled yet, so its `Active` condition is not set. A cluster named by a
+MultiKueueConfig that has no MultiKueueCluster object is not reported at all — the
+AdmissionCheck reports that one instead, as a missing cluster.
+
+To see the health of the workers a single team's ClusterQueue depends on:
+
+```promql
+multikueue_cluster_status{cluster_queue="team-a-cq", active="True"} == 1
+```
+
+To list every worker cluster that is currently unusable, along with the ClusterQueues
+affected by it:
+
+```promql
+multikueue_cluster_status{active="False"} == 1
+```
+
+To alert when a worker has been unusable for 5 minutes:
+
+```promql
+max_over_time(multikueue_cluster_status{active="True"}[5m]) == 0
+```
+
+To count **distinct** healthy worker clusters across the whole fleet:
+
+```promql
+count(max by (cluster) (multikueue_cluster_status{active="True"}) == 1)
+```
+
+{{% alert title="Note" color="primary" %}}
+A worker cluster shared by several ClusterQueues is reported once per ClusterQueue.
+Use `max by (cluster)` when counting distinct clusters — a plain
+`sum(multikueue_cluster_status{active="True"})` counts ClusterQueue/worker pairs
+rather than workers, and silently returns a larger number than expected.
+{{% /alert %}}
+
+To compare dispatched against admitted workloads for one team, filter both workload
+metrics by the same `cluster_queue`. Because `multikueue_cluster_status` carries the
+same label, the queries above let you correlate a low admission ratio with an
+unhealthy worker:
+
+```promql
+sum by (cluster) (rate(multikueue_workloads_admitted_total{cluster_queue="team-a-cq"}[5m]))
+/
+sum by (cluster) (rate(multikueue_workloads_dispatched_total{cluster_queue="team-a-cq"}[5m]))
 ```
 
 ## What's next

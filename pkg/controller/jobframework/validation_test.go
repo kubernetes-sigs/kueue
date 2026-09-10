@@ -231,7 +231,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 		"change priority": {
 			oldPodSpec: &corev1.PodSpec{},
 			newPodSpec: &corev1.PodSpec{
-				Priority: ptr.To[int32](1),
+				Priority: new(int32(1)),
 			},
 			wantErr: field.ErrorList{
 				&field.Error{

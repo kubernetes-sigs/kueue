@@ -265,7 +265,7 @@ using the ClusterProfile API.</p>
 </td>
 </tr>
 <tr><td><code>credentialsProviders</code><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
 </td>
 <td>
    <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
@@ -309,6 +309,19 @@ are mutually exclusive.</p>
 </tr>
 </tbody>
 </table>
+
+## `ClusterProfileCredentialsProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider}
+    
+
+**Appears in:**
+
+- [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
+
+
+<p>ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.</p>
+
+
+
 
 ## `ControllerConfigurationSpec`     {#config-kueue-x-k8s-io-v1beta2-ControllerConfigurationSpec}
     
@@ -769,7 +782,13 @@ followed by a slash and a DNS label, or just a DNS label.
 DNS labels consist of lower-case alphanumeric characters or hyphens,
 and must start and end with an alphanumeric character.
 DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
-The total length must not exceed 253 characters.</p>
+The total length must not exceed 253 characters.
+With KueueDRAIntegration enabled it must not be <code>pods</code>; that exact name is
+reserved for Kueue's internal Pod-count accounting. A qualified name such
+as <code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.</p>
 </td>
 </tr>
 <tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
@@ -859,20 +878,35 @@ Requires the KueueDRAIntegrationConsumableCapacity feature gate.</p>
    <p>preemptionStrategies indicates which constraints should a preemption satisfy.
 The preemption algorithm will only use the next strategy in the list if the
 incoming workload (preemptor) doesn't fit after using the previous strategies.
+AlmostLCA(x, y) is the last but one node on the path from x to the
+lowest common ancestor of x and y in the cohort hierarchy (see KEP-1714).
+The strategies compare the shares of AlmostLCA(preemptor, preemptee) and
+AlmostLCA(preemptee, preemptor). These are the shares of ClusterQueues themselves
+only when both ClusterQueues share the same parent Cohort.
 Possible values are:</p>
 <ul>
-<li>LessThanOrEqualToFinalShare: Only preempt a workload if the share of the preemptor CQ
-with the preemptor workload is less than or equal to the share of the preemptee CQ
+<li>LessThanOrEqualToFinalShare: Only preempt a workload if the share of
+AlmostLCA(preemptor, preemptee) with the preemptor workload admitted is
+less than or equal to the share of AlmostLCA(preemptee, preemptor)
 without the workload to be preempted.
 This strategy might favor preemption of smaller workloads in the preemptee CQ,
-regardless of priority or start time, in an effort to keep the share of the CQ
+regardless of priority or start time, in an effort to keep the share of AlmostLCA(preemptee, preemptor)
 as high as possible.</li>
-<li>LessThanInitialShare: Only preempt a workload if the share of the preemptor CQ
-with the incoming workload is strictly less than the share of the preemptee CQ.
+<li>LessThanInitialShare: Only preempt a workload if the share of
+AlmostLCA(preemptor, preemptee) with the preemptor workload admitted is
+strictly less than the share of AlmostLCA(preemptee, preemptor) with the
+workload to be preempted.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
 newest start time first.</li>
 </ul>
+<p>Only the following lists are supported:</p>
+<ul>
+<li>[&quot;LessThanOrEqualToFinalShare&quot;]</li>
+<li>[&quot;LessThanInitialShare&quot;]</li>
+<li>[&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;]</li>
+</ul>
+<p>Any other combination or ordering fails configuration validation.</p>
 </td>
 </tr>
 </tbody>
@@ -1316,7 +1350,12 @@ re-queuing an evicted workload.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
 <td>
-   <p>Input is the name of the input resource.</p>
+   <p>Input is the name of the input resource.
+It must not be <code>pods</code>; that exact name is reserved for Kueue's internal
+Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.</p>
 </td>
 </tr>
 <tr><td><code>strategy</code> <B>[Required]</B><br/>
@@ -1334,7 +1373,14 @@ Defaults to Retain</p>
    <p>MultiplyBy indicates the resource name requested by a workload, if
 specified.
 The requested amount of the resource is used to multiply the requested
-amount of the resource indicated by the &quot;input&quot; field.</p>
+amount of the resource indicated by the &quot;input&quot; field when computing
+&quot;outputs&quot;. It does not change the quantity retained under &quot;input&quot; when
+&quot;strategy&quot; is Retain.
+It must not be <code>pods</code>; that exact name is reserved for Kueue's internal
+Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
@@ -1342,6 +1388,12 @@ amount of the resource indicated by the &quot;input&quot; field.</p>
 </td>
 <td>
    <p>Outputs specifies the output resources and quantities per unit of input resource.
+An output resource name must not be <code>pods</code>; that exact name is reserved for
+Kueue's internal Pod-count accounting. A qualified name such as
+<code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.
 An empty Outputs combined with a <code>Replace</code> Strategy causes the Input resource to be ignored by Kueue.</p>
 </td>
 </tr>
@@ -1555,6 +1607,23 @@ is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
 and requeued after the backoff delay.
 Defaults to the value of timeout. Setting to &quot;0s&quot; disables recovery timeout checking.</p>
+</td>
+</tr>
+<tr><td><code>unscheduledTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>UnscheduledTimeout defines a timeout, measured since the transition to the
+Admitted=True condition, for all the Pods required by the admission to be
+scheduled or to have succeeded. The deadline never exceeds timeout since
+admission. Exceeding it evicts the Workload with the PodsReadyTimeout reason
+and requeues it after the backoff delay.
+A current-admission PodsScheduled=False observation is required for eviction;
+a late observation does not restart the timeout.
+Must be non-negative and must not exceed timeout. When unset or &quot;0s&quot;, scheduling
+tracking, readiness propagation, scheduling timeouts and scheduling-history resets are disabled.
+Requires the WaitForPodsReadyUnscheduledTimeout feature gate, even for &quot;0s&quot;.
+Enabling this gate together with DisableWaitForPodsReady is rejected.</p>
 </td>
 </tr>
 </tbody>

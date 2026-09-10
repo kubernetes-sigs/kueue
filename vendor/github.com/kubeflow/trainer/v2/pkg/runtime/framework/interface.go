@@ -58,6 +58,8 @@ type PodNetworkPlugin interface {
 
 type ComponentBuilderPlugin interface {
 	Plugin
+	// SyncParallelCount propagates PodSets.Count into template-level Parallelism/Completions.
+	SyncParallelCount(info *runtime.Info) error
 	Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error)
 }
 

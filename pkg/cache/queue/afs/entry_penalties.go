@@ -15,75 +15,64 @@
 package afs
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
-	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
-type AfsEntryPenalties struct {
-	penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
-}
-
-func NewPenaltyMap() *AfsEntryPenalties {
-	return &AfsEntryPenalties{
-		penalties: utilmaps.NewSyncMap[utilqueue.LocalQueueReference, corev1.ResourceList](0),
-	}
-}
-
-func (m *AfsEntryPenalties) Push(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.penalties.Update(lqKey, func(existing corev1.ResourceList, _ bool) corev1.ResourceList {
-		return resource.MergeResourceListKeepSum(existing, penalty)
+// PushPenalty records the entry penalty a Workload's reservation costs its
+// LocalQueue, replacing the Workload's previous record so a re-assumed Workload
+// cannot stack a second penalty. now stamps a newly created entry's LastUpdate so
+// the first decay elapses from the push rather than from the zero time; such an
+// entry carries StatusAccounted=false so the persisted status is still merged.
+func (a *AfsUsageLedger) PushPenalty(lqKey utilqueue.LocalQueueReference, wlKey WorkloadReference, penalty corev1.ResourceList, now time.Time) {
+	a.entries.Update(lqKey, func(entry UsageLedgerEntry, found bool) UsageLedgerEntry {
+		if !found {
+			entry.LastUpdate = now
+		}
+		return entry.withPenalty(wlKey, penalty)
 	})
 }
 
-func (m *AfsEntryPenalties) Sub(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
-	negated := make(corev1.ResourceList, len(penalty))
-	for k, v := range penalty {
-		q := v.DeepCopy()
-		q.Neg()
-		negated[k] = q
-	}
-	m.penalties.UpdateOrDelete(lqKey, func(existing corev1.ResourceList) (corev1.ResourceList, bool) {
-		merged := resource.MergeResourceListKeepSum(existing, negated)
-		// Sub recomputes the amount at settlement time rather than recording it at
-		// push time, so it can exceed what was pushed (e.g. after a restart loses the
-		// in-memory penalties). Clamp at zero: a mismatch must not become a permanent
-		// usage discount for the LocalQueue.
-		for k, v := range merged {
-			if v.Sign() < 0 {
-				v.Set(0)
-				merged[k] = v
-			}
-		}
-		return merged, canClearPenalty(merged)
+// SubPenalty drops a Workload's pending penalty when it will never settle
+// (rollback, deletion, or another exit that makes settlement unreachable) and
+// returns the recorded amount, read-only: it is the stored record, not a copy.
+// Without a record it is a true no-op: nothing is deducted from other
+// Workloads, and no entry is materialized for a LocalQueue that has none — the
+// LocalQueue may already be deleted.
+func (a *AfsUsageLedger) SubPenalty(lqKey utilqueue.LocalQueueReference, wlKey WorkloadReference) corev1.ResourceList {
+	var removed corev1.ResourceList
+	a.entries.UpdateIfPresent(lqKey, func(entry UsageLedgerEntry) UsageLedgerEntry {
+		entry, removed = entry.WithoutPenalty(wlKey)
+		return entry
 	})
+	return removed
 }
 
-func canClearPenalty(penalty corev1.ResourceList) bool {
-	for _, v := range penalty {
-		if !v.IsZero() {
-			return false
-		}
-	}
-	return true
-}
-
-func (m *AfsEntryPenalties) Peek(lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
-	penalty, found := m.penalties.Get(lqKey)
+// PeekPenalty returns the penalties awaiting settlement for a LocalQueue,
+// read-only: the returned map is shared with the ledger, not a copy.
+func (a *AfsUsageLedger) PeekPenalty(lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
+	entry, found := a.entries.Get(lqKey)
 	if !found {
 		return corev1.ResourceList{}
 	}
-
-	return penalty
+	return entry.pendingPenalty
 }
 
-func (m *AfsEntryPenalties) HasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
-	_, found := m.penalties.Get(lqKey)
-	return found
-}
-
-func (m *AfsEntryPenalties) Delete(lqKey utilqueue.LocalQueueReference) {
-	m.penalties.Delete(lqKey)
+// HasPendingPenalty reports whether any penalty is awaiting settlement. It tests
+// the aggregate's amounts: an entry outlives its penalties (it also holds the
+// consumed history), so entry presence is not a reliable signal of pending work.
+func (a *AfsUsageLedger) HasPendingPenalty(lqKey utilqueue.LocalQueueReference) bool {
+	entry, found := a.entries.Get(lqKey)
+	if !found {
+		return false
+	}
+	for _, q := range entry.pendingPenalty {
+		if !q.IsZero() {
+			return true
+		}
+	}
+	return false
 }

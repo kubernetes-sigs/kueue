@@ -19,7 +19,7 @@ The ACC can be built-in into Kueue or run in a different kubernetes controller m
 
 Monitors the AdmissionChecks in the cluster and maintains the `Active` condition of those that are associated with it (by `spec.controllerName`). 
 
-Optionally, it can watch custom [parameters](/v0.19/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference) objects.
+Optionally, it can watch custom [parameters](/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-AdmissionCheckParametersReference) objects.
 
 The [Provisioning Admission Check Controller](/v0.19/docs/concepts/admission_check/provisioning_request/) implements this in `pkg/controller/admissionchecks/provisioning/admissioncheck_reconciler.go`
 
@@ -32,9 +32,9 @@ The [Provisioning Admission Check Controller](/v0.19/docs/concepts/admission_che
 
 ### Parameters Object Type
 Optionally, you can define a cluster level object type to hold the Admission Check parameters specific to your implementation.
-Users can reference instances of this object type in the AdmissionCheck definition in [spec.parameters](/v0.19/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference).
+Users can reference instances of this object type in the AdmissionCheck definition in [spec.parameters](/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-AdmissionCheckParametersReference).
 
-For example, the [Provisioning Admission Check Controller](/v0.19/docs/concepts/admission_check/provisioning_request/) uses [ProvisioningRequestConfig](/v0.19/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig) for this purpose.
+For example, the [Provisioning Admission Check Controller](/v0.19/docs/concepts/admission_check/provisioning_request/) uses [ProvisioningRequestConfig](/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ProvisioningRequestConfig) for this purpose.
 
 ## Utility Code
 

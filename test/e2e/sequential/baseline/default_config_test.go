@@ -29,7 +29,6 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -147,7 +146,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 			ginkgo.By("verify the localQueue can be fetched and mutated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-					localQueue.Spec.StopPolicy = ptr.To(kueue.Hold)
+					localQueue.Spec.StopPolicy = new(kueue.Hold)
 					g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})

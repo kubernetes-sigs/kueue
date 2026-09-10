@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -425,9 +426,12 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(ut
 			// In this test we use a job with RequiredTopology = Block.
 			// Each pod requires 1 "extraResource" so the job will use three nodes from a Block.
 			// We simulate a node failure by making it NotReady while the pods are Pending (gated).
-			// The NodeController should identify the pending pods assigned to the failed node and terminate them.
-			// The replacement mechanism should then find the available node in the same Block and replace the failed one.
-			// Note: This test verifies that NodeController can act on pending pods that are assigned to the node (by the nodeSelector) but not scheduled yet.
+			// The pod assigned to the failed node stays gated: the ungater does not
+			// place it onto a node already recorded in Status.UnhealthyNodes, since
+			// it could never schedule there and would only be terminated with
+			// UnschedulableOnAssignedNode and recreated. The replacement mechanism
+			// then finds the available node in the same Block, and the same pod is
+			// ungated onto it.
 			ginkgo.It("Should replace a node when it becomes NotReady and pods are Pending", func() {
 				parallelism := 3
 				numPods := parallelism
@@ -495,6 +499,14 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(ut
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
+				// Recorded before the failure so the assertions below can prove the
+				// original pods survive: none is terminated on the failed node and
+				// recreated, they are simply ungated once a replacement exists.
+				initialPodUIDs := make([]types.UID, 0, numPods)
+				for _, p := range pods.Items {
+					initialPodUIDs = append(initialPodUIDs, p.UID)
+				}
+
 				node := &corev1.Node{}
 				nodeName := initialNodes[0]
 				ginkgo.By(fmt.Sprintf("Simulate failure of node %s", nodeName), func() {
@@ -523,34 +535,40 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(ut
 					}
 				})
 
-				var victimPodName string
-				ginkgo.By("Wait for the victim pod to be Failed", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						victimPod := findPod(ctx, k8sClient, g, ns.Name, jobName, "0", nodeName, false)
-						g.Expect(victimPod).NotTo(gomega.BeNil(), "Victim pod should still exist")
-						victimPodName = victimPod.Name
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-					util.ExpectPodTerminatedByKueueCondition(ctx, k8sClient, client.ObjectKey{Name: victimPodName, Namespace: ns.Name}, "UnschedulableOnAssignedNode")
-				})
-
-				var replacementPodName string
-				ginkgo.By("Wait for the replacement pod to be created", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						replacementPod := findPod(ctx, k8sClient, g, ns.Name, jobName, "0", nodeName, true)
-						g.Expect(replacementPod).NotTo(gomega.BeNil(), "Replacement pod should appear")
-						replacementPodName = replacementPod.Name
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("Removing the artificial scheduling gate from the replacement pod", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						updatedPod := &corev1.Pod{}
-						g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: replacementPodName, Namespace: ns.Name}, updatedPod)).To(gomega.Succeed())
-						if utilpod.Ungate(updatedPod, artificialGate) {
-							g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
-							g.Expect(utilpod.HasGate(updatedPod, artificialGate)).To(gomega.BeFalse(), "Still found artificial gate, retrying...")
+				ginkgo.By(fmt.Sprintf("No pod is ungated onto the failed node %s", nodeName), func() {
+					// The pod whose domain is the failed node keeps the topology gate
+					// while the second pass looks for a replacement domain, so it is
+					// never assigned to that node and never terminated there.
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
+							"job-name": jobName,
+						})).To(gomega.Succeed())
+						for _, p := range pods.Items {
+							g.Expect(p.Spec.NodeName).NotTo(gomega.Equal(nodeName),
+								"pod %s must not be scheduled onto the failed node", p.Name)
+							if utilpod.HasGate(&p, kueue.TopologySchedulingGate) {
+								g.Expect(p.Spec.NodeSelector).NotTo(gomega.HaveKeyWithValue(corev1.LabelHostname, nodeName),
+									"gated pod %s must not carry a node selector for the failed node", p.Name)
+							}
 						}
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("The original pods are ungated onto the replacement node instead of being recreated", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
+							"job-name": jobName,
+						})).To(gomega.Succeed())
+						g.Expect(pods.Items).To(gomega.HaveLen(numPods))
+						gotUIDs := make([]types.UID, 0, numPods)
+						for _, p := range pods.Items {
+							g.Expect(utilpod.HasGate(&p, kueue.TopologySchedulingGate)).To(gomega.BeFalse(),
+								"pod %s should no longer be topology-gated", p.Name)
+							gotUIDs = append(gotUIDs, p.UID)
+						}
+						g.Expect(gotUIDs).To(gomega.ConsistOf(initialPodUIDs),
+							"no pod should have been terminated and recreated")
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Check that the topology assignment is updated with the new node in the same block", func() {
@@ -701,27 +719,6 @@ func expectPodsOnNodes(ctx context.Context, k8sClient client.Client, nsName stri
 		g.Expect(gotNodes).To(gomega.HaveLen(numPods))
 		g.Expect(gotNodes).To(gomega.ConsistOf(expectedNodes))
 	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-}
-
-func findPod(ctx context.Context, k8sClient client.Client, g gomega.Gomega, nsName, jobName, index string, failedNodeName string, isReplacement bool) *corev1.Pod {
-	pods := &corev1.PodList{}
-	g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName), client.MatchingLabels{
-		"job-name": jobName,
-	})).To(gomega.Succeed())
-
-	for i := range pods.Items {
-		p := &pods.Items[i]
-		if p.Labels["batch.kubernetes.io/job-completion-index"] == index {
-			nodeName := p.Spec.NodeName
-			if nodeName == "" && p.Spec.NodeSelector != nil {
-				nodeName = p.Spec.NodeSelector[corev1.LabelHostname]
-			}
-			if (nodeName == failedNodeName) != isReplacement {
-				return p
-			}
-		}
-	}
-	return nil
 }
 
 func findPodOnNode(pods []corev1.Pod, nodeName string) corev1.Pod {

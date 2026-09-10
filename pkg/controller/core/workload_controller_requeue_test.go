@@ -23,11 +23,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -43,7 +48,7 @@ func TestReconcileRequeue(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 					requeuingBackoffMaxDuration: time.Duration(3600) * time.Second,
@@ -63,7 +68,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](3), nil).
+				RequeueState(new(int32(3)), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -97,7 +102,7 @@ func TestReconcileRequeue(t *testing.T) {
 					ObservedGeneration: 1,
 				}).
 				// 10s * 2^(4-1) = 80s
-				RequeueState(ptr.To[int32](4), new(metav1.NewTime(now.Add(80*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(4)), new(metav1.NewTime(now.Add(80*time.Second).Truncate(time.Second)))).
 				// check EvictionState mergeStrategy
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
@@ -123,11 +128,394 @@ func TestReconcileRequeue(t *testing.T) {
 				},
 			},
 		},
+		"evict with the WaitForScheduling cause when the unscheduledTimeout is exceeded": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     30 * time.Minute,
+					unscheduledTimeout:          new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Hour,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForScheduling,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"gate off keeps the same unscheduled workload until the normal timeout": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     30 * time.Minute,
+					unscheduledTimeout:          new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Hour,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: 25 * time.Minute},
+		},
+		"gate off ignores leftover scheduling state and evicts at the normal timeout": {
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueue: true,
+			},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Minute,
+					unscheduledTimeout:          new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Hour,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "multikueue", State: kueue.CheckStateReady}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "multikueue", State: kueue.CheckStatePending, Message: "Reset to Pending after eviction. Previously: Ready"}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					Message:            "At least one required pod is not scheduled",
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+					ObservedGeneration: 1,
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"keep a workload delegated to a MultiKueue worker until the timeout is exceeded": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.MultiKueue:                         true,
+			},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     30 * time.Minute,
+					unscheduledTimeout:          new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Hour,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "multikueue", State: kueue.CheckStateReady}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "multikueue", State: kueue.CheckStateReady}).
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: 25 * time.Minute},
+		},
+		"evict a workload delegated to a MultiKueue worker with the WaitForStart cause when the timeout is exceeded": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.MultiKueue:                         true,
+			},
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					unscheduledTimeout:          new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffJitter:      0,
+					requeuingBackoffMaxDuration: time.Hour,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "multikueue", State: kueue.CheckStateReady}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+				}).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:    "multikueue",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
 		"wait time should be limited to backoffMaxSeconds": {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
@@ -148,7 +536,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](10), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(10)), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -167,7 +555,7 @@ func TestReconcileRequeue(t *testing.T) {
 					ObservedGeneration: 1,
 				}).
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
-				RequeueState(ptr.To[int32](11), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(11)), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -189,8 +577,8 @@ func TestReconcileRequeue(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     5 * time.Minute,
-					recoveryTimeout:             ptr.To(3 * time.Second),
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					recoveryTimeout:             new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
@@ -243,7 +631,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Message:            "At least one pod has failed, waiting for recovery",
 				}).
 				//  10s * 2^(11-1) = 10240s > requeuingBackoffMaxSeconds; then wait time should be limited to requeuingBackoffMaxSeconds
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -265,8 +653,8 @@ func TestReconcileRequeue(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     5 * time.Minute,
-					recoveryTimeout:             ptr.To(3 * time.Second),
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					recoveryTimeout:             new(3 * time.Second),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 					requeuingBackoffMaxDuration: time.Duration(7200) * time.Second,
@@ -321,7 +709,7 @@ func TestReconcileRequeue(t *testing.T) {
 				}).
 				AdmittedAt(true, now).
 				UnhealthyNodes("xyz").
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -354,7 +742,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Message:            "At least one pod has failed, waiting for recovery",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(7200*time.Second).Truncate(time.Second)))).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -392,6 +780,26 @@ func TestReconcileRequeue(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"should set the WorkloadRequeued condition to true on re-activated with a derived deactivation reason": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  "DeactivatedDueToRequeuingLimitExceeded",
+					Message: "The workload is deactivated due to exceeding the maximum number of re-queuing retries",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadReactivated,
+					Message: "The workload was reactivated",
+				}).
+				Obj(),
+		},
 		"should keep the WorkloadRequeued condition until the WaitForPodsReady backoff expires": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -401,7 +809,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -411,7 +819,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
@@ -444,7 +852,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 					Message: "Exceeded the AdmissionCheck timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -454,7 +862,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByAdmissionCheck,
 					Message: "Exceeded the AdmissionCheck timeout ns",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(60*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 		},
@@ -510,7 +918,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Reason:  "JobFinished",
 					Message: "Job finished successfully",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(true).
@@ -526,7 +934,7 @@ func TestReconcileRequeue(t *testing.T) {
 					Reason:  "JobFinished",
 					Message: "Job finished successfully",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Truncate(time.Second)))).
 				Obj(),
 		},
 		"should set the WorkloadRequeued condition to true on ClusterQueue started": {
@@ -733,4 +1141,51 @@ func TestReconcileRequeue(t *testing.T) {
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
+}
+
+// The requeue-after-backoff path must account the workload by its effective
+// resources: a container that declares only a cpu limit is charged that limit
+// (mirroring the requests the created Pods will carry), not the raw empty
+// requests.
+func TestRequeueAfterBackoffUsesAdjustedResources(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Limit(corev1.ResourceCPU, "3").
+		RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-time.Minute)))).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(wl).
+		WithStatusSubresource(wl).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock),
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl"}}); err != nil {
+		t.Fatalf("Reconcile() failed: %v", err)
+	}
+
+	pending := qManager.PendingWorkloadsInfo("cq")
+	if len(pending) != 1 {
+		t.Fatalf("expected 1 pending workload after the backoff requeue, got %d", len(pending))
+	}
+	// The effective cpu request is the limit (3 CPU = 3000m); raw accounting
+	// would report 0.
+	if got := pending[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 3000 {
+		t.Errorf("requeued workload accounted cpu=%dm, want 3000m", got)
+	}
 }

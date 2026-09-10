@@ -43,9 +43,12 @@ const (
 	VeryLongTimeout         = 5 * time.Minute
 	ConsistentDuration      = 300 * time.Millisecond
 	ShortConsistentDuration = 100 * time.Millisecond
-	ShortInterval           = 10 * time.Millisecond
-	Interval                = time.Millisecond * 250
-	LongInterval            = time.Second * 1
+	// LongConsistentDuration is for asserting that something does not happen
+	// when a controller would take longer than ConsistentDuration to do it.
+	LongConsistentDuration = 2 * time.Second
+	ShortInterval          = 10 * time.Millisecond
+	Interval               = time.Millisecond * 250
+	LongInterval           = time.Second * 1
 	// DRAExampleDriverName is the DeviceClass name registered by the dra-example-driver.
 	DRAExampleDriverName = "gpu.example.com"
 )

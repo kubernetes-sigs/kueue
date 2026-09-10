@@ -22,13 +22,16 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
 
-	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -43,6 +46,7 @@ import (
 	fwkcore "github.com/kubeflow/trainer/v2/pkg/runtime/framework/core"
 	fwkplugins "github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins"
 	idxer "github.com/kubeflow/trainer/v2/pkg/runtime/indexer"
+	trainingruntimeutil "github.com/kubeflow/trainer/v2/pkg/util/trainingruntime"
 )
 
 var (
@@ -83,10 +87,24 @@ func NewTrainingRuntime(ctx context.Context, c client.Client, indexer client.Fie
 
 func (r *TrainingRuntime) NewObjects(ctx context.Context, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	var trainingRuntime trainer.TrainingRuntime
-	err := r.client.Get(ctx, client.ObjectKey{Namespace: trainJob.Namespace, Name: trainJob.Spec.RuntimeRef.Name}, &trainingRuntime)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errorNotFoundSpecifiedTrainingRuntime, err)
+	// Try to get runtime from snapshot first
+	if err := getRuntimeSnapshot(ctx, r.client, trainJob, &trainingRuntime); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("unable to get runtime snapshot: %w", err)
+		}
+
+		// Snapshot doesn't exist, load runtime from API server
+		err := r.client.Get(ctx, client.ObjectKey{Namespace: trainJob.Namespace, Name: trainJob.Spec.RuntimeRef.Name}, &trainingRuntime)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errorNotFoundSpecifiedTrainingRuntime, err)
+		}
+
+		// Create snapshot for future reconciliations
+		if err := createRuntimeSnapshot(ctx, r.client, trainJob, &trainingRuntime); err != nil {
+			return nil, fmt.Errorf("creating runtime snapshot: %w", err)
+		}
 	}
+
 	info, err := r.RuntimeInfo(trainJob, trainingRuntime.Spec.Template, trainingRuntime.Spec.MLPolicy, trainingRuntime.Spec.PodGroupPolicy)
 	if err != nil {
 		return nil, err
@@ -109,7 +127,6 @@ func (r *TrainingRuntime) RuntimeInfo(
 	if err = r.framework.RunEnforceMLPolicyPlugins(info, trainJob); err != nil {
 		return nil, err
 	}
-
 	if err = r.framework.RunEnforcePodGroupPolicyPlugins(info, trainJob); err != nil {
 		return nil, err
 	}
@@ -146,6 +163,7 @@ func (r *TrainingRuntime) newRuntimeInfo(
 	if err != nil {
 		return nil, err
 	}
+
 	jobSetSpecApply, err := apply.FromTypedObjWithFields[jobsetv1alpha2ac.JobSetSpecApplyConfiguration](&jobsetv1alpha2.JobSet{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: jobsetv1alpha2.GroupVersion.String(),
@@ -174,18 +192,48 @@ func (r *TrainingRuntime) newRuntimeInfo(
 			if labelAncestor, ok := metadata.Labels[constants.LabelTrainJobAncestor]; ok {
 				if labelAncestor == constants.AncestorTrainer && mlPolicy != nil {
 					count = ptr.Deref(mlPolicy.NumNodes, 1)
-
-					// Apply resourcesPerNode from TrainJob to the template spec
-					if trainJob.Spec.Trainer != nil && trainJob.Spec.Trainer.ResourcesPerNode != nil {
-						for j := range jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers {
-							if jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Name == constants.Node {
-								jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[j].Resources = *trainJob.Spec.Trainer.ResourcesPerNode.DeepCopy()
-								break
-							}
-						}
-					}
 				}
 				ancestor = &labelAncestor
+			}
+		}
+		if trainJob.Spec.Trainer != nil && trainJob.Spec.Trainer.ResourcesPerNode != nil {
+			isTrainerAncestor := ancestor != nil && *ancestor == constants.AncestorTrainer && mlPolicy != nil
+			isMPILauncherAsNode := mlPolicy != nil && mlPolicy.MPI != nil &&
+				ptr.Deref(mlPolicy.MPI.RunLauncherAsNode, false) && *rJob.Name == constants.Node
+			if isTrainerAncestor || isMPILauncherAsNode {
+				if applyPodSpec := jobSetSpecApply.ReplicatedJobs[i].Template.Spec.Template.Spec; applyPodSpec != nil {
+					for k := range applyPodSpec.Containers {
+						if ptr.Deref(applyPodSpec.Containers[k].Name, "") != constants.Node {
+							continue
+						}
+						var baseRes corev1.ResourceRequirements
+						if r := applyPodSpec.Containers[k].Resources; r != nil {
+							if r.Limits != nil {
+								baseRes.Limits = *r.Limits
+							}
+							if r.Requests != nil {
+								baseRes.Requests = *r.Requests
+							}
+						}
+						mergedRes, mergeErr := trainingruntimeutil.MergeResourceRequirements(
+							baseRes, *trainJob.Spec.Trainer.ResourcesPerNode)
+						if mergeErr != nil {
+							return nil, mergeErr
+						}
+						applyRes := &corev1ac.ResourceRequirementsApplyConfiguration{}
+						if mergedRes.Limits != nil {
+							limits := maps.Clone(mergedRes.Limits)
+							applyRes.Limits = &limits
+						}
+						if mergedRes.Requests != nil {
+							requests := maps.Clone(mergedRes.Requests)
+							applyRes.Requests = &requests
+						}
+						applyPodSpec.Containers[k].Resources = applyRes
+						jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[k].Resources = mergedRes
+						break
+					}
+				}
 			}
 		}
 		opts = append(opts, runtime.WithPodSet(
@@ -201,40 +249,43 @@ func (r *TrainingRuntime) newRuntimeInfo(
 }
 
 func (r *TrainingRuntime) mergeRuntimePatches(trainJob *trainer.TrainJob, jobSetTemplateSpec *trainer.JobSetTemplateSpec) error {
+	// Capture the original ReplicatedJobs ordering since SMP may reorder the list.
+	order := make(map[string]int, len(jobSetTemplateSpec.Spec.ReplicatedJobs))
+	for i, rJob := range jobSetTemplateSpec.Spec.ReplicatedJobs {
+		order[rJob.Name] = i
+	}
+
 	for _, runtimePatch := range trainJob.Spec.RuntimePatches {
 		if runtimePatch.TrainingRuntimeSpec == nil ||
 			runtimePatch.TrainingRuntimeSpec.Template == nil ||
 			runtimePatch.TrainingRuntimeSpec.Template.Spec == nil {
 			continue
 		}
-		for _, rJobPatch := range runtimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs {
-			if rJobPatch.Template == nil {
-				continue
-			}
-			for i, job := range jobSetTemplateSpec.Spec.ReplicatedJobs {
-				if job.Name != rJobPatch.Name {
-					continue
-				}
-				source, err := json.Marshal(job.Template)
-				if err != nil {
-					return err
-				}
-				patch, err := json.Marshal(rJobPatch.Template)
-				if err != nil {
-					return err
-				}
-				merged, err := strategicpatch.StrategicMergePatch(source, patch, batchv1.JobTemplateSpec{})
-				if err != nil {
-					return err
-				}
-				mergedTemplate := batchv1.JobTemplateSpec{}
-				if err := json.Unmarshal(merged, &mergedTemplate); err != nil {
-					return err
-				}
-				jobSetTemplateSpec.Spec.ReplicatedJobs[i].Template = mergedTemplate
-			}
+		source, err := json.Marshal(jobSetTemplateSpec.Spec)
+		if err != nil {
+			return err
 		}
+		patch, err := json.Marshal(runtimePatch.TrainingRuntimeSpec.Template.Spec)
+		if err != nil {
+			return err
+		}
+		merged, err := strategicpatch.StrategicMergePatch(source, patch, jobsetv1alpha2.JobSetSpec{})
+		if err != nil {
+			return err
+		}
+		mergedSpec := jobsetv1alpha2.JobSetSpec{}
+		if err := json.Unmarshal(merged, &mergedSpec); err != nil {
+			return err
+		}
+		jobSetTemplateSpec.Spec = mergedSpec
 	}
+
+	// Restore the ReplicatedJobs order defined in the runtime template.
+	sort.SliceStable(jobSetTemplateSpec.Spec.ReplicatedJobs, func(i, j int) bool {
+		return order[jobSetTemplateSpec.Spec.ReplicatedJobs[i].Name] <
+			order[jobSetTemplateSpec.Spec.ReplicatedJobs[j].Name]
+	})
+
 	return nil
 }
 

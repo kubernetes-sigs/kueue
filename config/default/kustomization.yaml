@@ -28,6 +28,8 @@ resources:
 #- ../components/certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
 #- ../components/prometheus
+# [MAP] To enable MutatingAdmissionPolicy (requires K8s 1.36+), uncomment the following line.
+#- ../components/map
 # [METRICS] Expose the controller manager metrics service.
 - metrics_service.yaml
 
@@ -106,7 +108,7 @@ patches:
 #- path: apiservice_insecure_removal.yaml # to remove insecureSkipTLSVerify from the APIService
 #  target:
 #    kind: APIService
-#    name: v1beta1.visibility.kueue.x-k8s.io
+#    name: v1beta2.visibility.kueue.x-k8s.io
 #- path: cert_visibility_manager_patch.yaml
 #  target:
 #    kind: Deployment
@@ -357,7 +359,7 @@ patches:
 #    targets:
 #      - select:
 #          kind: APIService
-#          name: v1beta1.visibility.kueue.x-k8s.io
+#          name: v1beta2.visibility.kueue.x-k8s.io
 #        fieldPaths:
 #          - metadata.annotations.[cert-manager.io/inject-ca-from]
 #        options:
@@ -375,7 +377,7 @@ patches:
 #    targets:
 #      - select:
 #          kind: APIService
-#          name: v1beta1.visibility.kueue.x-k8s.io
+#          name: v1beta2.visibility.kueue.x-k8s.io
 #        fieldPaths:
 #          - metadata.annotations.[cert-manager.io/inject-ca-from]
 #        options:

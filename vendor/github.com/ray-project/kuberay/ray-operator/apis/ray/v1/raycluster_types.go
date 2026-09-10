@@ -2,6 +2,7 @@ package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -42,6 +43,23 @@ type RayClusterSpec struct {
 	// GcsFaultToleranceOptions for enabling GCS FT
 	// +optional
 	GcsFaultToleranceOptions *GcsFaultToleranceOptions `json:"gcsFaultToleranceOptions,omitempty"`
+	// HistoryServerOptions used for history server related configuration
+	// +optional
+	HistoryServerOptions *HistoryServerOptions `json:"historyServerOptions,omitempty"`
+	// NetworkPolicy specifies optional configuration for network isolation.
+	// When set, separate NetworkPolicies are created for head and worker pods.
+	// The reconciler always permits intra-cluster pod-to-pod traffic.
+	// Note: under DenyAll/DenyAllEgress, DNS egress is not added
+	// automatically; since Ray pods reach the head via its service FQDN, you must
+	// allow DNS egress via Head/Worker EgressRules or the cluster will fail to start.
+	// +optional
+	NetworkPolicy *NetworkPolicyConfig `json:"networkPolicy,omitempty"`
+	// TLSOptions specifies optional TLS encryption settings for the RayCluster.
+	// If omitted or Enabled is false, TLS is disabled. When Enabled is true,
+	// the operator enables mTLS using cert-manager to provision and manage certificates.
+	// Requires the RayClusterMTLS feature gate on the operator.
+	// +optional
+	TLSOptions *TLSOptions `json:"tlsOptions,omitempty"`
 	// HeadGroupSpec is the spec for the head pod
 	HeadGroupSpec HeadGroupSpec `json:"headGroupSpec"`
 	// RayVersion is used to determine the command for the Kubernetes Job managed by RayJob
@@ -50,6 +68,18 @@ type RayClusterSpec struct {
 	// WorkerGroupSpecs are the specs for the worker pods
 	// +optional
 	WorkerGroupSpecs []WorkerGroupSpec `json:"workerGroupSpecs,omitempty"`
+}
+
+// TLSOptions configures TLS encryption for the RayCluster.
+// When TLSOptions is nil or Enabled is nil/false, TLS is disabled.
+// When Enabled is true, the operator uses cert-manager to automatically
+// provision a full PKI (self-signed CA, head and worker leaf certificates)
+// and keeps certificates up to date as pod IPs change during autoscaling.
+type TLSOptions struct {
+	// Enabled controls whether mTLS is active for this RayCluster.
+	// Defaults to false when omitted. Set to true to enable mTLS.
+	// +optional
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Recreate;None
@@ -106,16 +136,131 @@ type AuthOptions struct {
 	Mode AuthMode `json:"mode,omitempty"`
 }
 
+// GcsFaultToleranceBackend selects the GCS fault tolerance persistence backend.
+// +kubebuilder:validation:Enum=redis;rocksdb
+type GcsFaultToleranceBackend string
+
+const (
+	// GcsFTBackendRedis persists GCS metadata in an external Redis service.
+	GcsFTBackendRedis GcsFaultToleranceBackend = "redis"
+	// GcsFTBackendRocksDB persists GCS metadata in an embedded RocksDB store on a
+	// persistent volume mounted on the head Pod.
+	GcsFTBackendRocksDB GcsFaultToleranceBackend = "rocksdb"
+)
+
 // GcsFaultToleranceOptions contains configs for GCS FT
 type GcsFaultToleranceOptions struct {
+	// Backend selects the GCS FT persistence backend. Defaults to "redis" for
+	// backward compatibility. Immutable: the backend cannot be switched on an
+	// existing RayCluster (doing so would swap the entire GCS store and head-Pod
+	// wiring, losing fault-tolerance state).
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="gcsFaultToleranceOptions.backend is immutable"
+	Backend GcsFaultToleranceBackend `json:"backend,omitempty"`
+
+	// ----- Redis backend fields -----
+
 	// +optional
 	RedisUsername *RedisCredential `json:"redisUsername,omitempty"`
 	// +optional
 	RedisPassword *RedisCredential `json:"redisPassword,omitempty"`
 	// +optional
 	ExternalStorageNamespace string `json:"externalStorageNamespace,omitempty"`
-	RedisAddress             string `json:"redisAddress"`
+	// RedisAddress is the address of the external Redis service used when Backend
+	// is "redis". It may alternatively be supplied via env vars/annotations.
+	// +optional
+	RedisAddress string `json:"redisAddress,omitempty"`
+
+	// ----- RocksDB (embedded) backend fields -----
+
+	// Storage configures the persistent volume backing the embedded RocksDB
+	// store. Only used when Backend is "rocksdb".
+	// +optional
+	Storage *GcsEmbeddedStorage `json:"storage,omitempty"`
 }
+
+// GcsEmbeddedStorage configures the PVC backing the embedded RocksDB store.
+//
+// RocksDB tolerates only a single writer at a time. The operator mounts the
+// volume on the head Pod but does not itself enforce mutual exclusion, so when a
+// volume can be attached to more than one Pod concurrently (see AccessModes) the
+// caller is responsible for ensuring only one Ray head writes to it at a time.
+type GcsEmbeddedStorage struct {
+	// ClaimName is the name of an existing, user-provided PersistentVolumeClaim to
+	// use as the RocksDB store ("bring your own" PVC). When set, the operator
+	// consumes that PVC as-is: it does not create, delete, resize, or set
+	// ownerReferences on it -- the user owns its entire lifecycle. Mutually
+	// exclusive with Size/StorageClassName/AccessModes (those configure an
+	// operator-managed PVC, which is used instead when ClaimName is empty).
+	//
+	// This is the supported path for persisting GCS state across a RayService
+	// zero-downtime upgrade: point every RayService generation at the same claim.
+	// (An operator-managed PVC is keyed by and owned by the RayCluster, so it is
+	// not reused across upgrades.) Because the old and new head Pods overlap during
+	// a zero-downtime upgrade, the claim must permit concurrent attach
+	// (ReadWriteMany) with externally-coordinated single-writer semantics, or an
+	// active-passive handoff where only one Pod attaches at once.
+	// +optional
+	ClaimName string `json:"claimName,omitempty"`
+
+	// Size of the operator-managed PVC (e.g. "1Gi"). Ignored when ClaimName is set.
+	// Defaults to 1Gi. The operator-managed PVC is created once and not
+	// reconfigured in place; to change size/class/accessModes, delete the PVC (or
+	// switch to ClaimName). A warning event is emitted if this diverges from the
+	// live PVC.
+	// +optional
+	Size *resource.Quantity `json:"size,omitempty"`
+
+	// StorageClassName for the operator-managed PVC. Uses the cluster default
+	// StorageClass when omitted. Ignored when ClaimName is set.
+	// +optional
+	StorageClassName *string `json:"storageClassName,omitempty"`
+
+	// AccessModes for the operator-managed PVC. Defaults to [ReadWriteOnce].
+	// Ignored when ClaimName is set.
+	//
+	// ReadWriteOnce is the sane default for a standalone RayCluster (one head Pod
+	// attaches at a time). ReadWriteMany is a valid choice when you need the volume
+	// attached to multiple Pods concurrently (e.g. to overlap the old and new head
+	// during a RayService upgrade); RocksDB still requires that only one of them
+	// writes at a time, which you must coordinate externally.
+	// +optional
+	AccessModes []corev1.PersistentVolumeAccessMode `json:"accessModes,omitempty"`
+
+	// SubPath mounts a subdirectory of the volume instead of its root.
+	// +optional
+	SubPath string `json:"subPath,omitempty"`
+
+	// DeletionPolicy controls the lifecycle of the operator-managed PVC relative to
+	// the owning RayCluster. Defaults to DeleteWithCluster. Ignored when ClaimName
+	// is set (the operator never owns a bring-your-own PVC, so it is never deleted
+	// or retained by the operator).
+	//
+	// Recovery after Retain: a PVC left behind by a Retain delete can be recovered
+	// either by pointing a new cluster's ClaimName at it, or by recreating a
+	// RayCluster with the same name on the operator-managed path -- the operator
+	// adopts the existing {cluster}-gcs-pvc and reuses its RocksDB state. To start
+	// from a fresh store instead, delete the leftover PVC first.
+	// +optional
+	DeletionPolicy *GCSStorageDeletionPolicy `json:"deletionPolicy,omitempty"`
+}
+
+// GCSStorageDeletionPolicy specifies what happens to the operator-managed GCS
+// storage PVC when the owning RayCluster is deleted.
+// +kubebuilder:validation:Enum=DeleteWithCluster;Retain
+type GCSStorageDeletionPolicy string
+
+const (
+	// DeleteWithClusterGCSStorageDeletionPolicy (the default) makes the
+	// operator-managed PVC a child of the RayCluster via an ownerReference, so it
+	// (and its RocksDB data) is garbage-collected together with the cluster.
+	DeleteWithClusterGCSStorageDeletionPolicy GCSStorageDeletionPolicy = "DeleteWithCluster"
+	// RetainGCSStorageDeletionPolicy keeps the operator-managed PVC (and its data)
+	// after the owning RayCluster is deleted: the operator omits the ownerReference
+	// so the PVC outlives the cluster. Recover the GCS state by pointing a new
+	// cluster's ClaimName at the retained PVC.
+	RetainGCSStorageDeletionPolicy GCSStorageDeletionPolicy = "Retain"
+)
 
 // RedisCredential is the redis username/password or a reference to the source containing the username/password
 type RedisCredential struct {
@@ -123,6 +268,107 @@ type RedisCredential struct {
 	ValueFrom *corev1.EnvVarSource `json:"valueFrom,omitempty"`
 	// +optional
 	Value string `json:"value,omitempty"`
+}
+
+// HistoryServerOptions used for history server related configuration
+type HistoryServerOptions struct {
+	// CollectorOptions used for collector sidecar configuration
+	// +optional
+	CollectorOptions *CollectorOptions `json:"collectorOptions,omitempty"`
+}
+
+// CollectorOptions defines settings for the history server collector sidecar.
+type CollectorOptions struct {
+	// Image is the collector container image to be used (e.g. quay.io/kuberay/collector:latest).
+	// +optional
+	Image *string `json:"image,omitempty"`
+	// ImagePullPolicy is the pull policy for the collector image.
+	// +optional
+	ImagePullPolicy *corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// Resources specifies computing resource requirements.
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// Env allows injecting custom environment variables into the collector container.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+}
+
+// NetworkPolicyMode is the type for network isolation mode constants.
+// +kubebuilder:validation:Enum=DenyAll;DenyAllIngress;DenyAllEgress
+type NetworkPolicyMode string
+
+// Network isolation mode constants for NetworkPolicyConfig.Mode.
+const (
+	// NetworkPolicyDenyAll denies all ingress and egress traffic.
+	NetworkPolicyDenyAll NetworkPolicyMode = "DenyAll"
+	// NetworkPolicyDenyAllIngress denies all ingress traffic.
+	NetworkPolicyDenyAllIngress NetworkPolicyMode = "DenyAllIngress"
+	// NetworkPolicyDenyAllEgress denies all egress traffic.
+	NetworkPolicyDenyAllEgress NetworkPolicyMode = "DenyAllEgress"
+)
+
+// NetworkPolicyConfig defines network isolation settings for Ray cluster.
+// All modes permit intra-cluster pod-to-pod traffic.
+// DNS egress is not included automatically; see NetworkPolicyRules.EgressRules
+// for why it must be added under DenyAll/DenyAllEgress.
+type NetworkPolicyConfig struct {
+	// Mode controls the security level. All modes permit intra-cluster pod-to-pod
+	// traffic (DNS egress excluded, see EgressRules).
+	// - "DenyAll": Denies all Ingress and Egress.
+	// - "DenyAllIngress": Denies all Ingress.
+	// - "DenyAllEgress": Denies all Egress.
+	// +optional
+	// +kubebuilder:default=DenyAll
+	Mode *NetworkPolicyMode `json:"mode,omitempty"`
+
+	// Head specifies custom NetworkPolicy rules applied only to the head pod's policy.
+	// The base head policy always allows intra-cluster traffic and (for K8sJobMode
+	// RayJob-owned clusters) the submitter pod. Rules here are appended to those
+	// base rules. Platforms that need operator dashboard access should add it here
+	// (e.g. via a mutating webhook).
+	// +optional
+	Head *NetworkPolicyRules `json:"head,omitempty"`
+
+	// Worker specifies custom NetworkPolicy rules applied only to worker pods' policy.
+	// The base worker policy always allows intra-cluster traffic.
+	// Rules here are appended to that base rule.
+	// Acts as the default for all worker groups; see WorkerGroups for per-group overrides.
+	// +optional
+	Worker *NetworkPolicyRules `json:"worker,omitempty"`
+
+	// WorkerGroups specifies per-worker-group NetworkPolicy rules, keyed by group name.
+	// If an entry exists for a worker group, it replaces (not merges with) Worker for
+	// that group. Worker groups without an entry fall back to Worker.
+	// +optional
+	// +listType=map
+	// +listMapKey=groupName
+	WorkerGroups []WorkerGroupNetworkPolicyRules `json:"workerGroups,omitempty"`
+}
+
+// WorkerGroupNetworkPolicyRules is NetworkPolicyRules bound to one worker group.
+type WorkerGroupNetworkPolicyRules struct {
+	// GroupName matches WorkerGroupSpec.GroupName.
+	// +kubebuilder:validation:Required
+	GroupName string `json:"groupName"`
+
+	NetworkPolicyRules `json:",inline"`
+}
+
+// NetworkPolicyRules defines custom ingress and egress rules for a NetworkPolicy.
+type NetworkPolicyRules struct {
+	// IngressRules specifies custom ingress rules appended to the base policy.
+	// Only meaningful when the mode includes ingress denial (DenyAll or DenyAllIngress).
+	// +optional
+	IngressRules []networkingv1.NetworkPolicyIngressRule `json:"ingressRules,omitempty"`
+
+	// EgressRules specifies custom egress rules appended to the base policy.
+	// Only meaningful when the mode includes egress denial (DenyAll or DenyAllEgress).
+	// DNS egress is NOT added automatically: under DenyAll/DenyAllEgress you MUST
+	// add a DNS rule here (e.g. to kube-system pods labeled k8s-app=kube-dns on
+	// port 53), because Ray workers reach the head via its service FQDN and cannot
+	// resolve it without DNS. See the network-policy-deny-all sample.
+	// +optional
+	EgressRules []networkingv1.NetworkPolicyEgressRule `json:"egressRules,omitempty"`
 }
 
 // HeadGroupSpec are the spec for the head pod
@@ -135,6 +381,9 @@ type HeadGroupSpec struct {
 	// EnableIngress indicates whether operator should create ingress object for head service or not.
 	// +optional
 	EnableIngress *bool `json:"enableIngress,omitempty"`
+	// IngressOptions specifies optional ingress configuration for the head service.
+	// +optional
+	IngressOptions *IngressOptions `json:"ingressOptions,omitempty"`
 	// Resources specifies the resource quantities for the head group.
 	// These values override the resources passed to `rayStartParams` for the group, but
 	// have no effect on the resources set at the K8s Pod container level.
@@ -151,6 +400,36 @@ type HeadGroupSpec struct {
 	// ServiceType is Kubernetes service type of the head service. it will be used by the workers to connect to the head pod
 	// +optional
 	ServiceType corev1.ServiceType `json:"serviceType,omitempty"`
+}
+
+// +kubebuilder:validation:Enum=Exact;Prefix;ImplementationSpecific
+type IngressPathType string
+
+const (
+	IngressPathTypeExact                  IngressPathType = "Exact"
+	IngressPathTypePrefix                 IngressPathType = "Prefix"
+	IngressPathTypeImplementationSpecific IngressPathType = "ImplementationSpecific"
+)
+
+// IngressOptions defines the host, path, and TLS configuration for the ingress generated for the head group.
+type IngressOptions struct {
+	// Host is the fully-qualified domain name used to route external traffic to the
+	// Ray head dashboard. When unset, the generated ingress rule matches any host.
+	// +optional
+	Host *string `json:"host,omitempty"`
+	// Path is the HTTP path that routes to the Ray head dashboard.
+	// When unset, the operator defaults it to "/", which routes all traffic on the
+	// host to the dashboard.
+	// +optional
+	Path *string `json:"path,omitempty"`
+	// PathType is the path matching mode applied to Path.
+	// When unset, the operator defaults it to "Prefix", which works out of the box
+	// without a rewrite-target annotation or controller-specific regex support.
+	// +optional
+	PathType *IngressPathType `json:"pathType,omitempty"`
+	// TLS configures TLS termination for the generated ingress.
+	// +optional
+	TLS []networkingv1.IngressTLS `json:"tls,omitempty"`
 }
 
 // WorkerGroupSpec are the specs for the worker pods
@@ -176,6 +455,12 @@ type WorkerGroupSpec struct {
 	// This value is only used with the Ray Autoscaler enabled and defaults to the value set by the AutoscalingConfig if not specified for this worker group.
 	// +optional
 	IdleTimeoutSeconds *int32 `json:"idleTimeoutSeconds,omitempty"`
+	// Priority influences which worker group the autoscaler prefers when multiple
+	// groups can satisfy the same resource demand. Higher priority groups are
+	// preferred for scale-up. Only honored by Ray Autoscaler v2 (Ray >= 2.56).
+	// +kubebuilder:default:=0
+	// +optional
+	Priority *int32 `json:"priority,omitempty"`
 	// Resources specifies the resource quantities for this worker group.
 	// These values override the resources passed to `rayStartParams` for the group, but
 	// have no effect on the resources set at the K8s Pod container level.
@@ -250,6 +535,12 @@ type AutoscalerOptions struct {
 	// Optional list of volumeMounts.  This is needed for enabling TLS for the autoscaler container.
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// Optional list overwrite the default command of the autoscaler container.
+	// +optional
+	Command []string `json:"command,omitempty"`
+	// Optional to overwrite the default args of the autoscaler container.
+	// +optional
+	Args []string `json:"args,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=Default;Aggressive;Conservative
@@ -430,10 +721,6 @@ type RayClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RayCluster `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&RayCluster{}, &RayClusterList{})
 }
 
 type EventReason string

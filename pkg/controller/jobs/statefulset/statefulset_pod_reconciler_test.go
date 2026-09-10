@@ -50,7 +50,7 @@ func TestPodReconciler(t *testing.T) {
 		wantErr                    error
 		featureGates               map[featuregate.Feature]bool
 	}{
-		"should finalize succeeded pod": {
+		"should ignore succeeded pod": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
@@ -62,10 +62,11 @@ func TestPodReconciler(t *testing.T) {
 				*testingjobspod.MakePod("pod", "ns").
 					OwnerReference("sts", gvk).
 					StatusPhase(corev1.PodSucceeded).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should finalize failed pod": {
+		"should ignore failed pod": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
@@ -77,10 +78,11 @@ func TestPodReconciler(t *testing.T) {
 				*testingjobspod.MakePod("pod", "ns").
 					OwnerReference("sts", gvk).
 					StatusPhase(corev1.PodFailed).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should finalize deleted pod": {
+		"should ignore deleted pod": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
@@ -88,6 +90,13 @@ func TestPodReconciler(t *testing.T) {
 				DeletionTimestamp(now).
 				KueueFinalizer().
 				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReference("sts", gvk).
+					DeletionTimestamp(now).
+					KueueFinalizer().
+					Obj(),
+			},
 		},
 		"shouldn't set default values without controller reference": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},

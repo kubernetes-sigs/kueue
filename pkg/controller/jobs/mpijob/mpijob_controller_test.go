@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -232,13 +231,13 @@ func TestPodSets(t *testing.T) {
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
@@ -262,13 +261,13 @@ func TestPodSets(t *testing.T) {
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
 					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+					PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
@@ -526,10 +525,10 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
 						*utiltestingapi.MakePodSet("launcher", 1).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 						*utiltestingapi.MakePodSet("worker", 2).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 					).
 					Obj(),
@@ -549,10 +548,10 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
 						*utiltestingapi.MakePodSet("launcher", 1).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 						*utiltestingapi.MakePodSet("worker", 2).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 					).
 					WorkloadPriorityClassRef("test-wpc").
@@ -574,10 +573,10 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
 						*utiltestingapi.MakePodSet("launcher", 1).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 						*utiltestingapi.MakePodSet("worker", 2).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 					).
 					PodPriorityClassRef("test-pc").
@@ -601,10 +600,10 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("mpijob", "ns").
 					PodSets(
 						*utiltestingapi.MakePodSet("launcher", 1).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 						*utiltestingapi.MakePodSet("worker", 2).
-							PodIndexLabel(ptr.To(kfmpi.ReplicaIndexLabel)).
+							PodIndexLabel(new(kfmpi.ReplicaIndexLabel)).
 							Obj(),
 					).
 					WorkloadPriorityClassRef("test-wpc").

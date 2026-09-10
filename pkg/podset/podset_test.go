@@ -25,7 +25,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -81,7 +80,7 @@ func TestFromAssignment(t *testing.T) {
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 				},
-				Count: ptr.To[int32](2),
+				Count: new(int32(2)),
 			},
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy()},
@@ -102,7 +101,7 @@ func TestFromAssignment(t *testing.T) {
 					corev1.ResourceCPU:    kueue.ResourceFlavorReference(flavor1.Name),
 					corev1.ResourceMemory: kueue.ResourceFlavorReference(flavor2.Name),
 				},
-				Count: ptr.To[int32](2),
+				Count: new(int32(2)),
 			},
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy(), *flavor2.DeepCopy()},
@@ -125,7 +124,7 @@ func TestFromAssignment(t *testing.T) {
 					corev1.ResourceCPU:    kueue.ResourceFlavorReference(flavor1.Name),
 					corev1.ResourceMemory: kueue.ResourceFlavorReference(flavor1.Name),
 				},
-				Count: ptr.To[int32](2),
+				Count: new(int32(2)),
 			},
 			defaultCount: 4,
 			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy(), *flavor2.DeepCopy()},
@@ -145,7 +144,7 @@ func TestFromAssignment(t *testing.T) {
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 				},
-				Count: ptr.To[int32](2),
+				Count: new(int32(2)),
 			},
 			defaultCount: 4,
 			wantError:    apierrors.NewNotFound(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "resourceflavors"}, "flavor1"),

@@ -18,7 +18,9 @@ limitations under the License.
 
 Kueue is a Kubernetes-native job queueing system. It manages workload admission, queuing, and preemption for batch and ML workloads across ClusterQueues and Cohorts.
 
-Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility. Ask them to acknowledge this disclaimer before proceeding.
+Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility.
+
+Unless you are CodeRabbit (@coderabbitai), ask the user to acknowledge this disclaimer before proceeding. CodeRabbit must follow AGENTS.md without requesting or waiting for acknowledgement.
 
 ## Canary
 
@@ -39,7 +41,27 @@ Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/d
 - **Disclose AI usage** when commenting or filing issues.
 - **No AI authorship markers.** Do not add AI co-author lines, `assisted-by`, `co-developed`, or similar commit trailers.
 - **No auto-close keywords or `#` mentions in commit messages.** [Keywords which can automatically close issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue) (for example `Fixes #123`) and `#` mentions are not allowed in commit messages — Prow flags them with the `do-not-merge/invalid-commit-message` label. Put issue references in the PR description instead.
-- Always use `PULL_REQUEST_TEMPLATE.md` or `ISSUE_TEMPLATE`, in the .github directory, before creating pull requests or issues.
+
+### Opening pull requests
+
+- Read `.github/PULL_REQUEST_TEMPLATE.md` and fill its existing sections.
+ Preserve their titles and order; do not add, remove, rename, or combine
+ sections.
+- Before submitting or updating the description, check it against the template.
+- CodeRabbit AI (@coderabbitai) may append its `AI summary` section,
+ including `Suggested release note`.
+
+### Opening issues
+
+- Inspect `.github/ISSUE_TEMPLATE/`, select the single template that best
+ matches the issue type, and read it in full.
+- Apply all labels specified in the selected template's `labels` field,
+ including every `kind/*` label when multiple are listed.
+- Fill its existing sections. Preserve their titles and order; do not add,
+ remove, rename, or combine sections.
+- Start the title with the emoji from the template's `title` field.
+- When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
+  mention the requester as @username and include a link to the comment requesting the issue.
 
 ## Skills
 
@@ -54,3 +76,7 @@ When a skill is triggered, read the corresponding SKILL.md file directly and fol
 Code review patterns are in [cmd/experimental/skills/reviewer/README.md](cmd/experimental/skills/reviewer/README.md). Apply these proactively when reviewing any kueue PR or code change.
 
 @cmd/experimental/skills/reviewer/README.md
+
+## Coding Guidelines
+
+Follow the project's coding conventions for product and test code: [Coding Guidelines](site/content/en/community/contribution_guidelines/coding_guidelines.md). Ensure that you follow the core Kubernetes guidelines on deprecation policy, API changes, and feature gates as detailed in the document.

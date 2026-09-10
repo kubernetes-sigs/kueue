@@ -174,11 +174,18 @@ type entryComparer struct {
 }
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
+	// 1. Prioritize workloads waiting for preemption to complete if the feature is enabled.
+	if features.Enabled(features.PrioritizePreemptorWorkloads) {
+		if a.IsPreemptor != b.IsPreemptor {
+			return a.IsPreemptor
+		}
+	}
+
 	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
 	bDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(b.Obj)}]
 
 	if features.Enabled(features.FairSharingPrioritizeNonBorrowing) {
-		// 1: Nominal first — prefer workloads whose subtree at this
+		// 2: Nominal — prefer workloads whose subtree at this
 		// tournament level is not borrowing from the parent cohort on
 		// the workload's requested flavors. A subtree borrowing on an
 		// unrelated flavor does not penalize workloads for flavors
@@ -192,12 +199,12 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 		}
 	}
 
-	// 2: DRF
+	// 3: DRF
 	if cmp := schdcache.CompareDRS(aDrs, bDrs); cmp != 0 {
 		return cmp == -1
 	}
 
-	// 3: Effective priority
+	// 4: Effective priority
 	if features.Enabled(features.PrioritySortingWithinCohort) {
 		p1 := priority.EffectivePriority(e.log, a.Obj)
 		p2 := priority.EffectivePriority(e.log, b.Obj)
@@ -206,7 +213,7 @@ func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bo
 		}
 	}
 
-	// 4: FIFO
+	// 5: FIFO
 	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
