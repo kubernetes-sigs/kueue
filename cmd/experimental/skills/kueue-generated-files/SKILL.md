@@ -1,6 +1,6 @@
 ---
 name: kueue-generated-files
-description: Regenerate and verify Kueue's checked-in generated files. Use after changing API types or markers, conversion or defaulting code, mocks, CRD or Helm inputs, feature gates, metrics, CLI documentation, or other generator inputs; before committing, pushing, opening, or updating a pull request; or when pull-kueue-verify-main reports a dirty working tree.
+description: Regenerate and verify Kueue's checked-in generated files to avoid pull-kueue-verify-main failures. Use before pushing, opening, or updating a pull request after changing API types or markers, conversion or defaulting code, mocks, CRD or Helm inputs, feature gates, metrics, CLI documentation, or other generator inputs; or when pull-kueue-verify-main reports a dirty working tree.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
