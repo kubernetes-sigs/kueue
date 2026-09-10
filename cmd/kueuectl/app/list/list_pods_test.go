@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -46,15 +47,19 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
+	"sigs.k8s.io/kueue/pkg/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 type podTestCase struct {
-	name             string
-	job              runtime.Object
-	pods             []corev1.Pod
-	mapperGVKs       []schema.GroupVersionKind
-	args             []string
+	name       string
+	job        runtime.Object
+	pods       []corev1.Pod
+	mapperGVKs []schema.GroupVersionKind
+	args       []string
+	// wantPodsQuery, when set, is compared against the query of the pods list request.
+	wantPodsQuery    map[string]string
 	wantOut          string
 	wantPodListNames []string
 	podListFormat    string
@@ -184,6 +189,96 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			args:             []string{"--for", "job/test-job", "-o", "yaml"},
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "yaml",
+		}, {
+			name: "list pods of a pod group",
+			job: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "group-pod-1",
+					Namespace: metav1.NamespaceDefault,
+					Labels:    map[string]string{podconstants.GroupNameLabel: "test-group"},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").Label(podconstants.GroupNameLabel, "test-group").Obj(),
+				*basePod.Clone().Name("group-pod-2").Label(podconstants.GroupNameLabel, "test-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": podconstants.GroupNameLabel + "=test-group",
+				"fieldSelector": "",
+			},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+group-pod-1   1/1     Running   0          <unknown>
+group-pod-2   1/1     Running   0          <unknown>
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation is not treated as standalone",
+			job: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "group-pod-1",
+					Namespace:   metav1.NamespaceDefault,
+					Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("group-pod-2").GroupNameAnnotation("test-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1"},
+			wantPodsQuery: map[string]string{
+				"fieldSelector": "",
+			},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+group-pod-1   1/1     Running   0          <unknown>
+group-pod-2   1/1     Running   0          <unknown>
+`,
+		}, {
+			name: "list a standalone pod by name",
+			job: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "single-pod",
+					Namespace: metav1.NamespaceDefault,
+					Labels:    map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("single-pod").Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/single-pod"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "metadata.namespace=default,metadata.name=single-pod",
+			},
+			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
+single-pod   1/1     Running   0          <unknown>
+`,
+		}, {
+			name: "list a standalone pod by name merged with user selectors",
+			job: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "single-pod",
+					Namespace: metav1.NamespaceDefault,
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("single-pod").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/single-pod", "--field-selector", "status.phase=Running", "--selector", "app=foo"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "app=foo",
+				"fieldSelector": "status.phase=Running,metadata.namespace=default,metadata.name=single-pod",
+			},
+			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
+single-pod   1/1     Running   0          <unknown>
+`,
 		}, {
 			name: "list pods with JSONPath containing wide",
 			job: &batchv1.Job{
@@ -708,7 +803,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 
 			codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
-			restClient, err := mockRESTClient(codec, tc)
+			var gotPodsQuery url.Values
+			restClient, err := mockRESTClient(codec, tc, &gotPodsQuery)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -766,6 +862,16 @@ valid-pod-1   1/1     Running   0          <unknown>
 			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
+
+			if tc.wantPodsQuery != nil {
+				gotQuery := make(map[string]string, len(tc.wantPodsQuery))
+				for key := range tc.wantPodsQuery {
+					gotQuery[key] = gotPodsQuery.Get(key)
+				}
+				if diff := cmp.Diff(tc.wantPodsQuery, gotQuery); diff != "" {
+					t.Errorf("Unexpected pods list query (-want/+got)\n%s", diff)
+				}
+			}
 		})
 	}
 }
@@ -793,7 +899,11 @@ func buildTestRuntimeScheme() (*runtime.Scheme, error) {
 	return scheme, nil
 }
 
-func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, error) {
+// mockRESTClient serves the --for object and the pod list. The two requests
+// share a path when --for is a Pod, so the pod list is recognized by the
+// Table content negotiation that only the list request performs. The query
+// of the pod list request is stored in gotPodsQuery.
+func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Values) (*restfake.RESTClient, error) {
 	podList := &corev1.PodList{Items: tc.pods}
 
 	reqPathPrefix := fmt.Sprintf("/namespaces/%s", metav1.NamespaceDefault)
@@ -807,16 +917,19 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, 
 	mockRestClient := &restfake.RESTClient{
 		NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 		Client: restfake.CreateHTTPClient(func(request *http.Request) (*http.Response, error) {
-			switch request.URL.Path {
-			case fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
+			isPodListRequest := request.URL.Path == fmt.Sprintf("%s/pods", reqPathPrefix) &&
+				strings.Contains(request.Header.Get("Accept"), "as=Table")
+			switch {
+			case !isPodListRequest && request.URL.Path == fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     getDefaultHeader(),
 					Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.job))),
 				}, nil
-			case fmt.Sprintf("%s/pods", reqPathPrefix):
+			case request.URL.Path == fmt.Sprintf("%s/pods", reqPathPrefix):
+				*gotPodsQuery = request.URL.Query()
 				var podRespBody io.ReadCloser
-				if strings.Contains(request.Header.Get("Accept"), "as=Table") {
+				if isPodListRequest {
 					if len(podList.Items) == 0 {
 						podRespBody = emptyTableObjBody(codec)
 					} else {
