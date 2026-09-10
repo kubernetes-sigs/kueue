@@ -359,7 +359,10 @@ validating webhook keeps rejecting `enableInTreeAutoscaling` on a
 MultiKueue-managed elastic Ray object, exactly as it does today.
 
 **Beta**: Positive feedback from Alpha, broader test coverage, and any documented
-follow-ups addressed.
+follow-ups addressed. Re-evaluate whether to generalize the annotation-based
+replica-count and revision mechanism currently represented by
+`raycluster-podset-replica-sizes` and `raycluster-generation` for non-KubeRay
+integrations such as batch/Job and JobSet.
 
 **Stable (GA)**: The feature has spent at least one release cycle in beta with no
 major outstanding bugs.
