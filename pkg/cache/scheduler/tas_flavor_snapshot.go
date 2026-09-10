@@ -229,6 +229,9 @@ func (s *TASFlavorSnapshot) shallowCloneWithState(d *domain) *domain {
 type podSetMatchKey struct {
 	WorkloadUID types.UID
 	PodSetName  string
+	// EmptyCluster marks the entry holding what would fit if every Workload were
+	// preempted, so it cannot answer what fits now.
+	EmptyCluster bool
 }
 
 // matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
@@ -604,7 +607,6 @@ type topologyAssignmentPodRequirements struct {
 	leaderRequests            resources.Requests
 	assumedUsage              *assumedUsage
 	requiredReplacementDomain utiltas.TopologyDomainID
-	simulateEmpty             bool
 	matchKey                  *podSetMatchKey
 }
 
@@ -1101,9 +1103,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	assumedUsage *assumedUsage,
 	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID, wl *kueue.Workload) (assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment, reason string) {
 	requirements := &topologyAssignmentPodRequirements{
+		podRequirements:           simulator.PodRequirements{SimulateEmpty: simulateEmpty},
 		assumedUsage:              assumedUsage,
 		requiredReplacementDomain: requiredReplacementDomain,
-		simulateEmpty:             simulateEmpty,
 	}
 	state := &findTopologyAssignmentState{
 		topologyAssignmentParameters: topologyAssignmentParameters{
@@ -1181,6 +1183,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			requirements.matchKey = &podSetMatchKey{
 				WorkloadUID: wl.UID,
 				PodSetName:  string(workersTasPodSetRequests.PodSet.Name),
+				// The default simulator answers both the same way, so it keeps one
+				// entry for both.
+				EmptyCluster: simulateEmpty && features.Enabled(features.SchedulerLibraryIntegration),
 			}
 		}
 	} else {
@@ -2101,7 +2106,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 // fillInCountsHelper applies the bounds when it rolls the leaves up.
 func (s *TASFlavorSnapshot) recordUsageDomainCaps(requirements *topologyAssignmentPodRequirements) {
 	for domainID, dom := range s.usageDomains() {
-		remaining := s.domainRemainingCapacity(dom, requirements.assumedUsage.perDomain[domainID], requirements.simulateEmpty)
+		remaining := s.domainRemainingCapacity(dom, requirements.assumedUsage.perDomain[domainID], requirements.podRequirements.SimulateEmpty)
 		domainState := s.domainStateOf(dom)
 		domainState.capacityBound.podCount = requirements.requests.CountIn(remaining.Get())
 
@@ -2112,6 +2117,12 @@ func (s *TASFlavorSnapshot) recordUsageDomainCaps(requirements *topologyAssignme
 		}
 		domainState.capacityBound.podCountWithLeader = requirements.requests.CountIn(remaining.Get())
 	}
+}
+
+// forgetMatchingLeaves drops the cached leaf sets. The simulator's answers feed them,
+// so anything that changes what it reports has to call this.
+func (s *TASFlavorSnapshot) forgetMatchingLeaves() {
+	clear(s.matchingLeavesCache)
 }
 
 func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, *tasExclusionStats, error) {
@@ -2174,7 +2185,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 		state.stats.TopologyDomain++
 		return
 	}
-	remainingCapacity := s.remainingCapacityForLeaf(leaf, requirements.simulateEmpty, cachingRemainingResourcesEnabled)
+	remainingCapacity := s.remainingCapacityForLeaf(leaf, requirements.podRequirements.SimulateEmpty, cachingRemainingResourcesEnabled)
 
 	// In-cycle assignments are keyed by leaf, so this picks up the exact nodes
 	// an earlier PodSet took. Domain-keyed entries, which come from assignments

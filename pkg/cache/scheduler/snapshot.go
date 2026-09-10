@@ -110,6 +110,16 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	}
 }
 
+// ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
+// use it after changing what the scheduling simulator reports.
+func (s *Snapshot) ForgetSimulatedFeasibility() {
+	for _, cq := range s.ClusterQueues() {
+		for _, tasSnapshot := range cq.TASFlavors {
+			tasSnapshot.forgetMatchingLeaves()
+		}
+	}
+}
+
 func (s *Snapshot) Log(log logr.Logger) {
 	for name, cq := range s.ClusterQueues() {
 		cohortName := "<none>"
