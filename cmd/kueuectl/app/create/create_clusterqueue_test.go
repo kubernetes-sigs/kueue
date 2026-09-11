@@ -312,6 +312,20 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
+		"should create one resource group when the resources spec has a trailing semicolon": {
+			quotaArgs: []string{"alpha:cpu=1;memory=1;"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1").
+							Resource("memory", "1").
+							Obj(),
+					},
+				},
+			},
+		},
 		"should fail to create a resource group with an invalid flavor and one quota set": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:example.com/gpu=2"},
 			wantErr:   errInvalidFlavor,
