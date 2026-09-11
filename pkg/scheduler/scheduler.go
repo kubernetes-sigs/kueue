@@ -884,21 +884,37 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	cq := snap.ClusterQueue(wl.ClusterQueue)
-	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
-	// dropped once it no longer describes the current state. Deciding that here rather than
-	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
-	// again for each reduced pod count when partial admission is in play.
-	if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
-		log.FromContext(ctx).V(6).Info("Clearing Workload's flavor scan state because it was outdated",
-			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
-			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
-		wl.FlavorScanState = nil
-	}
-	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
-	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
-	return assignment, targets
+func (s *Scheduler) getAssignments(
+	ctx context.Context,
+	wl *workload.Info,
+	snap *schdcache.Snapshot,
+	preemptedWorkloads []*workload.Info,
+) (assignment flavorassigner.Assignment, targets []*preemption.Target, err error) {
+	resourceFlavors := snap.ResourceFlavors
+	err = simulation.Simulate(ctx, snap, func(simCtx *simulation.SimulationContext) (simErr error) {
+		for _, w := range preemptedWorkloads {
+			if simErr = simCtx.PreemptWorkload(ctx, w); simErr != nil {
+				return
+			}
+		}
+		cq := simCtx.ClusterQueue(wl.ClusterQueue)
+		// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
+		// dropped once it no longer describes the current state. Deciding that here rather than
+		// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
+		// again for each reduced pod count when partial admission is in play.
+		if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+			log.FromContext(ctx).V(6).Info("Clearing Workload's flavor scan state because it was outdated",
+				"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
+				"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
+			wl.FlavorScanState = nil
+		}
+		if assignment, targets, simErr = s.getInitialAssignments(ctx, simCtx, wl, resourceFlavors); simErr != nil {
+			return
+		}
+		simErr = updateAssignmentForTAS(ctx, simCtx, cq, wl, &assignment, targets)
+		return
+	})
+	return
 }
 
 // flavorScanStateOutdated reports whether the recorded flavor assignment no longer describes
