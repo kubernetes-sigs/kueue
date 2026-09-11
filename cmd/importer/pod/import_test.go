@@ -158,10 +158,27 @@ func TestImportNamespace(t *testing.T) {
 		addLabels       map[string]string
 		flavors         []kueue.ResourceFlavor
 		priorityClasses []schedulingv1.PriorityClass
+		podListErr      error
 		wantPods        []corev1.Pod
 		wantWorkloads   []kueue.Workload
 		wantError       error
 	}{
+		"returns an error when listing pods fails": {
+			pods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
+			},
+			podListErr: errPodList,
+			wantError:  errPodList,
+			wantPods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{},
+		},
 		"create one": {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
@@ -409,8 +426,12 @@ func TestImportNamespace(t *testing.T) {
 			rfList := kueue.ResourceFlavorList{Items: tc.flavors}
 			pcList := schedulingv1.PriorityClassList{Items: tc.priorityClasses}
 
+			interceptorFuncs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
+			if tc.podListErr != nil {
+				interceptorFuncs.List = failPagedPodList(tc.podListErr).List
+			}
 			builder := utiltesting.NewClientBuilder().
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptorFuncs).WithStatusSubresource(&kueue.Workload{}).
 				WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)
 
 			client := builder.Build()
