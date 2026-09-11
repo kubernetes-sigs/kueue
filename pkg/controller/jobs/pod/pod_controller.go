@@ -744,7 +744,6 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 	if len(p.list.Items) > 0 {
 		p.isFound = true
 		p.pod = p.list.Items[0]
-		key.Name = p.pod.Name
 	}
 
 	// If none of the pods in group are found,
@@ -759,21 +758,12 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 			return jobframework.NewLoadResult(false, p.isFound), nil
 		}
 	}
-	childWorkloads, err := p.ListChildWorkloads(ctx, c, p.key)
-	if err != nil {
-		return nil, err
-	}
-	if len(childWorkloads.Items) > 0 {
+	// Any Workload still existing under the group name (even foreign-owned) blocks finalizing the group.
+	wl := &kueue.Workload{}
+	if err := c.Get(ctx, client.ObjectKey{Namespace: p.key.Namespace, Name: p.key.Name}, wl); err == nil {
 		return jobframework.NewLoadResult(false, p.isFound), nil
-	}
-	if features.Enabled(features.PodIntegrationValidateGroupOwner) {
-		// ListChildWorkloads masks a foreign-owned same-named Workload as empty; check existence directly so it still blocks finalization.
-		wl := &kueue.Workload{}
-		if err := c.Get(ctx, types.NamespacedName{Name: p.key.Name, Namespace: p.key.Namespace}, wl); err == nil {
-			return jobframework.NewLoadResult(false, p.isFound), nil
-		} else if !apierrors.IsNotFound(err) {
-			return nil, err
-		}
+	} else if !apierrors.IsNotFound(err) {
+		return nil, err
 	}
 	ctrl.LoggerFrom(ctx).V(2).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
 	return jobframework.NewLoadResult(true, p.isFound), nil
