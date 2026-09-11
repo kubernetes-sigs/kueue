@@ -17,6 +17,8 @@ limitations under the License.
 package pod
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,6 +26,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/importer/cache"
@@ -40,6 +44,23 @@ const (
 	testingNamespace  = "ns"
 	testingQueueLabel = "testing.lbl"
 )
+
+var errPodList = errors.New("pod list failed")
+
+// failPagedPodList makes only the paged Pod listing done by ListPods fail, so
+// that cache loading and the tests' own verification lists keep working.
+func failPagedPodList(err error) interceptor.Funcs {
+	return interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			listOpts := &client.ListOptions{}
+			listOpts.ApplyOptions(opts)
+			if _, isPodList := list.(*corev1.PodList); isPodList && listOpts.Limit > 0 {
+				return err
+			}
+			return c.List(ctx, list, opts...)
+		},
+	}
+}
 
 func TestCheckNamespace(t *testing.T) {
 	basePodWrapper := testingpod.MakePod("pod", testingNamespace).
@@ -68,10 +89,15 @@ func TestCheckNamespace(t *testing.T) {
 		flavors                  []kueue.ResourceFlavor
 		priorityClasses          []schedulingv1.PriorityClass
 		excludedResourcePrefixes []string
+		podListErr               error
 
 		wantError error
 	}{
 		"empty cluster": {},
+		"pod list error is reported": {
+			podListErr: errPodList,
+			wantError:  errPodList,
+		},
 		"no mapping": {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
@@ -251,6 +277,9 @@ func TestCheckNamespace(t *testing.T) {
 
 			builder := utiltesting.NewClientBuilder()
 			builder = builder.WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)
+			if tc.podListErr != nil {
+				builder = builder.WithInterceptorFuncs(failPagedPodList(tc.podListErr))
+			}
 
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
