@@ -10521,7 +10521,7 @@ func TestScheduleSimulationErrors(t *testing.T) {
 			wantCondition := metav1.Condition{
 				Type:    kueue.WorkloadQuotaReserved,
 				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadAdmittedReasonSchedulerAdmissionFailed,
+				Reason:  kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed,
 				Message: tc.wantMessage,
 			}
 			if diff := cmp.Diff(&wantCondition, cond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
@@ -10542,7 +10542,7 @@ func TestScheduleSimulationErrors(t *testing.T) {
 
 			// 3. Verify event recorded
 			wantEvents := []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", kueue.WorkloadAdmittedReasonSchedulerAdmissionFailed, corev1.EventTypeWarning).
+				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed, corev1.EventTypeWarning).
 					Message(tc.wantMessage).
 					Obj(),
 			}
@@ -10697,7 +10697,7 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 		wantCondition := metav1.Condition{
 			Type:    kueue.WorkloadQuotaReserved,
 			Status:  metav1.ConditionFalse,
-			Reason:  kueue.WorkloadAdmittedReasonSchedulerAdmissionFailed,
+			Reason:  kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed,
 			Message: wantMessage,
 		}
 		if diff := cmp.Diff(&wantCondition, cond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
@@ -10718,7 +10718,7 @@ func TestScheduleWithTASSimulationErrors(t *testing.T) {
 
 		// 3. Verify event recorded
 		wantEvents := []utiltesting.EventRecord{
-			utiltesting.MakeEventRecord(metav1.NamespaceDefault, targetWL.Name, kueue.WorkloadAdmittedReasonSchedulerAdmissionFailed, corev1.EventTypeWarning).
+			utiltesting.MakeEventRecord(metav1.NamespaceDefault, targetWL.Name, kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed, corev1.EventTypeWarning).
 				Message(wantMessage).
 				Obj(),
 		}

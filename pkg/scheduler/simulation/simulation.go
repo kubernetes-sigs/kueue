@@ -86,7 +86,7 @@ func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simFn Simulatio
 	return err
 }
 
-// SimulateNested allows running a nested simulation inisde of a closure passed to Simulate.
+// SimulateNested allows running a nested simulation inside of a closure passed to Simulate.
 // Returns an error if the simulation function returns an error
 // or if it fails to restore the context to its original state.
 func SimulateNested(parentCtx *SimulationContext, simFn Simulation) (err error) {
@@ -95,6 +95,7 @@ func SimulateNested(parentCtx *SimulationContext, simFn Simulation) (err error) 
 	}
 
 	childCtx := parentCtx.childContext()
+	defer childCtx.clear()
 
 	err = simFn(childCtx)
 	if err == nil {
@@ -102,9 +103,6 @@ func SimulateNested(parentCtx *SimulationContext, simFn Simulation) (err error) 
 	}
 	if err == nil {
 		err = childCtx.restoreWorkloads()
-	}
-	if err == nil {
-		childCtx.clear()
 	}
 
 	if err != nil {
@@ -168,7 +166,7 @@ func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 	}
 	s.restoreUsageCallbacks = append(s.restoreUsageCallbacks, func() {
 		for _, cqUsage := range cqUsages {
-			cq := s.ClusterQueue(cqUsage.cq)
+			cq := s.Snapshot.ClusterQueue(cqUsage.cq)
 			cq.AddUsage(cqUsage.usage)
 			s.updateOverlappingTASUsage(cq.TASFlavors, cqUsage.usage.TAS, schdcache.Add)
 		}
@@ -183,6 +181,8 @@ func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *schdc
 	return s.Snapshot.ClusterQueue(ref)
 }
 
+// updateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
+// with the cross-flavor usage aggregated when the snapshot is built.
 func (s *SimulationContext) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot, usage workload.TASUsage, op schdcache.UsageOp) {
 	if len(usage) == 0 || !features.Enabled(features.TASHandleOverlappingFlavors) {
 		return
@@ -227,7 +227,7 @@ func (s *SimulationContext) childContext() *SimulationContext {
 // removeWorkload removes a workload from its corresponding ClusterQueue and
 // updates resource usage.
 func (s *SimulationContext) removeWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
+	cq := s.Snapshot.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	cq.RemoveUsage(wl.Usage())
 	s.updateOverlappingTASUsage(cq.TASFlavors, wl.Usage().TAS, schdcache.Subtract)
@@ -258,7 +258,7 @@ func (s *SimulationContext) restoreWorkloads(targets ...types.NamespacedName) er
 // addWorkload adds a workload to its corresponding ClusterQueue and
 // updates resource usage.
 func (s *SimulationContext) addWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
+	cq := s.Snapshot.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.Usage())
 	s.updateOverlappingTASUsage(cq.TASFlavors, wl.Usage().TAS, schdcache.Add)

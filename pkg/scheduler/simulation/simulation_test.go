@@ -632,6 +632,87 @@ func TestSimulation(t *testing.T) {
 	}
 }
 
+func TestSimulateNested(t *testing.T) {
+	ctx, cqCache, wlInfos := defaultSetup(t)
+
+	initialSnap, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error building initial snapshot: %v", err)
+	}
+	errSimulation := errors.New("test simulation error")
+
+	cases := map[string]struct {
+		setupParent func(ctx context.Context, parent *SimulationContext)
+		nestedSim   func(ctx context.Context, child *SimulationContext) error
+		wantErr     error
+		wantSnap    schedcache.Snapshot
+	}{
+		"cleans up correctly after nested simulation error": {
+			nestedSim: func(ctx context.Context, child *SimulationContext) error {
+				if err := child.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
+					return err
+				}
+				child.RemoveUsage([]*workload.Info{wlInfos["wl2"]})
+				return errSimulation
+			},
+			wantErr:  errSimulation,
+			wantSnap: *initialSnap,
+		},
+		"cleans up child mutations after error preserving parent mutations": {
+			setupParent: func(ctx context.Context, parent *SimulationContext) {
+				if err := parent.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
+					t.Fatalf("unexpected error during parent setup: %v", err)
+				}
+			},
+			nestedSim: func(ctx context.Context, child *SimulationContext) error {
+				if err := child.PreemptWorkload(ctx, wlInfos["wl2"]); err != nil {
+					return err
+				}
+				return errSimulation
+			},
+			wantErr: errSimulation,
+			wantSnap: schedcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error building snapshot: %v", err)
+			}
+			parentSim := newSimulationContext(ctx, snap)
+			if tc.setupParent != nil {
+				tc.setupParent(ctx, parentSim)
+			}
+			err = SimulateNested(parentSim, func(child *SimulationContext) error {
+				return tc.nestedSim(ctx, child)
+			})
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("SimulateNested() error = %v, want error wrapping %v", err, tc.wantErr)
+			}
+			if diff := cmp.Diff(tc.wantSnap, *snap, snapshotCmpOpts...); diff != "" {
+				t.Errorf("schedcache.Snapshot state was not restored after nested simulation (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestSimulatingPreemptionsWithOverlappingTASUsage(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	testCases := map[string]struct {

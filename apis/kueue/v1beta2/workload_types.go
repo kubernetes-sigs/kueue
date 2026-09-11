@@ -978,6 +978,10 @@ const (
 	// for previously admitted workloads to reach PodsReady condition under waitForPodsReady configuration.
 	WorkloadQuotaReservedReasonWaitingForPodsReady = "WaitingForPodsReady"
 
+	// WorkloadQuotaReservedReasonSchedulerAdmissionFailed indicates that the internal simulation logic
+	// used for evaluating admission failed unexpectedly.
+	WorkloadQuotaReservedReasonSchedulerAdmissionFailed = "SchedulerAdmissionFailed"
+
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 
@@ -986,10 +990,6 @@ const (
 
 	// WorkloadAdmittedReasonPendingDelayedTopologyRequests indicates that there are pending delayed topology requests.
 	WorkloadAdmittedReasonPendingDelayedTopologyRequests = "PendingDelayedTopologyRequests"
-
-	// WorkloadAdmittedReasonSchedulerAdmissionFailed indicates that the internal simulation logic
-	// used for evaluating admission failed unexpectedly.
-	WorkloadAdmittedReasonSchedulerAdmissionFailed = "SchedulerAdmissionFailed"
 
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
