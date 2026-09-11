@@ -48,6 +48,8 @@ type rayAutoscalingTestContext struct {
 	multiKueueAc   *kueue.AdmissionCheck
 	workerCluster1 *kueue.MultiKueueCluster
 	workerCluster2 *kueue.MultiKueueCluster
+	worker1Cq      *kueue.ClusterQueue
+	worker2Cq      *kueue.ClusterQueue
 }
 
 type rayKubernetesClientsMap map[string]struct {
@@ -125,6 +127,11 @@ func registerRayAutoscalingTests(testContext func() rayAutoscalingTestContext) {
 					util.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg.DeepCopy(), worker2ClusterName, updateCfg)
 				},
 			)
+
+			tc := testContext()
+			util.ExpectClusterQueuesToBeActive(ctx, k8sManagerClient, tc.managerCq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sWorker1Client, tc.worker1Cq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sWorker2Client, tc.worker2Cq)
 		})
 
 		ginkgo.AfterAll(func() {

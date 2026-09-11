@@ -232,6 +232,8 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			multiKueueAc:   multiKueueAc,
 			workerCluster1: workerCluster1,
 			workerCluster2: workerCluster2,
+			worker1Cq:      worker1Cq,
+			worker2Cq:      worker2Cq,
 		}
 	})
 
