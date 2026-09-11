@@ -24,11 +24,9 @@ type TopologyAssignmentApplyConfiguration struct {
 	// levels is an ordered list of keys denoting the levels of the assigned
 	// topology (i.e. node label keys), from the highest to the lowest level of
 	// the topology.
-	//
 	Levels []string `json:"levels,omitempty"`
 	// domains is a list of topology assignments split by topology domains at
 	// the lowest level of the topology.
-	//
 	Domains []TopologyDomainAssignmentApplyConfiguration `json:"domains,omitempty"`
 }
 

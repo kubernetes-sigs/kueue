@@ -29,7 +29,6 @@ type EffectiveQuotaStatusApplyConfiguration struct {
 	// resourceGroups is the effective quota used by the scheduler.
 	// An empty list is a valid complete override and does not cause fallback to
 	// spec.resourceGroups.
-	//
 	ResourceGroups []ResourceGroupApplyConfiguration `json:"resourceGroups,omitempty"`
 }
 

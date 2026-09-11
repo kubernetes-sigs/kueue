@@ -61,7 +61,6 @@ type CohortSpecApplyConfiguration struct {
 	// Borrowing and Lending limits must only be set when the
 	// Cohort has a parent.  Otherwise, the Cohort create/update
 	// will be rejected by the webhook.
-	//
 	ResourceGroups []ResourceGroupApplyConfiguration `json:"resourceGroups,omitempty"`
 	// fairSharing defines the properties of the Cohort when
 	// participating in FairSharing. The values are only relevant

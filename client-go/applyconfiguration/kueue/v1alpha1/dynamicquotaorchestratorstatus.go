@@ -26,10 +26,8 @@ import (
 // with apply.
 type DynamicQuotaOrchestratorStatusApplyConfiguration struct {
 	// effectiveCapacity is the capacity aggregated from the referenced providers.
-	//
 	EffectiveCapacity *EffectiveCapacityApplyConfiguration `json:"effectiveCapacity,omitempty"`
 	// conditions represents the current state of the DQO.
-	//
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 
