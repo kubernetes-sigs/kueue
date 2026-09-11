@@ -29,10 +29,6 @@ patches:
 - path: cainjection-templates/apiservice_cainjection_patch.yaml
   target:
     kind: APIService
-    name: v1beta1.visibility.kueue.x-k8s.io
-- path: cainjection-templates/apiservice_cainjection_patch.yaml
-  target:
-    kind: APIService
     name: v1beta2.visibility.kueue.x-k8s.io    
 - path: cainjection-templates/mutating_webhookcainjection_patch.yaml
 - path: cainjection-templates/validating_webhookcainjection_patch.yaml
@@ -290,14 +286,6 @@ replacements:
     targets:
       - select:
           kind: APIService
-          name: v1beta1.visibility.kueue.x-k8s.io
-        fieldPaths:
-          - metadata.annotations.[cert-manager.io/inject-ca-from]
-        options:
-          delimiter: "/"
-          index: 1
-      - select:
-          kind: APIService
           name: v1beta2.visibility.kueue.x-k8s.io
         fieldPaths:
           - metadata.annotations.[cert-manager.io/inject-ca-from]
@@ -314,14 +302,6 @@ replacements:
       version: v1
       fieldPath: metadata.namespace
     targets:
-      - select:
-          kind: APIService
-          name: v1beta1.visibility.kueue.x-k8s.io
-        fieldPaths:
-          - metadata.annotations.[cert-manager.io/inject-ca-from]
-        options:
-          delimiter: "/"
-          index: 0
       - select:
           kind: APIService
           name: v1beta2.visibility.kueue.x-k8s.io

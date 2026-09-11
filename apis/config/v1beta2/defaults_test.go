@@ -471,7 +471,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						BackoffBaseSeconds: new(int32(63)),
 						BackoffMaxSeconds:  new(int32(1800)),
 					},
-					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
+					RecoveryTimeout:    &metav1.Duration{Duration: time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -479,9 +480,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					BlockAdmission:  new(false),
-					Timeout:         podsReadyTimeoutOverwrite,
-					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
+					BlockAdmission:     new(false),
+					Timeout:            podsReadyTimeoutOverwrite,
+					RecoveryTimeout:    &metav1.Duration{Duration: time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
 						BackoffBaseSeconds: new(int32(63)),

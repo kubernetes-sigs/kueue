@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"errors"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,6 +35,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -89,32 +89,37 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
-	var updateErrors []error
-
-	// Update each workload's priority field
-	for i := range workloads.Items {
+	// Update each workload's priority field, bounded and cancellable like the
+	// rest of the tree, rather than serially in this single reconcile.
+	err := parallelize.Until(ctx, len(workloads.Items), func(i int) error {
 		wl := &workloads.Items[i]
 		wlLog := log.WithValues("workload", klog.KObj(wl))
+
+		if _, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
+			wlLog.V(3).Info("Skipping MultiKueue remote workload")
+			return nil
+		}
 
 		// Skip if priority is already up to date
 		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
 			wlLog.V(3).Info("Workload priority already up to date")
-			continue
+			return nil
 		}
 
 		wl.Spec.Priority = new(wpc.Value)
 
 		if err := r.client.Update(ctx, wl); err != nil {
-			if !apierrors.IsNotFound(err) {
-				wlLog.Error(err, "Failed to update workload priority")
-				updateErrors = append(updateErrors, err)
+			if apierrors.IsNotFound(err) {
+				return nil
 			}
-			continue
+			wlLog.Error(err, "Failed to update workload priority")
+			return err
 		}
 
 		wlLog.V(2).Info("Updated workload priority", "newPriority", wpc.Value)
-	}
-	return ctrl.Result{}, errors.Join(updateErrors...)
+		return nil
+	})
+	return ctrl.Result{}, err
 }
 
 func (r *WorkloadPriorityClassReconciler) Create(e event.TypedCreateEvent[*kueue.WorkloadPriorityClass]) bool {

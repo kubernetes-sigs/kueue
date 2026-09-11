@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -78,6 +79,7 @@ func makeAdmittedTwoPodSetWorkload(now time.Time) *kueue.Workload {
 						Obj(),
 					utiltestingapi.MakePodSetAssignment(workersPodSet).
 						Assignment(corev1.ResourceCPU, "flavor", "2").
+						Count(2).
 						Obj(),
 				).
 				Obj(), now,
@@ -246,6 +248,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "3").
+								Count(3).
 								Obj()).
 							Obj(), now,
 					).
@@ -406,6 +409,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Count(2).
 								Obj()).
 							Obj(), now,
 					).
@@ -834,10 +838,55 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"skip surplus pods over quota during scale-down": {
+			// Workload was admitted with count 2, then the job scaled down to
+			// count 1. The ungater uses the minimum of requested and admitted
+			// counts, ungating only up to the scaled-down requested count.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Count(2).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+				*testingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+		},
 		"no-op for finished slice": {
 			// Slice replacement marks the previous slice Finished while keeping
 			// its Admitted and QuotaReserved conditions True. Reconciling the chain
-			// must not ungate any pods using this slice's stale count: activeSlice
+			// must not ungate any pods using this slice's stale count: the shared lookup
 			// skips finished slices and, with no other live slice in the chain,
 			// returns nil so nothing is ungated.
 			workloads: []kueue.Workload{
@@ -890,6 +939,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "3").
+								Count(3).
 								Obj()).
 							Obj(), now,
 					).
@@ -984,6 +1034,7 @@ func TestReconcile(t *testing.T) {
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Count(2).
 								Obj()).
 							Obj(), now,
 					).
@@ -1036,6 +1087,7 @@ func TestReconcile(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
 				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
+				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
 						// The fake client doesn't handle MergePatch for slice fields correctly.
@@ -1075,10 +1127,10 @@ func TestReconcile(t *testing.T) {
 			}
 
 			// The ungater now reconciles by the chain's ACTIVE slice: the enqueue
-			// handlers resolve it via activeSlice, so mirror that here to pick the
+			// handlers resolve it via FindLatestAdmittedWorkload, so mirror that here to pick the
 			// request key. Expectations stay keyed by the stable chain key (the
 			// active slice's origin name).
-			active, err := ungater.activeSlice(ctx, &tc.workloads[0])
+			active, err := workloadslicing.FindLatestAdmittedWorkload(ctx, kClient, &tc.workloads[0], false)
 			if err != nil {
 				t.Fatalf("resolving active slice: %v", err)
 			}
@@ -1183,6 +1235,8 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
+		// cqTeam is the ClusterQueue team label the recorded series should carry.
+		cqTeam             string
 		pods               []corev1.Pod
 		workloads          []kueue.Workload
 		wantPods           []corev1.Pod
@@ -1191,6 +1245,40 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 		wantErr            error
 	}{
 		"one workload with one pod (no group)": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, rfName, "1").
+								Obj()).
+							Obj(), now.Add(-2*time.Second),
+					).
+					AdmittedAt(true, now.Add(-2*time.Second)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+			wantMetricsCount:   1,
+			wantMetricsSeconds: 2,
+			wantErr:            nil,
+		},
+		"one workload with one pod; the series carries the admitting ClusterQueue's custom label": {
+			cqTeam: "red",
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod", corev1.NamespaceDefault).
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -1252,13 +1340,30 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			); err != nil {
 				t.Fatalf("Could not setup workload owner index: %v", err)
 			}
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(
+				ctx,
+				&kueue.Workload{},
+				coreindexer.WorkloadSliceNameKey,
+				coreindexer.IndexWorkloadSliceName,
+			); err != nil {
+				t.Fatalf("Could not setup workload slice name index: %v", err)
+			}
 
 			kClient := clientBuilder.Build()
+
+			var customLabels *metrics.CustomLabels
+			if tc.cqTeam != "" {
+				features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+				customLabels = metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+				t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+				customLabels.CQStore(cqName, map[string]string{"team": tc.cqTeam}, nil)
+			}
 
 			ungater := &elasticJobUngater{
 				client:            kClient,
 				clock:             testingclock.NewFakeClock(now),
 				expectationsStore: expectations.NewStore(ControllerName),
+				customLabels:      customLabels,
 			}
 
 			key := client.ObjectKeyFromObject(&tc.workloads[0])
@@ -1281,8 +1386,13 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
 
+			labelValues := []string{kueue.ElasticJobSchedulingGate, cqName, "false", roletracker.RoleStandalone}
+			if tc.cqTeam != "" {
+				labelValues = append(labelValues, tc.cqTeam)
+			}
+
 			count, err := testutil.GetHistogramMetricCount(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.ElasticJobSchedulingGate, cqName, "false", roletracker.RoleStandalone),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(labelValues...),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric count: %v", err)
@@ -1292,7 +1402,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 
 			seconds, err := testutil.GetHistogramMetricValue(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.ElasticJobSchedulingGate, cqName, "false", roletracker.RoleStandalone),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(labelValues...),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric seconds: %v", err)

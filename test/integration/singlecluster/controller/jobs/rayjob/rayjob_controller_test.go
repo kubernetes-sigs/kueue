@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -28,6 +29,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -320,6 +323,8 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
+		featureGates    map[featuregate.Feature]bool
+		podsScheduled   *metav1.Condition
 		beforeJobStatus *rayv1.RayJobStatus
 		beforeCondition *metav1.Condition
 		jobStatus       rayv1.RayJobStatus
@@ -330,7 +335,14 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
+		fwk.StartManager(
+			ctx,
+			cfg,
+			managerSetup(
+				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}}),
+				jobframework.WithCache(schdcache.New(k8sClient)),
+			),
+		)
 
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -353,6 +365,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec podsReadyTestSpec) {
+			features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), podsReadyTestSpec.featureGates)
 			ginkgo.By("Create a job")
 			job := testingrayjob.MakeJob(jobName, ns.Name).WithSubmissionMode(rayv1.K8sJobMode).Obj()
 			jobQueueName := "test-queue"
@@ -399,6 +412,10 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			if podsReadyTestSpec.podsScheduled != nil {
+				util.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.podsScheduled)
+			}
+
 			if podsReadyTestSpec.beforeJobStatus != nil {
 				ginkgo.By("Update the job status to simulate its initial progress towards completion")
 				createdJob.Status = *podsReadyTestSpec.beforeJobStatus
@@ -435,6 +452,36 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
+		ginkgo.Entry("Unscheduled Pods", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			podsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForScheduling,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
+		ginkgo.Entry("Scheduling observation ignored with feature disabled", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+			podsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
 		ginkgo.Entry("No progress", podsReadyTestSpec{
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,

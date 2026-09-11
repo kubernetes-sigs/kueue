@@ -19,8 +19,11 @@ package scheduler
 import (
 	"iter"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/util/dqo"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
 
 // cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -33,6 +36,8 @@ type cohort struct {
 	FairWeight float64
 
 	admittedWorkloadsCount int
+
+	DynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference
 }
 
 func newCohort(name kueue.CohortReference) *cohort {
@@ -46,7 +51,9 @@ func newCohort(name kueue.CohortReference) *cohort {
 func (c *cohort) updateCohort(apiCohort *kueue.Cohort, oldParent *cohort) error {
 	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
 
-	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(apiCohort.Status.EffectiveQuotas)
+
+	c.resourceNode.Quotas = createResourceQuotas(resourcegroups.EffectiveCohortResourceGroups(apiCohort))
 	if oldParent != nil && oldParent != c.Parent() {
 		updateCohortTreeResourcesIfNoCycle(oldParent)
 	}

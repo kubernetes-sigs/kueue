@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayctrlcommon "github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -57,6 +59,19 @@ const (
 	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
 
+var (
+	// errRedisCleanupMissingRayContainer is returned when GCS fault tolerance is
+	// enabled but the head Pod template does not include the Ray container needed
+	// to account for the Redis cleanup Job's resource requests.
+	errRedisCleanupMissingRayContainer = errors.New("cannot account for Redis cleanup resources: head pod template must include the Ray container")
+	// errPodSetNameMismatch is returned when a RayCluster's worker group has no
+	// matching PodSet in the Ray object's spec.
+	errPodSetNameMismatch = errors.New("PodSet name mismatch")
+	// errUnmarshalPodSetReplicaSizes is returned when the
+	// RayClusterPodsetReplicaSizesAnnotation value cannot be parsed.
+	errUnmarshalPodSetReplicaSizes = fmt.Errorf("failed to unmarshal %s annotation", RayClusterPodsetReplicaSizesAnnotation)
+)
+
 // effectiveWorkerCount returns the effective worker pod count for a worker
 // group: Replicas scaled by NumOfHosts, with Replicas defaulting to 1 when
 // unset. BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
@@ -75,6 +90,10 @@ func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
 // BuildPodSets builds PodSets from RayClusterSpec.
 func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
+	var collectorOptions *rayv1.CollectorOptions
+	if rayClusterSpec.HistoryServerOptions != nil {
+		collectorOptions = rayClusterSpec.HistoryServerOptions.CollectorOptions
+	}
 
 	// head
 	headPodSet := kueue.PodSet{
@@ -104,6 +123,12 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			autoscalerContainer(rayClusterSpec.AutoscalerOptions),
 		)
 	}
+	if collectorOptions != nil {
+		headPodSet.Template.Spec.Containers = append(
+			headPodSet.Template.Spec.Containers,
+			historyServerCollectorContainer(collectorOptions),
+		)
+	}
 	podSets = append(podSets, headPodSet)
 
 	// workers
@@ -121,6 +146,18 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			}
 			workerPodSet.TopologyRequest = topologyRequest
 		}
+		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+			annotations[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial {
+			if wgs.MinReplicas != nil {
+				workerPodSet.MinCount = new(effectiveWorkerCount(wgs))
+			}
+		}
+		if collectorOptions != nil {
+			workerPodSet.Template.Spec.Containers = append(
+				workerPodSet.Template.Spec.Containers,
+				historyServerCollectorContainer(collectorOptions),
+			)
+		}
 		podSets = append(podSets, workerPodSet)
 	}
 
@@ -129,7 +166,7 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 
 func accountForRedisCleanupInHeadPodSet(headPodSet *kueue.PodSet) error {
 	if len(headPodSet.Template.Spec.Containers) <= rayutils.RayContainerIndex {
-		return errors.New("cannot account for Redis cleanup resources: head pod template must include the Ray container")
+		return errRedisCleanupMissingRayContainer
 	}
 
 	headContainer := &headPodSet.Template.Spec.Containers[rayutils.RayContainerIndex]
@@ -184,6 +221,20 @@ func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
 	}
 }
 
+// historyServerCollectorContainer returns a container mirroring the collector
+// that KubeRay injects into every head and worker Pod when History Server
+// collection is configured. Only the fields that affect quota and PodSpec
+// validation are kept: the image is required by ProvisioningRequest, and is
+// empty when unset because KubeRay rejects a missing collectorOptions.image.
+func historyServerCollectorContainer(opts *rayv1.CollectorOptions) corev1.Container {
+	collector := rayctrlcommon.BuildCollectorContainer(opts, rayv1.RayNodeType(""), "", "", "", nil)
+	return corev1.Container{
+		Name:      collector.Name,
+		Image:     collector.Image,
+		Resources: *collector.Resources.DeepCopy(),
+	}
+}
+
 func ExpectedPodSetsCount(rayClusterSpec *rayv1.RayClusterSpec) int {
 	return len(rayClusterSpec.WorkerGroupSpecs) + 1
 }
@@ -224,7 +275,7 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 
 					podSet, exists := podSetMap[podSetName]
 					if !exists {
-						return nil, fmt.Errorf("PodSet name mismatch: RayCluster %s has worker group %s which is not found in Ray object %s spec", rayClusterName, wgs.GroupName, object.GetName())
+						return nil, fmt.Errorf("%w: RayCluster %s has worker group %s which is not found in Ray object %s spec", errPodSetNameMismatch, rayClusterName, wgs.GroupName, object.GetName())
 					}
 
 					if wgs.Replicas == nil {
@@ -409,7 +460,7 @@ func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32
 	}
 	var podSets []jobframework.PodSetReplicaSize
 	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
+		return nil, fmt.Errorf("%w: %w", errUnmarshalPodSetReplicaSizes, err)
 	}
 	for _, ps := range podSets {
 		counts[ps.Name] = ps.Count

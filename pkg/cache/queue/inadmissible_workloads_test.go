@@ -25,6 +25,7 @@ import (
 	"k8s.io/component-base/featuregate"
 
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -66,8 +67,9 @@ func TestNewRequeuer(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Get(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	_, log := utiltesting.ContextWithLog(t)
+	wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -115,8 +117,9 @@ func TestInadmissibleWorkloads_Get(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Insert(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	_, log := utiltesting.ContextWithLog(t)
+	wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -172,8 +175,9 @@ func TestInadmissibleWorkloads_Insert(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Delete(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	_, log := utiltesting.ContextWithLog(t)
+	wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -234,8 +238,9 @@ func TestInadmissibleWorkloads_Delete(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Len(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
-	wl2 := workload.NewInfo(utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
+	_, log := utiltesting.ContextWithLog(t)
+	wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	wl2 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", "ns2").Obj())
 	key1 := workload.Key(wl1.Obj)
 	key2 := workload.Key(wl2.Obj)
 
@@ -279,7 +284,8 @@ func TestInadmissibleWorkloads_Len(t *testing.T) {
 }
 
 func TestInadmissibleWorkloads_Empty(t *testing.T) {
-	wl1 := workload.NewInfo(utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
+	_, log := utiltesting.ContextWithLog(t)
+	wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", "ns1").Obj())
 	key1 := workload.Key(wl1.Obj)
 
 	testcases := []struct {

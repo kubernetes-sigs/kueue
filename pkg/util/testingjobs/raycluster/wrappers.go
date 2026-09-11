@@ -38,6 +38,65 @@ func MakeWorkerGroups(count int) []rayv1.WorkerGroupSpec {
 	return groups
 }
 
+// WorkerGroupWrapper wraps a RayCluster worker group spec, for tests that need more than
+// the single default group the ClusterWrapper and ServiceWrapper setters address.
+type WorkerGroupWrapper struct{ rayv1.WorkerGroupSpec }
+
+// MakeWorkerGroup creates a wrapper for a worker group with the given name and replicas.
+func MakeWorkerGroup(name string, replicas int32) *WorkerGroupWrapper {
+	return &WorkerGroupWrapper{rayv1.WorkerGroupSpec{
+		GroupName:      name,
+		Replicas:       new(replicas),
+		MinReplicas:    new(int32(0)),
+		MaxReplicas:    new(int32(10)),
+		RayStartParams: map[string]string{},
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				NodeSelector: map[string]string{},
+				Containers: []corev1.Container{
+					{
+						Name:    "worker-container",
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
+					},
+				},
+			},
+		},
+	}}
+}
+
+// Obj returns the inner WorkerGroupSpec.
+func (w *WorkerGroupWrapper) Obj() *rayv1.WorkerGroupSpec {
+	return &w.WorkerGroupSpec
+}
+
+// MinReplicas sets the group's minReplicas.
+func (w *WorkerGroupWrapper) MinReplicas(replicas int32) *WorkerGroupWrapper {
+	w.WorkerGroupSpec.MinReplicas = new(replicas)
+	return w
+}
+
+// MaxReplicas sets the group's maxReplicas.
+func (w *WorkerGroupWrapper) MaxReplicas(replicas int32) *WorkerGroupWrapper {
+	w.WorkerGroupSpec.MaxReplicas = new(replicas)
+	return w
+}
+
+// Request adds a resource request to the group's default container.
+func (w *WorkerGroupWrapper) Request(r corev1.ResourceName, v string) *WorkerGroupWrapper {
+	w.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return w
+}
+
+// NodeSelector adds a node selector to the group's pod template.
+func (w *WorkerGroupWrapper) NodeSelector(key, value string) *WorkerGroupWrapper {
+	w.Template.Spec.NodeSelector[key] = value
+	return w
+}
+
 // ClusterWrapper wraps a RayCluster.
 type ClusterWrapper struct{ rayv1.RayCluster }
 
@@ -185,6 +244,11 @@ func (j *ClusterWrapper) SchedulingGate(name string) *ClusterWrapper {
 
 func (j *ClusterWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *ClusterWrapper {
 	j.Spec.AutoscalerOptions = value
+	return j
+}
+
+func (j *ClusterWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *ClusterWrapper {
+	j.Spec.HistoryServerOptions = value
 	return j
 }
 

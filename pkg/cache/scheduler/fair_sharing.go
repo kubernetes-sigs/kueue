@@ -111,11 +111,11 @@ func (d DRS) PreciseWeightedShareSerialized() string {
 // a higher value preferred for preemption.
 func CompareDRS(a, b DRS) int {
 	switch {
-	case a.zeroWeightBorrows() && b.zeroWeightBorrows():
+	case a.ZeroWeightBorrows() && b.ZeroWeightBorrows():
 		return cmp.Compare(a.unweightedRatio, b.unweightedRatio)
-	case a.zeroWeightBorrows():
+	case a.ZeroWeightBorrows():
 		return 1
-	case b.zeroWeightBorrows():
+	case b.ZeroWeightBorrows():
 		return -1
 	default:
 		return cmp.Compare(a.PreciseWeightedShare(), b.PreciseWeightedShare())
@@ -132,7 +132,7 @@ func CompareDRS(a, b DRS) int {
 // or Cohort is borrowing, we return math.MaxInt.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	var weightedShare int64
-	if d.zeroWeightBorrows() {
+	if d.ZeroWeightBorrows() {
 		weightedShare = math.MaxInt64
 	} else {
 		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
@@ -140,9 +140,10 @@ func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	return weightedShare, d.dominantResource
 }
 
-// zeroWeightBorrows returns whether this DRS represents a
+// ZeroWeightBorrows returns whether this DRS represents a
 // borrowing state for a ClusterQueue/Cohort with a zero weight.
-func (d DRS) zeroWeightBorrows() bool {
+// This is equivalent to PreciseWeightedShare returning +Inf.
+func (d DRS) ZeroWeightBorrows() bool {
 	return d.isWeightZero() && !d.IsZero()
 }
 

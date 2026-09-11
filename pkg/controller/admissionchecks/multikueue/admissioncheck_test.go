@@ -236,6 +236,45 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"updates observed generation after changing to an equally active config": {
+			reconcileFor: "ac1",
+			checks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
+					Generation(2).
+					Condition(metav1.Condition{
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Active",
+						Message:            "The admission check is active",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+			configs: []kueue.MultiKueueConfig{
+				*utiltestingapi.MakeMultiKueueConfig("config2").Clusters("worker1").Obj(),
+			},
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
+					Obj(),
+			},
+			wantChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
+					Generation(2).
+					Condition(metav1.Condition{
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Active",
+						Message:            "The admission check is active",
+						ObservedGeneration: 2,
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {

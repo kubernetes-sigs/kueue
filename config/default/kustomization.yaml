@@ -108,7 +108,7 @@ patches:
 #- path: apiservice_insecure_removal.yaml # to remove insecureSkipTLSVerify from the APIService
 #  target:
 #    kind: APIService
-#    name: v1beta1.visibility.kueue.x-k8s.io
+#    name: v1beta2.visibility.kueue.x-k8s.io
 #- path: cert_visibility_manager_patch.yaml
 #  target:
 #    kind: Deployment
@@ -359,7 +359,7 @@ patches:
 #    targets:
 #      - select:
 #          kind: APIService
-#          name: v1beta1.visibility.kueue.x-k8s.io
+#          name: v1beta2.visibility.kueue.x-k8s.io
 #        fieldPaths:
 #          - metadata.annotations.[cert-manager.io/inject-ca-from]
 #        options:
@@ -377,7 +377,7 @@ patches:
 #    targets:
 #      - select:
 #          kind: APIService
-#          name: v1beta1.visibility.kueue.x-k8s.io
+#          name: v1beta2.visibility.kueue.x-k8s.io
 #        fieldPaths:
 #          - metadata.annotations.[cert-manager.io/inject-ca-from]
 #        options:

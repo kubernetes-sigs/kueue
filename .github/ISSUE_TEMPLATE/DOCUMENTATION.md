@@ -1,5 +1,6 @@
 ---
-name: Documentation
+name: 📖 Documentation
+title: "📖 "
 about: Report a documentation issue or suggest improvements
 labels: kind/documentation
 

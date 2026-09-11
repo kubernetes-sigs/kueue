@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -63,5 +64,53 @@ func TestCohortLendable(t *testing.T) {
 	lendable := calculateLendable(cache.hm.Cohort("test-cohort"))
 	if diff := cmp.Diff(wantLendable, lendable); diff != "" {
 		t.Errorf("Unexpected cohort lendable (-want,+got):\n%s", diff)
+	}
+}
+
+func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+
+	cohortSpec := utiltestingapi.MakeCohort("test-cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).Obj()
+
+	c := newCohort("test-cohort")
+	if err := c.updateCohort(cohortSpec, nil); err != nil {
+		t.Fatalf("unexpected error updating cohort: %v", err)
+	}
+
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+		t.Errorf("expected nominal quota 10000 from spec, got %v", q.Nominal)
+	}
+
+	cohortEffective := utiltestingapi.MakeCohort("test-cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		EffectiveQuotas(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "500").Obj(),
+		).Obj()
+
+	if err := c.updateCohort(cohortEffective, nil); err != nil {
+		t.Fatalf("unexpected error updating cohort: %v", err)
+	}
+
+	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(500000) {
+		t.Errorf("expected nominal quota 500000 from EffectiveQuotas, got %v", q.Nominal)
+	}
+
+	cohortCleared := utiltestingapi.MakeCohort("test-cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).Obj()
+
+	if err := c.updateCohort(cohortCleared, nil); err != nil {
+		t.Fatalf("unexpected error updating cohort: %v", err)
+	}
+
+	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+		t.Errorf("expected nominal quota 10000 after clearing EffectiveQuotas, got %v", q.Nominal)
 	}
 }

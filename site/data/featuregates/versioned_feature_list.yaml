@@ -51,12 +51,22 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DynamicQuotaOrchestration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false
@@ -67,6 +77,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   versionedSpecs:
   - default: false
@@ -221,6 +237,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
@@ -262,6 +284,12 @@
     preRelease: Alpha
     version: "0.17"
 - name: MultiKueueRemoteSpecSync
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
+- name: MultiKueueReuseClientConnectionConfigForWorkers
   versionedSpecs:
   - default: true
     lockToDefault: false
@@ -329,12 +357,22 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: RemoveFinalizersWithStrictPatch
   versionedSpecs:
   - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: ReservedResourceNameValidation
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
   - default: false
@@ -351,6 +389,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: SchedulingEquivalenceHashingIgnorePodSetName
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ShortWorkloadNames
   versionedSpecs:
   - default: false
@@ -425,6 +469,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASGroupedPodSetSlicing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASHandleOverlappingFlavors
   versionedSpecs:
   - default: true
@@ -441,6 +491,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASNodeFeasibilityForAllLevels
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -549,6 +605,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WaitForPodsReadyUnscheduledTimeout
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WorkloadIdentifierAnnotations
   versionedSpecs:
   - default: true

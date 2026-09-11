@@ -221,6 +221,7 @@ waitForPodsReady:
   timeout: 50s
   blockAdmission: true
   recoveryTimeout: 3m
+  unscheduledTimeout: 30s
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10
@@ -663,9 +664,10 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					BlockAdmission:  new(true),
-					Timeout:         metav1.Duration{Duration: 50 * time.Second},
-					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
+					BlockAdmission:     new(true),
+					Timeout:            metav1.Duration{Duration: 50 * time.Second},
+					RecoveryTimeout:    &metav1.Duration{Duration: 3 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          new(configapi.CreationTimestamp),
 						BackoffLimitCount:  new(int32(10)),

@@ -24,7 +24,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -41,6 +44,77 @@ func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count in
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)
+	}
+}
+
+func expectHistogramSampleSum(t *testing.T, vec *prometheus.HistogramVec, expected float64, labels ...string) {
+	t.Helper()
+	observer, err := vec.GetMetricWithLabelValues(labels...)
+	if err != nil {
+		t.Fatalf("Error getting metric for labels %v: %v", labels, err)
+	}
+	var dto dto.Metric
+
+	if err := observer.(prometheus.Metric).Write(&dto); err != nil {
+		t.Fatalf("Error writing metric: %v", err)
+	}
+
+	if dto.Histogram == nil {
+		t.Fatalf("Expected histogram metric for labels %v", labels)
+	}
+
+	if got := dto.GetHistogram().GetSampleSum(); got != expected {
+		t.Errorf("got %v want %v", got, expected)
+	}
+}
+
+func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	// The recorded values must match the vector, which the custom label widens when the gate is on.
+	cases := map[string]struct {
+		gate       bool
+		entries    []configapi.ControllerMetricsCustomLabel
+		stored     map[string]string
+		wantCustom []string
+	}{
+		"custom metric labels disabled": {
+			entries: []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+		},
+		// Gate on, no entries: the store is still nil.
+		"enabled with none configured": {gate: true},
+		"cluster queue without a stored value": {
+			gate:       true,
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			wantCustom: []string{"custom_team", ""},
+		},
+		"cluster queue with a stored value": {
+			gate:       true,
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			stored:     map[string]string{"team": "red"},
+			wantCustom: []string{"custom_team", "red"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, tc.gate)
+			cl := NewCustomLabels(tc.entries)
+			// cl is nil when the gate is off.
+			InitMetricVectors(cl)
+			t.Cleanup(func() { InitMetricVectors(nil) })
+			if tc.stored != nil {
+				cl.CQStore("cq", tc.stored, nil)
+			}
+			RecordPodSchedulingGateRemovalSeconds("wl", "cq", false, time.Second, cl.CQGet("cq"), nil)
+			if got := testutil.CollectAndCount(PodSchedulingGateRemovalSeconds); got != 1 {
+				t.Fatalf("recorded metrics = %d, want 1", got)
+			}
+			expectFilteredMetricsCount(t, PodSchedulingGateRemovalSeconds, 1,
+				append([]string{
+					"name", "wl",
+					"cluster_queue", "cq",
+					"is_group", "false",
+				}, tc.wantCustom...)...,
+			)
+		})
 	}
 }
 
@@ -293,6 +367,109 @@ func TestReportMultiKueueWorkloadAdmitted(t *testing.T) {
 	ReportMultiKueueWorkloadAdmitted("admit-cq2", "admit-worker3", nil)
 	if got := testutil.ToFloat64(MultiKueueWorkloadsAdmittedTotal.WithLabelValues("admit-cq2", "admit-worker3", roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected 1 admitted workload for admit-worker3 with standalone role, got %v", got)
+	}
+}
+
+func TestReportMultiKueueClusterStatus(t *testing.T) {
+	cases := map[string]struct {
+		conditionStatus metav1.ConditionStatus
+		tracker         *roletracker.RoleTracker
+		wantRole        string
+	}{
+		"active cluster": {
+			conditionStatus: metav1.ConditionTrue,
+			tracker:         roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			wantRole:        roletracker.RoleLeader,
+		},
+		"inactive cluster": {
+			conditionStatus: metav1.ConditionFalse,
+			tracker:         roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			wantRole:        roletracker.RoleLeader,
+		},
+		"unknown status": {
+			conditionStatus: metav1.ConditionUnknown,
+			tracker:         roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			wantRole:        roletracker.RoleLeader,
+		},
+		"nil tracker is reported as standalone": {
+			conditionStatus: metav1.ConditionTrue,
+			tracker:         nil,
+			wantRole:        roletracker.RoleStandalone,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			MultiKueueClusterByStatus.Reset()
+
+			ReportMultiKueueClusterStatus("cq1", "worker1", tc.conditionStatus, tc.tracker)
+
+			// Exactly one status must be 1, all the others 0.
+			for _, status := range ConditionStatusValues {
+				want := 0.0
+				if status == tc.conditionStatus {
+					want = 1.0
+				}
+				got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker1", string(status), tc.wantRole))
+				if got != want {
+					t.Errorf("cluster_status with active=%s: want %v, got %v", status, want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestReportMultiKueueClusterStatusOverwritesPreviousStatus(t *testing.T) {
+	MultiKueueClusterByStatus.Reset()
+	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
+
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, tracker)
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionFalse, tracker)
+
+	// The previously reported status must be reset to 0, otherwise the cluster
+	// would look both active and inactive at the same time.
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker1", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 0 {
+		t.Errorf("expected the stale True status to be reset to 0, got %v", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker1", string(metav1.ConditionFalse), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected the current False status to be 1, got %v", got)
+	}
+}
+
+func TestClearMultiKueueClusterMetrics(t *testing.T) {
+	MultiKueueClusterByStatus.Reset()
+	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
+
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, tracker)
+	ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, tracker)
+
+	ClearMultiKueueClusterMetrics("worker1")
+
+	// worker1 series are gone, worker2 is untouched.
+	if got := testutil.CollectAndCount(MultiKueueClusterByStatus); got != len(ConditionStatusValues) {
+		t.Errorf("expected only worker2 series to remain, got %d series", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected worker2 to still be active, got %v", got)
+	}
+}
+
+func TestClearMultiKueueClusterQueueMetrics(t *testing.T) {
+	MultiKueueClusterByStatus.Reset()
+	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
+
+	// The same worker cluster is shared by two ClusterQueues.
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, tracker)
+	ReportMultiKueueClusterStatus("cq2", "worker1", metav1.ConditionTrue, tracker)
+
+	ClearMultiKueueClusterQueueMetrics("cq1")
+
+	// Only cq1 loses its series; the shared cluster is still reported for cq2.
+	if got := testutil.CollectAndCount(MultiKueueClusterByStatus); got != len(ConditionStatusValues) {
+		t.Errorf("expected only cq2 series to remain, got %d series", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq2", "worker1", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected cq2 to still report worker1 as active, got %v", got)
 	}
 }
 
@@ -636,4 +813,29 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
 
 	ClearCohortAdmittedWorkloadsMetrics(cohortName)
+}
+
+func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
+	cqName := kueue.ClusterQueueReference("cq-recovery-test")
+	lqRef := LocalQueueReference{Name: "lq-recovery-test", Namespace: "default"}
+
+	// Positive wait times
+	ReportWorkloadRecoveryWaitTime(cqName, "default", 5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, WorkloadRecoveryWaitTime, 5.0, "cq-recovery-test", "default", roletracker.RoleStandalone)
+
+	ReportLocalQueueWorkloadRecoveryWaitTime(lqRef, "default", 5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, LocalQueueWorkloadRecoveryWaitTime, 5.0, "lq-recovery-test", "default", "default", roletracker.RoleStandalone)
+
+	// Negative wait times
+	ReportWorkloadRecoveryWaitTime(cqName, "default", -5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, WorkloadRecoveryWaitTime, 5.0, "cq-recovery-test", "default", roletracker.RoleStandalone)
+
+	ReportLocalQueueWorkloadRecoveryWaitTime(lqRef, "default", -5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, LocalQueueWorkloadRecoveryWaitTime, 5.0, "lq-recovery-test", "default", "default", roletracker.RoleStandalone)
+
+	ClearClusterQueueMetrics(cqName)
+	expectFilteredMetricsCount(t, WorkloadRecoveryWaitTime, 0, "cluster_queue", "cq-recovery-test")
+
+	ClearLocalQueueMetrics(lqRef)
+	expectFilteredMetricsCount(t, LocalQueueWorkloadRecoveryWaitTime, 0, "name", "lq-recovery-test", "namespace", "default")
 }

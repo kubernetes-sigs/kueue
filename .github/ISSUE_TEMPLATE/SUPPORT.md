@@ -1,6 +1,7 @@
 ---
-name: Support Request
+name: ❓ Support Request
 about: Support request or question relating to Kueue
+title: "❓ "
 labels: kind/support
 
 ---

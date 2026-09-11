@@ -327,6 +327,20 @@ type WaitForPodsReady struct {
 	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
+
+	// UnscheduledTimeout defines a timeout, measured since the transition to the
+	// Admitted=True condition, for all the Pods required by the admission to be
+	// scheduled or to have succeeded. The deadline never exceeds timeout since
+	// admission. Exceeding it evicts the Workload with the PodsReadyTimeout reason
+	// and requeues it after the backoff delay.
+	// A current-admission PodsScheduled=False observation is required for eviction;
+	// a late observation does not restart the timeout.
+	// Must be non-negative and must not exceed timeout. When unset or "0s", scheduling
+	// tracking, readiness propagation, scheduling timeouts and scheduling-history resets are disabled.
+	// Requires the WaitForPodsReadyUnscheduledTimeout feature gate, even for "0s".
+	// Enabling this gate together with DisableWaitForPodsReady is rejected.
+	// +optional
+	UnscheduledTimeout *metav1.Duration `json:"unscheduledTimeout,omitempty"`
 }
 
 type MultiKueue struct {
@@ -614,6 +628,9 @@ type ResourceTransformation struct {
 	// Input is the name of the input resource.
 	// It must not be `pods`; that exact name is reserved for Kueue's internal
 	// Pod-count accounting. A qualified name such as `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	Input corev1.ResourceName `json:"input"`
 
 	// Strategy specifies if the input resource should be replaced or retained.
@@ -628,6 +645,9 @@ type ResourceTransformation struct {
 	// "strategy" is Retain.
 	// It must not be `pods`; that exact name is reserved for Kueue's internal
 	// Pod-count accounting. A qualified name such as `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
@@ -635,6 +655,9 @@ type ResourceTransformation struct {
 	// An output resource name must not be `pods`; that exact name is reserved for
 	// Kueue's internal Pod-count accounting. A qualified name such as
 	// `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
@@ -652,6 +675,9 @@ type DeviceClassMapping struct {
 	// With KueueDRAIntegration enabled it must not be `pods`; that exact name is
 	// reserved for Kueue's internal Pod-count accounting. A qualified name such
 	// as `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	Name corev1.ResourceName `json:"name"`
 
 	// DeviceClassNames enumerates the DeviceClasses represented by this resource name.

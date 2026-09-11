@@ -442,6 +442,25 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 	}
 }
 
+// ExpectPodSetAdmittedCount waits until wl is admitted with count pods assigned to the named
+// PodSet, refreshing wl. A partially admitted workload - an elastic job whose scale-up was
+// reduced to fit the available quota - is admitted with fewer pods than it requested, so the
+// assigned count is what says how far the scale-up actually got.
+func ExpectPodSetAdmittedCount(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, podSetName kueue.PodSetReference, count int32) {
+	ginkgo.GinkgoHelper()
+	ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+		g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		assignments := wl.Status.Admission.PodSetAssignments
+		idx := slices.IndexFunc(assignments, func(psa kueue.PodSetAssignment) bool {
+			return psa.Name == podSetName
+		})
+		g.Expect(idx).ShouldNot(gomega.Equal(-1), AssertMsg(fmt.Sprintf("No admitted podSet %q", podSetName), wl))
+		g.Expect(assignments[idx].Count).Should(gomega.Equal(new(count)))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	ginkgo.GinkgoHelper()
 	wlKeys := workloadKeys(wls)
@@ -664,6 +683,21 @@ func ExpectWorkloadResourceUsage(ctx context.Context, k8sClient client.Client, w
 		usage := assignment.ResourceUsage[resourceName]
 		g.Expect(usage.Cmp(resource.MustParse(expected))).To(gomega.Equal(0))
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("workload should have resource usage of "+expected+" for "+string(resourceName), &wl))
+}
+
+// SetPodsScheduledCondition simulates a tracker observation in the current admission.
+func SetPodsScheduledCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, condition metav1.Condition) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		wl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		admitted := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+		g.Expect(admitted).NotTo(gomega.BeNil())
+		g.Expect(admitted.Status).To(gomega.Equal(metav1.ConditionTrue))
+		g.Expect(RealClock.Now().Truncate(time.Second)).To(gomega.BeTemporally(">", admitted.LastTransitionTime.Time))
+		g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadPodsScheduled,
+			condition.Status, condition.Reason, condition.Message, "test", RealClock)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
@@ -1241,11 +1275,12 @@ func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns
 		return nil, nil, err
 	}
 
-	if err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &outErr}); err != nil {
-		return nil, nil, err
-	}
+	// Return whatever was captured even on error: when the remote command exits
+	// non-zero the streams still hold its output, and stderr is usually the only
+	// explanation of the failure. Callers assert on err and report stderr with it.
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &outErr})
 
-	return out.Bytes(), outErr.Bytes(), nil
+	return out.Bytes(), outErr.Bytes(), err
 }
 
 // getProjectBaseDir retrieves the project base directory either from an environment variable or by searching for a Makefile.

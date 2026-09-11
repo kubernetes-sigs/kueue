@@ -924,6 +924,11 @@ func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }
 
+func (c *CohortWrapper) UID(uid types.UID) *CohortWrapper {
+	c.Cohort.UID = uid
+	return c
+}
+
 func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
 	c.Spec.ParentName = parentName
 	return c
@@ -932,6 +937,21 @@ func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper 
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrapper {
 	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+// EffectiveQuotas adds a ResourceGroup with flavors to status.effectiveQuotas.
+func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWrapper {
+	if c.Status.EffectiveQuotas == nil {
+		c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{}
+	}
+	c.Status.EffectiveQuotas.ResourceGroups = append(c.Status.EffectiveQuotas.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+// EffectiveQuotaStatus sets status.effectiveQuotas.
+func (c *CohortWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *CohortWrapper {
+	c.Status.EffectiveQuotas = eq
 	return c
 }
 
@@ -993,6 +1013,11 @@ func (c *ClusterQueueWrapper) Clone() *ClusterQueueWrapper {
 // Obj returns the inner ClusterQueue.
 func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 	return &c.ClusterQueue
+}
+
+func (c *ClusterQueueWrapper) UID(uid types.UID) *ClusterQueueWrapper {
+	c.ClusterQueue.UID = uid
+	return c
 }
 
 // Cohort sets the borrowing cohort.
@@ -1084,6 +1109,21 @@ func ResourceGroup(flavors ...kueue.FlavorQuotas) kueue.ResourceGroup {
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
 	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+// EffectiveQuotas adds a ResourceGroup with flavors to status.effectiveQuotas.
+func (c *ClusterQueueWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
+	if c.Status.EffectiveQuotas == nil {
+		c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{}
+	}
+	c.Status.EffectiveQuotas.ResourceGroups = append(c.Status.EffectiveQuotas.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+// EffectiveQuotaStatus sets status.effectiveQuotas.
+func (c *ClusterQueueWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *ClusterQueueWrapper {
+	c.Status.EffectiveQuotas = eq
 	return c
 }
 
@@ -1196,6 +1236,52 @@ func (c *ClusterQueueWrapper) PendingWorkloads(n int32) *ClusterQueueWrapper {
 func (c *ClusterQueueWrapper) AdmittedWorkloads(n int32) *ClusterQueueWrapper {
 	c.Status.AdmittedWorkloads = n
 	return c
+}
+
+// EffectiveQuotaStatusWrapper wraps an EffectiveQuotaStatus.
+type EffectiveQuotaStatusWrapper struct{ kueue.EffectiveQuotaStatus }
+
+// MakeEffectiveQuotaStatus creates a wrapper for an EffectiveQuotaStatus with default orchestratorRef.
+func MakeEffectiveQuotaStatus() *EffectiveQuotaStatusWrapper {
+	return &EffectiveQuotaStatusWrapper{
+		EffectiveQuotaStatus: kueue.EffectiveQuotaStatus{
+			OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+				APIGroup: "kueue.x-k8s.io",
+				Kind:     "DynamicQuotaOrchestrator",
+				Name:     "dqo",
+			},
+			ResourceGroups: make([]kueue.ResourceGroup, 0),
+		},
+	}
+}
+
+// Obj returns the inner EffectiveQuotaStatus.
+func (e *EffectiveQuotaStatusWrapper) Obj() *kueue.EffectiveQuotaStatus {
+	return &e.EffectiveQuotaStatus
+}
+
+// APIGroup sets the APIGroup of orchestratorRef.
+func (e *EffectiveQuotaStatusWrapper) APIGroup(apiGroup string) *EffectiveQuotaStatusWrapper {
+	e.OrchestratorRef.APIGroup = apiGroup
+	return e
+}
+
+// Kind sets the Kind of orchestratorRef.
+func (e *EffectiveQuotaStatusWrapper) Kind(kind string) *EffectiveQuotaStatusWrapper {
+	e.OrchestratorRef.Kind = kind
+	return e
+}
+
+// Name sets the Name of orchestratorRef.
+func (e *EffectiveQuotaStatusWrapper) Name(name string) *EffectiveQuotaStatusWrapper {
+	e.OrchestratorRef.Name = name
+	return e
+}
+
+// ResourceGroups sets the resourceGroups.
+func (e *EffectiveQuotaStatusWrapper) ResourceGroups(rgs ...kueue.ResourceGroup) *EffectiveQuotaStatusWrapper {
+	e.EffectiveQuotaStatus.ResourceGroups = rgs
+	return e
 }
 
 // FlavorQuotasWrapper wraps a FlavorQuotas object.

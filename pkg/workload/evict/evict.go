@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -205,7 +206,7 @@ func Evict(
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
 	SetEvictedCondition(w, now, reason, message)
 	resetClusterNomination(w)
-	resetChecksOnEviction(w, now)
+	ResetChecksOnEviction(w, now)
 	resetUnhealthyNodes(w)
 	unsetBlockedOnPreemptionGatesCondition(w, now, reason, message)
 	closeAllPreemptionGates(w, now)
@@ -216,8 +217,9 @@ func resetClusterNomination(w *kueue.Workload) {
 	w.Status.NominatedClusterNames = nil
 }
 
-// resetChecksOnEviction sets all AdmissionChecks to Pending
-func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
+// ResetChecksOnEviction sets all AdmissionChecks to Pending. Exported for the deactivation
+// path in the Workload controller, which bypasses Evict when the Workload is already evicted.
+func ResetChecksOnEviction(w *kueue.Workload, now time.Time) {
 	checks := w.Status.AdmissionChecks
 	for i := range checks {
 		if checks[i].State == kueue.CheckStatePending {
@@ -290,6 +292,9 @@ func reportEvictedWorkload(recorder events.EventRecorder, wl *kueue.Workload, cq
 	}
 	eventReason := patching.ReasonWithCause(kueue.WorkloadEvicted, reason)
 	if reason == kueue.WorkloadDeactivated && underlyingCause != "" {
+		eventReason = patching.ReasonWithCause(eventReason, string(underlyingCause))
+	}
+	if features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) && reason == kueue.WorkloadEvictedByPodsReadyTimeout && underlyingCause == kueue.WorkloadWaitForScheduling {
 		eventReason = patching.ReasonWithCause(eventReason, string(underlyingCause))
 	}
 	recorder.Eventf(wl, nil, corev1.EventTypeNormal, eventReason, eventReason, api.TruncateEventMessage(message))

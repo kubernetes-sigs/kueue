@@ -112,7 +112,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	needsUpdate := false
 	oldCondition := apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive)
-	if !cmpConditionState(oldCondition, &newCondition) {
+	if !cmpConditionState(oldCondition, &newCondition) || oldCondition.ObservedGeneration != newCondition.ObservedGeneration {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		needsUpdate = true
 	}
@@ -149,7 +149,7 @@ func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
 		Watches(&kueue.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(a.roleTracker, "multikueue-admissioncheck"),
+			LogConstructor: roletracker.NewLogConstructor(a.roleTracker, "multikueue-admissioncheck-reconciler"),
 		}).
 		Complete(a)
 }
