@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -4442,12 +4443,24 @@ func TestCurrentPodsScheduledCondition(t *testing.T) {
 
 func TestInfoTopologySpreading(t *testing.T) {
 	validAnnotation := `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`
+	noSelectorAnnotation := `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`
 	malformedAnnotation := `{"workloadLabelSelectors":`
+
+	spreadingPodSet := func(annotation string) kueue.PodSet {
+		return *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: annotation}).
+			Request(corev1.ResourceCPU, "1").Obj()
+	}
 
 	cases := map[string]struct {
 		wl           *kueue.Workload
 		featureGates map[featuregate.Feature]bool
 		wantSpec     bool
+		// peerLabels are the labels of another Workload in the namespace, and
+		// wantMatchesPeer is whether the resolved selector puts it in the same
+		// spreading group. Only asserted when wantSpec is set.
+		peerLabels      map[string]string
+		wantMatchesPeer bool
 	}{
 		"annotation absent": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
@@ -4463,11 +4476,43 @@ func TestInfoTopologySpreading(t *testing.T) {
 		},
 		"valid annotation, gate on: populates spec": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validAnnotation}).
-					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+				PodSets(spreadingPodSet(validAnnotation)).Obj(),
+			featureGates:    map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:        true,
+			peerLabels:      map[string]string{"app": "main"},
+			wantMatchesPeer: true,
+		},
+		// The selector the user omitted is resolved from the Workload's own
+		// job-uid label, so the group becomes every Workload of that job.
+		// Resolved here rather than defaulted into the annotation by the
+		// mutating webhook, which a prebuilt Workload - labelled only by the
+		// later update that adopts it - would never reach.
+		"selectors omitted, job-uid label set: group is the parent job": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Label(controllerconstants.JobUIDLabel, "job-uid-1").
+				PodSets(spreadingPodSet(noSelectorAnnotation)).Obj(),
+			featureGates:    map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:        true,
+			peerLabels:      map[string]string{controllerconstants.JobUIDLabel: "job-uid-1"},
+			wantMatchesPeer: true,
+		},
+		"selectors omitted, job-uid label set: another job is not in the group": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Label(controllerconstants.JobUIDLabel, "job-uid-1").
+				PodSets(spreadingPodSet(noSelectorAnnotation)).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			wantSpec:     true,
+			peerLabels:   map[string]string{controllerconstants.JobUIDLabel: "job-uid-2"},
+		},
+		// With no parent job there is no group, so the Workload schedules as
+		// if it carried no spreading rather than being spread against every
+		// Workload in the namespace.
+		"selectors omitted, no job-uid label: group is empty": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(spreadingPodSet(noSelectorAnnotation)).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:     true,
+			peerLabels:   map[string]string{controllerconstants.JobUIDLabel: "job-uid-1"},
 		},
 		"malformed annotation, gate on: no panic, treated as absent": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
@@ -4485,11 +4530,23 @@ func TestInfoTopologySpreading(t *testing.T) {
 
 			info := NewInfo(log, tc.wl)
 
-			if tc.wantSpec && info.TopologySpreading == nil {
-				t.Errorf("TopologySpreading = nil, want non-nil")
+			if !tc.wantSpec {
+				if info.TopologySpreading != nil {
+					t.Errorf("TopologySpreading = %+v, want nil", info.TopologySpreading)
+				}
+				return
 			}
-			if !tc.wantSpec && info.TopologySpreading != nil {
-				t.Errorf("TopologySpreading = %+v, want nil", info.TopologySpreading)
+			if info.TopologySpreading == nil {
+				t.Fatal("TopologySpreading = nil, want non-nil")
+			}
+
+			groupKey := utiltas.GroupKeyForPodSet(&tc.wl.Spec.PodSets[0])
+			spec := info.TopologySpreading[groupKey]
+			if spec == nil {
+				t.Fatalf("TopologySpreading[%q] = nil, want a spec", groupKey)
+			}
+			if got := spec.Selector().Matches(labels.Set(tc.peerLabels)); got != tc.wantMatchesPeer {
+				t.Errorf("Selector().Matches(%v) = %t, want %t", tc.peerLabels, got, tc.wantMatchesPeer)
 			}
 		})
 	}

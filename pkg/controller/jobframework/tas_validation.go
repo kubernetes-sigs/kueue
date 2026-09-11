@@ -457,10 +457,11 @@ func validateTopologySpreadingAnnotation(
 		return allErrs
 	}
 
-	// An omitted selector parses fine: it may be omitted here and defaulted to
-	// the parent job's UID once the Workload is built, which is after this
-	// validation runs.
-	spec, err := utiltas.ParseSpreadingAnnotation(value)
+	// An omitted selector parses fine: it is how the user asks for the default
+	// spreading group, the parent job's Workloads. Parsed with no default job
+	// UID, because what is validated here is what the user wrote - the default
+	// is resolved when the Workload's spreading spec is built.
+	spec, err := utiltas.ParseSpreadingAnnotation(value, "")
 	if err != nil {
 		switch {
 		case errors.Is(err, utiltas.ErrTopologySpreadingRuleCount):
@@ -517,9 +518,10 @@ func isValidShare(q resource.Quantity) bool {
 // metav1.LabelSelectorRequirement so the restriction can be lifted without an
 // annotation format change.
 //
-// An empty list is accepted: the Workload mutating webhook defaults it to the
-// parent job's UID, and the requirement it injects is built in code rather
-// than read from the user, so there is nothing to validate here.
+// An empty list is accepted: it is how the user asks for the default spreading
+// group, and the job-uid requirement standing in for it is built in code when
+// the Workload's spreading spec is compiled, so there is nothing to validate
+// here.
 func validateSpreadingSelectors(fldPath *field.Path, selectors []metav1.LabelSelectorRequirement) field.ErrorList {
 	var allErrs field.ErrorList
 

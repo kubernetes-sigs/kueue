@@ -367,10 +367,10 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 			},
 			wantErrNum: 1,
 		},
-		// Omitting the selector is how the user asks for the default: the
-		// Workload mutating webhook fills it in with the parent job's UID once
-		// the Workload is built, which is after this validation runs.
-		"valid: selectors omitted, defaulted later by the Workload webhook": {
+		// Omitting the selector is how the user asks for the default: it
+		// resolves to the parent job's UID when the Workload's spreading
+		// configuration is built, which is after this validation runs.
+		"valid: selectors omitted, resolved later from the job UID": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
 				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",

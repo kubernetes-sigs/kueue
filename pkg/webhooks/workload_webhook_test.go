@@ -17,7 +17,6 @@ limitations under the License.
 package webhooks
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -1561,105 +1560,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantCleared)
 				}
-			}
-		})
-	}
-}
-
-func TestWorkloadWebhookDefaultTopologySpreading(t *testing.T) {
-	const (
-		jobUID = "job-uid-1"
-		rule   = `"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]`
-
-		noSelector  = `{` + rule + `}`
-		ownSelector = `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],` + rule + `}`
-
-		// The rule the user wrote survives verbatim; only the selector key is
-		// added.
-		jobUIDDefault = `{` + rule + `,"workloadLabelSelectors":` +
-			`[{"key":"kueue.x-k8s.io/job-uid","operator":"In","values":["` + jobUID + `"]}]}`
-	)
-
-	// A Workload as the job controllers build one: the job-uid label is set
-	// before the create the defaulting webhook intercepts.
-	workload := func(jobUIDLabel string, annotations ...map[string]string) *kueue.Workload {
-		podSets := make([]kueue.PodSet, 0, len(annotations))
-		for i, a := range annotations {
-			ps := utiltestingapi.MakePodSet(kueue.PodSetReference(fmt.Sprintf("ps%d", i)), 1)
-			if a != nil {
-				ps = ps.Annotations(a)
-			}
-			podSets = append(podSets, *ps.Obj())
-		}
-		wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(podSets...)
-		if jobUIDLabel != "" {
-			wl = wl.Label(controllerconstants.JobUIDLabel, jobUIDLabel)
-		}
-		return wl.Obj()
-	}
-	spreading := func(value string) map[string]string {
-		return map[string]string{kueue.PodSetTopologySpreadingAnnotation: value}
-	}
-
-	cases := map[string]struct {
-		enabled         bool
-		workload        *kueue.Workload
-		wantAnnotations []map[string]string
-	}{
-		"selector omitted: defaulted to the job UID": {
-			enabled:         true,
-			workload:        workload(jobUID, spreading(noSelector)),
-			wantAnnotations: []map[string]string{spreading(jobUIDDefault)},
-		},
-		"selector set by the user: left alone": {
-			enabled:         true,
-			workload:        workload(jobUID, spreading(ownSelector)),
-			wantAnnotations: []map[string]string{spreading(ownSelector)},
-		},
-		// Every PodSet of a group carries the annotation, and all of them must
-		// end up with the same value or ValidatePodSetGroupingTopology rejects
-		// the Workload on the next job reconcile.
-		"every annotated podSet is defaulted alike": {
-			enabled:  true,
-			workload: workload(jobUID, spreading(noSelector), spreading(noSelector), nil),
-			wantAnnotations: []map[string]string{
-				spreading(jobUIDDefault), spreading(jobUIDDefault), nil,
-			},
-		},
-		// A prebuilt Workload gets its job-uid label from a later update that
-		// this create-only webhook never sees, so there is nothing to inject.
-		"no job UID label: left alone": {
-			enabled:         true,
-			workload:        workload("", spreading(noSelector)),
-			wantAnnotations: []map[string]string{spreading(noSelector)},
-		},
-		"malformed annotation: left alone for the validating webhook to reject": {
-			enabled:         true,
-			workload:        workload(jobUID, spreading(`not json`)),
-			wantAnnotations: []map[string]string{spreading(`not json`)},
-		},
-		"feature gate off: no defaulting": {
-			enabled:         false,
-			workload:        workload(jobUID, spreading(noSelector)),
-			wantAnnotations: []map[string]string{spreading(noSelector)},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, tc.enabled)
-
-			wl := tc.workload.DeepCopy()
-			if err := (&WorkloadWebhook{}).Default(t.Context(), wl); err != nil {
-				t.Fatalf("Default() returned error: %v", err)
-			}
-
-			got := make([]map[string]string, 0, len(wl.Spec.PodSets))
-			for _, ps := range wl.Spec.PodSets {
-				got = append(got, ps.Template.Annotations)
-			}
-			if diff := cmp.Diff(tc.wantAnnotations, got, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("podSet template annotations mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

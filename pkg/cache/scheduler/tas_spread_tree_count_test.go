@@ -48,6 +48,8 @@ func appMainSpreading(t *testing.T, levelKeys ...string) *utiltas.SpreadingSpec 
 			{Key: "app", Operator: metav1.LabelSelectorOpIn, Values: []string{"main"}},
 		},
 		rules,
+		// An explicit selector, so the job-uid default is not in play here.
+		"",
 	)
 	if err != nil {
 		t.Fatalf("NewSpreadingSpec() unexpected error: %v", err)

@@ -517,9 +517,10 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 		})
 
 		// The annotation with no workloadLabelSelectors at all, which is how a
-		// user asks for the default: the Workload mutating webhook fills in the
-		// parent job's UID, so the group becomes every Workload of that job -
-		// all the groups of one LeaderWorkerSet, say.
+		// user asks for the default: the group becomes every Workload sharing
+		// the parent job's UID - all the groups of one LeaderWorkerSet, say.
+		// The default is resolved when the Workload's spreading spec is built,
+		// so the annotation itself is never rewritten.
 		ginkgo.It("should default workloadLabelSelectors to the job UID when they are omitted", func() {
 			const jobUID = "shared-job-uid"
 			spreadingWithoutSelector := fmt.Sprintf(
@@ -554,28 +555,84 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 			ginkgo.By("admitting the first Workload of the job, pinned to a block", func() {
 				wl1 = admitDefaultedWorkload("wl1", "b1")
 			})
-
-			ginkgo.By("verifying the stored annotation names the job UID selector", func() {
-				// Asserted on the stored object, not just on the placement:
-				// the effective selector has to be readable by whoever is
-				// debugging the admission, which is the whole reason it is
-				// defaulted here rather than inferred at scheduling time.
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-					g.Expect(wl1.Spec.PodSets[0].Template.Annotations).To(gomega.HaveKeyWithValue(
-						kueue.PodSetTopologySpreadingAnnotation,
-						gomega.ContainSubstring(fmt.Sprintf(
-							`{"key":%q,"operator":"In","values":[%q]}`, controllerconstants.JobUIDLabel, jobUID)),
-					))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
 			gomega.Expect(blockOf(wl1)).To(gomega.Equal("b1"))
+
+			ginkgo.By("verifying the stored annotation is left exactly as written", func() {
+				// The default is a property of how the spreading spec is
+				// built, not state written into the object: nothing mutates
+				// the user's annotation, so the share they wrote reads back
+				// unchanged.
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+				gomega.Expect(wl1.Spec.PodSets[0].Template.Annotations).To(gomega.HaveKeyWithValue(
+					kueue.PodSetTopologySpreadingAnnotation, spreadingWithoutSelector))
+			})
 
 			ginkgo.By("verifying the defaulted selector makes the job's Workloads spread against each other", func() {
 				// Only reachable through the defaulted selector: with no
 				// selector of its own, wl2 would otherwise match nothing and
 				// b1 would still look empty to it.
 				wl2 = admitDefaultedWorkload("wl2", "")
+				gomega.Expect(blockOf(wl2)).To(gomega.Equal("b2"))
+			})
+		})
+
+		// The prebuilt-Workload sequence: the Workload is created before any
+		// job adopts it, so it carries no job-uid label at creation and the
+		// create-only mutating webhook has nothing it could default. The label
+		// arrives with the later update EnsurePrebuiltWorkloadOwnership makes,
+		// and the spreading group has to start applying from then on.
+		ginkgo.It("should default workloadLabelSelectors for a Workload labelled after creation", func() {
+			const jobUID = "adopted-job-uid"
+			spreadingWithoutSelector := fmt.Sprintf(
+				`{"rules":[{"topologyKey":%q,"maxShareAllowingPlacement":"0.5","enforcementMode":%q}]}`,
+				utiltesting.DefaultBlockTopologyLevel, kueue.TopologySpreadingEnforcementModeRequired,
+			)
+
+			// queueName is set to a LocalQueue that does not exist, so the
+			// Workload stays pending until the same update that labels it
+			// points it at the real queue. Otherwise it could be admitted
+			// before the label lands, and where it went would say nothing.
+			unadoptedWorkload := func(name, pinToBlock string) *kueue.Workload {
+				ps := utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+					Annotations(map[string]string{
+						kueue.PodSetTopologySpreadingAnnotation: spreadingWithoutSelector,
+					}).
+					Request(corev1.ResourceCPU, "1")
+				if pinToBlock != "" {
+					ps = ps.NodeSelector(map[string]string{utiltesting.DefaultBlockTopologyLevel: pinToBlock})
+				}
+				wl := utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue("not-yet-adopted").
+					PodSets(*ps.Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				return wl
+			}
+			adoptWorkload := func(wl *kueue.Workload) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					if wl.Labels == nil {
+						wl.Labels = make(map[string]string, 1)
+					}
+					wl.Labels[controllerconstants.JobUIDLabel] = jobUID
+					wl.Spec.QueueName = kueue.LocalQueueName(localQueue.Name)
+					g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			}
+
+			var wl1, wl2 *kueue.Workload
+
+			ginkgo.By("adopting the first Workload, pinned to a block", func() {
+				wl1 = unadoptedWorkload("wl1", "b1")
+				adoptWorkload(wl1)
+				gomega.Expect(blockOf(wl1)).To(gomega.Equal("b1"))
+			})
+
+			ginkgo.By("verifying the second Workload spreads against the first once it is adopted too", func() {
+				wl2 = unadoptedWorkload("wl2", "")
+				adoptWorkload(wl2)
 				gomega.Expect(blockOf(wl2)).To(gomega.Equal("b2"))
 			})
 		})

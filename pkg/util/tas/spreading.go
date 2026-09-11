@@ -30,12 +30,6 @@ import (
 )
 
 const (
-	// spreadingSelectorsField is the annotation's JSON field name for the
-	// workload label selectors. Spelled out because
-	// InjectDefaultSpreadingSelector writes that one key back into the
-	// original JSON rather than re-encoding SpreadingSpec's struct tags.
-	spreadingSelectorsField = "workloadLabelSelectors"
-
 	// defaultEnforcementMode is applied to a rule whose "enforcementMode" field
 	// is omitted. Not API surface: the annotation is a JSON blob with no CRD
 	// schema, so this default is applied at parse time rather than by the
@@ -107,17 +101,18 @@ func (r *SpreadingRule) ExceedsShare(count, total int32) bool {
 type SpreadingSpec struct {
 	// WorkloadLabelSelectors is the list of label selector requirements
 	// selecting, among Workloads in the same namespace, which ones count
-	// towards the rules below. Read Selector to match against it.
+	// towards the rules below, exactly as the user wrote them - empty when
+	// they asked for the default group. Read Selector to match against it.
 	WorkloadLabelSelectors []metav1.LabelSelectorRequirement `json:"workloadLabelSelectors,omitempty"`
 
 	// Rules is the list of per-topology-level spreading constraints.
 	Rules []SpreadingRule `json:"rules"`
 
-	// selector is WorkloadLabelSelectors compiled, so matching Workloads never
+	// selector is the effective selector, so matching Workloads never
 	// recompiles it. Unexported, and set by every constructor, so a
 	// SpreadingSpec obtained from this package always has one - there is no
-	// half-built state for callers to trip over. An omitted selector compiles
-	// to one matching nothing rather than to nil; see compileSelector.
+	// half-built state for callers to trip over. It is not always
+	// WorkloadLabelSelectors compiled: see compileSelector.
 	selector labels.Selector
 }
 
@@ -130,22 +125,48 @@ func (s *SpreadingSpec) Selector() labels.Selector {
 // NewSpreadingSpec builds a spec from already-decoded parts, compiling the
 // label selector. ParseSpreadingAnnotation is the usual way in; this exists
 // for callers holding the parts directly, such as tests in other packages
-// that cannot reach the unexported selector.
-func NewSpreadingSpec(selectors []metav1.LabelSelectorRequirement, rules []SpreadingRule) (*SpreadingSpec, error) {
+// that cannot reach the unexported selector. defaultJobUID is as in
+// ParseSpreadingAnnotation.
+func NewSpreadingSpec(selectors []metav1.LabelSelectorRequirement, rules []SpreadingRule, defaultJobUID string) (*SpreadingSpec, error) {
 	spec := &SpreadingSpec{WorkloadLabelSelectors: selectors, Rules: rules}
-	if err := spec.compileSelector(); err != nil {
+	if err := spec.compileSelector(defaultJobUID); err != nil {
 		return nil, err
 	}
 	return spec, nil
 }
 
-func (s *SpreadingSpec) compileSelector() error {
-	if len(s.WorkloadLabelSelectors) == 0 {
-		s.selector = labels.Nothing()
-		return nil
+// compileSelector sets the effective selector from WorkloadLabelSelectors.
+//
+// Omitting the selectors is how the user asks for the default spreading group,
+// so they compile to a requirement on defaultJobUID - every Workload of the
+// same parent job, all the groups of one LeaderWorkerSet, say. The default is
+// resolved here, at the point the spec is built from the Workload, rather than
+// written into the annotation by the mutating webhook: that webhook only sees
+// creates, and a prebuilt Workload is created before any job adopts it, so it
+// would never be defaulted at all.
+//
+// defaultJobUID is empty for a Workload with no parent job, and for callers
+// validating what the user wrote rather than resolving what it means. Then
+// there is no group to spread within, and the selector matches nothing rather
+// than everything, so the Workload schedules as if it carried no spreading.
+//
+// WorkloadLabelSelectors itself is left as written, so the webhook keeps
+// validating the user's input and not a value Kueue synthesized.
+func (s *SpreadingSpec) compileSelector(defaultJobUID string) error {
+	requirements := s.WorkloadLabelSelectors
+	if len(requirements) == 0 {
+		if defaultJobUID == "" {
+			s.selector = labels.Nothing()
+			return nil
+		}
+		requirements = []metav1.LabelSelectorRequirement{{
+			Key:      controllerconsts.JobUIDLabel,
+			Operator: metav1.LabelSelectorOpIn,
+			Values:   []string{defaultJobUID},
+		}}
 	}
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
-		MatchExpressions: s.WorkloadLabelSelectors,
+		MatchExpressions: requirements,
 	})
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTopologySpreadingSelectorInvalid, err)
@@ -158,15 +179,19 @@ func (s *SpreadingSpec) compileSelector() error {
 // kueue.x-k8s.io/podset-topology-spreading annotation, returning a spec whose
 // Selector is ready to match.
 //
+// defaultJobUID is the value of the kueue.x-k8s.io/job-uid label on the
+// Workload the annotation was read from, and is what an omitted selector
+// resolves to; see compileSelector. Callers validating the annotation, rather
+// than resolving it for scheduling, pass "".
+//
 // It only checks what would make the spec entirely unusable: invalid JSON, an
 // out-of-range rule count, and workloadLabelSelectors that do not compile. An
 // omitted selector is not an error - it is how the user asks for the job-uid
-// default, and compileSelector resolves it to a selector matching nothing so
-// that a Workload the default never reached simply gets no spreading.
-// Per-field, field.Path-scoped checks (bad topology keys, out-of-range shares,
-// unknown enforcement modes, duplicate keys, alpha restrictions on the
-// selector) are the webhook's responsibility and are re-validated there.
-func ParseSpreadingAnnotation(value string) (*SpreadingSpec, error) {
+// default. Per-field, field.Path-scoped checks (bad topology keys,
+// out-of-range shares, unknown enforcement modes, duplicate keys, alpha
+// restrictions on the selector) are the webhook's responsibility and are
+// re-validated there.
+func ParseSpreadingAnnotation(value, defaultJobUID string) (*SpreadingSpec, error) {
 	var spec SpreadingSpec
 	if err := json.Unmarshal([]byte(value), &spec); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParseTopologySpreading, err)
@@ -182,66 +207,9 @@ func ParseSpreadingAnnotation(value string) (*SpreadingSpec, error) {
 		}
 	}
 
-	if err := spec.compileSelector(); err != nil {
+	if err := spec.compileSelector(defaultJobUID); err != nil {
 		return nil, err
 	}
 
 	return &spec, nil
-}
-
-// InjectDefaultSpreadingSelector returns value with a workloadLabelSelectors
-// requirement matching jobUID injected, and reports whether it changed
-// anything. The resulting spreading group is every Workload sharing that
-// parent job - all groups of one LeaderWorkerSet, say.
-//
-// It is a no-op when the annotation already carries a selector, when jobUID is
-// empty, and when value does not parse: a malformed annotation is left exactly
-// as written for the validating webhook to reject, rather than being rewritten
-// here.
-//
-// Only the workloadLabelSelectors key is written; every other key keeps the
-// bytes the user wrote. Re-encoding the parsed spec instead would rewrite the
-// share they chose, because resource.Quantity has no fractional
-// representation - it renders "0.45" as the equal "450m" and "45e-2" as
-// "450e-3" - and an annotation that reads back differently from how it was
-// written is a support question waiting to happen.
-func InjectDefaultSpreadingSelector(value, jobUID string) (string, bool, error) {
-	if jobUID == "" {
-		return value, false, nil
-	}
-
-	// Parsed first so that an annotation which is not a usable spec at all is
-	// left alone, rather than having a selector injected into something that
-	// will be rejected anyway.
-	spec, err := ParseSpreadingAnnotation(value)
-	if err != nil {
-		return value, false, err
-	}
-	if len(spec.WorkloadLabelSelectors) > 0 {
-		return value, false, nil
-	}
-
-	defaulted, err := json.Marshal([]metav1.LabelSelectorRequirement{{
-		Key:      controllerconsts.JobUIDLabel,
-		Operator: metav1.LabelSelectorOpIn,
-		Values:   []string{jobUID},
-	}})
-	if err != nil {
-		return value, false, fmt.Errorf("%w: %w", ErrParseTopologySpreading, err)
-	}
-
-	// Cannot fail in practice - ParseSpreadingAnnotation just decoded these
-	// same bytes into a struct, so they are a JSON object - but reported
-	// rather than asserted, since a panic here would take the webhook down.
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(value), &fields); err != nil {
-		return value, false, fmt.Errorf("%w: %w", ErrParseTopologySpreading, err)
-	}
-	fields[spreadingSelectorsField] = defaulted
-
-	updated, err := json.Marshal(fields)
-	if err != nil {
-		return value, false, fmt.Errorf("%w: %w", ErrParseTopologySpreading, err)
-	}
-	return string(updated), true, nil
 }

@@ -511,6 +511,15 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 // PodSet group in wl (see tas.GroupKeyForPodSet), returning the resulting
 // per-group map, or nil if no group resolves to a spec.
 //
+// An annotation with no workloadLabelSelectors of its own spreads against the
+// Workloads of the same parent job, so wl's job-uid label is what resolves
+// that default. Deriving it here rather than defaulting the annotation itself
+// covers the Workloads the mutating webhook cannot: a prebuilt Workload is
+// created before any job adopts it, and only gets its job-uid label from the
+// later update that EnsurePrebuiltWorkloadOwnership makes. That update bumps
+// the resource version, so shouldUpdateDerivedFields re-derives this map and
+// the spreading group starts applying as soon as the label lands.
+//
 // For a multi-PodSet group, only the first PodSet (in wl.Spec.PodSets order)
 // carrying the annotation is consulted; later members' annotations are
 // ignored, even if the first one fails to parse.
@@ -518,6 +527,7 @@ func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSe
 	if !features.Enabled(features.TASTopologySpreading) {
 		return nil
 	}
+	jobUID := wl.Labels[controllerconstants.JobUIDLabel]
 	var result map[tas.PodSetGroupKey]*tas.SpreadingSpec
 	resolved := make(map[tas.PodSetGroupKey]bool)
 	for i := range wl.Spec.PodSets {
@@ -531,7 +541,7 @@ func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSe
 			continue
 		}
 		resolved[groupKey] = true
-		spec, err := tas.ParseSpreadingAnnotation(value)
+		spec, err := tas.ParseSpreadingAnnotation(value, jobUID)
 		if err != nil {
 			// The webhook rejects malformed values, so this is reachable only
 			// for prebuilt Workloads that bypassed it. Log and carry on
