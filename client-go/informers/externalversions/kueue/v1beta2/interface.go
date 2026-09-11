@@ -25,27 +25,27 @@ import (
 // Interface provides access to all the informers in this group version.
 type Interface interface {
 	// AdmissionChecks returns a AdmissionCheckInformer.
-	AdmissionChecks() AdmissionCheckInformer
+	AdmissionChecks() TypedAdmissionCheckInformer
 	// ClusterQueues returns a ClusterQueueInformer.
-	ClusterQueues() ClusterQueueInformer
+	ClusterQueues() TypedClusterQueueInformer
 	// Cohorts returns a CohortInformer.
-	Cohorts() CohortInformer
+	Cohorts() TypedCohortInformer
 	// LocalQueues returns a LocalQueueInformer.
-	LocalQueues() LocalQueueInformer
+	LocalQueues() TypedLocalQueueInformer
 	// MultiKueueClusters returns a MultiKueueClusterInformer.
-	MultiKueueClusters() MultiKueueClusterInformer
+	MultiKueueClusters() TypedMultiKueueClusterInformer
 	// MultiKueueConfigs returns a MultiKueueConfigInformer.
-	MultiKueueConfigs() MultiKueueConfigInformer
+	MultiKueueConfigs() TypedMultiKueueConfigInformer
 	// ProvisioningRequestConfigs returns a ProvisioningRequestConfigInformer.
-	ProvisioningRequestConfigs() ProvisioningRequestConfigInformer
+	ProvisioningRequestConfigs() TypedProvisioningRequestConfigInformer
 	// ResourceFlavors returns a ResourceFlavorInformer.
-	ResourceFlavors() ResourceFlavorInformer
+	ResourceFlavors() TypedResourceFlavorInformer
 	// Topologies returns a TopologyInformer.
-	Topologies() TopologyInformer
+	Topologies() TypedTopologyInformer
 	// Workloads returns a WorkloadInformer.
-	Workloads() WorkloadInformer
+	Workloads() TypedWorkloadInformer
 	// WorkloadPriorityClasses returns a WorkloadPriorityClassInformer.
-	WorkloadPriorityClasses() WorkloadPriorityClassInformer
+	WorkloadPriorityClasses() TypedWorkloadPriorityClassInformer
 }
 
 type version struct {
@@ -59,57 +59,57 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// AdmissionChecks returns a AdmissionCheckInformer.
-func (v *version) AdmissionChecks() AdmissionCheckInformer {
+// AdmissionChecks returns a TypedAdmissionCheckInformer.
+func (v *version) AdmissionChecks() TypedAdmissionCheckInformer {
 	return &admissionCheckInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// ClusterQueues returns a ClusterQueueInformer.
-func (v *version) ClusterQueues() ClusterQueueInformer {
+// ClusterQueues returns a TypedClusterQueueInformer.
+func (v *version) ClusterQueues() TypedClusterQueueInformer {
 	return &clusterQueueInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// Cohorts returns a CohortInformer.
-func (v *version) Cohorts() CohortInformer {
+// Cohorts returns a TypedCohortInformer.
+func (v *version) Cohorts() TypedCohortInformer {
 	return &cohortInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// LocalQueues returns a LocalQueueInformer.
-func (v *version) LocalQueues() LocalQueueInformer {
+// LocalQueues returns a TypedLocalQueueInformer.
+func (v *version) LocalQueues() TypedLocalQueueInformer {
 	return &localQueueInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// MultiKueueClusters returns a MultiKueueClusterInformer.
-func (v *version) MultiKueueClusters() MultiKueueClusterInformer {
+// MultiKueueClusters returns a TypedMultiKueueClusterInformer.
+func (v *version) MultiKueueClusters() TypedMultiKueueClusterInformer {
 	return &multiKueueClusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// MultiKueueConfigs returns a MultiKueueConfigInformer.
-func (v *version) MultiKueueConfigs() MultiKueueConfigInformer {
+// MultiKueueConfigs returns a TypedMultiKueueConfigInformer.
+func (v *version) MultiKueueConfigs() TypedMultiKueueConfigInformer {
 	return &multiKueueConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// ProvisioningRequestConfigs returns a ProvisioningRequestConfigInformer.
-func (v *version) ProvisioningRequestConfigs() ProvisioningRequestConfigInformer {
+// ProvisioningRequestConfigs returns a TypedProvisioningRequestConfigInformer.
+func (v *version) ProvisioningRequestConfigs() TypedProvisioningRequestConfigInformer {
 	return &provisioningRequestConfigInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// ResourceFlavors returns a ResourceFlavorInformer.
-func (v *version) ResourceFlavors() ResourceFlavorInformer {
+// ResourceFlavors returns a TypedResourceFlavorInformer.
+func (v *version) ResourceFlavors() TypedResourceFlavorInformer {
 	return &resourceFlavorInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// Topologies returns a TopologyInformer.
-func (v *version) Topologies() TopologyInformer {
+// Topologies returns a TypedTopologyInformer.
+func (v *version) Topologies() TypedTopologyInformer {
 	return &topologyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// Workloads returns a WorkloadInformer.
-func (v *version) Workloads() WorkloadInformer {
+// Workloads returns a TypedWorkloadInformer.
+func (v *version) Workloads() TypedWorkloadInformer {
 	return &workloadInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// WorkloadPriorityClasses returns a WorkloadPriorityClassInformer.
-func (v *version) WorkloadPriorityClasses() WorkloadPriorityClassInformer {
+// WorkloadPriorityClasses returns a TypedWorkloadPriorityClassInformer.
+func (v *version) WorkloadPriorityClasses() TypedWorkloadPriorityClassInformer {
 	return &workloadPriorityClassInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

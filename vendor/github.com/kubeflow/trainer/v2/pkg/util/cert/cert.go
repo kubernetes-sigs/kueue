@@ -42,6 +42,11 @@ const (
 // it at a temporary directory.
 var certDir = "/tmp/k8s-webhook-server/serving-certs"
 
+// GetCertDir returns the directory that cert-controller writes serving
+// certificates into. Use this when configuring other servers (e.g. the
+// metrics server) that need to read from the same path.
+func GetCertDir() string { return certDir }
+
 func GetOperatorNamespace() string {
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
 		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {

@@ -254,6 +254,23 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 	})
 }
 
+// TestRepeatedSnapshots guards the informer factory against being shared across
+// snapshots: the framework registers a DRA index on the factory it is given.
+func TestRepeatedSnapshots(t *testing.T) {
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+
+	sim, err := NewWASSimulator(ctx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulator failed: %v", err)
+	}
+
+	for i := range 3 {
+		if _, err := sim.Snapshot(ctx, nil); err != nil {
+			t.Fatalf("Snapshot %d failed: %v", i, err)
+		}
+	}
+}
+
 func TestPreemptWorkload(t *testing.T) {
 	ctx := t.Context()
 

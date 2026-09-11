@@ -27,6 +27,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
@@ -48,6 +50,8 @@ const (
 )
 
 type PodsReadyTestSpec struct {
+	FeatureGates    map[featuregate.Feature]bool
+	PodsScheduled   *metav1.Condition
 	BeforeJobStatus *kftraining.JobStatus
 	BeforeCondition *metav1.Condition
 	JobStatus       kftraining.JobStatus
@@ -227,6 +231,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(
 	podsReadyTestSpec PodsReadyTestSpec,
 	podSetsResources []PodSetsResource,
 ) {
+	features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), podsReadyTestSpec.FeatureGates)
 	ginkgo.By("Create a job")
 	job.Object().SetLabels(map[string]string{constants.QueueLabel: string(jobQueueName)})
 	util.MustCreate(ctx, k8sClient, job.Object())
@@ -255,6 +260,10 @@ func JobControllerWhenWaitForPodsReadyEnabled(
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+	if podsReadyTestSpec.PodsScheduled != nil {
+		util.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.PodsScheduled)
+	}
 
 	if podsReadyTestSpec.BeforeJobStatus != nil {
 		ginkgo.By("Update the job status to simulate its initial progress towards completion")
