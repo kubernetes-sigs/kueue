@@ -77,8 +77,11 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
@@ -1817,4 +1820,32 @@ func ExpectWorkloadToHaveConditions(
 			g.Expect(*cond).To(gomega.BeComparableTo(wantCond, opts...))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
+}
+
+// SchedulingSimulatorCacheOptions mirrors cmd/kueue/main.go: the scheduler cache is
+// backed by the WAS simulator only when SchedulerLibraryIntegration is enabled.
+func SchedulingSimulatorCacheOptions(ctx context.Context, cfg *rest.Config) []schdcache.Option {
+	if !features.Enabled(features.SchedulerLibraryIntegration) {
+		return nil
+	}
+	sim, err := was.NewWASSimulator(ctx, cfg)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "Failed to initialize WAS scheduling simulator")
+	return []schdcache.Option{schdcache.WithSchedulingSimulator(sim)}
+}
+
+// TaintNodeNotReady adds the node.kubernetes.io/not-ready NoSchedule taint that the
+// node lifecycle controller applies to NotReady nodes in a real cluster. envtest runs
+// no such controller, and with SchedulerLibraryIntegration enabled TAS relies on the
+// scheduler library rejecting NotReady nodes through this taint.
+func TaintNodeNotReady(ctx context.Context, k8sClient client.Client, node *corev1.Node) {
+	notReadyTaint := corev1.Taint{Key: corev1.TaintNodeNotReady, Effect: corev1.TaintEffectNoSchedule}
+	var updatedNode corev1.Node
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
+		if slices.ContainsFunc(updatedNode.Spec.Taints, func(t corev1.Taint) bool { return t.MatchTaint(&notReadyTaint) }) {
+			return
+		}
+		updatedNode.Spec.Taints = append(updatedNode.Spec.Taints, notReadyTaint)
+		g.Expect(k8sClient.Update(ctx, &updatedNode)).To(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Failed to taint node %s as not ready", node.Name), &updatedNode))
 }
