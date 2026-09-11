@@ -189,6 +189,12 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard frontend deployments |
 | kueueViz.frontend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz frontend pod resources |
 | kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |
+| kueueViz.ingress.annotations | object | `{}` | Path-routed ingress annotations. Do not set `nginx.ingress.kubernetes.io/rewrite-target` here: rewriting the path breaks routing of the backend prefixes. |
+| kueueViz.ingress.enabled | bool | `false` | Enable a single path-routed ingress serving the KueueViz dashboard and its backend on one host. While enabled, the per-component `backend.ingress` and `frontend.ingress` objects are not rendered. |
+| kueueViz.ingress.host | string | `"kueueviz.local"` | Host serving both the dashboard and the backend |
+| kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
+| kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
+| kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
 | managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |
