@@ -17,15 +17,25 @@ limitations under the License.
 package statusserver
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net"
+	"net/http"
+	"time"
 
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 
 	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	"github.com/kubeflow/trainer/v2/pkg/util/cert"
 )
+
+// probeDialTimeout bounds how long a probe waits for the status server to
+// complete a TLS handshake. It matches the timeout controller-runtime uses for
+// the webhook server probe.
+const probeDialTimeout = 10 * time.Second
 
 func SetupServer(mgr ctrl.Manager, cfg *configapi.StatusServer, tlsOpts *configapi.TLSOptions) error {
 	tlsConfig, err := cert.SetupTLSConfig(mgr, tlsOpts)
@@ -49,6 +59,48 @@ func SetupServer(mgr ctrl.Manager, cfg *configapi.StatusServer, tlsOpts *configa
 		return err
 	}
 	return mgr.Add(server)
+}
+
+// RegisterProbes wires the runtime status server into the manager's healthz and
+// readyz endpoints, so that Kubernetes restarts the controller if the server dies
+// and training nodes only send status updates once it is able to serve them.
+//
+// It must be called before mgr.Start(), because controller-runtime rejects check
+// registrations once the manager is running.
+func RegisterProbes(mgr ctrl.Manager, cfg *configapi.StatusServer) error {
+	if cfg == nil || cfg.Port == nil {
+		return fmt.Errorf("status server port is required to register probes")
+	}
+	checker := probeChecker(fmt.Sprintf(":%d", *cfg.Port))
+	if err := mgr.AddHealthzCheck("status-server-healthz", checker); err != nil {
+		return fmt.Errorf("unable to set up status server health check: %w", err)
+	}
+	if err := mgr.AddReadyzCheck("status-server-readyz", checker); err != nil {
+		return fmt.Errorf("unable to set up status server ready check: %w", err)
+	}
+	return nil
+}
+
+// probeChecker returns a health checker that reports the status server as healthy
+// once it accepts a TLS connection on addr.
+func probeChecker(addr string) healthz.Checker {
+	// The probe only verifies that the local status server is accepting TLS
+	// connections, it never exchanges data with it or acts on its identity.
+	// Dialing ":<port>" also gives no server name to validate the serving
+	// certificate against, so certificate verification is deliberately skipped
+	// here, the same way controller-runtime does it for the webhook server probe:
+	// https://github.com/kubernetes-sigs/controller-runtime/blob/v0.24.1/pkg/webhook/server.go#L274-L276
+	tlsCfg := &tls.Config{InsecureSkipVerify: true} //nolint:gosec // local liveness dial only, see comment above
+	return func(_ *http.Request) error {
+		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: probeDialTimeout}, "tcp", addr, tlsCfg)
+		if err != nil {
+			return fmt.Errorf("status server is not reachable at %s: %w", addr, err)
+		}
+		if err := conn.Close(); err != nil {
+			return fmt.Errorf("status server is not reachable at %s: closing connection: %w", addr, err)
+		}
+		return nil
+	}
 }
 
 func createClient(mgr ctrl.Manager, cfg *configapi.StatusServer) (client.Client, error) {

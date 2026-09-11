@@ -30,7 +30,7 @@ import (
 // PendingWorkloadsSummary contains a list of pending workloads in the context
 // of the query (within LocalQueue or ClusterQueue).
 type PendingWorkloadsSummaryApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration    `json:""`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Items                            []PendingWorkloadApplyConfiguration `json:"items,omitempty"`
 }

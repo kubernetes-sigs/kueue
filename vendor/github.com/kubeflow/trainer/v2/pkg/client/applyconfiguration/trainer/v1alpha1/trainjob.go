@@ -29,7 +29,7 @@ import (
 //
 // TrainJob represents configuration of a training job.
 type TrainJobApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata of the TrainJob.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec of the TrainJob.
