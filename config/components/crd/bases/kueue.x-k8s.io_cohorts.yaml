@@ -132,8 +132,10 @@ spec:
                         cpus).
                         Each flavor MUST list all the resources listed for this group in the same
                         order as the .resources field.
-                        The list cannot be empty and it can contain up to 64 flavors, with a max of
-                        256 total flavors across all resource groups in the ClusterQueue.
+                        The list can be empty. When empty, the ClusterQueue will have an Active
+                        condition set to False with the EmptyResourceGroup reason.
+                        It can contain up to 64 flavors, with a max of 256 total flavors across all
+                        resource groups in the ClusterQueue.
                       items:
                         properties:
                           name:
@@ -219,19 +221,19 @@ spec:
                         - resources
                         type: object
                       maxItems: 64
-                      minItems: 1
+                      minItems: 0
                       type: array
                       x-kubernetes-list-map-keys:
                       - name
                       x-kubernetes-list-type: map
                   required:
                   - coveredResources
-                  - flavors
                   type: object
                   x-kubernetes-validations:
                   - message: flavors must have the same number of resources as the
                       coveredResources
-                    rule: self.flavors.all(x, size(x.resources) == size(self.coveredResources))
+                    rule: '!has(self.flavors) || self.flavors.all(x, size(x.resources)
+                      == size(self.coveredResources))'
                 maxItems: 16
                 type: array
                 x-kubernetes-list-type: atomic
@@ -315,8 +317,10 @@ spec:
                             cpus).
                             Each flavor MUST list all the resources listed for this group in the same
                             order as the .resources field.
-                            The list cannot be empty and it can contain up to 64 flavors, with a max of
-                            256 total flavors across all resource groups in the ClusterQueue.
+                            The list can be empty. When empty, the ClusterQueue will have an Active
+                            condition set to False with the EmptyResourceGroup reason.
+                            It can contain up to 64 flavors, with a max of 256 total flavors across all
+                            resource groups in the ClusterQueue.
                           items:
                             properties:
                               name:
@@ -402,19 +406,19 @@ spec:
                             - resources
                             type: object
                           maxItems: 64
-                          minItems: 1
+                          minItems: 0
                           type: array
                           x-kubernetes-list-map-keys:
                           - name
                           x-kubernetes-list-type: map
                       required:
                       - coveredResources
-                      - flavors
                       type: object
                       x-kubernetes-validations:
                       - message: flavors must have the same number of resources as
                           the coveredResources
-                        rule: self.flavors.all(x, size(x.resources) == size(self.coveredResources))
+                        rule: '!has(self.flavors) || self.flavors.all(x, size(x.resources)
+                          == size(self.coveredResources))'
                     maxItems: 16
                     type: array
                     x-kubernetes-list-type: atomic
