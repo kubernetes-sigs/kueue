@@ -994,6 +994,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if reason != "" {
 		return nil, reason
 	}
+	// The scheduler library consumes the requirements as a Pod, so the template must
+	// carry the merged constraints rather than the bare PodSet template: the flavor's
+	// tolerations and the nodeSelector and tolerations set by admission checks.
+	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
+	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
 	requirements.podRequirements = podRequirements
 	if s.isLowestLevelNode && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.UID != "" {
 		requirements.matchKey = &podSetMatchKey{
@@ -1012,13 +1017,14 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, reason
 		}
 		// The scheduler-library filters with the Pod template alone, so the merged
-		// PodSetUpdates have to be written onto it. The workers' template has the
-		// same gap, left alone here because fixing it changes today's filtering.
+		// PodSetUpdates have to be written onto it, and the flavor's tolerations, which
+		// only the field form carries, with them.
 		if err := podset.Merge(s.log, &leaderPodRequirements.PodTemplate.ObjectMeta,
 			&leaderPodRequirements.PodTemplate.Spec, leaderInfo); err != nil {
 			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s",
 				leaderTasPodSetRequests.PodSet.Name, err.Error())
 		}
+		leaderPodRequirements.PodTemplate.Spec.Tolerations = leaderPodRequirements.Tolerations
 		requirements.leader.podRequirements = &leaderPodRequirements
 	}
 
