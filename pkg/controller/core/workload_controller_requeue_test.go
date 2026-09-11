@@ -29,8 +29,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestReconcileRequeue(t *testing.T) {
@@ -1097,7 +1099,21 @@ func TestReconcileRequeue(t *testing.T) {
 				Limit(corev1.ResourceCPU, "3").
 				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-time.Minute)))).
 				Obj(),
-			wantPendingCPURequest: new(int64(3000)),
+			wantPendingWorkloads: map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info{
+				"cq": {
+					"ns/wl": {
+						TotalRequests: []workload.PodSetResources{
+							{
+								Name:  kueue.DefaultPodSetName,
+								Count: 1,
+								Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 3000,
+								}),
+							},
+						},
+					},
+				},
+			},
 		},
 		"should use the biggest total time not the biggest RequeueAfterSeconds": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
