@@ -219,7 +219,7 @@ func (c *Controller) activeOrLastPRForChecks(
 			req := &ownedPRs[i]
 			// PRs relevant for the admission check
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
-				if reqNeeded && provReqSyncedWithConfig(req, prc) {
+				if reqNeeded && provReqSyncedWithConfig(wl, req, prc) {
 					currPr, exists := activeOrLastPRForChecks[checkName]
 					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
