@@ -922,7 +922,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, newDefaultSimulatorSnapshot())
 
-			sorted := s.sortedDomainsWithLeader(addDomainsWithState(s, tc.domains), tc.unconstrained)
+			sorted := s.sortedDomainsWithLeader(addDomainsWithState(s, tc.domains), tc.unconstrained, nil)
 
 			gotOrder := make([]string, len(sorted))
 			for i, d := range sorted {
@@ -1139,7 +1139,7 @@ func TestSortedDomains(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, newDefaultSimulatorSnapshot())
 
-			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.unconstrained)
+			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.unconstrained, nil)
 
 			gotOrder := make([]string, len(sorted))
 			for i, d := range sorted {

@@ -1329,8 +1329,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
 		lowerDomains := s.lowerLevelDomains(currFitDomain)
 		lowerDomains = s.filterBannedDomains(lowerDomains, state.spreadRules)
-		sortedLowerDomains := s.sortedDomains(lowerDomains, state.unconstrained)
-		sortedLowerDomains = s.sortedBySpreadPriority(sortedLowerDomains, state.spreadRules)
+		sortedLowerDomains := s.sortedDomains(lowerDomains, state.unconstrained, state.spreadRules)
 		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.sliceSize, state.unconstrained, true)
 	}
 
@@ -1352,8 +1351,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		newCurrFitDomain := make([]*domain, 0)
 		for _, domain := range currFitDomain {
 			children := s.filterBannedDomains(domain.children, state.spreadRules)
-			sortedLowerDomains := s.sortedDomains(children, state.unconstrained)
-			sortedLowerDomains = s.sortedBySpreadPriority(sortedLowerDomains, state.spreadRules)
+			sortedLowerDomains := s.sortedDomains(children, state.unconstrained, state.spreadRules)
 
 			if sliceSizeOnLevel > 1 {
 				// For inner slice layers, recompute sliceCount on the
@@ -1671,9 +1669,9 @@ func (s *TASFlavorSnapshot) compareSpreadPriority(a, b *domain, levels []int, ru
 	return 0
 }
 
-// sortedBySpreadPriority sorts domains by compareSpreadPriority. The sort is
-// stable, so domains that spreading ranks equally keep whatever order
-// sortedDomains/sortedDomainsWithLeader gave them.
+// sortedBySpreadPriority sorts domains by compareSpreadPriority, and is the
+// last step of sortedDomains and sortedDomainsWithLeader. The sort is stable,
+// so domains that spreading ranks equally keep the order those two gave them.
 func (s *TASFlavorSnapshot) sortedBySpreadPriority(domains []*domain, rules map[int]utiltas.SpreadingRule) []*domain {
 	if len(rules) == 0 {
 		return domains
@@ -1846,8 +1844,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	if len(levelDomains) == 0 {
 		return 0, nil, fmt.Sprintf("topology spreading excludes all topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
-	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained)
-	sortedDomain = s.sortedBySpreadPriority(sortedDomain, state.spreadRules)
+	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained, state.spreadRules)
 	topDomain := sortedDomain[0]
 
 	sliceCount := state.count / state.sliceSize
@@ -1929,8 +1926,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
-		sortedDomain = s.sortedDomains(sortedDomain[idx:], state.unconstrained)
-		sortedDomain = s.sortedBySpreadPriority(sortedDomain, state.spreadRules)
+		sortedDomain = s.sortedDomains(sortedDomain[idx:], state.unconstrained, state.spreadRules)
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain); idx++ {
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(state.unconstrained) && s.domainStateOf(sortedDomain[idx]).sliceCount >= remainingSliceCount {
@@ -2296,7 +2292,7 @@ func compareDomainLevelValues(a, b *domain) int {
 	return slices.CompareFunc(a.levelValues, b.levelValues, strings.Compare)
 }
 
-func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
+func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
@@ -2325,7 +2321,7 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 
 		return s.compareDomainLevelValues(a, b)
 	})
-	return result
+	return s.sortedBySpreadPriority(result, spreadRules)
 }
 
 // This function sorts domains based on a specified algorithm: BestFit or LeastFreeCapacity.
@@ -2335,7 +2331,10 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // - **LeastFreeCapacity**: `sliceCount` (ascending), `podCount` (ascending), `levelValues` (ascending)
 //
 // `podCount` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
-func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
+//
+// Any spreadRules are applied last and take precedence over all of the above,
+// so a domain does not win a spreading decision just by having more room.
+func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
@@ -2360,7 +2359,7 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 
 		return s.compareDomainLevelValues(a, b)
 	})
-	return result
+	return s.sortedBySpreadPriority(result, spreadRules)
 }
 
 // fillInCounts computes per-domain pod, slice, and leader capacities from the
