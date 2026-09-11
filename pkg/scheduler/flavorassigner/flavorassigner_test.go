@@ -3666,7 +3666,7 @@ func TestAssignFlavors(t *testing.T) {
 					append(cmpOpts,
 						cmpopts.EquateEmpty(),
 						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}),
-						statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+						statusComparer, cmpopts.IgnoreFields(Assignment{}, "FlavorScanState"),
 						cmpopts.IgnoreFields(PodSetAssignment{}, "FlavorAssignmentAttempts"),
 					)...,
 				); diff != "" {
@@ -4008,7 +4008,7 @@ func TestDeletedFlavors(t *testing.T) {
 				if diff := cmp.Diff(tc.wantAssignment, assignment,
 					append(cmpOpts,
 						cmpopts.EquateEmpty(),
-						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "FlavorScanState"),
 					)...,
 				); diff != "" {
 					t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
@@ -6291,10 +6291,10 @@ const bookmarkTestCycle int64 = 7
 
 // lastTriedFlavorIdx reads the bookmark the assignment recorded for the first PodSet.
 func lastTriedFlavorIdx(a Assignment, res corev1.ResourceName) (int, bool) {
-	if len(a.LastState.LastTriedFlavorIdx) == 0 {
+	if len(a.FlavorScanState.LastTriedFlavorIndexes) == 0 {
 		return 0, false
 	}
-	idx, ok := a.LastState.LastTriedFlavorIdx[0][res]
+	idx, ok := a.FlavorScanState.LastTriedFlavorIndexes[0][res]
 	return idx, ok
 }
 
@@ -6578,10 +6578,10 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 				cqSnapshot.AddUsage(workload.Usage{Quota: tc.quotaUsageAtRecompute})
 			}
 
-			// The scheduler clears LastAssignment and pins the nominated flavors before
+			// The scheduler clears FlavorScanState and pins the nominated flavors before
 			// replaying the assignment, so that the recomputation stays on the flavor
 			// quota was computed for.
-			wlInfo.LastAssignment = nil
+			wlInfo.FlavorScanState = nil
 			mapping := workload.PodSetResourcesToFlavors{}
 			for _, psa := range nominated.PodSets {
 				perResource := workload.ResourceToFlavor{}

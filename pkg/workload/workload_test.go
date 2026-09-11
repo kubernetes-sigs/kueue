@@ -1643,15 +1643,15 @@ func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
 
 func TestAssignmentClusterQueueState(t *testing.T) {
 	cases := map[string]struct {
-		state              *AssignmentClusterQueueState
+		state              *FlavorScanState
 		wantPendingFlavors bool
 	}{
 		"no info": {
 			wantPendingFlavors: false,
 		},
 		"all done": {
-			state: &AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			state: &FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    -1,
 						corev1.ResourceMemory: -1,
@@ -1664,8 +1664,8 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: false,
 		},
 		"some pending": {
-			state: &AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			state: &FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    0,
 						corev1.ResourceMemory: -1,
@@ -1678,8 +1678,8 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: true,
 		},
 		"all pending": {
-			state: &AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			state: &FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    1,
 						corev1.ResourceMemory: 0,

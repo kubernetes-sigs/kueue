@@ -2697,29 +2697,29 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	}
 }
 
-// TestAddOrUpdateWorkloadCarriesLastAssignment covers the flavor scan progress surviving a
+// TestAddOrUpdateWorkloadCarriesFlavorScanState covers the flavor scan progress surviving a
 // Workload update. Updating a Workload rebuilds its Info, and rebuilding it used to drop
-// LastAssignment, so a cluster where Workloads are updated frequently sent the scan back to
+// FlavorScanState, so a cluster where Workloads are updated frequently sent the scan back to
 // the first flavor no matter what an earlier cycle had recorded.
 //
 // Both places a pending Workload can be tracked are covered. A Workload with flavors still
 // to try is pushed back onto the heap, while one whose scan has been exhausted is held in
 // inadmissibleWorkloads, which ClusterQueue.Info deliberately does not consult.
-func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
+func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 	// pendingFlavors has a flavor left to try, so requeueing puts the Workload back on the
 	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
-	pendingFlavors := func() *workload.AssignmentClusterQueueState {
-		return &workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
-			ClusterQueueGeneration: 3,
-			SchedulingCycle:        7,
+	pendingFlavors := func() *workload.FlavorScanState {
+		return &workload.FlavorScanState{
+			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			AllocatableResourceGeneration: 3,
+			SchedulingCycle:               7,
 		}
 	}
-	exhaustedScan := func() *workload.AssignmentClusterQueueState {
-		return &workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
-			ClusterQueueGeneration: 3,
-			SchedulingCycle:        7,
+	exhaustedScan := func() *workload.FlavorScanState {
+		return &workload.FlavorScanState{
+			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
+			AllocatableResourceGeneration: 3,
+			SchedulingCycle:               7,
 		}
 	}
 
@@ -2734,7 +2734,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 		// changeShape alters the Workload's requests in the update, so its scheduling
 		// equivalence hash no longer matches the one the assignment was recorded for.
 		changeShape bool
-		recorded    *workload.AssignmentClusterQueueState
+		recorded    *workload.FlavorScanState
 		wantCarried bool
 	}{
 		"tracked in the heap": {
@@ -2809,7 +2809,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 				t.Fatal("Workload is not tracked by the ClusterQueue after being added")
 			}
 			tc.recorded.SchedulingHash = tracked.SchedulingHash
-			tracked.LastAssignment = tc.recorded
+			tracked.FlavorScanState = tc.recorded
 			if tc.inadmissible || tc.inflight {
 				if popped := cqImpl.Pop(); popped == nil {
 					t.Fatal("Popping the Workload returned nothing")
@@ -2844,15 +2844,15 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 			if got == nil {
 				t.Fatal("Workload is not tracked after the update")
 			}
-			var want *workload.AssignmentClusterQueueState
+			var want *workload.FlavorScanState
 			if tc.wantCarried {
 				want = tc.recorded
 			}
-			if diff := gocmp.Diff(want, got.LastAssignment); diff != "" {
-				t.Errorf("LastAssignment after the update (-want,+got):\n%s", diff)
+			if diff := gocmp.Diff(want, got.FlavorScanState); diff != "" {
+				t.Errorf("FlavorScanState after the update (-want,+got):\n%s", diff)
 			}
-			if tc.wantCarried && got.LastAssignment == tc.recorded {
-				t.Error("LastAssignment was carried by reference; it must be cloned so the two Infos do not alias")
+			if tc.wantCarried && got.FlavorScanState == tc.recorded {
+				t.Error("FlavorScanState was carried by reference; it must be cloned so the two Infos do not alias")
 			}
 		})
 	}
