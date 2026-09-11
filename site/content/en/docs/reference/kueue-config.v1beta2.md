@@ -93,13 +93,6 @@ and passing the readiness probe) within the specified time. If the timeout
 is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
-<tr><td><code>quotaReleaseStrategy</code><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy"><code>QuotaReleaseStrategy</code></a>
-</td>
-<td>
-   <p>QuotaReleaseStrategy provides configuration options for controlling quota release timing.</p>
-</td>
-</tr>
 <tr><td><code>clientConnection</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
 </td>
@@ -1262,25 +1255,6 @@ during admission.</p>
 
 
 
-## `QuotaReleaseStrategy`     {#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy}
-    
-(Alias of `string`)
-
-**Appears in:**
-
-- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
-
-
-<p>QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.</p>
-<p>Valid values are:</p>
-<ul>
-<li>&quot;OnTerminating&quot; (default): releases quota as soon as all pods have a deletionTimestamp set.</li>
-<li>&quot;OnTerminal&quot;: holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).</li>
-</ul>
-
-
-
-
 ## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta2-RequeuingStrategy}
     
 
@@ -1633,6 +1607,23 @@ is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
 and requeued after the backoff delay.
 Defaults to the value of timeout. Setting to &quot;0s&quot; disables recovery timeout checking.</p>
+</td>
+</tr>
+<tr><td><code>unscheduledTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>UnscheduledTimeout defines a timeout, measured since the transition to the
+Admitted=True condition, for all the Pods required by the admission to be
+scheduled or to have succeeded. The deadline never exceeds timeout since
+admission. Exceeding it evicts the Workload with the PodsReadyTimeout reason
+and requeues it after the backoff delay.
+A current-admission PodsScheduled=False observation is required for eviction;
+a late observation does not restart the timeout.
+Must be non-negative and must not exceed timeout. When unset or &quot;0s&quot;, scheduling
+tracking, readiness propagation, scheduling timeouts and scheduling-history resets are disabled.
+Requires the WaitForPodsReadyUnscheduledTimeout feature gate, even for &quot;0s&quot;.
+Enabling this gate together with DisableWaitForPodsReady is rejected.</p>
 </td>
 </tr>
 </tbody>

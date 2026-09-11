@@ -103,6 +103,7 @@ type JobReconciler struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	waitForPodsReady             bool
+	waitForPodsReadyConfig       *configapi.WaitForPodsReady
 	labelKeysToCopy              sets.Set[string]
 	annotationsToCopy            sets.Set[string]
 	clock                        clock.Clock
@@ -116,10 +117,20 @@ func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
 	return r.roleTracker
 }
 
+// CustomLabels returns the configured custom metric labels for integrations that report their own metric.
+func (r *JobReconciler) CustomLabels() *metrics.CustomLabels {
+	return r.customLabels
+}
+
+func (r *JobReconciler) podsScheduledTrackingEnabled() bool {
+	return waitforpodsready.PodsScheduledTrackingEnabled(r.waitForPodsReadyConfig)
+}
+
 type Options struct {
 	ManageJobsWithoutQueueName   bool
 	ManagedJobsNamespaceSelector labels.Selector
 	WaitForPodsReady             bool
+	WaitForPodsReadyConfig       *configapi.WaitForPodsReady
 	KubeServerVersion            *kubeversion.ServerVersionFetcher
 	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
 	EnabledFrameworks            sets.Set[string]
@@ -169,6 +180,7 @@ func WithManagedJobsNamespaceSelector(ls labels.Selector) Option {
 func WithWaitForPodsReady(cfg *configapi.WaitForPodsReady) Option {
 	return func(o *Options) {
 		o.WaitForPodsReady = waitforpodsready.Enabled(cfg)
+		o.WaitForPodsReadyConfig = cfg
 	}
 }
 
@@ -299,6 +311,7 @@ func NewReconciler(
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		waitForPodsReady:             options.WaitForPodsReady,
+		waitForPodsReadyConfig:       options.WaitForPodsReadyConfig,
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		annotationsToCopy:            options.AnnotationsToCopy,
 		clock:                        options.Clock,
@@ -317,7 +330,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
-	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
+	loadResult, err := r.loadJob(ctx, &req.NamespacedName, job)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -328,8 +341,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if shouldFinalize {
-		if err := r.finalize(ctx, req.NamespacedName, job); err != nil {
+	if loadResult.ShouldFinalize {
+		if err := r.finalize(ctx, req.NamespacedName, job, loadResult.Found); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -560,7 +573,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
+		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
 			var prevPodsReadyReason string
@@ -705,38 +718,31 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-// loadJob retrieves and loads the specified job resource into memory.
-// Returns true if the job should be finalized and an error if loading fails.
-func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (bool, error) {
+// loadJob loads a job from the Kubernetes cluster and determines
+// if it is deleted or should be treated as absent.
+func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (*LoadResult, error) {
 	if cJob, isComposable := job.(ComposableJob); isComposable {
 		return cJob.Load(ctx, r.client, key)
 	}
 	obj := job.Object()
 	if err := r.client.Get(ctx, *key, obj); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return false, err
+			return nil, err
 		}
-		return true, nil
+		return NewLoadResult(true, false), nil
 	}
-	return !obj.GetDeletionTimestamp().IsZero(), nil
+	return NewLoadResult(!obj.GetDeletionTimestamp().IsZero(), true), nil
 }
 
 // finalize removes finalizers from workloads and the job itself,
 // ensuring proper cleanup during object deletion.
-func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob) error {
-	// Remove workloads finalizer
-	if err := r.finalizeWorkloads(ctx, key, job); client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	// Remove job finalizer
-	if !job.Object().GetDeletionTimestamp().IsZero() {
-		if err := r.finalizeJob(ctx, job); client.IgnoreNotFound(err) != nil {
+func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob, jobFound bool) error {
+	if jobFound {
+		if err := client.IgnoreNotFound(r.finalizeJob(ctx, job)); err != nil {
 			return err
 		}
 	}
-
-	return nil
+	return r.finalizeWorkloads(ctx, key, job, jobFound)
 }
 
 // getWorkloads retrieves a list of workloads associated with the specified job.
@@ -762,14 +768,23 @@ func (r *JobReconciler) getWorkloads(ctx context.Context, key types.NamespacedNa
 }
 
 // finalizeWorkloads removes finalizers from workloads associated with the specified job.
-func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+// When jobNotFound is false (job exists but has deletionTimestamp), only workloads that
+// themselves have a deletionTimestamp are processed. This avoids a deadlock with Kubernetes
+// foreground cascading deletion: the GC sets deletionTimestamp on the workload
+// (blockOwnerDeletion=true via SetControllerReference) and waits for it to disappear
+// before removing the foregroundDeletion finalizer from the job.
+func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob, jobFound bool) error {
 	workloads, err := r.getWorkloads(ctx, key, job)
 	if err != nil {
 		return err
 	}
 	for i := range workloads {
 		wl := &workloads[i]
-		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+		if jobFound && wl.DeletionTimestamp.IsZero() {
+			continue
+		}
+		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
+		if client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
@@ -1440,7 +1455,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
+	info, err := getPodSetsInfoFromStatus(ctx, c, wl, false)
 	if err != nil {
 		return nil
 	}
@@ -1541,7 +1556,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
+	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl, r.podsScheduledTrackingEnabled())
 	if err != nil {
 		return err
 	}
@@ -1652,15 +1667,19 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 // newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
 // and GroupVersionKind (GVK). If workload slicing is enabled, it includes the job's generation
 // in the generated workload name.
-func newWorkloadName(job GenericJob, extra string) string {
+func newWorkloadName(job GenericJob, probeExtra string) string {
 	object := job.Object()
 	if WorkloadSliceEnabled(job) {
-		if elasticWorkloadNameProvider, ok := job.(ElasticWorkloadNameProvider); ok {
-			extra = elasticWorkloadNameProvider.GetWorkloadNameExtraPart()
-		} else if extra == "" {
-			extra = strconv.FormatInt(object.GetGeneration(), 10)
+		// Keep both the job revision and admitted level in probe names to avoid
+		// collisions between revisions and successive partial admissions.
+		baseExtra := strconv.FormatInt(object.GetGeneration(), 10)
+		if provider, ok := job.(ElasticWorkloadNameProvider); ok {
+			baseExtra = provider.GetWorkloadNameExtraPart()
 		}
-		return GenerateWorkloadNameWithExtra(object.GetName(), object.GetUID(), job.GVK(), extra)
+		if probeExtra != "" {
+			baseExtra += "-" + probeExtra
+		}
+		return GenerateWorkloadNameWithExtra(object.GetName(), object.GetUID(), job.GVK(), baseExtra)
 	}
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
 }
@@ -1877,7 +1896,7 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
+func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload, annotateWorkload bool) ([]podset.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -1889,7 +1908,8 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if err != nil {
 			return nil, err
 		}
-		if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
+		if (annotateWorkload && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout)) || features.Enabled(features.TopologyAwareScheduling) ||
+			features.Enabled(features.SchedulerLibraryIntegration) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
 		if workloadslicing.IsElasticWorkload(w) {
@@ -1986,10 +2006,10 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 	return err
 }
 
-func generatePodsReadyCondition(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
+func generatePodsReadyCondition(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload, clock clock.Clock, podsScheduledTracking bool) metav1.Condition {
 	log := ctrl.LoggerFrom(ctx)
 	const (
-		notReadyMsg           = "Not all pods are ready or succeeded"
+		notReadyMsg           = workload.PodsNotReadyMessage
 		waitingForRecoveryMsg = "At least one pod has failed, waiting for recovery"
 		readyMsg              = "All pods reached readiness and the workload is running"
 	)
@@ -2021,10 +2041,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 
 	switch {
 	case podsReadyCond == nil:
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForStart,
-			notReadyMsg,
-			clock)
+		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
 
 	case podsReadyCond.Status == metav1.ConditionTrue:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
@@ -2039,12 +2056,19 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 			clock)
 
 	default:
-		// handles both "WaitForPodsStart" and the old "PodsReady" reasons
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForStart,
-			notReadyMsg,
-			clock)
+		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
 	}
+}
+
+func waitForSchedulingOrStartPodsReadyCondition(wl *kueue.Workload, clock clock.Clock, podsScheduledTracking bool) metav1.Condition {
+	reason := kueue.WorkloadWaitForStart
+	if podsScheduledTracking && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+		if cur := workload.CurrentPodsScheduledCondition(wl, admittedAt); cur != nil && cur.Status == metav1.ConditionFalse {
+			reason = kueue.WorkloadWaitForScheduling
+		}
+	}
+	return workload.CreatePodsReadyCondition(metav1.ConditionFalse, reason, workload.PodsNotReadyMessage, clock)
 }
 
 // GetPodSetsInfoFromWorkload retrieve the podSetsInfo slice from the

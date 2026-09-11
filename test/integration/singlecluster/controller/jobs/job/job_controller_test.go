@@ -37,9 +37,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1254,6 +1256,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 
 var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
+		featureGates    map[featuregate.Feature]bool
+		podsScheduled   *metav1.Condition
 		beforeJobStatus *batchv1.JobStatus
 		beforeCondition *metav1.Condition
 		jobStatus       batchv1.JobStatus
@@ -1267,7 +1271,14 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
+		fwk.StartManager(
+			ctx,
+			cfg,
+			managerSetup(
+				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}}),
+				jobframework.WithCache(schdcache.New(k8sClient)),
+			),
+		)
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
 	})
@@ -1286,6 +1297,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec podsReadyTestSpec) {
+			features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), podsReadyTestSpec.featureGates)
 			ginkgo.By("Create a job")
 			job := testingjob.MakeJob(jobName, ns.Name).Parallelism(2).Obj()
 			jobQueueName := "test-queue"
@@ -1318,6 +1330,10 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			if podsReadyTestSpec.podsScheduled != nil {
+				util.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.podsScheduled)
+			}
 
 			if podsReadyTestSpec.beforeJobStatus != nil {
 				ginkgo.By("Update the job status to simulate its initial progress towards completion")
@@ -1368,6 +1384,36 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 				g.Expect(cond).Should(gomega.BeComparableTo(podsReadyTestSpec.wantCondition, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
+		ginkgo.Entry("Unscheduled Pods", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			podsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForScheduling,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
+		ginkgo.Entry("Scheduling observation ignored with feature disabled", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+			podsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
 		ginkgo.Entry("No progress", podsReadyTestSpec{
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -2537,9 +2583,33 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				gomega.Expect(k8sClient.Delete(ctx, job)).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("checking that job has orphan finalizer", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
+					g.Expect(job.Finalizers).Should(gomega.ContainElement(metav1.FinalizerOrphanDependents))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wl := &kueue.Workload{}
+
+			ginkgo.By("checking that its workloads finalizer still exists", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Finalizers).Should(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed(), util.AssertMsg("", wl))
+			})
+
+			ginkgo.By("removing orphan finalizer", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
+					if controllerutil.RemoveFinalizer(job, metav1.FinalizerOrphanDependents) {
+						g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("checking that its workloads finalizer is removed", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					wl := &kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 					g.Expect(wl.Finalizers).ShouldNot(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -4103,9 +4173,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 				Ready().
 				Obj(),
 		}
-		for i := range nodes {
-			util.MustCreate(ctx, k8sClient, &nodes[i])
-		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeTopology("default").Levels(tasBlockLabel).Obj()
 		util.MustCreate(ctx, k8sClient, topology)

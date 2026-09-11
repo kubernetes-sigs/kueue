@@ -55,6 +55,13 @@ const (
 	//
 	// Deprecated: planned to be removed in 0.21. Temporary option while WaitForPodsReady is enabled by default.
 	DisableWaitForPodsReady featuregate.Feature = "DisableWaitForPodsReady"
+
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13502-unscheduled-pods-timeout
+	//
+	// Tracks Pod scheduling and enables a separate timeout for unscheduled Pods.
+	WaitForPodsReadyUnscheduledTimeout featuregate.Feature = "WaitForPodsReadyUnscheduledTimeout"
+
 	// owner: @yaroslava-serdiuk
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
 	//
@@ -442,6 +449,16 @@ const (
 	// Enable accurately topology aware scheduling when multiple flavors cover the same Node.
 	TASHandleOverlappingFlavors featuregate.Feature = "TASHandleOverlappingFlavors"
 
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10548
+	// Enable per-node capacity and feasibility checks on Topologies which do not
+	// declare kubernetes.io/hostname as their lowest level. Without it such a
+	// Topology is evaluated per declared domain, so a Workload fitting a domain's
+	// total capacity is admitted even when no single node can hold a Pod, and a
+	// rack of CPU-only nodes passes for a Workload requesting devices.
+	TASNodeFeasibilityForAllLevels featuregate.Feature = "TASNodeFeasibilityForAllLevels"
+
 	// owner: @j-skiba
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
 	//
@@ -654,6 +671,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASGroupedPodSetSlicing:                         {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:               {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                     {TopologyAwareScheduling},
+	TASNodeFeasibilityForAllLevels:                  {TopologyAwareScheduling},
 	TASProfileMixed:                                 {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle:     {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:             {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
@@ -688,6 +706,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	DisableWaitForPodsReady: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WaitForPodsReadyUnscheduledTimeout: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
@@ -893,6 +914,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASHandleOverlappingFlavors: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
+	TASNodeFeasibilityForAllLevels: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
 	UnadmittedWorkloadsObservability: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -907,6 +931,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeferRayServiceFinalizationForRedisCleanup: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.22
 	},
 
 	TASCacheNodeMatchResults: {

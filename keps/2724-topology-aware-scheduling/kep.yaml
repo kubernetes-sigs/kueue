@@ -53,6 +53,7 @@ feature-gates:
   - name: TASRecomputeAssignmentWithinSchedulingCycle
   - name: TASAssignmentsEncodingByHostnamePrefix
   - name: SkipReassignmentForPodOwnedWorkloads
+  - name: TASNodeFeasibilityForAllLevels
 disable-supported: true
 
 # The following PRR answers are required at beta release

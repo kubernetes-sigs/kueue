@@ -757,6 +757,9 @@ The label 'reason' can have the following values:
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
 The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
+- "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
+- "WaitForRecovery" means that the Pods were ready since the workload admission, but some pod has failed.
+- "WaitForScheduling" means that the workload was evicted by the PodsReady timeout while its PodsReady condition reported WaitForScheduling. This can include missing required Pods or a fallback to the regular readiness timeout.
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
@@ -786,6 +789,9 @@ The label 'reason' can have the following values:
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
 The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
+- "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
+- "WaitForRecovery" means that the Pods were ready since the workload admission, but some pod has failed.
+- "WaitForScheduling" means that the workload was evicted by the PodsReady timeout while its PodsReady condition reported WaitForScheduling. This can include missing required Pods or a fallback to the regular readiness timeout.
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
@@ -809,6 +815,7 @@ The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
 - "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
 - "WaitForRecovery" means that the Pods were ready since the workload admission, but some pod has failed.
+- "WaitForScheduling" means that the workload was evicted by the PodsReady timeout while its PodsReady condition reported WaitForScheduling. This can include missing required Pods or a fallback to the regular readiness timeout.
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
 - "MaximumExecutionTimeExceeded" means that the workload was evicted by Kueue due to maximum execution time exceeded.
 - "RequeuingLimitExceeded" means that the workload was evicted by Kueue due to requeuing limit exceeded.`,
@@ -1139,11 +1146,12 @@ func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, custom
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
-func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, tracker *roletracker.RoleTracker) {
+func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	// WorkloadAdmitted.LastTransitionTime is set by the Kueue controller manager, not obtained from the Kubernetes API server.
 	// Latency can be negative when the controller's current time is earlier than the recorded transition time (e.g. after a
 	// leader handoff or wall-clock adjustment), so clamp negative observations to zero.
-	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup), roletracker.GetRole(tracker)).Observe(max(0, latency.Seconds()))
+	labels := append([]string{name, string(clusterQueue), strconv.FormatBool(isGroup), roletracker.GetRole(tracker)}, customLabelValues...)
+	PodSchedulingGateRemovalSeconds.WithLabelValues(labels...).Observe(max(0, latency.Seconds()))
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {

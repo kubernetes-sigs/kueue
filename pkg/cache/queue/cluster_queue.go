@@ -570,7 +570,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	inadmissibleWl := c.workloads.GetInadmissible(key)
 
 	if c.backoffWaitingTimeExpired(wInfo) &&
-		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors()) {
+		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.FlavorScanState.PendingFlavors()) {
 		// If the workload was inadmissible, move it back into the queue.
 		if inadmissibleWl != nil {
 			return c.workloads.MoveToActive(key, inadmissibleWl)

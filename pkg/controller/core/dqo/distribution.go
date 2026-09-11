@@ -14,17 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package core
+package dqo
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
-	"github.com/go-logr/logr"
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -34,306 +32,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
-	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
-
-const (
-	dqoControllerName            = "dynamicquotaorchestrator-reconciler"
-	dynamicQuotaOrchestratorKind = "DynamicQuotaOrchestrator"
-)
-
-type DynamicQuotaOrchestratorReconciler struct {
-	client      client.Client
-	roleTracker *roletracker.RoleTracker
-	logName     string
-}
-
-type DynamicQuotaOrchestratorReconcilerOption func(*DynamicQuotaOrchestratorReconciler)
-
-// WithDynamicQuotaOrchestratorRoleTracker configures the RoleTracker for the reconciler.
-func WithDynamicQuotaOrchestratorRoleTracker(rt *roletracker.RoleTracker) DynamicQuotaOrchestratorReconcilerOption {
-	return func(r *DynamicQuotaOrchestratorReconciler) {
-		r.roleTracker = rt
-	}
-}
-
-// NewDynamicQuotaOrchestratorReconciler instantiates a new DynamicQuotaOrchestrator reconciler.
-func NewDynamicQuotaOrchestratorReconciler(client client.Client, opts ...DynamicQuotaOrchestratorReconcilerOption) *DynamicQuotaOrchestratorReconciler {
-	r := &DynamicQuotaOrchestratorReconciler{
-		client:  client,
-		logName: dqoControllerName,
-	}
-	for _, opt := range opts {
-		opt(r)
-	}
-	return r
-}
-
-func (r *DynamicQuotaOrchestratorReconciler) logger() logr.Logger {
-	return roletracker.WithReplicaRole(ctrl.Log.WithName(r.logName), r.roleTracker)
-}
-
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=dynamicquotaorchestrators,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=dynamicquotaorchestrators/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacityproviders,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=cohorts/status,verbs=get;update;patch
-
-// SetupWithManager registers the DynamicQuotaOrchestrator controller and its watches with the manager.
-func (r *DynamicQuotaOrchestratorReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueuealpha.DynamicQuotaOrchestrator{}).
-		Watches(
-			&kueuealpha.CapacityProvider{},
-			handler.EnqueueRequestsFromMapFunc(r.mapCapacityProviderToDQOs),
-		).
-		Watches(
-			&kueue.Cohort{},
-			handler.EnqueueRequestsFromMapFunc(r.mapDistributingDQOs),
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
-		).
-		Watches(
-			&kueue.ClusterQueue{},
-			handler.EnqueueRequestsFromMapFunc(r.mapDistributingDQOs),
-			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
-		).
-		Watches(
-			&kueuealpha.DynamicQuotaOrchestrator{},
-			handler.EnqueueRequestsFromMapFunc(r.mapOtherDistributingDQOs),
-			builder.WithPredicates(dqoSpecOrDeletionChangedPredicate),
-		).
-		Complete(r)
-}
-
-var dqoSpecOrDeletionChangedPredicate = predicate.Funcs{
-	UpdateFunc: func(e event.UpdateEvent) bool {
-		if e.ObjectOld == nil || e.ObjectNew == nil {
-			return false
-		}
-		if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
-			return true
-		}
-		return e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero()
-	},
-}
-
-// mapCapacityProviderToDQOs maps a CapacityProvider event to reconcile requests for all DynamicQuotaOrchestrators referencing it.
-func (r *DynamicQuotaOrchestratorReconciler) mapCapacityProviderToDQOs(ctx context.Context, obj client.Object) []ctrl.Request {
-	capacityProvider, ok := obj.(*kueuealpha.CapacityProvider)
-	if !ok || capacityProvider == nil {
-		return nil
-	}
-	var orchestratorList kueuealpha.DynamicQuotaOrchestratorList
-	if err := r.client.List(ctx, &orchestratorList, client.MatchingFields{
-		indexer.DynamicQuotaOrchestratorCapacityProviderKey: capacityProvider.Name,
-	}); err != nil {
-		r.logger().Error(err, "Failed to list DynamicQuotaOrchestrators for CapacityProvider", "capacityProvider", capacityProvider.Name)
-		return nil
-	}
-	requests := make([]ctrl.Request, 0, len(orchestratorList.Items))
-	for _, orchestrator := range orchestratorList.Items {
-		requests = append(requests, ctrl.Request{
-			NamespacedName: types.NamespacedName{Name: orchestrator.Name},
-		})
-	}
-	return requests
-}
-
-// mapDistributingDQOs maps Cohort or ClusterQueue events to reconcile requests for all distributing DynamicQuotaOrchestrators.
-func (r *DynamicQuotaOrchestratorReconciler) mapDistributingDQOs(ctx context.Context, _ client.Object) []ctrl.Request {
-	distributingDQOs, err := r.listDistributingDQOs(ctx)
-	if err != nil {
-		r.logger().Error(err, "Failed to list distributing DynamicQuotaOrchestrators")
-		return nil
-	}
-	requests := make([]ctrl.Request, 0, len(distributingDQOs))
-	for _, orchestrator := range distributingDQOs {
-		requests = append(requests, ctrl.Request{
-			NamespacedName: types.NamespacedName{Name: orchestrator.Name},
-		})
-	}
-	return requests
-}
-
-// mapOtherDistributingDQOs maps a DynamicQuotaOrchestrator event to reconcile requests for other distributing DynamicQuotaOrchestrators.
-func (r *DynamicQuotaOrchestratorReconciler) mapOtherDistributingDQOs(ctx context.Context, obj client.Object) []ctrl.Request {
-	if obj == nil {
-		return nil
-	}
-	orchestrator, ok := obj.(*kueuealpha.DynamicQuotaOrchestrator)
-	if !ok || orchestrator == nil {
-		return nil
-	}
-	distributingDQOs, err := r.listDistributingDQOs(ctx)
-	if err != nil {
-		r.logger().Error(err, "Failed to list distributing DynamicQuotaOrchestrators")
-		return nil
-	}
-	requests := make([]ctrl.Request, 0, len(distributingDQOs))
-	for _, item := range distributingDQOs {
-		if item.Name == orchestrator.Name {
-			continue
-		}
-		requests = append(requests, ctrl.Request{
-			NamespacedName: types.NamespacedName{Name: item.Name},
-		})
-	}
-	return requests
-}
-
-// Reconcile coordinates capacity discovery and quota distribution for a DynamicQuotaOrchestrator.
-func (r *DynamicQuotaOrchestratorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	if !features.Enabled(features.DynamicQuotaOrchestration) {
-		return ctrl.Result{}, nil
-	}
-
-	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Reconcile DynamicQuotaOrchestrator")
-
-	var orchestrator kueuealpha.DynamicQuotaOrchestrator
-	if err := r.client.Get(ctx, req.NamespacedName, &orchestrator); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	if !orchestrator.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, nil
-	}
-
-	oldStatus := orchestrator.Status.DeepCopy()
-
-	// Phase 1: Capacity Discovery
-	if discoveryErr := r.reconcileDiscovery(ctx, &orchestrator); discoveryErr != nil {
-		err := r.updateStatus(ctx, &orchestrator, oldStatus)
-		return ctrl.Result{}, errors.Join(discoveryErr, err)
-	}
-
-	// Phase 2: Quota Distribution
-	var distributionErr error
-	switch {
-	case orchestrator.Spec.CapacityDistribution == nil:
-		apimeta.RemoveStatusCondition(&orchestrator.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorDistributed)
-	case orchestrator.Status.EffectiveCapacity == nil:
-		apimeta.SetStatusCondition(&orchestrator.Status.Conditions, metav1.Condition{
-			Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
-			Status:             metav1.ConditionFalse,
-			ObservedGeneration: orchestrator.Generation,
-			Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
-			Message:            "Capacity discovery not ready",
-		})
-	default:
-		if err := r.reconcileDistribution(ctx, &orchestrator, orchestrator.Status.EffectiveCapacity); err != nil {
-			log.Error(err, "Failed to distribute quotas")
-			distributionErr = err
-		}
-	}
-
-	if err := r.updateStatus(ctx, &orchestrator, oldStatus); err != nil {
-		return ctrl.Result{}, err
-	}
-	if distributionErr != nil {
-		return ctrl.Result{}, distributionErr
-	}
-	return ctrl.Result{}, nil
-}
-
-// reconcileDiscovery performs Phase 1 reconciliation: aggregates normalized capacities across referenced CapacityProviders.
-func (r *DynamicQuotaOrchestratorReconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator) error {
-	aggregatedCapacity := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList)
-
-	for _, providerContribution := range orchestrator.Spec.CapacityDiscovery.Providers {
-		var capacityProvider kueuealpha.CapacityProvider
-		if err := r.client.Get(ctx, types.NamespacedName{Name: string(providerContribution.Name)}, &capacityProvider); err != nil {
-			if apierrors.IsNotFound(err) {
-				r.setDiscoveryCondition(
-					orchestrator,
-					metav1.ConditionFalse,
-					kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
-					fmt.Sprintf("CapacityProvider %q not found", providerContribution.Name),
-				)
-				orchestrator.Status.EffectiveCapacity = nil
-				return nil
-			}
-			return err
-		}
-
-		if !apimeta.IsStatusConditionTrue(capacityProvider.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized) {
-			r.setDiscoveryCondition(
-				orchestrator,
-				metav1.ConditionFalse,
-				kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
-				fmt.Sprintf("CapacityProvider %q is not synchronized", providerContribution.Name),
-			)
-			orchestrator.Status.EffectiveCapacity = nil
-			return nil
-		}
-
-		aggregateProviderCapacity(capacityProvider.Status.Capacity, capacityProvider.Spec.OrchestratedFlavors, providerContribution.EffectiveCapacityMultiplier, aggregatedCapacity)
-	}
-
-	effectiveCapacityFlavors := make([]kueuealpha.EffectiveCapacityFlavor, 0, len(aggregatedCapacity))
-	for _, flavorName := range slices.Sorted(maps.Keys(aggregatedCapacity)) {
-		effectiveCapacityFlavors = append(effectiveCapacityFlavors, kueuealpha.EffectiveCapacityFlavor{
-			Name:      flavorName,
-			Resources: aggregatedCapacity[flavorName],
-		})
-	}
-
-	orchestrator.Status.EffectiveCapacity = &kueuealpha.EffectiveCapacity{
-		Flavors: effectiveCapacityFlavors,
-	}
-	r.setDiscoveryCondition(orchestrator, metav1.ConditionTrue, kueuealpha.DynamicQuotaOrchestratorReasonComputed, "Aggregated capacity successfully computed")
-	return nil
-}
-
-// aggregateProviderCapacity scales and adds flavor resource quantities from a single CapacityProvider into the running aggregated total,
-// filtering exclusively by the flavors declared in the CapacityProvider's spec.orchestratedFlavors.
-func aggregateProviderCapacity(
-	capacity *kueuealpha.CapacityProviderNormalizedCapacity,
-	orchestratedFlavors []kueuealpha.CapacityProviderOrchestratedFlavor,
-	multiplier *resource.Quantity,
-	aggregatedCapacity map[kueuealpha.ResourceFlavorReference]corev1.ResourceList,
-) {
-	if capacity == nil {
-		return
-	}
-	allowedFlavors := sets.New[kueuealpha.ResourceFlavorReference]()
-	for _, f := range orchestratedFlavors {
-		allowedFlavors.Insert(f.Name)
-	}
-	for _, flavor := range capacity.Flavors {
-		if !allowedFlavors.Has(flavor.Name) {
-			continue
-		}
-		res := flavor.Resources
-		if len(res) == 0 {
-			continue
-		}
-		if multiplier != nil {
-			res = make(corev1.ResourceList, len(flavor.Resources))
-			for k, v := range flavor.Resources {
-				res[k] = utilresource.MultiplyQuantity(v, *multiplier)
-			}
-		}
-		aggregatedCapacity[flavor.Name] = utilresource.MergeResourceListKeepSum(aggregatedCapacity[flavor.Name], res)
-	}
-}
 
 // reconcileDistribution performs Phase 2 reconciliation: validates subtree conflicts, resolves the target hierarchy, and distributes effective quotas.
-func (r *DynamicQuotaOrchestratorReconciler) reconcileDistribution(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, effectiveCapacity *kueuealpha.EffectiveCapacity) error {
+func (r *Reconciler) reconcileDistribution(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, effectiveCapacity *kueuealpha.EffectiveCapacity) error {
 	rootRef := orchestrator.Spec.CapacityDistribution.SubtreeRootQuotaRef
 	if rootRef.Kind != kueuealpha.CohortSubtreeRootRefKind && rootRef.Kind != kueuealpha.ClusterQueueSubtreeRootRefKind {
 		r.setDistributionCondition(orchestrator, metav1.ConditionFalse, kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured, fmt.Sprintf("unsupported subtree root kind %q", rootRef.Kind))
@@ -378,7 +85,7 @@ func (r *DynamicQuotaOrchestratorReconciler) reconcileDistribution(ctx context.C
 }
 
 // listDistributingDQOs returns all DynamicQuotaOrchestrators currently configured for distribution.
-func (r *DynamicQuotaOrchestratorReconciler) listDistributingDQOs(ctx context.Context) ([]kueuealpha.DynamicQuotaOrchestrator, error) {
+func (r *Reconciler) listDistributingDQOs(ctx context.Context) ([]kueuealpha.DynamicQuotaOrchestrator, error) {
 	var list kueuealpha.DynamicQuotaOrchestratorList
 	if err := r.client.List(ctx, &list, client.MatchingFields{
 		indexer.DynamicQuotaOrchestratorIsDistributingKey: "true",
@@ -390,7 +97,7 @@ func (r *DynamicQuotaOrchestratorReconciler) listDistributingDQOs(ctx context.Co
 
 // findConflictingDistributingDQO checks if another distributing DQO conflicts by being an ancestor or an older instance on the same root.
 // It returns a non-empty conflict message string if a conflict is found, or an empty string if no conflict exists.
-func (r *DynamicQuotaOrchestratorReconciler) findConflictingDistributingDQO(
+func (r *Reconciler) findConflictingDistributingDQO(
 	ctx context.Context,
 	orchestrator *kueuealpha.DynamicQuotaOrchestrator,
 	otherOrchestrators []kueuealpha.DynamicQuotaOrchestrator,
@@ -419,7 +126,7 @@ func (r *DynamicQuotaOrchestratorReconciler) findConflictingDistributingDQO(
 
 // findOwnershipConflict checks whether any target ClusterQueue or Cohort is currently managed by another active distributing orchestrator.
 // If the target object is managed by a descendant orchestrator, the current ancestor orchestrator has higher precedence and is allowed to take over.
-func (r *DynamicQuotaOrchestratorReconciler) findOwnershipConflict(
+func (r *Reconciler) findOwnershipConflict(
 	ctx context.Context,
 	orchestrator *kueuealpha.DynamicQuotaOrchestrator,
 	targetClusterQueues []kueue.ClusterQueue,
@@ -451,7 +158,7 @@ func (r *DynamicQuotaOrchestratorReconciler) findOwnershipConflict(
 // checkManagedConflict verifies whether an individual object's EffectiveQuotas is owned by another active distributing orchestrator.
 // It returns an error if owned by another active orchestrator that is not a descendant or older instance on the same root,
 // or nil if no conflict exists or if the reconciling orchestrator has precedence.
-func (r *DynamicQuotaOrchestratorReconciler) checkManagedConflict(
+func (r *Reconciler) checkManagedConflict(
 	ctx context.Context,
 	orchestrator *kueuealpha.DynamicQuotaOrchestrator,
 	currentRoot kueuealpha.CapacityDistributionSubtreeRootRef,
@@ -520,7 +227,7 @@ func calculateAllocations(
 }
 
 // applyEffectiveQuotas updates status.effectiveQuotas on all target ClusterQueues and Cohorts in the subtree.
-func (r *DynamicQuotaOrchestratorReconciler) applyEffectiveQuotas(
+func (r *Reconciler) applyEffectiveQuotas(
 	ctx context.Context,
 	orchestratorName string,
 	targetClusterQueues []kueue.ClusterQueue,
@@ -755,7 +462,7 @@ func buildEffectiveQuotas(
 }
 
 // resolveSubtree traverses the quota hierarchy downwards from the specified root reference to find all member ClusterQueues and Cohorts.
-func (r *DynamicQuotaOrchestratorReconciler) resolveSubtree(
+func (r *Reconciler) resolveSubtree(
 	ctx context.Context,
 	rootRef kueuealpha.CapacityDistributionSubtreeRootRef,
 ) ([]kueue.ClusterQueue, []kueue.Cohort, error) {
@@ -814,7 +521,7 @@ func (r *DynamicQuotaOrchestratorReconciler) resolveSubtree(
 }
 
 // isStrictAncestor returns true if candidate is a strict ancestor of target in the cohort hierarchy.
-func (r *DynamicQuotaOrchestratorReconciler) isStrictAncestor(
+func (r *Reconciler) isStrictAncestor(
 	ctx context.Context,
 	candidate kueuealpha.CapacityDistributionSubtreeRootRef,
 	target kueuealpha.CapacityDistributionSubtreeRootRef,
@@ -869,19 +576,8 @@ func hasPrecedence(a, b *kueuealpha.DynamicQuotaOrchestrator) bool {
 	return a.UID < b.UID
 }
 
-// setDiscoveryCondition sets the EffectiveCapacityComputed condition on the orchestrator status.
-func (r *DynamicQuotaOrchestratorReconciler) setDiscoveryCondition(orchestrator *kueuealpha.DynamicQuotaOrchestrator, status metav1.ConditionStatus, reason, message string) {
-	apimeta.SetStatusCondition(&orchestrator.Status.Conditions, metav1.Condition{
-		Type:               kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-		Status:             status,
-		ObservedGeneration: orchestrator.Generation,
-		Reason:             reason,
-		Message:            message,
-	})
-}
-
 // setDistributionCondition sets the Distributed condition on the orchestrator status.
-func (r *DynamicQuotaOrchestratorReconciler) setDistributionCondition(orchestrator *kueuealpha.DynamicQuotaOrchestrator, status metav1.ConditionStatus, reason, message string) {
+func (r *Reconciler) setDistributionCondition(orchestrator *kueuealpha.DynamicQuotaOrchestrator, status metav1.ConditionStatus, reason, message string) {
 	apimeta.SetStatusCondition(&orchestrator.Status.Conditions, metav1.Condition{
 		Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
 		Status:             status,
@@ -889,10 +585,4 @@ func (r *DynamicQuotaOrchestratorReconciler) setDistributionCondition(orchestrat
 		Reason:             reason,
 		Message:            message,
 	})
-}
-func (r *DynamicQuotaOrchestratorReconciler) updateStatus(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator, oldStatus *kueuealpha.DynamicQuotaOrchestratorStatus) error {
-	if equality.Semantic.DeepEqual(oldStatus, &orchestrator.Status) {
-		return nil
-	}
-	return r.client.Status().Update(ctx, orchestrator)
 }

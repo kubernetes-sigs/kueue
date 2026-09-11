@@ -1257,35 +1257,98 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
+type clustersReconcilerOptions struct {
+	gcInterval                   time.Duration
+	origin                       string
+	fsWatcher                    *KubeConfigFSWatcher
+	adapters                     map[string]jobframework.MultiKueueAdapter
+	clusterProfileAccessProvider clusterProfileAccessProvider
+	roleTracker                  *roletracker.RoleTracker
+	recorder                     events.EventRecorder
+	clientConnection             *configapi.ClientConnection
+}
+
+type clustersReconcilerOption func(*clustersReconcilerOptions)
+
+func withGCInterval(gcInterval time.Duration) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.gcInterval = gcInterval
+	}
+}
+
+func withOrigin(origin string) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.origin = origin
+	}
+}
+
+func withFSWatcher(fsWatcher *KubeConfigFSWatcher) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.fsWatcher = fsWatcher
+	}
+}
+
+func withAdapters(adapters map[string]jobframework.MultiKueueAdapter) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.adapters = adapters
+	}
+}
+
+func withClusterProfileAccessProvider(cpAccessProvider clusterProfileAccessProvider) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.clusterProfileAccessProvider = cpAccessProvider
+	}
+}
+
+func withRoleTracker(roleTracker *roletracker.RoleTracker) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.roleTracker = roleTracker
+	}
+}
+
+func withEventRecorder(recorder events.EventRecorder) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.recorder = recorder
+	}
+}
+
+func withClientConnection(clientConnection *configapi.ClientConnection) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.clientConnection = clientConnection
+	}
+}
+
 func newClustersReconciler(
 	c client.Client,
 	namespace string,
-	gcInterval time.Duration,
-	origin string,
-	fsWatcher *KubeConfigFSWatcher,
-	adapters map[string]jobframework.MultiKueueAdapter,
-	cpAccessProvider clusterProfileAccessProvider,
-	roleTracker *roletracker.RoleTracker,
-	recorder events.EventRecorder,
-	clientConnection *configapi.ClientConnection,
+	opts ...clustersReconcilerOption,
 ) *clustersReconciler {
+	options := clustersReconcilerOptions{
+		origin: defaultOrigin,
+	}
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.clusterProfileAccessProvider == nil {
+		options.clusterProfileAccessProvider = &NoOpClusterProfileAccessProvider{}
+	}
 	return &clustersReconciler{
 		localClient:                  c,
 		configNamespace:              namespace,
 		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
-		recorder:                     recorder,
+		recorder:                     options.recorder,
 		remoteClients:                make(map[string]*remoteClient),
 		wlUpdateCh:                   make(chan event.GenericEvent, eventChBufferSize),
 		watchEndedCh:                 make(chan event.GenericEvent, eventChBufferSize),
 		cqUpdateCh:                   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference], eventChBufferSize),
-		gcInterval:                   gcInterval,
-		origin:                       origin,
-		fsWatcher:                    fsWatcher,
-		adapters:                     adapters,
-		clusterProfileAccessProvider: cpAccessProvider,
+		gcInterval:                   options.gcInterval,
+		origin:                       options.origin,
+		fsWatcher:                    options.fsWatcher,
+		adapters:                     options.adapters,
+		clusterProfileAccessProvider: options.clusterProfileAccessProvider,
 		logName:                      "multikueue-multikueuecluster-reconciler",
-		roleTracker:                  roleTracker,
-		clientConnection:             clientConnection,
+		roleTracker:                  options.roleTracker,
+		clientConnection:             options.clientConnection,
 	}
 }
 

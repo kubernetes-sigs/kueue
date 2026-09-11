@@ -515,15 +515,14 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					Name:     "dist-dqo",
 				}))
 
-				wantResourceGroups := []kueue.ResourceGroup{
+				expectClusterQueueEffectiveResourceGroups(g, cqKey,
 					utiltestingapi.ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("f1").
 							Resource(corev1.ResourceCPU, "100").
 							Resource(corev1.ResourceMemory, "50Gi").
 							Obj(),
 					),
-				}
-				g.Expect(cmp.Diff(wantResourceGroups, latestCQ.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -539,16 +538,293 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 			setCapacityProviderCapacity(ctx, k8sClient, cp, updatedCapacity)
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, cqKey, latestCQ)).Should(gomega.Succeed())
-				wantUpdatedResourceGroups := []kueue.ResourceGroup{
+				expectClusterQueueEffectiveResourceGroups(g, cqKey,
 					utiltestingapi.ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("f1").
 							Resource(corev1.ResourceCPU, "200").
 							Resource(corev1.ResourceMemory, "80Gi").
 							Obj(),
 					),
-				}
-				g.Expect(cmp.Diff(wantUpdatedResourceGroups, latestCQ.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should aggregate capacity from multiple CapacityProviders and dynamically distribute proportionally when one provider changes", func() {
+		cp1 := utiltestingalpha.MakeCapacityProvider("multi-dist-cp-1").
+			ControllerName("example.com/p1").
+			OrchestratedFlavors("f1").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "30").
+							Resource(corev1.ResourceMemory, "20Gi").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:               kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueuealpha.CapacityProviderReasonSynchronized,
+				Message:            "Capacity synchronized successfully",
+				LastTransitionTime: metav1.Now(),
+			}).
+			Obj()
+		cps = append(cps, cp1)
+		createCapacityProvider(ctx, k8sClient, cp1)
+
+		cp2 := utiltestingalpha.MakeCapacityProvider("multi-dist-cp-2").
+			ControllerName("example.com/p2").
+			OrchestratedFlavors("f1").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "70").
+							Resource(corev1.ResourceMemory, "80Gi").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:               kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueuealpha.CapacityProviderReasonSynchronized,
+				Message:            "Capacity synchronized successfully",
+				LastTransitionTime: metav1.Now(),
+			}).
+			Obj()
+		cps = append(cps, cp2)
+		createCapacityProvider(ctx, k8sClient, cp2)
+
+		rootCohort = utiltestingapi.MakeCohort("multi-dist-cohort").Obj()
+		util.MustCreate(ctx, k8sClient, rootCohort)
+
+		cq1 = utiltestingapi.MakeClusterQueue("multi-dist-cq-1").
+			Cohort("multi-dist-cohort").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").
+					Resource(corev1.ResourceCPU, "40").
+					Resource(corev1.ResourceMemory, "40Gi").
+					Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq1)
+
+		cq2 = utiltestingapi.MakeClusterQueue("multi-dist-cq-2").
+			Cohort("multi-dist-cohort").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").
+					Resource(corev1.ResourceCPU, "60").
+					Resource(corev1.ResourceMemory, "60Gi").
+					Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq2)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("multi-dist-dqo").
+			DiscoveryProvider("multi-dist-cp-1", nil).
+			DiscoveryProvider("multi-dist-cp-2", nil).
+			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "multi-dist-cohort").
+			Obj()
+		util.MustCreate(ctx, k8sClient, dqo)
+
+		cq1Key := types.NamespacedName{Name: cq1.Name}
+		cq2Key := types.NamespacedName{Name: cq2.Name}
+
+		ginkgo.By("Verifying initial multi-provider aggregation and proportional distribution", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectClusterQueueEffectiveResourceGroups(g, cq1Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "40").
+							Resource(corev1.ResourceMemory, "40Gi").
+							Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq2Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "60").
+							Resource(corev1.ResourceMemory, "60Gi").
+							Obj(),
+					),
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Updating capacity in one provider and verifying dynamic re-aggregation and proportional re-distribution", func() {
+			updatedCapacity := utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(
+					utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+						Resource(corev1.ResourceCPU, "130").
+						Resource(corev1.ResourceMemory, "20Gi").
+						Obj(),
+				).
+				Obj()
+			setCapacityProviderCapacity(ctx, k8sClient, cp1, updatedCapacity)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectClusterQueueEffectiveResourceGroups(g, cq1Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "80").
+							Resource(corev1.ResourceMemory, "40Gi").
+							Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq2Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "120").
+							Resource(corev1.ResourceMemory, "60Gi").
+							Obj(),
+					),
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should dynamically rebalance quota distribution when ClusterQueue nominal quota changes or a new ClusterQueue is added", func() {
+		cp := utiltestingalpha.MakeCapacityProvider("cq-watch-cp").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "240").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:               kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueuealpha.CapacityProviderReasonSynchronized,
+				Message:            "Capacity synchronized successfully",
+				LastTransitionTime: metav1.Now(),
+			}).
+			Obj()
+		cps = append(cps, cp)
+		createCapacityProvider(ctx, k8sClient, cp)
+
+		rootCohort = utiltestingapi.MakeCohort("cq-watch-cohort").Obj()
+		util.MustCreate(ctx, k8sClient, rootCohort)
+
+		cq1 = utiltestingapi.MakeClusterQueue("cq-watch-1").
+			Cohort("cq-watch-cohort").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").
+					Resource(corev1.ResourceCPU, "60").
+					Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq1)
+
+		cq2 = utiltestingapi.MakeClusterQueue("cq-watch-2").
+			Cohort("cq-watch-cohort").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").
+					Resource(corev1.ResourceCPU, "60").
+					Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq2)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("cq-watch-dqo").
+			DiscoveryProvider("cq-watch-cp", nil).
+			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cq-watch-cohort").
+			Obj()
+		util.MustCreate(ctx, k8sClient, dqo)
+
+		cq1Key := types.NamespacedName{Name: cq1.Name}
+		cq2Key := types.NamespacedName{Name: cq2.Name}
+
+		ginkgo.By("Verifying initial 50/50 proportional distribution", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectClusterQueueEffectiveResourceGroups(g, cq1Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "120").
+							Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq2Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "120").
+							Obj(),
+					),
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Updating nominal quota on one ClusterQueue and verifying dynamic rebalance via ClusterQueue watch", func() {
+			var latestCQ1 kueue.ClusterQueue
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, cq1Key, &latestCQ1)).Should(gomega.Succeed())
+				latestCQ1.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("180")
+				g.Expect(k8sClient.Update(ctx, &latestCQ1)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				// 180 : 60 => 75% : 25% of 240 => 180 CPU : 60 CPU
+				expectClusterQueueEffectiveResourceGroups(g, cq1Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "180").
+							Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq2Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "60").
+							Obj(),
+					),
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Adding a third ClusterQueue to the Cohort and verifying dynamic redistribution via ClusterQueue watch", func() {
+			cq3 = utiltestingapi.MakeClusterQueue("cq-watch-3").
+				Cohort("cq-watch-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("f1").
+						Resource(corev1.ResourceCPU, "240").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq3)
+			cq3Key := types.NamespacedName{Name: cq3.Name}
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				// Nominal quotas: 180 : 60 : 240 (total 480).
+				// Proportions: 37.5% : 12.5% : 50% of 240 => 90 CPU : 30 CPU : 120 CPU.
+				expectClusterQueueEffectiveResourceGroups(g, cq1Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "90").
+							Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq2Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "30").
+							Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq3Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "120").
+							Obj(),
+					),
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -636,28 +912,27 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		cq3Key := types.NamespacedName{Name: cq3.Name}
 
 		ginkgo.By("Verifying proportional distribution to Cohorts and CQs across all 3 levels of the cohort tree", func() {
-			var gotChildCohort kueue.Cohort
-			var gotCQ1, gotCQ2, gotCQ3 kueue.ClusterQueue
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, childCohortKey, &gotChildCohort)).Should(gomega.Succeed())
-				g.Expect(gotChildCohort.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
-				g.Expect(gotChildCohort.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota).
-					Should(gomega.Equal(resource.MustParse("20")))
-
-				g.Expect(k8sClient.Get(ctx, cq1Key, &gotCQ1)).Should(gomega.Succeed())
-				g.Expect(gotCQ1.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
-				g.Expect(gotCQ1.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota).
-					Should(gomega.Equal(resource.MustParse("10")))
-
-				g.Expect(k8sClient.Get(ctx, cq2Key, &gotCQ2)).Should(gomega.Succeed())
-				g.Expect(gotCQ2.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
-				g.Expect(gotCQ2.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota).
-					Should(gomega.Equal(resource.MustParse("10")))
-
-				g.Expect(k8sClient.Get(ctx, cq3Key, &gotCQ3)).Should(gomega.Succeed())
-				g.Expect(gotCQ3.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
-				g.Expect(gotCQ3.Status.EffectiveQuotas.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota).
-					Should(gomega.Equal(resource.MustParse("30")))
+				expectCohortEffectiveResourceGroups(g, childCohortKey,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "20").Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq1Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq2Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
+					),
+				)
+				expectClusterQueueEffectiveResourceGroups(g, cq3Key,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "30").Obj(),
+					),
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -890,4 +1165,28 @@ func setCapacityProviderSyncCondition(
 		})
 		g.Expect(k8sClient.Status().Update(ctx, &latestCp)).Should(gomega.Succeed())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("Failed to update CapacityProvider condition", &latestCp))
+}
+
+func expectClusterQueueEffectiveResourceGroups(
+	g gomega.Gomega,
+	key types.NamespacedName,
+	want ...kueue.ResourceGroup,
+) {
+	ginkgo.GinkgoHelper()
+	var cq kueue.ClusterQueue
+	g.Expect(k8sClient.Get(ctx, key, &cq)).Should(gomega.Succeed())
+	g.Expect(cq.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
+	g.Expect(cmp.Diff(want, cq.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+}
+
+func expectCohortEffectiveResourceGroups(
+	g gomega.Gomega,
+	key types.NamespacedName,
+	want ...kueue.ResourceGroup,
+) {
+	ginkgo.GinkgoHelper()
+	var cohort kueue.Cohort
+	g.Expect(k8sClient.Get(ctx, key, &cohort)).Should(gomega.Succeed())
+	g.Expect(cohort.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
+	g.Expect(cmp.Diff(want, cohort.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
 }
