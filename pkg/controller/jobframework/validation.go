@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -55,6 +56,7 @@ var (
 	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	prebuiltWorkloadAnnotationPath = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
 	elasticJobAnnotationPath       = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
+	waitForPodsReadyAnnotationPath = annotationsPath.Key(constants.WaitForPodsReadyAnnotation)
 	supportedElasticJobGVKs        = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		rayv1.GroupVersion.WithKind("RayCluster").String(),
@@ -84,6 +86,7 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
+	allErrs = append(allErrs, validateCreateForPodsReadyTimeout(job)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
@@ -110,7 +113,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
-
+	allErrs = append(allErrs, validateUpdateForPodsReadyTimeout(oldJob, newJob)...)
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
 	}
@@ -261,6 +264,42 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 // to the PodSpec except fields that required for role-hash generation.
 func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *corev1.PodSpec, fieldPath *field.Path) field.ErrorList {
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
+}
+
+func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
+	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		return nil
+	}
+	annotationValue, exists := job.Object().GetAnnotations()[constants.WaitForPodsReadyAnnotation]
+	if !exists || annotationValue == "" {
+		return nil
+	}
+	cfg, err := waitforpodsready.ParseAnnotation(annotationValue)
+	if err != nil {
+		return field.ErrorList{field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, fmt.Sprintf("must be a valid JSON object: %v", err))}
+	}
+	var allErrs field.ErrorList
+	if cfg != nil && cfg.Timeout <= 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout, "timeoutSeconds must be greater than 0"))
+	}
+	if cfg != nil && cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout < 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, *cfg.RecoveryTimeout, "recoveryTimeoutSeconds must be greater than or equal to 0"))
+	}
+	return allErrs
+}
+
+func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorList {
+	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		return nil
+	}
+	if !newJob.IsSuspended() || !oldJob.IsSuspended() {
+		return apivalidation.ValidateImmutableField(
+			newJob.Object().GetAnnotations()[constants.WaitForPodsReadyAnnotation],
+			oldJob.Object().GetAnnotations()[constants.WaitForPodsReadyAnnotation],
+			waitForPodsReadyAnnotationPath,
+		)
+	}
+	return validateCreateForPodsReadyTimeout(newJob)
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {
