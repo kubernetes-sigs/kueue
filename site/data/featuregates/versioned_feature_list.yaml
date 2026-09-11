@@ -51,10 +51,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false
