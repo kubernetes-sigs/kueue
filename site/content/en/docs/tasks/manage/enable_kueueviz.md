@@ -123,38 +123,30 @@ Then access the dashboard at [http://localhost:8080](http://localhost:8080).
 
 ### Ingress
 
-For production deployments, configure an Ingress resource:
+The chart can expose the dashboard and its backend on a **single host** by path, which
+avoids a second DNS record and removes the need for CORS configuration. Enable it with:
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kueueviz-ingress
-  namespace: kueue-system
-spec:
-  rules:
-    - host: kueueviz.example.com
-      http:
-        paths:
-          - path: /api(/|$)(.*)
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-backend
-                port:
-                  number: 8080
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-frontend
-                port:
-                  number: 8080
-  tls:
-    - hosts:
-        - kueueviz.example.com # replace with your domain
-      secretName: kueueviz-tls # you need to create a TLS secret at first
+```bash
+helm upgrade kueue oci://registry.k8s.io/kueue/charts/kueue \
+  --version={{< param "chart_version" >}} \
+  --namespace kueue-system \
+  --set enableKueueViz=true \
+  --set kueueViz.ingress.enabled=true \
+  --set kueueViz.ingress.host=kueueviz.example.com \
+  --set kueueViz.ingress.tlsSecretName=kueueviz-tls
 ```
+
+This renders one Ingress that routes `/ws`, `/api` and `/auth` to the backend Service and
+everything else to the frontend Service. The per-host `kueueViz.backend.ingress` and
+`kueueViz.frontend.ingress` objects are not created while it is enabled, and
+`KUEUEVIZ_ALLOWED_ORIGINS` on the backend is unused because the browser never makes a
+cross-origin request.
+
+{{% alert title="Note" color="primary" %}}
+Do not add `nginx.ingress.kubernetes.io/rewrite-target` to
+`kueueViz.ingress.annotations`. Rewriting the path sends `/ws/workloads` to the backend
+as `/`, and the dashboard cannot connect.
+{{% /alert %}}
 
 ### LoadBalancer
 
