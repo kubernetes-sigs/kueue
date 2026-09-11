@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -512,6 +513,70 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 				// third Workload has to open a rack of its own.
 				wl3 = admitTwoLevelWorkload("wl3", "", "")
 				gomega.Expect(assignedDomainOf(wl3)).NotTo(gomega.BeElementOf(assignedDomainOf(wl1), assignedDomainOf(wl2)))
+			})
+		})
+
+		// The annotation with no workloadLabelSelectors at all, which is how a
+		// user asks for the default: the Workload mutating webhook fills in the
+		// parent job's UID, so the group becomes every Workload of that job -
+		// all the groups of one LeaderWorkerSet, say.
+		ginkgo.It("should default workloadLabelSelectors to the job UID when they are omitted", func() {
+			const jobUID = "shared-job-uid"
+			spreadingWithoutSelector := fmt.Sprintf(
+				`{"rules":[{"topologyKey":%q,"maxShareAllowingPlacement":"0.5","enforcementMode":%q}]}`,
+				utiltesting.DefaultBlockTopologyLevel, kueue.TopologySpreadingEnforcementModeRequired,
+			)
+
+			// Labelled with the job UID the way the job controllers label the
+			// Workloads they build, and carrying no selector of its own.
+			admitDefaultedWorkload := func(name, pinToBlock string) *kueue.Workload {
+				ps := utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+					Annotations(map[string]string{
+						kueue.PodSetTopologySpreadingAnnotation: spreadingWithoutSelector,
+					}).
+					Request(corev1.ResourceCPU, "1")
+				if pinToBlock != "" {
+					ps = ps.NodeSelector(map[string]string{utiltesting.DefaultBlockTopologyLevel: pinToBlock})
+				}
+				wl := utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Label(controllerconstants.JobUIDLabel, jobUID).
+					PodSets(*ps.Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				return wl
+			}
+
+			var wl1, wl2 *kueue.Workload
+
+			ginkgo.By("admitting the first Workload of the job, pinned to a block", func() {
+				wl1 = admitDefaultedWorkload("wl1", "b1")
+			})
+
+			ginkgo.By("verifying the stored annotation names the job UID selector", func() {
+				// Asserted on the stored object, not just on the placement:
+				// the effective selector has to be readable by whoever is
+				// debugging the admission, which is the whole reason it is
+				// defaulted here rather than inferred at scheduling time.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					g.Expect(wl1.Spec.PodSets[0].Template.Annotations).To(gomega.HaveKeyWithValue(
+						kueue.PodSetTopologySpreadingAnnotation,
+						gomega.ContainSubstring(fmt.Sprintf(
+							`{"key":%q,"operator":"In","values":[%q]}`, controllerconstants.JobUIDLabel, jobUID)),
+					))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			gomega.Expect(blockOf(wl1)).To(gomega.Equal("b1"))
+
+			ginkgo.By("verifying the defaulted selector makes the job's Workloads spread against each other", func() {
+				// Only reachable through the defaulted selector: with no
+				// selector of its own, wl2 would otherwise match nothing and
+				// b1 would still look empty to it.
+				wl2 = admitDefaultedWorkload("wl2", "")
+				gomega.Expect(blockOf(wl2)).To(gomega.Equal("b2"))
 			})
 		})
 	})

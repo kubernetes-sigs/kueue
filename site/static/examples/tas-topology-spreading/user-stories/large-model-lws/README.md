@@ -7,18 +7,29 @@ The model needs several closely connected Pods, so one LWS group is one replica.
 Each group lands in a single rack, and a rack may already hold at most **45%** of
 the groups for the next one to be placed there.
 
-## Fix applied vs. the KEP story
+## No changes vs. the KEP story
 
-* **Added `workloadLabelSelectors`.** The KEP has the Workload mutating webhook
-  inject `[{"key": "kueue.x-k8s.io/job-uid", ...}]` when the field is omitted, so
-  the story writes no selector at all. The implementation has no such injection
-  and rejects a missing or empty selector outright
-  (`ErrTopologySpreadingSelectorMissing`), so the story as written is refused at
-  LWS admission. Every group's Workload carries the same LWS labels, so any
-  shared label works; `app` is used here.
+This story runs exactly as the KEP writes it — no `workloadLabelSelectors`, no
+`app` label, and no `integrations.labelKeysToCopy`. It is the only one of the
+four that does.
 
-Everything else is the KEP's, including `cloud.provider.com/rack` — this example
-ships its own rack-labelled cluster and Topology.
+Omitting the selector is what asks for the default: the Workload mutating webhook
+injects
+`[{"key": "kueue.x-k8s.io/job-uid", "operator": "In", "values": ["<lws-uid>"]}]`
+before the Workload is stored, so the effective selector is readable on the
+object rather than inferred at scheduling time.
+
+This works here and nowhere else among the four because of *whose* UID the label
+carries. The LWS reconciler sets it to the **LeaderWorkerSet's** UID
+(`leaderworkerset_reconciler.go:350`), so all six groups share one value and
+spread against each other. In [../small-model-deployment/](../small-model-deployment/)
+and [../soft-spreading-preferred/](../soft-spreading-preferred/) each Pod is its
+own Workload labelled with its own UID, so the default would match only the group
+being placed — those stories need an explicit selector and the
+`labelKeysToCopy` entry to propagate the label it matches.
+
+`cloud.provider.com/rack` is the KEP's too — this example ships its own
+rack-labelled cluster and Topology.
 
 ## Why `podset-group-name` matters here
 
@@ -42,7 +53,7 @@ The LWS integration must be enabled and the
 kind create cluster --config kind-cluster.yaml
 # install the LeaderWorkerSet controller, then Kueue
 
-# Merge featureGates + labelKeysToCopy into Kueue's config and roll it.
+# Merge featureGates into Kueue's config and roll it.
 kubectl -n kueue-system get cm kueue-manager-config -o jsonpath='{.data.controller_manager_config\.yaml}' > /tmp/kueue-config.yaml
 # ... merge kueue-config-patch.yaml into /tmp/kueue-config.yaml ...
 kubectl -n kueue-system create cm kueue-manager-config \
@@ -59,6 +70,12 @@ kubectl apply -f leaderworkerset.yaml
 ```sh
 # One Workload per group, each with two PodSets in one rack.
 kubectl -n story-large-lws get workloads
+
+# The selector the webhook injected - the same job UID on every group, and equal
+# to the LeaderWorkerSet's own UID.
+kubectl -n story-large-lws get workloads -o jsonpath=\
+'{range .items[*]}{.metadata.name}{"\t"}{.spec.podSets[0].template.metadata.annotations.kueue\.x-k8s\.io/podset-topology-spreading}{"\n"}{end}'
+kubectl -n story-large-lws get lws large-inference-service -o jsonpath='{.metadata.uid}{"\n"}'
 
 # The rack each group landed in - both Pods of a group must share it.
 kubectl -n story-large-lws get pods -o custom-columns=\

@@ -4,16 +4,13 @@
 # featureGates: topology spreading is alpha and off by default; it also depends
 # on TopologyAwareScheduling, which the controller refuses to start without.
 #
-# labelKeysToCopy: Kueue copies a job's labels onto the Workload it creates only
-# for keys listed here. For a LeaderWorkerSet the labels are copied from the
-# LeaderWorkerSet object itself (leaderworkerset_reconciler.go calls
-# NewGroupWorkload with the LWS), not from the Pod templates - so the "app"
-# label belongs on the LWS metadata. Without this key the label never reaches
-# the Workload, workloadLabelSelectors matches zero Workloads, and spreading is
-# silently inert.
+# No integrations.labelKeysToCopy is needed for this story. It exists to
+# propagate a job's own labels onto the Workload for an explicit
+# workloadLabelSelectors to match; this story omits the selector and relies on
+# the `kueue.x-k8s.io/job-uid` default instead, and Kueue sets that label on
+# every Workload itself. The stories with an explicit selector
+# (../small-model-deployment/, ../large-model-podgroup/,
+# ../soft-spreading-preferred/) do need the key.
 featureGates:
   TopologyAwareScheduling: true
   TASTopologySpreading: true
-integrations:
-  labelKeysToCopy:
-    - "app"

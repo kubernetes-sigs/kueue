@@ -4,11 +4,15 @@
 # one replica. Each group lands in a single rack, and a rack may already hold at
 # most 45% of the groups for the next one to be placed there.
 #
-# Fix applied vs. the KEP story: added `workloadLabelSelectors`. The KEP has the
-# Workload mutating webhook inject a `kueue.x-k8s.io/job-uid` default when the
-# field is omitted; the implementation has no such injection and rejects a
-# missing selector. Every group's Workload carries the same LWS labels, so any
-# shared label works - `app` is used here.
+# No `workloadLabelSelectors`: omitting it is what asks for the default, and the
+# Workload mutating webhook injects
+# `[{"key": "kueue.x-k8s.io/job-uid", "operator": "In", "values": ["<lws-uid>"]}]`
+# before the Workload is stored. The LWS reconciler labels every group's Workload
+# with the *LeaderWorkerSet's* UID rather than the Pod's, so all six groups share
+# one value and spread against each other with no label to propagate. Contrast
+# ../small-model-deployment/ and ../soft-spreading-preferred/, where each Pod is
+# its own Workload with its own UID, so the default would match only the group
+# being placed and an explicit selector is required.
 #
 # `kueue.x-k8s.io/podset-group-name` is load-bearing: it makes leader and worker
 # one spreading unit, counted once per replica rather than twice. It must be the
@@ -21,8 +25,6 @@ metadata:
   namespace: story-large-lws
   labels:
     kueue.x-k8s.io/queue-name: tas-user-queue
-    # Copied onto each group's Workload via integrations.labelKeysToCopy.
-    app: large-inference-service
 spec:
   replicas: 6
   leaderWorkerTemplate:
@@ -34,7 +36,6 @@ spec:
           kueue.x-k8s.io/podset-group-name: "replica-group"
           kueue.x-k8s.io/podset-topology-spreading: |
             {
-              "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["large-inference-service"]}],
               "rules": [
                 {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "0.45"}
               ]
@@ -54,10 +55,10 @@ spec:
           kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/rack"
           kueue.x-k8s.io/podset-group-name: "replica-group"
           # Every PodSet in a group must carry the same spreading annotation, or
-          # none may, so this repeats the leader's verbatim.
+          # none may, so this repeats the leader's verbatim. The webhook defaults
+          # both to the same job UID, so they stay identical afterwards too.
           kueue.x-k8s.io/podset-topology-spreading: |
             {
-              "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["large-inference-service"]}],
               "rules": [
                 {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "0.45"}
               ]

@@ -18,17 +18,25 @@ Every folder holds the same five files:
 
 * `kind-cluster.yaml` — topology-labelled nodes for that story's levels
 * `sample-queues.yaml` — Namespace, Topology, ResourceFlavor, ClusterQueue, LocalQueue
-* `kueue-config-patch.yaml` — `featureGates` + `integrations.labelKeysToCopy`
+* `kueue-config-patch.yaml` — `featureGates`, plus
+  `integrations.labelKeysToCopy` for the three stories with an explicit selector
 * the workload manifest
-* `README.md` — the fix applied vs. the KEP, how to run it, what to expect
+* `README.md` — the fix applied vs. the KEP (none for story 2), how to run it,
+  what to expect
 
-## The stories do not run as the KEP writes them
+## Three of the four stories do not run as the KEP writes them
 
-Each README states its own deviation; the pattern across all four:
+Story 2 does. Each README states its own deviation; the pattern across the rest:
 
-* **`workloadLabelSelectors` is mandatory.** The KEP has a Workload mutating
-  webhook inject a `kueue.x-k8s.io/job-uid` default; the implementation has no
-  such injection and rejects a missing selector. Stories 2 and 4 omit it.
+* **`workloadLabelSelectors` must be explicit wherever one Pod is one Workload.**
+  The Workload mutating webhook injects the KEP's
+  `kueue.x-k8s.io/job-uid` default when the field is omitted, so **story 2 runs
+  as written** — the LWS reconciler labels every group's Workload with the
+  LeaderWorkerSet's UID, so one value covers all of them. Stories 1, 3 and 4 are
+  Deployments or Pod groups, where each Pod is its own Workload carrying its own
+  UID; there the default matches only the group being placed, so those stories
+  keep an explicit selector and the `labelKeysToCopy` entry that propagates the
+  label it matches. Story 4 omits the selector in the KEP and needs one added.
 * **`podset-required-topology` is mandatory.** Spreading counts a PodSet group as
   occupying one domain per rule level, which only holds for required placement.
   Stories 1 and 4 omit it.
@@ -45,13 +53,22 @@ own cluster, exactly as written here — single-level Topologies, nothing added.
 | Story | Result |
 |---|---|
 | 1 — Deployment, zone `0.45` Required | **PASS** — 6 replicas `3/2/1` over the three zones |
-| 2 — LWS, rack `0.45` Required | **PASS** — 6 groups `1/2/3` over the three racks; leader+worker always co-located |
+| 2 — LWS, rack `0.45` Required | **PASS** — 6 groups `1/2/3` over the three racks; leader+worker always co-located. Measured with the earlier `app`-based explicit selector; **this folder's manifest has not been replayed since the selector was dropped**, though the identical LWS + `job-uid` default shape was verified on kind via the shipped sample below |
 | 3 — Pod groups, rack `0.34` Required | **PASS** — 3 groups, one rack each (`2/2/2` pods) |
 | 4 — Deployment, zone `0.45` **Preferred** | **PASS** — 6 replicas `3/3` over the two zones, all admitted, no condition set |
 
 The shipped [../sample-lws-topology-spreading.yaml](../sample-lws-topology-spreading.yaml)
-was run unmodified on its own zone-only Topology too: 6 groups, **2 per zone**,
-4 pods per zone.
+was run unmodified on its own zone-only Topology too, with **no
+`workloadLabelSelectors` and no `integrations.labelKeysToCopy`**, relying on the
+`kueue.x-k8s.io/job-uid` default: 6 groups, **2 per zone**, 4 pods per zone, all
+admitted, leader+worker always co-located. All six Workloads carried the injected
+selector naming the LeaderWorkerSet's own UID, and none carried an `app` label.
+
+That run was paired with a control on the same cluster: with
+`TASTopologySpreading` off, the same manifest put all 6 groups (12 pods) in
+**zone-a** and left the annotation un-injected — so the spreading rule, driven by
+the defaulted selector, is what opens the three zones, not capacity. The pods
+request 10m CPU each, so all 12 fit on one node.
 
 Story 1's `3/2/1` is the algorithm's exact output, not capacity round-robin
 (which would give `2/2/2`): a rule caps a domain's share of what is already

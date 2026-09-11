@@ -367,13 +367,27 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 			},
 			wantErrNum: 1,
 		},
-		"invalid: selectors omitted": {
+		// Omitting the selector is how the user asks for the default: the
+		// Workload mutating webhook fills it in with the parent job's UID once
+		// the Workload is built, which is after this validation runs.
+		"valid: selectors omitted, defaulted later by the Workload webhook": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
 				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 				kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
 			},
-			wantErrNum: 1,
+			wantErrNum: 0,
+		},
+		// An explicitly empty array is the same request as omitting it, so it
+		// is accepted the same way rather than read as "match everything".
+		"valid: selectors explicitly empty": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[],` +
+					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 0,
 		},
 		// A selector that cannot compile at all is rejected by the parse, which
 		// reports once against workloadLabelSelectors and stops - the

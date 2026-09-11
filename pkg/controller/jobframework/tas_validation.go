@@ -457,13 +457,14 @@ func validateTopologySpreadingAnnotation(
 		return allErrs
 	}
 
+	// An omitted selector parses fine: it may be omitted here and defaulted to
+	// the parent job's UID once the Workload is built, which is after this
+	// validation runs.
 	spec, err := utiltas.ParseSpreadingAnnotation(value)
 	if err != nil {
 		switch {
 		case errors.Is(err, utiltas.ErrTopologySpreadingRuleCount):
 			allErrs = append(allErrs, field.Invalid(fldPath, value, err.Error()))
-		case errors.Is(err, utiltas.ErrTopologySpreadingSelectorMissing):
-			allErrs = append(allErrs, field.Required(fldPath.Child("workloadLabelSelectors"), ""))
 		case errors.Is(err, utiltas.ErrTopologySpreadingSelectorInvalid):
 			allErrs = append(allErrs, field.Invalid(fldPath.Child("workloadLabelSelectors"), value, err.Error()))
 		default:
@@ -515,6 +516,10 @@ func isValidShare(q resource.Quantity) bool {
 // requirements. Alpha accepts a single "In" requirement; the wire format is
 // metav1.LabelSelectorRequirement so the restriction can be lifted without an
 // annotation format change.
+//
+// An empty list is accepted: the Workload mutating webhook defaults it to the
+// parent job's UID, and the requirement it injects is built in code rather
+// than read from the user, so there is nothing to validate here.
 func validateSpreadingSelectors(fldPath *field.Path, selectors []metav1.LabelSelectorRequirement) field.ErrorList {
 	var allErrs field.ErrorList
 

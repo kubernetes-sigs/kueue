@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
@@ -38,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -75,7 +77,35 @@ func (w *WorkloadWebhook) Default(ctx context.Context, wl *kueue.Workload) error
 		}
 	}
 
+	if features.Enabled(features.TASTopologySpreading) {
+		defaultTopologySpreadingSelectors(log, wl)
+	}
+
 	return nil
+}
+
+func defaultTopologySpreadingSelectors(log logr.Logger, wl *kueue.Workload) {
+	jobUID := wl.Labels[controllerconstants.JobUIDLabel]
+	if jobUID == "" {
+		return
+	}
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		value, found := ps.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]
+		if !found {
+			continue
+		}
+		defaulted, changed, err := utiltas.InjectDefaultSpreadingSelector(value, jobUID)
+		if err != nil {
+			log.V(3).Info("Leaving topology spreading annotation undefaulted, it does not parse",
+				"podSet", ps.Name, "error", err)
+			continue
+		}
+		if !changed {
+			continue
+		}
+		ps.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = defaulted
+	}
 }
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta2-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta2,name=vworkload.kb.io,admissionReviewVersions=v1

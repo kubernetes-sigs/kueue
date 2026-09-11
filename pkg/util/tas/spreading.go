@@ -26,9 +26,16 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 const (
+	// spreadingSelectorsField is the annotation's JSON field name for the
+	// workload label selectors. Spelled out because
+	// InjectDefaultSpreadingSelector writes that one key back into the
+	// original JSON rather than re-encoding SpreadingSpec's struct tags.
+	spreadingSelectorsField = "workloadLabelSelectors"
+
 	// defaultEnforcementMode is applied to a rule whose "enforcementMode" field
 	// is omitted. Not API surface: the annotation is a JSON blob with no CRD
 	// schema, so this default is applied at parse time rather than by the
@@ -56,11 +63,6 @@ var (
 	// ErrTopologySpreadingRuleCount indicates the parsed "rules" array is
 	// empty or has more entries than currently supported.
 	ErrTopologySpreadingRuleCount = errors.New("topology spreading rules must contain between 1 and 2 entries")
-
-	// ErrTopologySpreadingSelectorMissing indicates "workloadLabelSelectors" is
-	// absent or empty. An empty selector would match every Workload in the
-	// namespace, so it is rejected rather than defaulted here.
-	ErrTopologySpreadingSelectorMissing = errors.New("topology spreading workloadLabelSelectors must contain at least one requirement")
 
 	// ErrTopologySpreadingSelectorInvalid indicates "workloadLabelSelectors"
 	// parsed as JSON but does not describe a usable label selector - a
@@ -114,7 +116,8 @@ type SpreadingSpec struct {
 	// selector is WorkloadLabelSelectors compiled, so matching Workloads never
 	// recompiles it. Unexported, and set by every constructor, so a
 	// SpreadingSpec obtained from this package always has one - there is no
-	// half-built state for callers to trip over.
+	// half-built state for callers to trip over. An omitted selector compiles
+	// to one matching nothing rather than to nil; see compileSelector.
 	selector labels.Selector
 }
 
@@ -137,6 +140,10 @@ func NewSpreadingSpec(selectors []metav1.LabelSelectorRequirement, rules []Sprea
 }
 
 func (s *SpreadingSpec) compileSelector() error {
+	if len(s.WorkloadLabelSelectors) == 0 {
+		s.selector = labels.Nothing()
+		return nil
+	}
 	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
 		MatchExpressions: s.WorkloadLabelSelectors,
 	})
@@ -152,11 +159,13 @@ func (s *SpreadingSpec) compileSelector() error {
 // Selector is ready to match.
 //
 // It only checks what would make the spec entirely unusable: invalid JSON, an
-// out-of-range rule count, and workloadLabelSelectors that are missing or do
-// not compile. Per-field, field.Path-scoped checks (bad topology keys,
-// out-of-range shares, unknown enforcement modes, duplicate keys, alpha
-// restrictions on the selector) are the webhook's responsibility and are
-// re-validated there.
+// out-of-range rule count, and workloadLabelSelectors that do not compile. An
+// omitted selector is not an error - it is how the user asks for the job-uid
+// default, and compileSelector resolves it to a selector matching nothing so
+// that a Workload the default never reached simply gets no spreading.
+// Per-field, field.Path-scoped checks (bad topology keys, out-of-range shares,
+// unknown enforcement modes, duplicate keys, alpha restrictions on the
+// selector) are the webhook's responsibility and are re-validated there.
 func ParseSpreadingAnnotation(value string) (*SpreadingSpec, error) {
 	var spec SpreadingSpec
 	if err := json.Unmarshal([]byte(value), &spec); err != nil {
@@ -173,12 +182,66 @@ func ParseSpreadingAnnotation(value string) (*SpreadingSpec, error) {
 		}
 	}
 
-	if len(spec.WorkloadLabelSelectors) == 0 {
-		return nil, ErrTopologySpreadingSelectorMissing
-	}
 	if err := spec.compileSelector(); err != nil {
 		return nil, err
 	}
 
 	return &spec, nil
+}
+
+// InjectDefaultSpreadingSelector returns value with a workloadLabelSelectors
+// requirement matching jobUID injected, and reports whether it changed
+// anything. The resulting spreading group is every Workload sharing that
+// parent job - all groups of one LeaderWorkerSet, say.
+//
+// It is a no-op when the annotation already carries a selector, when jobUID is
+// empty, and when value does not parse: a malformed annotation is left exactly
+// as written for the validating webhook to reject, rather than being rewritten
+// here.
+//
+// Only the workloadLabelSelectors key is written; every other key keeps the
+// bytes the user wrote. Re-encoding the parsed spec instead would rewrite the
+// share they chose, because resource.Quantity has no fractional
+// representation - it renders "0.45" as the equal "450m" and "45e-2" as
+// "450e-3" - and an annotation that reads back differently from how it was
+// written is a support question waiting to happen.
+func InjectDefaultSpreadingSelector(value, jobUID string) (string, bool, error) {
+	if jobUID == "" {
+		return value, false, nil
+	}
+
+	// Parsed first so that an annotation which is not a usable spec at all is
+	// left alone, rather than having a selector injected into something that
+	// will be rejected anyway.
+	spec, err := ParseSpreadingAnnotation(value)
+	if err != nil {
+		return value, false, err
+	}
+	if len(spec.WorkloadLabelSelectors) > 0 {
+		return value, false, nil
+	}
+
+	defaulted, err := json.Marshal([]metav1.LabelSelectorRequirement{{
+		Key:      controllerconsts.JobUIDLabel,
+		Operator: metav1.LabelSelectorOpIn,
+		Values:   []string{jobUID},
+	}})
+	if err != nil {
+		return value, false, fmt.Errorf("%w: %w", ErrParseTopologySpreading, err)
+	}
+
+	// Cannot fail in practice - ParseSpreadingAnnotation just decoded these
+	// same bytes into a struct, so they are a JSON object - but reported
+	// rather than asserted, since a panic here would take the webhook down.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(value), &fields); err != nil {
+		return value, false, fmt.Errorf("%w: %w", ErrParseTopologySpreading, err)
+	}
+	fields[spreadingSelectorsField] = defaulted
+
+	updated, err := json.Marshal(fields)
+	if err != nil {
+		return value, false, fmt.Errorf("%w: %w", ErrParseTopologySpreading, err)
+	}
+	return string(updated), true, nil
 }
