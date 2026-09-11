@@ -71,14 +71,16 @@ func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCl
 // The UID keeps the revision, and with it the workload-slice name, unique when
 // the remote is recreated and its generation restarts.
 //
-// A suspended remote is skipped (found=false): its replica counts were restored
+// A suspended remote is skipped (nil result): its replica counts were restored
 // by the worker's Kueue while stopping the job, not set by the autoscaler.
-func fetchOwnWorkerState(_ context.Context, _ client.Client, remoteCluster *rayv1.RayCluster) (map[kueue.PodSetReference]int32, string, bool, error) {
+func fetchOwnWorkerState(_ context.Context, _ client.Client, remoteCluster *rayv1.RayCluster) (*ray.FetchResult, error) {
 	if ptr.Deref(remoteCluster.Spec.Suspend, false) {
-		return nil, "", false, nil
+		return nil, nil
 	}
-	revision := fmt.Sprintf("%s-%d", remoteCluster.UID, remoteCluster.Generation)
-	return WorkerGroupPodCounts(&remoteCluster.Spec), revision, true, nil
+	return &ray.FetchResult{
+		Counts:   WorkerGroupPodCounts(&remoteCluster.Spec),
+		Revision: fmt.Sprintf("%s-%d", remoteCluster.UID, remoteCluster.Generation),
+	}, nil
 }
 
 // syncWorkerReplicas copies each worker group's Replicas and NumOfHosts from

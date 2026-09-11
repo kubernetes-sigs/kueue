@@ -42,6 +42,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
@@ -529,8 +530,8 @@ func WorkerGroupPodCounts(spec *rayv1.RayClusterSpec) map[kueue.PodSetReference]
 // derivation and RayClusterGenerationAnnotation feeds the elastic workload-slice
 // name. Equality is decided on the counts alone, so count-neutral revision bumps
 // do not mint replacement slices. Returns whether any annotation changed.
-func SetRuntimeWorkerStateAnnotations(obj client.Object, counts map[kueue.PodSetReference]int32, revision string) bool {
-	serialized, err := serializeWorkerGroupCounts(counts)
+func SetRuntimeWorkerStateAnnotations(obj client.Object, result ray.FetchResult) bool {
+	serialized, err := serializeWorkerGroupCounts(result.Counts)
 	if err != nil {
 		// Counts are plain name/count pairs; serialization cannot realistically
 		// fail, but never propagate a broken value.
@@ -544,7 +545,7 @@ func SetRuntimeWorkerStateAnnotations(obj client.Object, counts map[kueue.PodSet
 		annotations = make(map[string]string, 2)
 	}
 	annotations[RayClusterPodsetReplicaSizesAnnotation] = serialized
-	annotations[RayClusterGenerationAnnotation] = revision
+	annotations[RayClusterGenerationAnnotation] = result.Revision
 	obj.SetAnnotations(annotations)
 	return true
 }

@@ -100,19 +100,24 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	AutoscalingEnabled func(PtrT) bool
 }
 
+// FetchResult is the worker-side runtime state observed by RuntimeReplicaSync.Fetch.
+type FetchResult struct {
+	// Counts holds the effective pod counts keyed by PodSet reference.
+	Counts map[kueue.PodSetReference]int32
+	// Revision identifies the observed runtime state; it is folded into the
+	// elastic workload-slice name so each reflected resize mints a fresh slice.
+	Revision string
+}
+
 // RuntimeReplicaSync reflects the worker replica counts of a job's runtime
 // children in the worker cluster onto the manager's copy.
 type RuntimeReplicaSync[PtrT any] struct {
-	// Fetch reads the runtime worker state via the remote client and returns the
-	// effective per-worker-group pod counts plus a revision string identifying
-	// the observed runtime state (used to derive a new workload-slice name).
-	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
-	// Apply records the fetched runtime worker state onto the manager copy
-	// (typically as annotations consumed by the job's PodSets derivation and
-	// workload-slice naming), returning whether it changed anything. It takes a
-	// client.Object rather than PtrT so types can wire a shared implementation
-	// directly.
-	Apply func(localJob client.Object, counts map[kueue.PodSetReference]int32, revision string) bool
+	// Fetch reads the runtime state from the worker cluster.
+	// A nil result means the runtime object does not exist yet.
+	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (*FetchResult, error)
+	// Apply records the runtime state from the worker cluster onto the manager
+	// copy, returning whether anything changed.
+	Apply func(localJob client.Object, result FetchResult) bool
 }
 
 // Option configures a Ray MultiKueue adapter.
@@ -327,16 +332,17 @@ func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteCl
 // workload-slice naming can follow autoscaler-driven resizes of children that
 // do not exist on the manager. Returns whether the manager copy was changed.
 func (a *adapter[PtrT, T]) reflectRuntimeState(ctx context.Context, localClient, remoteClient client.Client, localJob, remoteJob PtrT) (bool, error) {
-	counts, revision, found, err := a.elastic.Runtime.Fetch(ctx, remoteClient, remoteJob)
+	result, err := a.elastic.Runtime.Fetch(ctx, remoteClient, remoteJob)
 	if err != nil {
 		return false, fmt.Errorf("failed to fetch runtime worker state for %s: %w", a.gvk.Kind, err)
 	}
-	if !found {
+	if result == nil {
+		// The runtime object does not exist on the worker yet (or is suspended).
 		return false, nil
 	}
 	changed := false
 	if err := clientutil.Patch(ctx, localClient, localJob, func() (bool, error) {
-		changed = a.elastic.Runtime.Apply(localJob, counts, revision)
+		changed = a.elastic.Runtime.Apply(localJob, *result)
 		return changed, nil
 	}); err != nil {
 		return false, fmt.Errorf("failed to reflect runtime worker state on manager %s: %w", a.gvk.Kind, err)
