@@ -107,6 +107,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
 	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
+	}
 
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in all the clusters",
