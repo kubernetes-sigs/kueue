@@ -3,6 +3,4 @@ kind: Kustomization
 
 resources:
 - ../../baseline
-
-components:
-- ../../../../config/components/map
+- ../../../../../config/components/map
