@@ -274,8 +274,19 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					go qManager.CleanUpOnContext(ctx)
 					defer cancel()
 
+					rawSnapshots := make(map[*kueue.Workload]*kueue.Workload)
+					for _, cq := range allClusterQueues {
+						for _, info := range qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cq.Name)) {
+							rawSnapshots[info.Obj] = info.Obj.DeepCopy()
+						}
+					}
 					scheduler.schedule(ctx)
 					wg.Wait()
+					for raw, original := range rawSnapshots {
+						if diff := cmp.Diff(original, raw); diff != "" {
+							t.Errorf("scheduling mutated the queued API object (-before,+after): %s", diff)
+						}
+					}
 
 					// Verify assignments in cache.
 					gotAssignments := make(map[workload.Reference]kueue.Admission)
@@ -5742,6 +5753,7 @@ func TestSchedule(t *testing.T) {
 			// workloads that will be returned by the fake.client.
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ClusterName("worker-a").
 					ResourceVersion("1").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 10).
@@ -5785,6 +5797,7 @@ func TestSchedule(t *testing.T) {
 			// This may not be the same as previous "want*" values due to the stabbed apply status invocations in the test.
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ClusterName("worker-a").
 					ResourceVersion("2").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 10).
@@ -5825,6 +5838,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					ClusterName("worker-a").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
 					Queue("main").
@@ -7745,6 +7759,17 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 	}
+	// The merge-patch path currently only patches fields changed by its callback.
+	// Keep its existing ClusterName behavior while testing queued-object ownership.
+	sliceCase := cases["workload-slice fits in single clusterQueue"]
+	for _, wl := range sliceCase.wantWorkloads {
+		copy := wl.DeepCopy()
+		if copy.Name == "foo-2" {
+			copy.Status.ClusterName = nil
+		}
+		sliceCase.wantWorkloadUseMergePatch = append(sliceCase.wantWorkloadUseMergePatch, *copy)
+	}
+	cases["workload-slice fits in single clusterQueue"] = sliceCase
 	runScheduleTestCases(t, scheduleTestConfig{
 		queues:          queues,
 		clusterQueues:   clusterQueues,
