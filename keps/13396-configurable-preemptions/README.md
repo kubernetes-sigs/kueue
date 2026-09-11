@@ -1,6 +1,7 @@
 # KEP-13396: Configurable Preemptions
 
 <!-- toc -->
+
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [1. Defragmentation](#1-defragmentation)
@@ -10,7 +11,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-    - [Referencing PreemptionConfig and Strategy Interaction](#referencing-preemptionconfig-and-strategy-interaction)
+  - [Referencing PreemptionConfig and Strategy Interaction](#referencing-preemptionconfig-and-strategy-interaction)
   - [User Stories](#user-stories)
     - [Story 1 - Defragmentation](#story-1---defragmentation)
     - [Story 2 - Hero job](#story-2---hero-job)
@@ -27,8 +28,7 @@
     - [Default Candidate Ordering](#default-candidate-ordering)
   - [Preemption evaluation flow in scheduler](#preemption-evaluation-flow-in-scheduler)
     - [Step-by-Step Breakdown](#step-by-step-breakdown)
-  - [Candidate Organization: Per-Selector, Per-CQ Priority Queues](#candidate-organization-per-selector-per-cq-priority-queues)
-    - [Architectural Groundwork for Configurable Candidate Ordering](#architectural-groundwork-for-configurable-candidate-ordering)
+  - [Candidate Gathering, Merging, and Ordering](#candidate-gathering-merging-and-ordering)
   - [Observability](#observability)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
@@ -47,7 +47,8 @@
     - [Examples with Custom Ordering](#examples-with-custom-ordering)
       - [Story 1 - Defragmentation with Explicit Priority Ordering](#story-1---defragmentation-with-explicit-priority-ordering)
       - [Story 2 - Hero Workload with Explicit Priority Ordering](#story-2---hero-workload-with-explicit-priority-ordering)
-    - [Efficient Iteration Through Candidates in Preemption Order](#efficient-iteration-through-candidates-in-preemption-order)
+    - [Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multi-Queue Iteration](#per-selector-per-clusterqueue-priority-queues-and-dynamic-multi-queue-iteration)
+      - [Motivation and Architectural Benefits](#motivation-and-architectural-benefits)
       - [Problem Statement](#problem-statement)
       - [Naive Solutions and Complexity Bottlenecks](#naive-solutions-and-complexity-bottlenecks)
       - [Proposed Approach: Multi-Queue Dynamic Iteration](#proposed-approach-multi-queue-dynamic-iteration)
@@ -72,11 +73,9 @@
     - [Examples with PreemptionLimit](#examples-with-preemptionlimit)
       - [Story 1 - Global Preemption Rate Limiting](#story-1---global-preemption-rate-limiting)
       - [Story 2 - Protecting a Mission-Critical ClusterQueue from Preemption](#story-2---protecting-a-mission-critical-clusterqueue-from-preemption)
-  - [Minimum Trigger Duration (MinTriggerRequiredDuration)](#minimum-trigger-duration-mintriggerrequiredduration)
-    - [Proposed API for Minimum Trigger Duration](#proposed-api-for-minimum-trigger-duration)
-    - [Examples with Minimum Trigger Duration](#examples-with-minimum-trigger-duration)
-      - [Story 1 - Grace Period for Topology Defragmentation](#story-1---grace-period-for-topology-defragmentation)
-<!-- /toc -->
+  - [Minimum Trigger Duration (MinTriggerRequiredDuration)](#minimum-trigger-duration-mintriggerrequiredduration) - [Proposed API for Minimum Trigger Duration](#proposed-api-for-minimum-trigger-duration) - [Examples with Minimum Trigger Duration](#examples-with-minimum-trigger-duration) - [Story 1 - Grace Period for Topology Defragmentation](#story-1---grace-period-for-topology-defragmentation)
+  - [Per-Node DRA Device Feasibility Trigger (InsufficientDRADevices)](#per-node-dra-device-feasibility-trigger-insufficientdradevices)
+  <!-- /toc -->
 
 ## Summary
 
@@ -101,7 +100,7 @@ updates.
 
 This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` deferred to future work).
 This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
-With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, and custom numeric labels, with minimal trigger duration, time-based candidate duration selectors, priority class selectors, custom ordering, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical preemption and fair sharing. In Alpha, `PreemptionConfig` is referenced via an explicit Alpha annotation on the `ClusterQueue` (`kueue.x-k8s.io/alpha-preemption-config`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical preemption, both strategies will become mutually exclusive via a formal API field, and the Alpha annotation will be retired.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, and custom numeric labels, with minimal trigger duration, time-based candidate duration selectors, priority class selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical preemption and fair sharing. In Alpha, `PreemptionConfig` is referenced via an explicit Alpha annotation on the `ClusterQueue` (`kueue.x-k8s.io/alpha-preemption-config`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical preemption, both strategies will become mutually exclusive via a formal API field, and the Alpha annotation will be retired.
 
 ## Motivation
 
@@ -270,6 +269,10 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 3. Support for preemptions using arbitrary Workload fields — this KEP aims to
    create a good baseline for configurations that can be extended in the future; it does not aim to be comprehensive for every possible scenario.
 4. Complete replacement of current preemption strategies.
+5. Preemptions based on fine-grained per-node DRA (Dynamic Resource Allocation) device feasibility.
+   While aggregate device quotas defined via ResourceClaimTemplates are handled under `InsufficientQuota`,
+   preemption driven by individual device allocation requires device identity tracking, which is deferred
+   to future work.
 
 ## Proposal
 
@@ -278,7 +281,7 @@ Introduce a new CRD **PreemptionConfig** that will be used to define:
 - triggers for when preemption should occur (e.g. insufficient topology to schedule the workload),
 - rules defining which workloads should be considered for preemption.
 
-In the initial iteration, candidate workloads are evaluated and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/common/ordering.go`). Configurable candidate ordering is deferred to [Future Work Ideas](#future-work-ideas).
+In the initial iteration, candidate workloads are gathered from both classical preemption and configurable preemption into two separate sets, merged, deduplicated, and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/common/ordering.go`) to change existing logic as little as possible. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work Ideas](#future-work-ideas).
 
 The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple cluster queues.
 
@@ -305,7 +308,7 @@ Therefore, the integration is designed with a two-phase evolution:
    - **Maximum flexibility and backwards compatibility**: This merged approach allows existing preemption behavior to function uninterrupted while layering new capabilities (like defragmentation). Furthermore, users can fully stop candidates from either mechanism if desired:
      - To stop classical preemption candidates, set `spec.preemption` policies to `Never` (for example, `reclaimWithinCohort: Never` and `withinClusterQueue: Never`).
      - To stop configurable preemption candidates, omit the annotation or specify rules with empty candidate selectors.
-   - Candidates from both mechanisms are merged, deduplicated, and ordered using the default ordering rules to satisfy preemptor quota and topology requirements.
+   - Candidates from both mechanisms are gathered in two separate sets, merged, deduplicated, and ordered using the default ordering rules to satisfy preemptor quota and topology requirements with minimal changes to existing logic.
 
 2. **Beta+: Mutual Exclusivity & Feature Parity via Formal API Field**
    - In Beta+, `PreemptionConfig` and classical preemption will become **mutually exclusive**, with `PreemptionConfig` providing full **feature parity** with classical preemption (including borrowing reclaim, within-ClusterQueue preemption, and fair sharing).
@@ -632,11 +635,18 @@ type PreemptionRule struct {
 The trigger state and the first observation timestamp when a specific trigger occurred are maintained in-memory within the queue management and scheduling cache (rather than being patched as status conditions on the Workload API object). The in-memory trigger state is cleared upon successful admission of the workload, when the workload is deleted or evicted, or when the trigger condition is no longer true (for instance, when enough quota becomes freed to admit the workload directly without preemption).
 
 The supported in-memory trigger types are:
+
 - `InsufficientQuota`: The ClusterQueue or Cohort does not have enough unused quota to admit the workload directly.
 - `QuotaReclaimRequired`: The workload cannot be scheduled because nominal quota was borrowed by cohort members; reclaiming this quota from borrowers is required.
 - `InsufficientTopology`: Quota is available, but no topology domain satisfies the workload's topology requirements (TAS).
 
 By maintaining triggers in-memory, the scheduler avoids etcd write amplification, eliminates informer watch propagation latency between scheduling cycles, and prevents duplicate API patch conflicts, while providing the foundation to support deferred duration-based rules (`MinTriggerRequiredDuration`) in future iterations.
+
+> [!NOTE]
+> **Relationship with Dynamic Resource Allocation (DRA)**:
+> Workloads requesting devices via `ResourceClaimTemplate` objects mapped to Kueue resource flavors and quotas are evaluated under `InsufficientQuota`. Preempting candidates holding such quota frees device capacity deterministically.
+>
+> In contrast, per-node DRA device feasibility (evaluating whether a single node has devices matching claim constraints) is explicitly **not** folded into `InsufficientTopology`. `InsufficientTopology` is strictly reserved for Topology-Aware Scheduling (TAS) domains (blocks, racks, nodes) where Kueue directly manages placement. Swiping DRA device feasibility into `InsufficientTopology` would cause non-deterministic preemptions because Kueue does not track which specific device instances are allocated to running workloads. Dedicated per-node DRA preemption is deferred to future work.
 
 ```go
 
@@ -912,7 +922,7 @@ flowchart TD
      - **Classical Preemption**: Evaluates candidates according to `cq.Spec.Preemption` policies (e.g. workloads borrowing from the preemptor's ClusterQueue, or lower-priority workloads in the same CQ or cohort).
      - **Configurable Preemption**: Evaluates candidates matching the rules and candidate selectors of the `PreemptionConfig` referenced by the `kueue.x-k8s.io/alpha-preemption-config` annotation (subject to matching triggers).
    - The candidate outputs of both strategies are **merged and deduplicated** into a single candidate set ($C_{\text{merged}} = C_{\text{classical}} \cup C_{\text{config}}$).
-   - This provides maximum flexibility: users can run both strategies concurrently, or fully stop candidates from either mechanism (e.g., setting `reclaimWithinCohort: Never` and `withinClusterQueue: Never` disables classical candidates, while omitting the annotation disables configurable preemption candidates).
+   - This provides maximum flexibility while changing existing logic as little as possible: users can run both strategies concurrently, or fully stop candidates from either mechanism (e.g., setting `reclaimWithinCohort: Never` and `withinClusterQueue: Never` disables classical candidates, while omitting the annotation disables configurable preemption candidates).
 
 5. **Ordered Candidate Iteration (Quota & Topology Satisfaction)**:
    - Candidates in the merged set are sorted based on the default preemption ordering rules (reusing classical preemption and fair sharing ordering logic).
@@ -931,22 +941,21 @@ flowchart TD
 
 `CandidatesQuotaAndTopologyUpperLimit` by design is just an approximation to allow for short-circuiting when the preemptor obviously will not be admitted anyway. It will just use the initial state of the `PreemptionEvaluator` and does not attempt to simulate changes in DRS or borrowing during iteration over candidates. However, the returned values should always be greater than or equal to what can be preempted at this moment, so it is reasonable to avoid heavy simulation if the result is smaller than the requested amount.
 
-### Candidate Organization: Per-Selector, Per-CQ Priority Queues
+### Candidate Gathering, Merging, and Ordering
 
-In the initial iteration of `PreemptionConfig`, candidate workloads are evaluated according to the default preemption ordering rules (reusing the established ordering logic from classical preemption and fair sharing: workloads marked for eviction first, workloads from other ClusterQueues before the preemptor's ClusterQueue, fair-sharing usage, priority, admission timestamp, and UID tiebreaker).
+To minimize modifications to existing scheduling and preemption logic in the initial iteration, candidate evaluation follows the established Kueue preemption pipeline:
 
-Rather than pooling all candidate workloads across the cluster into a single unstructured list, the evaluator organizes candidate workloads into **separate priority queues partitioned by `(CandidateSelector, ClusterQueue)`**.
+1. **Two Separate Candidate Sets**:
+   - The scheduler runs classical preemption evaluation to collect eligible candidates according to `ClusterQueue.spec.preemption` into a set ($C_{\text{classical}}$).
+   - In parallel, the scheduler evaluates the rules and selectors of the referenced `PreemptionConfig` to collect eligible candidates into a separate set ($C_{\text{config}}$).
+2. **Merging and Deduplication**:
+   - The two candidate sets are merged into a single slice and deduplicated by Workload UID ($C_{\text{merged}} = C_{\text{classical}} \cup C_{\text{config}}$).
+3. **Ordering Reusing Classical Logic**:
+   - The combined slice is ordered using the established default preemption ordering rules (reusing [`pkg/scheduler/preemption/common/ordering.go`](../../pkg/scheduler/preemption/common/ordering.go#L34-L41): evicted first, other CQs in cohort, fair sharing usage, priority, admission timestamp, UID tiebreaker).
+4. **Sequential Iteration**:
+   - The scheduler iterates through the ordered merged slice sequentially, accumulating victims until the preemptor's resource quota and topology domain requirements are fully satisfied.
 
-#### Architectural Groundwork for Configurable Candidate Ordering
-
-The sophisticated dynamic candidate iteration algorithm described in [Efficient Iteration Through Candidates in Preemption Order](#efficient-iteration-through-candidates-in-preemption-order) is only strictly relevant when introducing [Configurable Candidate Ordering](#configurable-candidate-ordering) (deferred to future work), where distinct comparator chains and dynamic multi-queue iteration come into play. However, it sets the ground as to why we should already adopt **Per-Selector, Per-CQ Priority Queues** in the first iteration:
-
-1. **Enabling Future Integration**: When configurable candidate ordering is introduced in future iterations, candidate workloads will need to be evaluated and compared across distinct queues dynamically according to user-defined comparator chains. Establishing per-selector, per-CQ queue data structures in the initial release ensures that configurable ordering can be integrated seamlessly without re-architecting Kueue's candidate selection pipeline.
-2. **Static Intra-Queue Ordering (Sort Once)**: Within any given ClusterQueue, relative candidate ordering under the default rules is static and unaffected by dynamic cluster state. Sorting each queue independently once at the start of preemption evaluation ($O(\frac{n}{c} \log \frac{n}{c})$ per queue) avoids expensive full-array re-sorting during candidate iteration.
-3. **Fast CQ-Level Pruning**: Dynamic cluster properties—such as current borrowed quota—can be tracked at the queue level. When a ClusterQueue exhausts its borrowing capacity, its entire priority queue under that borrowing selector is immediately pruned from consideration.
-4. **Selector Isolation**: Maintaining distinct queues per selector ensures that dropping an ineligible queue under a borrowing selector does not inadvertently discard candidates from the same ClusterQueue that remain eligible under static selectors (such as priority-only preemption within the same CQ).
-5. **Deduplication & Preemption Justification**: Workloads matching multiple selectors (across one or more rules) reside at the heads of multiple queues (held via shared references) and are popped simultaneously when selected. This multi-queue membership directly identifies all matching candidate selectors and rules, providing precise metadata for preemption justification in workload status conditions and audit logs (see [Observability](#observability)).
-
+This two-set merge approach changes the existing preemption and scheduling codebase as little as possible during Alpha. More advanced candidate data structures—specifically organizing candidates into **Per-Selector, Per-ClusterQueue Priority Queues** and using dynamic multi-queue iteration—are deferred to [Future Work Ideas](#per-selector-per-clusterqueue-priority-queues-and-dynamic-multi-queue-iteration).
 
 ### Observability
 
@@ -1065,7 +1074,7 @@ Implementation of the foundations of PreemptionConfig:
 
 - candidate ordering reusing classical preemption ordering logic
 - triggers
-- candidate organization into per-selector, per-CQ priority queues using default preemption ordering
+- candidate gathering from both strategies into two separate sets, merging, deduplication, and ordering
 - ClusterQueue integration via `kueue.x-k8s.io/alpha-preemption-config` annotation
 - preemption evaluator support for merging candidate outputs from classical preemption (`spec.preemption`) and `PreemptionConfig`
 
@@ -1085,7 +1094,7 @@ Create performance test suite for preemptions to validate current implementation
 
 **Step 4.** Implement additional candidate selectors (time-based execution and creation duration selectors, workload priority class selectors) and minimum trigger duration (`minTriggerRequiredDuration`).
 
-**Step 5.** Implement configurable candidate ordering (`ordering:` comparator chains and dynamic multi-queue candidate iteration).
+**Step 5.** Implement configurable candidate ordering (`ordering:` comparator chains, per-selector, per-CQ priority queues, and dynamic multi-queue candidate iteration).
 
 **Step 6.** Future design and implementation of preemption rate limiting (`PreemptionLimit`).
 
@@ -1335,9 +1344,20 @@ spec:
       direction: "Ascending"
 ```
 
-#### Efficient Iteration Through Candidates in Preemption Order
+#### Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multi-Queue Iteration
 
-As established in [Candidate Organization: Per-Selector, Per-CQ Priority Queues](#candidate-organization-per-selector-per-cq-priority-queues), the first iteration already organizes candidate workloads into per-selector, per-CQ priority queues to set the architectural ground for configurable candidate ordering. When configurable candidate ordering is introduced with custom comparator chains and dynamic ordering metrics (such as DRS), preemption evaluation requires an efficient iteration algorithm across these queues to avoid prohibitive performance degradation.
+In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and sorted in a single flat list (as detailed in [Candidate Gathering, Merging, and Ordering](#candidate-gathering-merging-and-ordering)). This minimizes modifications to the existing codebase during Alpha.
+
+However, when configurable candidate ordering is introduced in future iterations with user-defined multi-key comparator chains and dynamic ordering metrics (such as DRS and borrowing limits), preemption evaluation across large clusters will benefit from a more sophisticated candidate organization: **Per-Selector, Per-ClusterQueue Priority Queues** paired with dynamic multi-queue iteration.
+
+##### Motivation and Architectural Benefits
+
+Rather than pooling all candidate workloads across the cluster into a single unstructured list, the evaluator would organize candidate workloads into **separate priority queues partitioned by `(CandidateSelector, ClusterQueue)`**:
+
+1. **Static Intra-Queue Ordering (Sort Once)**: Within any given ClusterQueue, relative candidate ordering (e.g., by Priority, `AdmissionTimestamp`, Workload UID) is static and unaffected by dynamic cluster state. Sorting each queue independently once at the start of preemption evaluation ($O(\frac{n}{c} \log \frac{n}{c})$ per queue) avoids expensive full-array re-sorting during candidate iteration.
+2. **Fast CQ-Level Pruning**: Dynamic cluster properties—such as current borrowed quota—can be tracked at the queue level. When a ClusterQueue exhausts its borrowing capacity, its entire priority queue under that borrowing selector is immediately pruned from consideration.
+3. **Selector Isolation**: Maintaining distinct queues per selector ensures that dropping an ineligible queue under a borrowing selector does not inadvertently discard candidates from the same ClusterQueue that remain eligible under static selectors (such as priority-only preemption within the same CQ).
+4. **Deduplication & Multi-Queue Popping**: Workloads matching multiple selectors (across one or more rules) reside at the heads of multiple queues (held via shared references) and are popped simultaneously when selected. This multi-queue membership directly identifies all matching candidate selectors and rules, providing precise metadata for preemption justification in workload status conditions and audit logs (see [Observability](#observability)).
 
 ##### Problem Statement
 
@@ -1363,7 +1383,7 @@ Under dynamic state changes:
 
 ##### Proposed Approach: Multi-Queue Dynamic Iteration
 
-Leveraging the **Per-Selector, Per-CQ Priority Queues** established in the first iteration, the evaluator achieves optimal scheduling performance without repetitive full-array scans or re-sorting:
+Leveraging **Per-Selector, Per-ClusterQueue Priority Queues**, the evaluator achieves optimal scheduling performance without repetitive full-array scans or re-sorting:
 
 1. **Static Intra-Queue Ordering (Sort Once):**
    Within any given cluster queue, relative candidate ordering (e.g., by Priority, `AdmissionTimestamp`, Workload UID) is static and unaffected by dynamic quota borrowing or DRS changes. Therefore, candidate workloads within each `(Selector, CQ)` queue need to be sorted only once at the start of evaluation.
@@ -1768,6 +1788,7 @@ type PreemptionRule struct {
 ```
 
 When `minTriggerRequiredDuration` is configured with a duration greater than `0s`:
+
 - When an active trigger is first observed on an unadmitted workload, its observation timestamp is stored in the in-memory cache, and the workload is moved to `inadmissibleWorkloads`.
 - An in-memory timer is scheduled to requeue the workload back to the active queue once the required duration elapses.
 - During scheduling cycles, `PreemptionEvaluator` validates whether `now - inMemoryObserved >= minTriggerRequiredDuration` before considering the rule eligible for candidate selection.
@@ -1792,4 +1813,32 @@ spec:
               relation: "Lower"
               defaultValue: 0
 ```
+
+### Per-Node DRA Device Feasibility Trigger (InsufficientDRADevices)
+
+Dynamic Resource Allocation (DRA) enables fine-grained hardware device requests via ResourceClaims. While aggregate device counts defined via `ResourceClaimTemplates` are already mapped to Kueue flavors and protected by `InsufficientQuota`, per-node device feasibility presents unique challenges for preemption:
+
+1. **Lack of Device Allocation Tracking in Kueue**:
+   ResourceClaims are bound to specific physical devices by `kube-scheduler` and DRA device drivers during Pod scheduling, not by Kueue. Consequently, Kueue does not track device-to-workload bindings or device identities in its in-memory cache.
+
+2. **The Problem with Blind Preemption**:
+   Preemption triggers require causal determinism: evicting candidate workloads must reliably satisfy the preemptor's unmet requirement. If Kueue triggers preemption for a workload failing per-node device feasibility without knowing which running workloads occupy the required devices, it would have to select candidates blindly. Evicting a candidate that does not hold the needed device would disrupt workloads without allowing the preemptor to admit, leading to cascading, fruitless evictions.
+
+3. **Separation from Topology-Aware Scheduling (TAS)**:
+   Per-node device feasibility constraints are fundamentally distinct from TAS topology domains (racks, blocks). Folding device feasibility under `InsufficientTopology` would break the semantic clarity of TAS rules and cause rules written for rack/block defragmentation to trigger unwanted evictions on device constraint failures.
+
+#### Future Evolution
+
+Once Kueue or the Kubernetes DRA ecosystem supports tracking ResourceClaim allocation status and device identities, a dedicated trigger can be introduced:
+
+```go
+const (
+  // InsufficientDRADevices indicates that aggregate quota is available, but per-node
+  // DRA device feasibility constraints cannot be satisfied without preempting workloads
+  // holding the required device instances.
+  InsufficientDRADevices PreemptionRuleTrigger = "InsufficientDRADevices"
+)
+```
+
+With device identity modeling, the preemption simulation will be able to verify that evicting a specific workload frees the exact device(s) or device topology needed by the incoming claim before any eviction is executed.
 
