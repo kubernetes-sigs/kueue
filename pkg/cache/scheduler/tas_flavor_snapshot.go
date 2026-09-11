@@ -1222,6 +1222,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	requirements.podRequirements.PodTemplate = workersTasPodSetRequests.PodSet.Template.DeepCopy()
+	// The scheduler library consumes the requirements as a Pod, so the template must
+	// carry the merged constraints rather than the bare PodSet template: the flavor's
+	// tolerations and the nodeSelector and tolerations set by admission checks.
+	requirements.podRequirements.PodTemplate.Spec.Tolerations = requirements.podRequirements.Tolerations
+	requirements.podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	err := s.fillInCounts(ctx, requirements, state)
