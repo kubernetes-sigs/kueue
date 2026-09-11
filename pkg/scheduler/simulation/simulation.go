@@ -147,6 +147,7 @@ func (s *SimulationContext) RestoreWorkload(target types.NamespacedName) error {
 // ClusterQueues.
 func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 	if err := s.errorTerminated(); err != nil {
+		s.log.Error(err, "attempting to remove usage in a terminated simulation context")
 		return
 	}
 
@@ -165,6 +166,7 @@ func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 // ClusterQueues.
 func (s *SimulationContext) AddUsage(cqRef kueue.ClusterQueueReference, usage workload.Usage) {
 	if err := s.errorTerminated(); err != nil {
+		s.log.Error(err, "attempting to add usage in a terminated simulation context")
 		return
 	}
 
@@ -176,6 +178,7 @@ func (s *SimulationContext) AddUsage(cqRef kueue.ClusterQueueReference, usage wo
 
 func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *schdcache.ClusterQueueSnapshot {
 	if err := s.errorTerminated(); err != nil {
+		s.log.Error(err, "attempting to access cluster queue in a terminated simulation context")
 		return nil
 	}
 
@@ -191,7 +194,6 @@ func (s *SimulationContext) errorTerminated() error {
 	if s.terminalError == nil {
 		return nil
 	}
-	s.log.Error(s.terminalError, "attempting to access terminated simulation context")
 	return fmt.Errorf("attempting to access terminated simulation context; simulation terminated due to: %w", s.terminalError)
 }
 
