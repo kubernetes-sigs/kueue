@@ -1,5 +1,14 @@
 enableMutatingAdmissionPolicy: true
 controllerManager:
+  featureGates:
+  - name: LocalQueueMetrics
+    enabled: true
+  - name: ElasticJobsViaWorkloadSlices
+    enabled: true
+  - name: ElasticJobsViaWorkloadSlicesWithTAS
+    enabled: true
+  - name: ConcurrentAdmission
+    enabled: true
   manager:
     image:
       pullPolicy: IfNotPresent
@@ -28,15 +37,6 @@ controllerManager:
     enabled: false
     minAvailable: 1
 kubernetesClusterDomain: cluster.local
-featureGates:
-- name: LocalQueueMetrics
-  enabled: true
-- name: ElasticJobsViaWorkloadSlices
-  enabled: true
-- name: ElasticJobsViaWorkloadSlicesWithTAS
-  enabled: true
-- name: ConcurrentAdmission
-  enabled: true
 managerConfig:
   controllerManagerConfigYaml: |-
     apiVersion: config.kueue.x-k8s.io/v1beta2
