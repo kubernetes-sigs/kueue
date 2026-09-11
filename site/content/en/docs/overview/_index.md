@@ -35,6 +35,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](/docs/tasks/run/deployment/) or [StatefulSets](/docs/tasks/run/statefulset/))
 - **Multi-cluster job dispatching:** called [MultiKueue](/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](/docs/concepts/topology_aware_scheduling/).
+- **Topology Spreading**: Allows to improve availability of serving workloads by [spreading separate workloads across failure domains](/docs/concepts/topology_aware_scheduling/#topology-spreading), limiting how many of them may occupy a single zone or rack.
 
 ## Job-integrated features
 
@@ -52,6 +53,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 | [All-or-nothing with ready Pods](/docs/concepts/workload/#all-or-nothing-semantics-for-job-resource-assignment) | +              | +      | +         | +          | +     | +        | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
 | [Fair Sharing](/docs/concepts/preemption/#fair-sharing)                                                         | +              | +      | +         | +          | +     | +        | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
 | [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)                                           | +              | +      | +         | +          | +     | +        | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
+| [Topology Spreading](/docs/concepts/topology_aware_scheduling/#topology-spreading)                              |                |        |           |            |       |          |            |        |        | +   |            |        |            | +          |             | +               |
 
 ## High-level Kueue operation
 
