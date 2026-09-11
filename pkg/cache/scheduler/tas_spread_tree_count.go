@@ -26,10 +26,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// FlavorToSpreadTreeCount stores the topology-spreading occupancy by flavor
-// and PodSet group.
-type FlavorToSpreadTreeCount map[kueue.ResourceFlavorReference]PodSetGroupNameToTreeCount
-
 // PodSetGroupNameToTreeCount stores topology spread counts for one flavor by
 // PodSet group. An entry present with an empty ByDomain means spreading
 // applies to the group but nothing is admitted yet - distinct from an absent
@@ -49,13 +45,37 @@ type SpreadTreeCount struct {
 	ByDomain map[utiltas.TopologyDomainID]int32
 }
 
-func (c *ClusterQueueSnapshot) topologySpreadCounts(wl *workload.Info, requests WorkloadTASRequests) FlavorToSpreadTreeCount {
-	// Checked here as well as at the call site, so every current and future
-	// caller is covered and the scan below never runs while the feature is off.
+// topologySpreadCountsForFlavor counts, for a single flavor, how many
+// Workloads matching each spreading PodSet group's selector already occupy the
+// flavor's domains. Returns nil when spreading applies to none of the PodSets
+// requesting the flavor.
+func (c *ClusterQueueSnapshot) topologySpreadCountsForFlavor(
+	wl *workload.Info,
+	flavor kueue.ResourceFlavorReference,
+	flavorRequests FlavorTASRequests,
+) PodSetGroupNameToTreeCount {
+	// Gated in the callee rather than at the call site, so every current and
+	// future caller is covered and the scan below never runs while the feature
+	// is off.
 	if !features.Enabled(features.TASTopologySpreading) {
 		return nil
 	}
 	if wl == nil || len(wl.TopologySpreading) == 0 {
+		return nil
+	}
+	tasFlavor := c.TASFlavors[flavor]
+	if tasFlavor == nil {
+		return nil
+	}
+
+	groupCounts := make(PodSetGroupNameToTreeCount)
+	for i := range flavorRequests {
+		groupKey := utiltas.GroupKeyForPodSet(flavorRequests[i].PodSet)
+		if wl.TopologySpreading[groupKey] != nil {
+			groupCounts[groupKey] = &SpreadTreeCount{ByDomain: make(map[utiltas.TopologyDomainID]int32)}
+		}
+	}
+	if len(groupCounts) == 0 {
 		return nil
 	}
 
@@ -65,51 +85,28 @@ func (c *ClusterQueueSnapshot) topologySpreadCounts(wl *workload.Info, requests 
 	// domain it is running in and ban itself from staying there.
 	selfKey := workload.Key(wl.Obj)
 
-	result := make(FlavorToSpreadTreeCount)
-	for flavor, flavorRequests := range requests {
-		tasFlavor := c.TASFlavors[flavor]
-		if tasFlavor == nil {
-			continue
-		}
+	for groupKey, counts := range groupCounts {
+		spec := wl.TopologySpreading[groupKey]
+		selector := spec.Selector()
+		for key, existing := range c.Workloads {
+			if key == selfKey {
+				continue
+			}
+			if existing.Obj.Namespace != wl.Obj.Namespace || !selector.Matches(labels.Set(existing.Obj.Labels)) {
+				continue
+			}
 
-		groupCounts := make(PodSetGroupNameToTreeCount)
-		for i := range flavorRequests {
-			groupKey := utiltas.GroupKeyForPodSet(flavorRequests[i].PodSet)
-			if wl.TopologySpreading[groupKey] != nil {
-				groupCounts[groupKey] = &SpreadTreeCount{ByDomain: make(map[utiltas.TopologyDomainID]int32)}
+			occupied := tasFlavor.occupiedDomainsForGroup(existing, flavor, groupKey, spec.Rules)
+			if occupied.Len() == 0 {
+				continue
+			}
+			counts.Total++
+			for domainID := range occupied {
+				counts.ByDomain[domainID]++
 			}
 		}
-		if len(groupCounts) == 0 {
-			continue
-		}
-
-		for groupKey, counts := range groupCounts {
-			spec := wl.TopologySpreading[groupKey]
-			selector := spec.Selector()
-			for key, existing := range c.Workloads {
-				if key == selfKey {
-					continue
-				}
-				if existing.Obj.Namespace != wl.Obj.Namespace || !selector.Matches(labels.Set(existing.Obj.Labels)) {
-					continue
-				}
-
-				occupied := tasFlavor.occupiedDomainsForGroup(existing, flavor, groupKey, spec.Rules)
-				if occupied.Len() == 0 {
-					continue
-				}
-				counts.Total++
-				for domainID := range occupied {
-					counts.ByDomain[domainID]++
-				}
-			}
-		}
-		result[flavor] = groupCounts
 	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
+	return groupCounts
 }
 
 func (s *TASFlavorSnapshot) occupiedDomainsForGroup(

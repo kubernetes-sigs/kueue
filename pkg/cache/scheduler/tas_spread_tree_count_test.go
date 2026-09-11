@@ -127,24 +127,22 @@ func TestTopologySpreadCounts(t *testing.T) {
 		cq.Workloads[workload.Key(wl)] = workload.NewInfo(log, wl)
 	}
 
-	got := cq.topologySpreadCounts(incoming, requests)
-	want := FlavorToSpreadTreeCount{
-		spreadCountsTestFlavor: {
-			spreadKeyForGroupName("group-a"): {
-				Total: 2,
-				ByDomain: map[utiltas.TopologyDomainID]int32{
-					"b1":    2,
-					"b1,r1": 2,
-				},
+	got := cq.topologySpreadCountsForFlavor(incoming, spreadCountsTestFlavor, requests[spreadCountsTestFlavor])
+	want := PodSetGroupNameToTreeCount{
+		spreadKeyForGroupName("group-a"): {
+			Total: 2,
+			ByDomain: map[utiltas.TopologyDomainID]int32{
+				"b1":    2,
+				"b1,r1": 2,
 			},
-			spreadKeyForGroupName("group-b"): {
-				Total:    1,
-				ByDomain: map[utiltas.TopologyDomainID]int32{"b2": 1},
-			},
+		},
+		spreadKeyForGroupName("group-b"): {
+			Total:    1,
+			ByDomain: map[utiltas.TopologyDomainID]int32{"b2": 1},
 		},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("topologySpreadCounts() mismatch (-want +got):\n%s", diff)
+		t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -228,20 +226,18 @@ func TestTopologySpreadCountsExcludesSelf(t *testing.T) {
 		},
 	}
 
-	got := cq.topologySpreadCounts(incoming, requests)
-	want := FlavorToSpreadTreeCount{
-		spreadCountsTestFlavor: {
-			spreadKeyForGroupName("group-a"): {
-				Total: 1,
-				ByDomain: map[utiltas.TopologyDomainID]int32{
-					"b2":    1,
-					"b2,r2": 1,
-				},
+	got := cq.topologySpreadCountsForFlavor(incoming, spreadCountsTestFlavor, requests[spreadCountsTestFlavor])
+	want := PodSetGroupNameToTreeCount{
+		spreadKeyForGroupName("group-a"): {
+			Total: 1,
+			ByDomain: map[utiltas.TopologyDomainID]int32{
+				"b2":    1,
+				"b2,r2": 1,
 			},
 		},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("topologySpreadCounts() mismatch (-want +got):\n%s", diff)
+		t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -297,22 +293,20 @@ func TestTopologySpreadCountsHostnameLessTopology(t *testing.T) {
 		cq.Workloads[workload.Key(wl)] = workload.NewInfo(log, wl)
 	}
 
-	got := cq.topologySpreadCounts(incoming, requests)
-	want := FlavorToSpreadTreeCount{
-		spreadCountsTestFlavor: {
-			spreadKeyForGroupName("group-a"): {
-				Total: 2,
-				ByDomain: map[utiltas.TopologyDomainID]int32{
-					"b1":    1,
-					"b1,r1": 1,
-					"b2":    1,
-					"b2,r2": 1,
-				},
+	got := cq.topologySpreadCountsForFlavor(incoming, spreadCountsTestFlavor, requests[spreadCountsTestFlavor])
+	want := PodSetGroupNameToTreeCount{
+		spreadKeyForGroupName("group-a"): {
+			Total: 2,
+			ByDomain: map[utiltas.TopologyDomainID]int32{
+				"b1":    1,
+				"b1,r1": 1,
+				"b2":    1,
+				"b2,r2": 1,
 			},
 		},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("topologySpreadCounts() mismatch (-want +got):\n%s", diff)
+		t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -354,21 +348,19 @@ func TestTopologySpreadCountsHostnameLevelRule(t *testing.T) {
 		TASFlavors: map[kueue.ResourceFlavorReference]*TASFlavorSnapshot{spreadCountsTestFlavor: tasFlavor},
 	}
 
-	got := cq.topologySpreadCounts(incoming, requests)
-	want := FlavorToSpreadTreeCount{
-		spreadCountsTestFlavor: {
-			spreadKeyForGroupName("group-a"): {
-				Total: 1,
-				ByDomain: map[utiltas.TopologyDomainID]int32{
-					// The leaf, keyed as the tree keys it, plus its parent rack
-					// as the denominator for a hostname-level rule.
-					"n1":    1,
-					"b1,r1": 1,
-				},
+	got := cq.topologySpreadCountsForFlavor(incoming, spreadCountsTestFlavor, requests[spreadCountsTestFlavor])
+	want := PodSetGroupNameToTreeCount{
+		spreadKeyForGroupName("group-a"): {
+			Total: 1,
+			ByDomain: map[utiltas.TopologyDomainID]int32{
+				// The leaf, keyed as the tree keys it, plus its parent rack
+				// as the denominator for a hostname-level rule.
+				"n1":    1,
+				"b1,r1": 1,
 			},
 		},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("topologySpreadCounts() mismatch (-want +got):\n%s", diff)
+		t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
 	}
 }

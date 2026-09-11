@@ -212,8 +212,6 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	for _, option := range options {
 		option(opts)
 	}
-	spreadCounts := c.topologySpreadCounts(opts.workload, tasRequestsByFlavor)
-
 	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 	if features.Enabled(features.TASHandleOverlappingFlavors) {
 		aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
@@ -229,10 +227,8 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// options is cloned only when there is something to append, so the
 		// common path adds no allocation per flavor.
 		flvOpts := options
-		if features.Enabled(features.TASTopologySpreading) {
-			if flavorSpreadCounts := spreadCounts[tasFlavor]; len(flavorSpreadCounts) > 0 {
-				flvOpts = append(slices.Clone(flvOpts), WithTopologySpreadCounts(flavorSpreadCounts))
-			}
+		if spreadCounts := c.topologySpreadCountsForFlavor(opts.workload, tasFlavor, flavorTASRequests); len(spreadCounts) > 0 {
+			flvOpts = append(slices.Clone(flvOpts), WithTopologySpreadCounts(spreadCounts))
 		}
 		// The aggregation is limited to flavors with a user-declared hostname
 		// level, as only node names identify the same capacity across
