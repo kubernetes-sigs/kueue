@@ -171,16 +171,27 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 
 func TestSelectOptimalDomainSetToFitRespectsAffinity(t *testing.T) {
 	testCases := map[string]struct {
-		enableAffinity bool
-		want           []string
+		enableAffinity      bool
+		prioritizeByEntropy bool
+		want                []string
 	}{
 		"prefers higher-affinity domain when feature gate is enabled": {
 			enableAffinity: true,
 			want:           []string{"rack-high"},
 		},
+		"prefers higher-affinity domain when selecting by entropy": {
+			enableAffinity:      true,
+			prioritizeByEntropy: true,
+			want:                []string{"rack-high"},
+		},
 		"falls back to level values when feature gate is disabled": {
 			enableAffinity: false,
 			want:           []string{"rack-low"},
+		},
+		"falls back to level values when selecting by entropy and feature gate is disabled": {
+			enableAffinity:      false,
+			prioritizeByEntropy: true,
+			want:                []string{"rack-low"},
 		},
 	}
 
@@ -198,7 +209,7 @@ func TestSelectOptimalDomainSetToFitRespectsAffinity(t *testing.T) {
 				}),
 			}
 
-			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, false)
+			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, tc.prioritizeByEntropy)
 
 			if diff := cmp.Diff(tc.want, domainIDs(got)); diff != "" {
 				t.Errorf("unexpected optimal domain set (-want,+got): %s", diff)
@@ -209,8 +220,9 @@ func TestSelectOptimalDomainSetToFitRespectsAffinity(t *testing.T) {
 
 func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 	testCases := map[string]struct {
-		domains func(s *TASFlavorSnapshot) []*domain
-		want    []string
+		enableAffinity bool
+		domains        func(s *TASFlavorSnapshot) []*domain
+		want           []string
 	}{
 		"tie-breaking on level values when capacity and entropy are equal": {
 			domains: func(s *TASFlavorSnapshot) []*domain {
@@ -249,10 +261,44 @@ func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 			},
 			want: []string{"high-entropy", "low-entropy", "lower-capacity", "lower-leader"},
 		},
+		"prefers higher affinity score when capacity and entropy are equal": {
+			enableAffinity: true,
+			domains: func(s *TASFlavorSnapshot) []*domain {
+				leaderStateLow := domainState{leaderCount: 1, sliceCountWithLeader: 5, affinityScore: 10}
+				leaderStateHigh := domainState{leaderCount: 1, sliceCountWithLeader: 5, affinityScore: 100}
+				childState := domainState{podCount: 2}
+				return []*domain{
+					addDomainWithState(s, &domain{id: "rack-low", levelValues: []string{"a"}, children: []*domain{
+						addDomainWithState(s, &domain{}, childState), addDomainWithState(s, &domain{}, childState),
+					}}, leaderStateLow),
+					addDomainWithState(s, &domain{id: "rack-high", levelValues: []string{"b"}, children: []*domain{
+						addDomainWithState(s, &domain{}, childState), addDomainWithState(s, &domain{}, childState),
+					}}, leaderStateHigh),
+				}
+			},
+			want: []string{"rack-high", "rack-low"},
+		},
+		"ignores affinity score when feature gate is disabled": {
+			domains: func(s *TASFlavorSnapshot) []*domain {
+				leaderStateLow := domainState{leaderCount: 1, sliceCountWithLeader: 5, affinityScore: 10}
+				leaderStateHigh := domainState{leaderCount: 1, sliceCountWithLeader: 5, affinityScore: 100}
+				childState := domainState{podCount: 2}
+				return []*domain{
+					addDomainWithState(s, &domain{id: "rack-low", levelValues: []string{"a"}, children: []*domain{
+						addDomainWithState(s, &domain{}, childState), addDomainWithState(s, &domain{}, childState),
+					}}, leaderStateLow),
+					addDomainWithState(s, &domain{id: "rack-high", levelValues: []string{"b"}, children: []*domain{
+						addDomainWithState(s, &domain{}, childState), addDomainWithState(s, &domain{}, childState),
+					}}, leaderStateHigh),
+				}
+			},
+			want: []string{"rack-low", "rack-high"},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableAffinity)
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, newDefaultSimulatorSnapshot())
 			got := tc.domains(s)

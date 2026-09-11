@@ -214,6 +214,10 @@ func (s *TASFlavorSnapshot) calculateDomainsEntropy(domains []*domain) float64 {
 	return entropy
 }
 
+// compareDomainCapacityAndEntropy orders domains for entropy-prioritized
+// selection. Remaining ties go through compareDomainsForBalancedPlacement so
+// preferred node affinity can change which domains are chosen, not only how
+// slices are later packed onto an already selected set.
 func (s *TASFlavorSnapshot) compareDomainCapacityAndEntropy(a, b *domain) int {
 	if r := s.domainStateOf(b).leaderCount - s.domainStateOf(a).leaderCount; r != 0 {
 		return int(r)
@@ -229,7 +233,7 @@ func (s *TASFlavorSnapshot) compareDomainCapacityAndEntropy(a, b *domain) int {
 	if bEntropy < aEntropy {
 		return -1
 	}
-	return compareDomainLevelValues(a, b)
+	return s.compareDomainsForBalancedPlacement(a, b)
 }
 
 // compareDomainsForBalancedPlacement orders domains for balanced placement.
