@@ -1573,6 +1573,3 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 		})
 	})
 })
-
-
-
