@@ -52,7 +52,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot", "hostnameLeafTASFlavors"),
+	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot", "hostnameLeafTASFlavors", "Lock"),
 }
 
 func TestSnapshot(t *testing.T) {

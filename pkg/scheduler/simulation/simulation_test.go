@@ -63,7 +63,6 @@ var snapshotCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*schedcache.ClusterQueueSnapshot, *schedcache.CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(resources.Amount{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(schedcache.Snapshot{}, "SimulatorSnapshot"),
 	cmpopts.IgnoreFields(schedcache.ClusterQueueSnapshot{},
 		"NamespaceSelector",
 		"Preemption",
@@ -74,7 +73,7 @@ var snapshotCmpOpts = cmp.Options{
 		"FlavorFungibility",
 		"FairWeight",
 	),
-	cmpopts.IgnoreFields(schedcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+	cmpopts.IgnoreFields(schedcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot", "Lock"),
 	cmpopts.IgnoreTypes(&workload.Info{}),
 }
 

@@ -74,6 +74,9 @@ func newSimulationContext(ctx context.Context, snapshot *schdcache.Snapshot) *Si
 // Returns an error if the simulation fails or the simulation function returns an error.
 // Only one simulation can be ran at the time.
 func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simFn Simulation) error {
+	snapshot.Lock.Lock()
+	defer snapshot.Lock.Unlock()
+
 	err := snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
 		simCtx := newSimulationContext(ctx, snapshot)
 		defer simCtx.clear()
