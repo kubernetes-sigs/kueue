@@ -1032,6 +1032,7 @@ type reconcileTestCase struct {
 	wantWorkloadsInQueue      *int
 	wantWorkloadInHeap        *bool
 	wantWorkloadInadmissible  *bool
+	wantPendingCPURequest     *int64
 	wantWorkload              *kueue.Workload
 	wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
 	wantError                 error
@@ -2672,6 +2673,29 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				}
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+
+				if tc.wantPendingCPURequest != nil {
+					cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
+					if !found {
+						t.Errorf("expected workload's LocalQueue to be tracked by the queue manager")
+					} else {
+						var foundPending bool
+						for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
+							if wlInfo.Obj.Name == testWl.Name && wlInfo.Obj.Namespace == testWl.Namespace {
+								foundPending = true
+								if len(wlInfo.TotalRequests) == 0 {
+									t.Errorf("expected TotalRequests for the pending workload, got none")
+								} else if got := wlInfo.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != *tc.wantPendingCPURequest {
+									t.Errorf("pending workload cpu request = %dm, want %dm", got, *tc.wantPendingCPURequest)
+								}
+								break
+							}
+						}
+						if !foundPending {
+							t.Errorf("expected workload to be pending in ClusterQueue %q", cqName)
+						}
+					}
 				}
 
 				// For DRA tests, verify that workloads are properly queued/cached
