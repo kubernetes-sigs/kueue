@@ -652,6 +652,13 @@ const (
 	//
 	// Reuse clientConnection (QPS and Burst) for MultiKueue worker clusters instead of creating a new client for each request.
 	MultiKueueReuseClientConnectionConfigForWorkers featuregate.Feature = "MultiKueueReuseClientConnectionConfigForWorkers"
+
+	// owner: @reruno
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13746
+	//
+	// Enable cross-Workload topology spreading, limiting how many Workloads
+	// matching a label selector may be placed in a single topology domain.
+	TASTopologySpreading featuregate.Feature = "TASTopologySpreading"
 )
 
 func init() {
@@ -681,6 +688,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	FlavorFungibilityPreserveScanProgress:           {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
+	TASTopologySpreading:                            {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1012,6 +1020,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueReuseClientConnectionConfigForWorkers: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASTopologySpreading: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

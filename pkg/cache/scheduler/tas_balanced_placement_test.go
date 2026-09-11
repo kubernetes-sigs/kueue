@@ -344,7 +344,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			for _, d := range got {
 				gotStates[string(d.id)] = *s.domainStateOf(d)
 			}
-			if diff := cmp.Diff(tc.want, gotStates, cmp.AllowUnexported(domainState{}, domainCapacityBound{})); diff != "" {
+			if diff := cmp.Diff(tc.want, gotStates, cmp.AllowUnexported(domainState{}, domainCapacityBound{}, spreadOccupancy{})); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
 			}
 		})

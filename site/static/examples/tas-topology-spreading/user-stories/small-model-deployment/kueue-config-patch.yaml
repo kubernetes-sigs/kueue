@@ -1,0 +1,17 @@
+# Fragment to merge into the cluster's existing kueue-manager-config ConfigMap.
+# It is NOT a standalone Configuration to apply as-is - the ConfigMap holds
+# other required settings (see the README for the merge command).
+#
+# featureGates: topology spreading is alpha and off by default; it also depends
+# on TopologyAwareScheduling, which the controller refuses to start without.
+#
+# labelKeysToCopy: Kueue copies a job's labels onto the Workload it creates only
+# for keys listed here. Without "app", the label on the Deployment's Pod
+# template never reaches the Workload, workloadLabelSelectors matches zero
+# Workloads, and spreading is silently inert - no error, no condition.
+featureGates:
+  TopologyAwareScheduling: true
+  TASTopologySpreading: true
+integrations:
+  labelKeysToCopy:
+    - "app"

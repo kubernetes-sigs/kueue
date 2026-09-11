@@ -212,6 +212,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	for _, option := range options {
 		option(opts)
 	}
+	spreadCounts := c.topologySpreadCounts(opts.workload, tasRequestsByFlavor)
 
 	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 	if features.Enabled(features.TASHandleOverlappingFlavors) {
@@ -225,13 +226,20 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
+		// options is cloned only when there is something to append, so the
+		// common path adds no allocation per flavor.
 		flvOpts := options
+		if features.Enabled(features.TASTopologySpreading) {
+			if flavorSpreadCounts := spreadCounts[tasFlavor]; len(flavorSpreadCounts) > 0 {
+				flvOpts = append(slices.Clone(flvOpts), WithTopologySpreadCounts(flavorSpreadCounts))
+			}
+		}
 		// The aggregation is limited to flavors with a user-declared hostname
 		// level, as only node names identify the same capacity across
 		// flavors. Aggregating at node granularity for virtual hostname
 		// topologies is left to a follow-up.
 		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.declaresHostnameLevel() {
-			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
+			flvOpts = append(slices.Clone(flvOpts), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)
 		for psName, res := range flvResult {

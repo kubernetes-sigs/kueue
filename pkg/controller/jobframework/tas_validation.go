@@ -18,9 +18,11 @@ package jobframework
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -29,7 +31,12 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
+
+// maxSpreadingSelectorRequirements is the number of workloadLabelSelectors
+// requirements supported in the alpha milestone of TASTopologySpreading.
+const maxSpreadingSelectorRequirements = 1
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	var allErrs field.ErrorList
@@ -116,6 +123,9 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 
 	// validate multi-level constraints annotation
 	allErrs = append(allErrs, validateSliceRequiredTopologyConstraintsAnnotation(annotationsPath, replicaMetadata, sliceRequiredFound, sliceSizeFound, podSetGroupNameFound)...)
+
+	// validate topology spreading annotation
+	allErrs = append(allErrs, validateTopologySpreadingAnnotation(annotationsPath, replicaMetadata, requiredFound)...)
 
 	return allErrs
 }
@@ -268,6 +278,20 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 			)
 		}
 
+		if features.Enabled(features.TASTopologySpreading) &&
+			podSet1.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] != podSet2.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] {
+			spreadingErrorMessage := fmt.Sprintf(
+				"must specify the same '%s' annotation as '%s' in group '%s', or neither pod set may specify it",
+				kueue.PodSetTopologySpreadingAnnotation,
+				"%s",
+				groupName,
+			)
+			allErrs = append(allErrs,
+				field.Invalid(annotationsPath1, field.OmitValueType{}, fmt.Sprintf(spreadingErrorMessage, annotationsPath2)),
+				field.Invalid(annotationsPath2, field.OmitValueType{}, fmt.Sprintf(spreadingErrorMessage, annotationsPath1)),
+			)
+		}
+
 		if !topologyRequestsValid(podSet1.TopologyRequest, podSet2.TopologyRequest) {
 			errorMessageTemplate := fmt.Sprintf(
 				"must specify '%s' or '%s' topology consistent with '%%s' in group '%s'",
@@ -388,6 +412,129 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 			allErrs = append(allErrs, field.Invalid(fldPath.Index(i+1).Child("size"),
 				constraints[i+1].Size,
 				fmt.Sprintf("must evenly divide the parent layer size %d", constraints[i].Size)))
+		}
+	}
+
+	return allErrs
+}
+
+// validateTopologySpreadingAnnotation validates the topology-spreading
+// annotation syntactically. It cannot validate anything that depends on the
+// ResourceFlavor's Topology - the ResourceFlavor is unassigned at admission
+// time - which rules out both checking that a rule's "topologyKey" is a level
+// of that Topology and checking that the key is not below the level requested
+// by PodSetRequiredTopologyAnnotation. Both happen at scheduling time.
+func validateTopologySpreadingAnnotation(
+	annotationsPath *field.Path,
+	replicaMetadata *metav1.ObjectMeta,
+	requiredFound bool,
+) field.ErrorList {
+	var allErrs field.ErrorList
+
+	value, found := replicaMetadata.Annotations[kueue.PodSetTopologySpreadingAnnotation]
+	if !found {
+		return nil
+	}
+
+	// While the gate is off the annotation is inert - the scheduler ignores it
+	// entirely - so it is left unvalidated rather than rejected. That lets
+	// operators annotate their workloads ahead of enabling the gate, staging
+	// the configuration instead of having to land it in the same change.
+	if !features.Enabled(features.TASTopologySpreading) {
+		return nil
+	}
+
+	fldPath := annotationsPath.Key(kueue.PodSetTopologySpreadingAnnotation)
+
+	// Spreading counts a group as occupying one domain per rule level, which
+	// only holds for required topology - preferred/unconstrained placements
+	// spread a group across several domains, breaking maxShareAllowingPlacement.
+	// Requiring the companion annotation also rules out a Workload that
+	// carries spreading but never engages TAS at all.
+	if !requiredFound {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			fmt.Sprintf("may only be set together with '%s'", kueue.PodSetRequiredTopologyAnnotation)))
+		return allErrs
+	}
+
+	spec, err := utiltas.ParseSpreadingAnnotation(value)
+	if err != nil {
+		switch {
+		case errors.Is(err, utiltas.ErrTopologySpreadingRuleCount):
+			allErrs = append(allErrs, field.Invalid(fldPath, value, err.Error()))
+		case errors.Is(err, utiltas.ErrTopologySpreadingSelectorMissing):
+			allErrs = append(allErrs, field.Required(fldPath.Child("workloadLabelSelectors"), ""))
+		case errors.Is(err, utiltas.ErrTopologySpreadingSelectorInvalid):
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("workloadLabelSelectors"), value, err.Error()))
+		default:
+			allErrs = append(allErrs, field.Invalid(fldPath, value, fmt.Sprintf("must be a valid JSON object: %v", err)))
+		}
+		return allErrs
+	}
+
+	// A selector that does not compile at all was already rejected by the
+	// parse above; what is left to check here are the requirement-shape rules
+	// that compile fine but alpha does not accept.
+	allErrs = append(allErrs, validateSpreadingSelectors(fldPath.Child("workloadLabelSelectors"), spec.WorkloadLabelSelectors)...)
+
+	rulesPath := fldPath.Child("rules")
+	seen := make(map[string]int, len(spec.Rules))
+	for i, rule := range spec.Rules {
+		entryPath := rulesPath.Index(i)
+
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(rule.TopologyKey, entryPath.Child("topologyKey"))...)
+
+		if !isValidShare(rule.MaxShareAllowingPlacement) {
+			allErrs = append(allErrs, field.Invalid(entryPath.Child("maxShareAllowingPlacement"),
+				rule.MaxShareAllowingPlacement.String(), "must be greater than 0 and less than 1"))
+		}
+
+		if rule.EnforcementMode != kueue.TopologySpreadingEnforcementModeRequired && rule.EnforcementMode != kueue.TopologySpreadingEnforcementModePreferred {
+			allErrs = append(allErrs, field.NotSupported(entryPath.Child("enforcementMode"), rule.EnforcementMode,
+				[]kueue.TopologySpreadingEnforcementMode{kueue.TopologySpreadingEnforcementModeRequired, kueue.TopologySpreadingEnforcementModePreferred}))
+		}
+
+		if prevIdx, ok := seen[rule.TopologyKey]; ok {
+			allErrs = append(allErrs, field.Duplicate(entryPath.Child("topologyKey"), fmt.Sprintf("%s (also at index %d)", rule.TopologyKey, prevIdx)))
+		} else {
+			seen[rule.TopologyKey] = i
+		}
+	}
+
+	return allErrs
+}
+
+// isValidShare reports whether q is a share strictly between 0 and 1, the
+// range maxShareAllowingPlacement is defined over. Both bounds are excluded:
+// 0 would make every domain ineligible and 1 would never constrain anything.
+func isValidShare(q resource.Quantity) bool {
+	return q.CmpInt64(0) > 0 && q.CmpInt64(1) < 0
+}
+
+// validateSpreadingSelectors validates the workloadLabelSelectors
+// requirements. Alpha accepts a single "In" requirement; the wire format is
+// metav1.LabelSelectorRequirement so the restriction can be lifted without an
+// annotation format change.
+func validateSpreadingSelectors(fldPath *field.Path, selectors []metav1.LabelSelectorRequirement) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if len(selectors) > maxSpreadingSelectorRequirements {
+		allErrs = append(allErrs, field.TooMany(fldPath, len(selectors), maxSpreadingSelectorRequirements))
+	}
+
+	for i, requirement := range selectors {
+		entryPath := fldPath.Index(i)
+
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(requirement.Key, entryPath.Child("key"))...)
+
+		if requirement.Operator != metav1.LabelSelectorOpIn {
+			allErrs = append(allErrs, field.NotSupported(entryPath.Child("operator"), requirement.Operator,
+				[]metav1.LabelSelectorOperator{metav1.LabelSelectorOpIn}))
+			continue
+		}
+		if len(requirement.Values) == 0 {
+			allErrs = append(allErrs, field.Required(entryPath.Child("values"),
+				fmt.Sprintf("must contain at least one value for the %q operator", metav1.LabelSelectorOpIn)))
 		}
 	}
 

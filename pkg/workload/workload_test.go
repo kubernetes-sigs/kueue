@@ -3569,9 +3569,9 @@ func TestSchedulingHash(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(log, tc.wl1)
-			info1.updateSchedulingHash(log)
+			info1.updateDerivedFields(log)
 			info2 := NewInfo(log, tc.wl2)
-			info2.updateSchedulingHash(log)
+			info2.updateDerivedFields(log)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -3592,7 +3592,7 @@ func TestSchedulingHash(t *testing.T) {
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
-		before.updateSchedulingHash(log)
+		before.updateDerivedFields(log)
 
 		after := NewInfo(log, wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -3604,7 +3604,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.updateSchedulingHash(log)
+		after.updateDerivedFields(log)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -4435,6 +4435,61 @@ func TestCurrentPodsScheduledCondition(t *testing.T) {
 			got := CurrentPodsScheduledCondition(tc.workload, admittedAt)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected condition (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestInfoTopologySpreading(t *testing.T) {
+	validAnnotation := `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`
+	malformedAnnotation := `{"workloadLabelSelectors":`
+
+	cases := map[string]struct {
+		wl           *kueue.Workload
+		featureGates map[featuregate.Feature]bool
+		wantSpec     bool
+	}{
+		"annotation absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+		},
+		"gate off, annotation present: treated as absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
+		},
+		"valid annotation, gate on: populates spec": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:     true,
+		},
+		"malformed annotation, gate on: no panic, treated as absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: malformedAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			_, log := utiltesting.ContextWithLog(t)
+
+			info := NewInfo(log, tc.wl)
+
+			if tc.wantSpec && info.TopologySpreading == nil {
+				t.Errorf("TopologySpreading = nil, want non-nil")
+			}
+			if !tc.wantSpec && info.TopologySpreading != nil {
+				t.Errorf("TopologySpreading = %+v, want nil", info.TopologySpreading)
 			}
 		})
 	}

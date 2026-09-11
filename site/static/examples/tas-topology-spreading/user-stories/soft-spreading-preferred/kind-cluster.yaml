@@ -1,0 +1,24 @@
+# Only TWO zoned workers - deliberately fewer domains than the rule wants.
+#
+# `maxShareAllowingPlacement: "0.45"` needs ceil(1/0.45) = 3 domains before any
+# domain may be reused, but only two exist. After one replica per zone both zones
+# sit at 50% > 45%, so from the third replica onwards EVERY zone is over the
+# threshold. That is the capacity-constrained situation Story 4 is about: with
+# `enforcementMode: Preferred` the replicas are still admitted (least-loaded zone
+# first); with `Required` they would stay pending forever.
+#
+#   kind create cluster --config kind-cluster.yaml
+---
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: tas-spreading-soft
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      topology.kubernetes.io/zone: zone-a
+  - role: worker
+    labels:
+      cloud.provider.com/node-group: tas-group
+      topology.kubernetes.io/zone: zone-b

@@ -268,6 +268,193 @@ func TestValidateTASPodSetRequest_GroupingWithSlicing(t *testing.T) {
 	}
 }
 
+func TestValidateTopologySpreadingAnnotation(t *testing.T) {
+	replicaPath := field.NewPath("spec", "template", "metadata")
+
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		annotations  map[string]string
+		wantErrNum   int
+	}{
+		"valid: single rule with required companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 0,
+		},
+		"valid: two rules with required companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[` +
+					`{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"},` +
+					`{"topologyKey":"cloud.com/gke-tpu-partition","maxShareAllowingPlacement":"0.22","enforcementMode":"Preferred"}]}`,
+			},
+			wantErrNum: 0,
+		},
+		// The annotation is inert while the gate is off, so it is accepted
+		// unvalidated to let operators stage it before enabling the feature.
+		"valid: gate off, annotation left unvalidated": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 0,
+		},
+		"valid: gate off, malformed annotation left unvalidated": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `not-json`,
+			},
+			wantErrNum: 0,
+		},
+		"valid: gate off, annotation without required companion left unvalidated": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
+			annotations: map[string]string{
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 0,
+		},
+		"invalid: no companion TAS annotation": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: preferred companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: unconstrained companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetUnconstrainedTopologyAnnotation: "true",
+				kueue.PodSetTopologySpreadingAnnotation:     `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: malformed JSON": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: empty rules": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: too many rules": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[` +
+					`{"topologyKey":"a","maxShareAllowingPlacement":"0.1"},{"topologyKey":"b","maxShareAllowingPlacement":"0.1"},{"topologyKey":"c","maxShareAllowingPlacement":"0.1"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: selectors omitted": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		// A selector that cannot compile at all is rejected by the parse, which
+		// reports once against workloadLabelSelectors and stops - the
+		// per-requirement checks never run for it.
+		"invalid: selector key is not a valid label name": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"_bad_","operator":"In","values":["main"]}],` +
+					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		// These compile fine, so they reach the alpha-restriction checks and
+		// each gets its own indexed path.
+		"invalid: unsupported operator and more requirements than alpha allows": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[` +
+					`{"key":"app","operator":"In","values":["main"]},` +
+					`{"key":"tier","operator":"NotIn","values":["batch"]}],` +
+					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
+			},
+			// too many requirements + unsupported operator = 2
+			wantErrNum: 2,
+		},
+		"invalid: bad topologyKey, out-of-range share, unknown enforcement mode": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],` +
+					`"rules":[{"topologyKey":"_bad_","maxShareAllowingPlacement":"1.5","enforcementMode":"Sometimes"}]}`,
+			},
+			wantErrNum: 3,
+		},
+		"invalid: share of exactly 1 is out of range": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],` +
+					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"1"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: share of exactly 0 is out of range": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],` +
+					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0"}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: duplicate rule keys": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[` +
+					`{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"},` +
+					`{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.22"}]}`,
+			},
+			wantErrNum: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			meta := &metav1.ObjectMeta{
+				Annotations: tc.annotations,
+			}
+			errs := ValidateTASPodSetRequest(replicaPath, meta)
+			if got := len(errs); got != tc.wantErrNum {
+				t.Errorf("ValidateTASPodSetRequest() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			}
+		})
+	}
+}
+
 func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 	replicaPath := field.NewPath("spec", "template", "metadata")
 

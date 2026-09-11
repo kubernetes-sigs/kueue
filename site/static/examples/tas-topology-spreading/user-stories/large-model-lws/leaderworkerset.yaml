@@ -1,0 +1,73 @@
+# KEP-13746 Story 2: serving a large AI inference model with multiple replicas.
+#
+# The model needs several closely connected Pods, so one LeaderWorkerSet group is
+# one replica. Each group lands in a single rack, and a rack may already hold at
+# most 45% of the groups for the next one to be placed there.
+#
+# Fix applied vs. the KEP story: added `workloadLabelSelectors`. The KEP has the
+# Workload mutating webhook inject a `kueue.x-k8s.io/job-uid` default when the
+# field is omitted; the implementation has no such injection and rejects a
+# missing selector. Every group's Workload carries the same LWS labels, so any
+# shared label works - `app` is used here.
+#
+# `kueue.x-k8s.io/podset-group-name` is load-bearing: it makes leader and worker
+# one spreading unit, counted once per replica rather than twice. It must be the
+# same value for every replica - it comes from the shared template, so it is.
+# Contrast ../large-model-podgroup/, where a per-replica group name is the bug.
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: large-inference-service
+  namespace: story-large-lws
+  labels:
+    kueue.x-k8s.io/queue-name: tas-user-queue
+    # Copied onto each group's Workload via integrations.labelKeysToCopy.
+    app: large-inference-service
+spec:
+  replicas: 6
+  leaderWorkerTemplate:
+    size: 2
+    leaderTemplate:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/rack"
+          kueue.x-k8s.io/podset-group-name: "replica-group"
+          kueue.x-k8s.io/podset-topology-spreading: |
+            {
+              "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["large-inference-service"]}],
+              "rules": [
+                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "0.45"}
+              ]
+            }
+      spec:
+        containers:
+          - name: leader
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+            resources:
+              requests:
+                cpu: "10m"
+                memory: "64Mi"
+    workerTemplate:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/rack"
+          kueue.x-k8s.io/podset-group-name: "replica-group"
+          # Every PodSet in a group must carry the same spreading annotation, or
+          # none may, so this repeats the leader's verbatim.
+          kueue.x-k8s.io/podset-topology-spreading: |
+            {
+              "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["large-inference-service"]}],
+              "rules": [
+                {"topologyKey": "cloud.provider.com/rack", "maxShareAllowingPlacement": "0.45"}
+              ]
+            }
+      spec:
+        containers:
+          - name: worker
+            image: registry.k8s.io/e2e-test-images/agnhost:2.53
+            args: ["pause"]
+            resources:
+              requests:
+                cpu: "10m"
+                memory: "64Mi"

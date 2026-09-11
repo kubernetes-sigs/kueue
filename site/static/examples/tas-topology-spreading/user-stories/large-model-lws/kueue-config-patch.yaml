@@ -1,0 +1,19 @@
+# Fragment to merge into the cluster's existing kueue-manager-config ConfigMap.
+# It is NOT a standalone Configuration to apply as-is (see the README).
+#
+# featureGates: topology spreading is alpha and off by default; it also depends
+# on TopologyAwareScheduling, which the controller refuses to start without.
+#
+# labelKeysToCopy: Kueue copies a job's labels onto the Workload it creates only
+# for keys listed here. For a LeaderWorkerSet the labels are copied from the
+# LeaderWorkerSet object itself (leaderworkerset_reconciler.go calls
+# NewGroupWorkload with the LWS), not from the Pod templates - so the "app"
+# label belongs on the LWS metadata. Without this key the label never reaches
+# the Workload, workloadLabelSelectors matches zero Workloads, and spreading is
+# silently inert.
+featureGates:
+  TopologyAwareScheduling: true
+  TASTopologySpreading: true
+integrations:
+  labelKeysToCopy:
+    - "app"

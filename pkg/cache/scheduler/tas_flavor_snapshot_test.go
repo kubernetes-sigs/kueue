@@ -1809,7 +1809,7 @@ func TestSimulateEmptyKeepsInCycleUsage(t *testing.T) {
 		Count:             1,
 	}
 
-	_, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, true, "", nil)
+	_, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, true, "", nil, nil)
 	if reason == "" {
 		t.Error("findTopologyAssignment() reported a fit while simulating an empty flavor, want none: the rack's two CPUs went to Pods of this same Workload")
 	}
@@ -1870,7 +1870,7 @@ func TestPreferredNodeAffinityIsRespectedWithInjectedHostnameLevel(t *testing.T)
 		Count: 2,
 	}
 
-	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil)
+	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil, nil)
 	if reason != "" {
 		t.Fatalf("findTopologyAssignment() = %q, want the Pods to fit in the preferred rack", reason)
 	}
@@ -1922,7 +1922,7 @@ func TestBalancedPlacementWithInjectedHostnameLevel(t *testing.T) {
 		Count:             6,
 	}
 
-	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil)
+	assignments, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, newAssumedUsage(nil), false, "", nil, nil)
 	if reason != "" {
 		t.Fatalf("findTopologyAssignment() = %q, want the six Pods to fit across both racks", reason)
 	}
@@ -1977,7 +1977,7 @@ func TestAssumedDomainUsageIsNotChargedToNodeOfTheSameName(t *testing.T) {
 		Count:             1,
 	}
 
-	if _, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, false, "", nil); reason != "" {
+	if _, _, reason := snapshot.findTopologyAssignment(ctx, tasRequests, nil, assumedUsage, false, "", nil, nil); reason != "" {
 		t.Errorf("findTopologyAssignment() = %q, want the Pod to fit on the node named r1, which is in rack r2", reason)
 	}
 }
@@ -2107,7 +2107,7 @@ func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
 			workers := podSet("workers", oneCPU, tc.workerCount)
 			leader := podSet("leader", tc.leaderRequests, 1)
 
-			assignments, _, reason := snapshot.findTopologyAssignment(ctx, workers, &leader, newAssumedUsage(nil), false, "", nil)
+			assignments, _, reason := snapshot.findTopologyAssignment(ctx, workers, &leader, newAssumedUsage(nil), false, "", nil, nil)
 			if reason != "" {
 				t.Fatalf("findTopologyAssignment() = %q, want the Pods to fit in rack r2", reason)
 			}
@@ -2292,4 +2292,66 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+func TestValidateSpreadingLevels(t *testing.T) {
+	const (
+		blockLabel = "cloud.com/block"
+		rackLabel  = "cloud.com/rack"
+	)
+	levels := []string{blockLabel, rackLabel, corev1.LabelHostname}
+
+	cases := map[string]struct {
+		spec       *tas.SpreadingSpec
+		requested  string
+		wantReason string
+	}{
+		"no spreading spec": {
+			requested: rackLabel,
+		},
+		"rule above the requested level": {
+			spec:      &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{TopologyKey: blockLabel}}},
+			requested: rackLabel,
+		},
+		"rule at the requested level": {
+			spec:      &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{TopologyKey: rackLabel}}},
+			requested: rackLabel,
+		},
+		"rule below the requested level": {
+			spec:       &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{TopologyKey: rackLabel}}},
+			requested:  blockLabel,
+			wantReason: "topology spreading level cloud.com/rack is below the podset topology cloud.com/block",
+		},
+		"level absent from the topology is skipped": {
+			spec:      &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{TopologyKey: "cloud.com/datacenter"}}},
+			requested: rackLabel,
+		},
+		"absent level skipped, second rule still rejected": {
+			spec: &tas.SpreadingSpec{Rules: []tas.SpreadingRule{
+				{TopologyKey: "cloud.com/datacenter"},
+				{TopologyKey: corev1.LabelHostname},
+			}},
+			requested:  rackLabel,
+			wantReason: "topology spreading level kubernetes.io/hostname is below the podset topology cloud.com/rack",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snapshot := &TASFlavorSnapshot{
+				log:          logr.Discard(),
+				topologyName: "default",
+				topologyTree: &topologyTree{levelKeys: levels},
+			}
+			requestedLevelIdx, found := snapshot.resolveLevelIdx(tc.requested)
+			if !found {
+				t.Fatalf("requested level %q is not part of the test topology", tc.requested)
+			}
+
+			gotReason := snapshot.validateSpreadingLevels(tc.spec, requestedLevelIdx)
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("unexpected reason (-want,+got):\n%s", diff)
+			}
+		})
+	}
 }
