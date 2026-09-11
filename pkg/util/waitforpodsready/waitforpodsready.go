@@ -17,6 +17,9 @@ limitations under the License.
 package waitforpodsready
 
 import (
+	"encoding/json"
+	"time"
+
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -31,4 +34,44 @@ func Enabled(cfg *configapi.WaitForPodsReady) bool {
 func PodsScheduledTrackingEnabled(cfg *configapi.WaitForPodsReady) bool {
 	return cfg != nil && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
 		cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0
+}
+
+// AnnotationConfig holds the parsed content of the WaitForPodsReadyAnnotation,
+// with integer seconds already converted to time.Duration.
+type AnnotationConfig struct {
+	Timeout         time.Duration
+	RecoveryTimeout *time.Duration
+}
+
+// ParseAnnotation parses the JSON value of the WaitForPodsReadyAnnotation into
+// an AnnotationConfig. Returns nil, nil when the annotation value is empty.
+func ParseAnnotation(value string) (*AnnotationConfig, error) {
+	if !WorkloadLevelWaitForPodsReadyEnabled() {
+		return nil, nil
+	}
+	if value == "" {
+		return nil, nil
+	}
+	var raw struct {
+		TimeoutSeconds         int64  `json:"timeoutSeconds"`
+		RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(value), &raw); err != nil {
+		return nil, err
+	}
+	cfg := &AnnotationConfig{
+		Timeout: time.Duration(raw.TimeoutSeconds) * time.Second,
+	}
+	// Mirror the cluster-wide recoveryTimeout semantics: only set when strictly
+	// positive.
+	if raw.RecoveryTimeoutSeconds != nil {
+		rt := time.Duration(*raw.RecoveryTimeoutSeconds) * time.Second
+		cfg.RecoveryTimeout = &rt
+	}
+	return cfg, nil
+}
+
+func WorkloadLevelWaitForPodsReadyEnabled() bool {
+	return features.Enabled(features.WorkloadLevelWaitForPodsReady) &&
+		!features.Enabled(features.DisableWaitForPodsReady)
 }
