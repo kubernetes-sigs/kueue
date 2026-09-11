@@ -1,1 +1,1 @@
-FROM ghcr.io/stbenjam/skillsaw:0.18.0
+FROM ghcr.io/stbenjam/skillsaw:0.20.0
