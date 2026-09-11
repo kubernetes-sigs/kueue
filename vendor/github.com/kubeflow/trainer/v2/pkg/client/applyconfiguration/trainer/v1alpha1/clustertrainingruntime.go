@@ -31,7 +31,7 @@ import (
 // `runtimeRef` API in TrainJob. This resource is a cluster-scoped and can be referenced
 // by TrainJob that created in *any* namespace.
 type ClusterTrainingRuntimeApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata of the ClusterTrainingRuntime.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec of the ClusterTrainingRuntime.

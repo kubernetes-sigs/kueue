@@ -29,7 +29,7 @@ import (
 //
 // Workload is the Schema for the workloads API
 type WorkloadApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the Workload.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification of the Workload.

@@ -159,6 +159,9 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 	if cfg.RecoveryTimeout != nil && cfg.RecoveryTimeout.Duration > 0 {
 		result.recoveryTimeout = &cfg.RecoveryTimeout.Duration
 	}
+	if waitforpodsready.PodsScheduledTrackingEnabled(cfg) {
+		result.unscheduledTimeout = &cfg.UnscheduledTimeout.Duration
+	}
 	if cfg.RequeuingStrategy != nil {
 		result.requeuingBackoffBaseSeconds = *cfg.RequeuingStrategy.BackoffBaseSeconds
 		result.requeuingBackoffLimitCount = cfg.RequeuingStrategy.BackoffLimitCount

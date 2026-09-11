@@ -102,19 +102,24 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 
 func newWASSimulator(ctx context.Context, client kubernetes.Interface) (*wasSimulator, error) {
 	cfg := newWASSchedulerConfig()
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
-
-	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
-	_ = informerFactory.Core().V1().Nodes().Informer()
-	_ = informerFactory.Core().V1().Pods().Informer()
-	informerFactory.StartWithContext(ctx)
-	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
-		return nil, err
-	}
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
+		// Building the framework registers a DRA index on the factory it is given, so it
+		// cannot be shared across snapshots, and the enabled plugins read the snapshot
+		// rather than the informers, so it is not needed once the framework is built.
+		buildCtx, cancelBuild := context.WithCancel(ctx)
+		defer cancelBuild()
+		informerFactory := informers.NewSharedInformerFactory(client, 0)
+
+		// Register node and pod informers with the factory; sync errors are caught by AsError() below.
+		_ = informerFactory.Core().V1().Nodes().Informer()
+		_ = informerFactory.Core().V1().Pods().Informer()
+		informerFactory.StartWithContext(buildCtx)
+		if err := informerFactory.WaitForCacheSyncWithContext(buildCtx).AsError(); err != nil {
+			return nil, err
+		}
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := framework.NewProfileMap(ctx, client, informerFactory, snap, cfg)
+		profiles, err := framework.NewProfileMap(buildCtx, client, informerFactory, snap, cfg)
 		if err != nil {
 			return nil, err
 		}

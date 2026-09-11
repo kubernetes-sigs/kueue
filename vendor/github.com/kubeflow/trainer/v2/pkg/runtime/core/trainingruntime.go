@@ -112,6 +112,12 @@ func (r *TrainingRuntime) NewObjects(ctx context.Context, trainJob *trainer.Trai
 	return r.framework.RunComponentBuilderPlugins(ctx, info, trainJob)
 }
 
+// RuntimeInfo builds the Info object for a TrainJob and consolidates it through the
+// Build Phase extension points, in this order:
+//  1. EnforceMLPolicy, then EnforcePodGroupPolicy, for the parameters declared in the
+//     runtime `.spec.mlPolicy` and `.spec.podGroupPolicy`.
+//  2. EnforcePodSpec, for the PodSet concerns enabled outside of MLPolicy and PodGroupPolicy APIs.
+//  3. PreBuildSync, which consolidates the Info object with the concrete runtime template.
 func (r *TrainingRuntime) RuntimeInfo(
 	trainJob *trainer.TrainJob, runtimeTemplateSpec any, mlPolicy *trainer.MLPolicy, podGroupPolicy *trainer.PodGroupPolicy,
 ) (*runtime.Info, error) {
@@ -130,8 +136,10 @@ func (r *TrainingRuntime) RuntimeInfo(
 	if err = r.framework.RunEnforcePodGroupPolicyPlugins(info, trainJob); err != nil {
 		return nil, err
 	}
-
-	if err = r.framework.RunPodNetworkPlugins(info, trainJob); err != nil {
+	if err = r.framework.RunEnforcePodSpecPlugins(info, trainJob); err != nil {
+		return nil, err
+	}
+	if err = r.framework.RunPreComponentBuilderPlugins(info, trainJob); err != nil {
 		return nil, err
 	}
 
@@ -302,16 +310,43 @@ func (r *TrainingRuntime) EventHandlerRegistrars() []runtime.ReconcilerBuilder {
 }
 
 func (r *TrainingRuntime) ValidateObjects(ctx context.Context, old, new *trainer.TrainJob) (admission.Warnings, field.ErrorList) {
+	// Validate against the snapshot the TrainJob was built from, falling back to the live
+	// runtime when no snapshot exists yet, as NewObjects does.
 	trainingRuntime := &trainer.TrainingRuntime{}
-	if err := r.client.Get(ctx, client.ObjectKey{
-		Namespace: new.Namespace,
-		Name:      new.Spec.RuntimeRef.Name,
-	}, trainingRuntime); err != nil {
-		return nil, field.ErrorList{
-			field.Invalid(field.NewPath("spec", "runtimeRef"), new.Spec.RuntimeRef,
-				fmt.Sprintf("%v: specified trainingRuntime must be created before the TrainJob is created", err)),
+	if err := getRuntimeSnapshot(ctx, r.client, new, trainingRuntime); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, field.ErrorList{
+				field.InternalError(field.NewPath("spec", "runtimeRef"), fmt.Errorf("unable to get runtime snapshot: %w", err)),
+			}
+		}
+		trainingRuntime = &trainer.TrainingRuntime{}
+		if err := r.client.Get(ctx, client.ObjectKey{
+			Namespace: new.Namespace,
+			Name:      new.Spec.RuntimeRef.Name,
+		}, trainingRuntime); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return nil, field.ErrorList{
+					field.InternalError(field.NewPath("spec", "runtimeRef"), fmt.Errorf("unable to get trainingRuntime: %w", err)),
+				}
+			}
+			return nil, field.ErrorList{
+				field.Invalid(field.NewPath("spec", "runtimeRef"), new.Spec.RuntimeRef,
+					fmt.Sprintf("%v: specified trainingRuntime must be created before the TrainJob is created", err)),
+			}
 		}
 	}
+	var warnings admission.Warnings
+	if trainingruntimeutil.IsSupportDeprecated(trainingRuntime.Labels) {
+		warnings = append(warnings, fmt.Sprintf(
+			"Referenced TrainingRuntime \"%s\" is deprecated and will be removed in a future release of Kubeflow Trainer. See runtime deprecation policy: %s",
+			trainingRuntime.Name,
+			constants.RuntimeDeprecationPolicyURL,
+		))
+	}
 	info, _ := r.newRuntimeInfo(new, trainingRuntime.Spec.Template, trainingRuntime.Spec.MLPolicy, trainingRuntime.Spec.PodGroupPolicy) // ignoring the error here as the runtime configured should be valid
-	return r.framework.RunCustomValidationPlugins(ctx, info, old, new)
+	fwWarnings, errs := r.framework.RunCustomValidationPlugins(ctx, info, old, new)
+	if len(fwWarnings) != 0 {
+		warnings = append(warnings, fwWarnings...)
+	}
+	return warnings, errs
 }

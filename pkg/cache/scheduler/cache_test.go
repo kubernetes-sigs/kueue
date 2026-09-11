@@ -1066,7 +1066,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.hm.ClusterQueues(),
 				cmpopts.IgnoreFields(clusterQueue{}, "ResourceGroups"),
-				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment", "SchedulingHash"),
+				cmpopts.IgnoreFields(workload.Info{}, "Obj", "FlavorScanState", "SchedulingHash"),
 				cmpopts.IgnoreUnexported(clusterQueue{}, hierarchy.ClusterQueue[*cohort]{}),
 				cmp.Comparer(resources.Equal),
 				cmpopts.EquateEmpty()); diff != "" {

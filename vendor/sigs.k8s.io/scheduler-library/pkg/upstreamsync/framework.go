@@ -55,7 +55,10 @@ Common initialization logic would prevent accidental divergence between the libr
 The library would need to ensure the provided clientset intercepts and prevents resource mutations.
 
 
-Extracted from kubernetes/kubernetes/pkg/upstreamsync/scheduler/scheduler.go
+Extracted from kubernetes/kubernetes/pkg/scheduler/scheduler.go
+
+Deviations from the upstream scheduler.New are marked with the "UPSTREAM-DIFF:" prefix,
+see pkg/upstreamsync/doc.go.
 
 */
 
@@ -72,10 +75,21 @@ type frameworkOptions struct {
 
 type Option = func(*frameworkOptions)
 
+// ProfileMap holds one framework.Framework per scheduler name.
+//
+// UPSTREAM-DIFF: library-only. Upstream keeps the profile.Map inside the Scheduler and resolves the
+// framework in Scheduler.frameworkForPod; the library has no Scheduler holding long-lived state,
+// so the map is passed around explicitly.
 type ProfileMap struct {
 	profile.Map
 }
 
+// FrameworkForPod returns the framework of the profile the pod asked for, defaulting to the
+// default scheduler name when the pod does not name one.
+//
+// UPSTREAM-DIFF: adapted from Scheduler.frameworkForPod in schedule_one.go, which looks the profile
+// up by pod.Spec.SchedulerName as-is. Pods admitted by the API server always have that field
+// defaulted, while simulated pods may not, so an empty name is mapped to the default profile here.
 func (p *ProfileMap) FrameworkForPod(pod *v1.Pod) (framework.Framework, error) {
 	schedulerName := pod.Spec.SchedulerName
 	// This won't happen if we're dealing with real pods, but may happen when running simulations
@@ -96,6 +110,14 @@ func WithProfiles(p ...schedulerapi.KubeSchedulerProfile) Option {
 	}
 }
 
+// NewProfileMap builds the scheduling profiles out of the given configuration and dependencies.
+//
+// UPSTREAM-DIFF: extracted from scheduler.New, keeping only the framework construction. Everything
+// that a running scheduler needs and a simulation does not — the scheduling queue, the event
+// handlers, the cache and its debugger, the binding machinery — is dropped. The snapshot, the
+// nominator, the activator and the API cacher are supplied by the caller instead of being created
+// here, so that the caller can share the snapshot with the frameworks and neutralize the extension
+// points that would otherwise reach the API server (see pkg/framework).
 func NewProfileMap(ctx context.Context,
 	client clientset.Interface,
 	informerFactory informers.SharedInformerFactory,
@@ -158,8 +180,7 @@ func NewProfileMap(ctx context.Context,
 		// If device taint rules are disabled, the additional informers are not needed and
 		// the tracker turns into a simple wrapper around the slice informer.
 		if resourceSliceTrackerOpts.EnableDeviceTaintRules {
-			resourceSliceTrackerOpts.TaintInformer = informerFactory.Resource().V1beta2().DeviceTaintRules()
-			resourceSliceTrackerOpts.ClassInformer = informerFactory.Resource().V1().DeviceClasses()
+			resourceSliceTrackerOpts.TaintInformer = informerFactory.Resource().V1().DeviceTaintRules()
 		}
 		resourceSliceTracker, err = resourceslicetracker.StartTracker(ctx, resourceSliceTrackerOpts)
 		if err != nil {
@@ -174,7 +195,7 @@ func NewProfileMap(ctx context.Context,
 		apiDispatcher = apidispatcher.New(client, int(options.parallelism), apicalls.Relevances)
 	}
 
-	schedulerCache := internalcache.New(ctx, apiDispatcher, feature.DefaultFeatureGate.Enabled(features.GenericWorkload))
+	schedulerCache := internalcache.New(ctx, apiDispatcher, feature.DefaultFeatureGate.Enabled(features.GenericWorkload), feature.DefaultFeatureGate.Enabled(features.CompositePodGroup))
 
 	profileMap, err := profile.NewMap(ctx, options.profiles, registry, recorderFactory,
 		frameworkruntime.WithClientSet(client),

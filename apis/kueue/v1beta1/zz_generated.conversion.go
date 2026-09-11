@@ -25,7 +25,6 @@ import (
 	unsafe "unsafe"
 
 	corev1 "k8s.io/api/core/v1"
-	resource "k8s.io/apimachinery/pkg/api/resource"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	conversion "k8s.io/apimachinery/pkg/conversion"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -899,9 +898,7 @@ func Convert_v1beta2_AdmissionCheckList_To_v1beta1_AdmissionCheckList(in *v1beta
 }
 
 func autoConvert_v1beta1_AdmissionCheckParametersReference_To_v1beta2_AdmissionCheckParametersReference(in *AdmissionCheckParametersReference, out *v1beta2.AdmissionCheckParametersReference, s conversion.Scope) error {
-	out.APIGroup = in.APIGroup
-	out.Kind = in.Kind
-	out.Name = in.Name
+	*out = *(*v1beta2.AdmissionCheckParametersReference)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -911,9 +908,7 @@ func Convert_v1beta1_AdmissionCheckParametersReference_To_v1beta2_AdmissionCheck
 }
 
 func autoConvert_v1beta2_AdmissionCheckParametersReference_To_v1beta1_AdmissionCheckParametersReference(in *v1beta2.AdmissionCheckParametersReference, out *AdmissionCheckParametersReference, s conversion.Scope) error {
-	out.APIGroup = in.APIGroup
-	out.Kind = in.Kind
-	out.Name = in.Name
+	*out = *(*AdmissionCheckParametersReference)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -941,13 +936,7 @@ func Convert_v1beta2_AdmissionCheckSpec_To_v1beta1_AdmissionCheckSpec(in *v1beta
 }
 
 func autoConvert_v1beta1_AdmissionCheckState_To_v1beta2_AdmissionCheckState(in *AdmissionCheckState, out *v1beta2.AdmissionCheckState, s conversion.Scope) error {
-	out.Name = v1beta2.AdmissionCheckReference(in.Name)
-	out.State = v1beta2.CheckState(in.State)
-	out.LastTransitionTime = in.LastTransitionTime
-	out.Message = in.Message
-	out.RequeueAfterSeconds = (*int32)(unsafe.Pointer(in.RequeueAfterSeconds))
-	out.RetryCount = (*int32)(unsafe.Pointer(in.RetryCount))
-	out.PodSetUpdates = *(*[]v1beta2.PodSetUpdate)(unsafe.Pointer(&in.PodSetUpdates))
+	*out = *(*v1beta2.AdmissionCheckState)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -957,13 +946,7 @@ func Convert_v1beta1_AdmissionCheckState_To_v1beta2_AdmissionCheckState(in *Admi
 }
 
 func autoConvert_v1beta2_AdmissionCheckState_To_v1beta1_AdmissionCheckState(in *v1beta2.AdmissionCheckState, out *AdmissionCheckState, s conversion.Scope) error {
-	out.Name = AdmissionCheckReference(in.Name)
-	out.State = CheckState(in.State)
-	out.LastTransitionTime = in.LastTransitionTime
-	out.Message = in.Message
-	out.RequeueAfterSeconds = (*int32)(unsafe.Pointer(in.RequeueAfterSeconds))
-	out.RetryCount = (*int32)(unsafe.Pointer(in.RetryCount))
-	out.PodSetUpdates = *(*[]PodSetUpdate)(unsafe.Pointer(&in.PodSetUpdates))
+	*out = *(*AdmissionCheckState)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -973,7 +956,7 @@ func Convert_v1beta2_AdmissionCheckState_To_v1beta1_AdmissionCheckState(in *v1be
 }
 
 func autoConvert_v1beta1_AdmissionCheckStatus_To_v1beta2_AdmissionCheckStatus(in *AdmissionCheckStatus, out *v1beta2.AdmissionCheckStatus, s conversion.Scope) error {
-	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
+	*out = *(*v1beta2.AdmissionCheckStatus)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -983,7 +966,7 @@ func Convert_v1beta1_AdmissionCheckStatus_To_v1beta2_AdmissionCheckStatus(in *Ad
 }
 
 func autoConvert_v1beta2_AdmissionCheckStatus_To_v1beta1_AdmissionCheckStatus(in *v1beta2.AdmissionCheckStatus, out *AdmissionCheckStatus, s conversion.Scope) error {
-	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
+	*out = *(*AdmissionCheckStatus)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -993,8 +976,7 @@ func Convert_v1beta2_AdmissionCheckStatus_To_v1beta1_AdmissionCheckStatus(in *v1
 }
 
 func autoConvert_v1beta1_AdmissionCheckStrategyRule_To_v1beta2_AdmissionCheckStrategyRule(in *AdmissionCheckStrategyRule, out *v1beta2.AdmissionCheckStrategyRule, s conversion.Scope) error {
-	out.Name = v1beta2.AdmissionCheckReference(in.Name)
-	out.OnFlavors = *(*[]v1beta2.ResourceFlavorReference)(unsafe.Pointer(&in.OnFlavors))
+	*out = *(*v1beta2.AdmissionCheckStrategyRule)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1004,8 +986,7 @@ func Convert_v1beta1_AdmissionCheckStrategyRule_To_v1beta2_AdmissionCheckStrateg
 }
 
 func autoConvert_v1beta2_AdmissionCheckStrategyRule_To_v1beta1_AdmissionCheckStrategyRule(in *v1beta2.AdmissionCheckStrategyRule, out *AdmissionCheckStrategyRule, s conversion.Scope) error {
-	out.Name = AdmissionCheckReference(in.Name)
-	out.OnFlavors = *(*[]ResourceFlavorReference)(unsafe.Pointer(&in.OnFlavors))
+	*out = *(*AdmissionCheckStrategyRule)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1015,7 +996,7 @@ func Convert_v1beta2_AdmissionCheckStrategyRule_To_v1beta1_AdmissionCheckStrateg
 }
 
 func autoConvert_v1beta1_AdmissionChecksStrategy_To_v1beta2_AdmissionChecksStrategy(in *AdmissionChecksStrategy, out *v1beta2.AdmissionChecksStrategy, s conversion.Scope) error {
-	out.AdmissionChecks = *(*[]v1beta2.AdmissionCheckStrategyRule)(unsafe.Pointer(&in.AdmissionChecks))
+	*out = *(*v1beta2.AdmissionChecksStrategy)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1025,7 +1006,7 @@ func Convert_v1beta1_AdmissionChecksStrategy_To_v1beta2_AdmissionChecksStrategy(
 }
 
 func autoConvert_v1beta2_AdmissionChecksStrategy_To_v1beta1_AdmissionChecksStrategy(in *v1beta2.AdmissionChecksStrategy, out *AdmissionChecksStrategy, s conversion.Scope) error {
-	out.AdmissionChecks = *(*[]AdmissionCheckStrategyRule)(unsafe.Pointer(&in.AdmissionChecks))
+	*out = *(*AdmissionChecksStrategy)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1035,7 +1016,7 @@ func Convert_v1beta2_AdmissionChecksStrategy_To_v1beta1_AdmissionChecksStrategy(
 }
 
 func autoConvert_v1beta1_AdmissionScope_To_v1beta2_AdmissionScope(in *AdmissionScope, out *v1beta2.AdmissionScope, s conversion.Scope) error {
-	out.AdmissionMode = v1beta2.AdmissionMode(in.AdmissionMode)
+	*out = *(*v1beta2.AdmissionScope)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1045,7 +1026,7 @@ func Convert_v1beta1_AdmissionScope_To_v1beta2_AdmissionScope(in *AdmissionScope
 }
 
 func autoConvert_v1beta2_AdmissionScope_To_v1beta1_AdmissionScope(in *v1beta2.AdmissionScope, out *AdmissionScope, s conversion.Scope) error {
-	out.AdmissionMode = AdmissionMode(in.AdmissionMode)
+	*out = *(*AdmissionScope)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1055,8 +1036,7 @@ func Convert_v1beta2_AdmissionScope_To_v1beta1_AdmissionScope(in *v1beta2.Admiss
 }
 
 func autoConvert_v1beta1_BorrowWithinCohort_To_v1beta2_BorrowWithinCohort(in *BorrowWithinCohort, out *v1beta2.BorrowWithinCohort, s conversion.Scope) error {
-	out.Policy = v1beta2.BorrowWithinCohortPolicy(in.Policy)
-	out.MaxPriorityThreshold = (*int32)(unsafe.Pointer(in.MaxPriorityThreshold))
+	*out = *(*v1beta2.BorrowWithinCohort)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1066,8 +1046,7 @@ func Convert_v1beta1_BorrowWithinCohort_To_v1beta2_BorrowWithinCohort(in *Borrow
 }
 
 func autoConvert_v1beta2_BorrowWithinCohort_To_v1beta1_BorrowWithinCohort(in *v1beta2.BorrowWithinCohort, out *BorrowWithinCohort, s conversion.Scope) error {
-	out.Policy = BorrowWithinCohortPolicy(in.Policy)
-	out.MaxPriorityThreshold = (*int32)(unsafe.Pointer(in.MaxPriorityThreshold))
+	*out = *(*BorrowWithinCohort)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1077,7 +1056,7 @@ func Convert_v1beta2_BorrowWithinCohort_To_v1beta1_BorrowWithinCohort(in *v1beta
 }
 
 func autoConvert_v1beta1_ClusterProfileReference_To_v1beta2_ClusterProfileReference(in *ClusterProfileReference, out *v1beta2.ClusterProfileReference, s conversion.Scope) error {
-	out.Name = in.Name
+	*out = *(*v1beta2.ClusterProfileReference)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1087,7 +1066,7 @@ func Convert_v1beta1_ClusterProfileReference_To_v1beta2_ClusterProfileReference(
 }
 
 func autoConvert_v1beta2_ClusterProfileReference_To_v1beta1_ClusterProfileReference(in *v1beta2.ClusterProfileReference, out *ClusterProfileReference, s conversion.Scope) error {
-	out.Name = in.Name
+	*out = *(*ClusterProfileReference)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1171,9 +1150,7 @@ func Convert_v1beta2_ClusterQueueList_To_v1beta1_ClusterQueueList(in *v1beta2.Cl
 }
 
 func autoConvert_v1beta1_ClusterQueuePreemption_To_v1beta2_ClusterQueuePreemption(in *ClusterQueuePreemption, out *v1beta2.ClusterQueuePreemption, s conversion.Scope) error {
-	out.ReclaimWithinCohort = v1beta2.PreemptionPolicy(in.ReclaimWithinCohort)
-	out.BorrowWithinCohort = (*v1beta2.BorrowWithinCohort)(unsafe.Pointer(in.BorrowWithinCohort))
-	out.WithinClusterQueue = v1beta2.PreemptionPolicy(in.WithinClusterQueue)
+	*out = *(*v1beta2.ClusterQueuePreemption)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1183,9 +1160,7 @@ func Convert_v1beta1_ClusterQueuePreemption_To_v1beta2_ClusterQueuePreemption(in
 }
 
 func autoConvert_v1beta2_ClusterQueuePreemption_To_v1beta1_ClusterQueuePreemption(in *v1beta2.ClusterQueuePreemption, out *ClusterQueuePreemption, s conversion.Scope) error {
-	out.ReclaimWithinCohort = PreemptionPolicy(in.ReclaimWithinCohort)
-	out.BorrowWithinCohort = (*BorrowWithinCohort)(unsafe.Pointer(in.BorrowWithinCohort))
-	out.WithinClusterQueue = PreemptionPolicy(in.WithinClusterQueue)
+	*out = *(*ClusterQueuePreemption)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1339,9 +1314,7 @@ func Convert_v1beta2_CohortList_To_v1beta1_CohortList(in *v1beta2.CohortList, ou
 }
 
 func autoConvert_v1beta1_CohortSpec_To_v1beta2_CohortSpec(in *CohortSpec, out *v1beta2.CohortSpec, s conversion.Scope) error {
-	out.ParentName = v1beta2.CohortReference(in.ParentName)
-	out.ResourceGroups = *(*[]v1beta2.ResourceGroup)(unsafe.Pointer(&in.ResourceGroups))
-	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
+	*out = *(*v1beta2.CohortSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1351,9 +1324,7 @@ func Convert_v1beta1_CohortSpec_To_v1beta2_CohortSpec(in *CohortSpec, out *v1bet
 }
 
 func autoConvert_v1beta2_CohortSpec_To_v1beta1_CohortSpec(in *v1beta2.CohortSpec, out *CohortSpec, s conversion.Scope) error {
-	out.ParentName = CohortReference(in.ParentName)
-	out.ResourceGroups = *(*[]ResourceGroup)(unsafe.Pointer(&in.ResourceGroups))
-	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
+	*out = *(*CohortSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1395,7 +1366,7 @@ func autoConvert_v1beta2_CohortStatus_To_v1beta1_CohortStatus(in *v1beta2.Cohort
 }
 
 func autoConvert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1beta2.FairSharing, s conversion.Scope) error {
-	out.Weight = (*resource.Quantity)(unsafe.Pointer(in.Weight))
+	*out = *(*v1beta2.FairSharing)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1405,7 +1376,7 @@ func Convert_v1beta1_FairSharing_To_v1beta2_FairSharing(in *FairSharing, out *v1
 }
 
 func autoConvert_v1beta2_FairSharing_To_v1beta1_FairSharing(in *v1beta2.FairSharing, out *FairSharing, s conversion.Scope) error {
-	out.Weight = (*resource.Quantity)(unsafe.Pointer(in.Weight))
+	*out = *(*FairSharing)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1431,9 +1402,7 @@ func Convert_v1beta2_FairSharingStatus_To_v1beta1_FairSharingStatus(in *v1beta2.
 }
 
 func autoConvert_v1beta1_FlavorFungibility_To_v1beta2_FlavorFungibility(in *FlavorFungibility, out *v1beta2.FlavorFungibility, s conversion.Scope) error {
-	out.WhenCanBorrow = v1beta2.FlavorFungibilityPolicy(in.WhenCanBorrow)
-	out.WhenCanPreempt = v1beta2.FlavorFungibilityPolicy(in.WhenCanPreempt)
-	out.Preference = (*v1beta2.FlavorFungibilityPreference)(unsafe.Pointer(in.Preference))
+	*out = *(*v1beta2.FlavorFungibility)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1443,9 +1412,7 @@ func Convert_v1beta1_FlavorFungibility_To_v1beta2_FlavorFungibility(in *FlavorFu
 }
 
 func autoConvert_v1beta2_FlavorFungibility_To_v1beta1_FlavorFungibility(in *v1beta2.FlavorFungibility, out *FlavorFungibility, s conversion.Scope) error {
-	out.WhenCanBorrow = FlavorFungibilityPolicy(in.WhenCanBorrow)
-	out.WhenCanPreempt = FlavorFungibilityPolicy(in.WhenCanPreempt)
-	out.Preference = (*FlavorFungibilityPreference)(unsafe.Pointer(in.Preference))
+	*out = *(*FlavorFungibility)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1455,8 +1422,7 @@ func Convert_v1beta2_FlavorFungibility_To_v1beta1_FlavorFungibility(in *v1beta2.
 }
 
 func autoConvert_v1beta1_FlavorQuotas_To_v1beta2_FlavorQuotas(in *FlavorQuotas, out *v1beta2.FlavorQuotas, s conversion.Scope) error {
-	out.Name = v1beta2.ResourceFlavorReference(in.Name)
-	out.Resources = *(*[]v1beta2.ResourceQuota)(unsafe.Pointer(&in.Resources))
+	*out = *(*v1beta2.FlavorQuotas)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1466,8 +1432,7 @@ func Convert_v1beta1_FlavorQuotas_To_v1beta2_FlavorQuotas(in *FlavorQuotas, out 
 }
 
 func autoConvert_v1beta2_FlavorQuotas_To_v1beta1_FlavorQuotas(in *v1beta2.FlavorQuotas, out *FlavorQuotas, s conversion.Scope) error {
-	out.Name = ResourceFlavorReference(in.Name)
-	out.Resources = *(*[]ResourceQuota)(unsafe.Pointer(&in.Resources))
+	*out = *(*FlavorQuotas)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1477,8 +1442,7 @@ func Convert_v1beta2_FlavorQuotas_To_v1beta1_FlavorQuotas(in *v1beta2.FlavorQuot
 }
 
 func autoConvert_v1beta1_FlavorUsage_To_v1beta2_FlavorUsage(in *FlavorUsage, out *v1beta2.FlavorUsage, s conversion.Scope) error {
-	out.Name = v1beta2.ResourceFlavorReference(in.Name)
-	out.Resources = *(*[]v1beta2.ResourceUsage)(unsafe.Pointer(&in.Resources))
+	*out = *(*v1beta2.FlavorUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1488,8 +1452,7 @@ func Convert_v1beta1_FlavorUsage_To_v1beta2_FlavorUsage(in *FlavorUsage, out *v1
 }
 
 func autoConvert_v1beta2_FlavorUsage_To_v1beta1_FlavorUsage(in *v1beta2.FlavorUsage, out *FlavorUsage, s conversion.Scope) error {
-	out.Name = ResourceFlavorReference(in.Name)
-	out.Resources = *(*[]ResourceUsage)(unsafe.Pointer(&in.Resources))
+	*out = *(*FlavorUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1499,8 +1462,7 @@ func Convert_v1beta2_FlavorUsage_To_v1beta1_FlavorUsage(in *v1beta2.FlavorUsage,
 }
 
 func autoConvert_v1beta1_KubeConfig_To_v1beta2_KubeConfig(in *KubeConfig, out *v1beta2.KubeConfig, s conversion.Scope) error {
-	out.Location = in.Location
-	out.LocationType = v1beta2.LocationType(in.LocationType)
+	*out = *(*v1beta2.KubeConfig)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1510,8 +1472,7 @@ func Convert_v1beta1_KubeConfig_To_v1beta2_KubeConfig(in *KubeConfig, out *v1bet
 }
 
 func autoConvert_v1beta2_KubeConfig_To_v1beta1_KubeConfig(in *v1beta2.KubeConfig, out *KubeConfig, s conversion.Scope) error {
-	out.Location = in.Location
-	out.LocationType = LocationType(in.LocationType)
+	*out = *(*KubeConfig)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1553,8 +1514,7 @@ func Convert_v1beta2_LocalQueue_To_v1beta1_LocalQueue(in *v1beta2.LocalQueue, ou
 }
 
 func autoConvert_v1beta1_LocalQueueFlavorUsage_To_v1beta2_LocalQueueFlavorUsage(in *LocalQueueFlavorUsage, out *v1beta2.LocalQueueFlavorUsage, s conversion.Scope) error {
-	out.Name = v1beta2.ResourceFlavorReference(in.Name)
-	out.Resources = *(*[]v1beta2.LocalQueueResourceUsage)(unsafe.Pointer(&in.Resources))
+	*out = *(*v1beta2.LocalQueueFlavorUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1564,8 +1524,7 @@ func Convert_v1beta1_LocalQueueFlavorUsage_To_v1beta2_LocalQueueFlavorUsage(in *
 }
 
 func autoConvert_v1beta2_LocalQueueFlavorUsage_To_v1beta1_LocalQueueFlavorUsage(in *v1beta2.LocalQueueFlavorUsage, out *LocalQueueFlavorUsage, s conversion.Scope) error {
-	out.Name = ResourceFlavorReference(in.Name)
-	out.Resources = *(*[]LocalQueueResourceUsage)(unsafe.Pointer(&in.Resources))
+	*out = *(*LocalQueueFlavorUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1617,8 +1576,7 @@ func Convert_v1beta2_LocalQueueList_To_v1beta1_LocalQueueList(in *v1beta2.LocalQ
 }
 
 func autoConvert_v1beta1_LocalQueueResourceUsage_To_v1beta2_LocalQueueResourceUsage(in *LocalQueueResourceUsage, out *v1beta2.LocalQueueResourceUsage, s conversion.Scope) error {
-	out.Name = corev1.ResourceName(in.Name)
-	out.Total = in.Total
+	*out = *(*v1beta2.LocalQueueResourceUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1628,8 +1586,7 @@ func Convert_v1beta1_LocalQueueResourceUsage_To_v1beta2_LocalQueueResourceUsage(
 }
 
 func autoConvert_v1beta2_LocalQueueResourceUsage_To_v1beta1_LocalQueueResourceUsage(in *v1beta2.LocalQueueResourceUsage, out *LocalQueueResourceUsage, s conversion.Scope) error {
-	out.Name = corev1.ResourceName(in.Name)
-	out.Total = in.Total
+	*out = *(*LocalQueueResourceUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1639,9 +1596,7 @@ func Convert_v1beta2_LocalQueueResourceUsage_To_v1beta1_LocalQueueResourceUsage(
 }
 
 func autoConvert_v1beta1_LocalQueueSpec_To_v1beta2_LocalQueueSpec(in *LocalQueueSpec, out *v1beta2.LocalQueueSpec, s conversion.Scope) error {
-	out.ClusterQueue = v1beta2.ClusterQueueReference(in.ClusterQueue)
-	out.StopPolicy = (*v1beta2.StopPolicy)(unsafe.Pointer(in.StopPolicy))
-	out.FairSharing = (*v1beta2.FairSharing)(unsafe.Pointer(in.FairSharing))
+	*out = *(*v1beta2.LocalQueueSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1651,9 +1606,7 @@ func Convert_v1beta1_LocalQueueSpec_To_v1beta2_LocalQueueSpec(in *LocalQueueSpec
 }
 
 func autoConvert_v1beta2_LocalQueueSpec_To_v1beta1_LocalQueueSpec(in *v1beta2.LocalQueueSpec, out *LocalQueueSpec, s conversion.Scope) error {
-	out.ClusterQueue = ClusterQueueReference(in.ClusterQueue)
-	out.StopPolicy = (*StopPolicy)(unsafe.Pointer(in.StopPolicy))
-	out.FairSharing = (*FairSharing)(unsafe.Pointer(in.FairSharing))
+	*out = *(*LocalQueueSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1771,7 +1724,7 @@ func autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(
 }
 
 func autoConvert_v1beta1_MultiKueueClusterStatus_To_v1beta2_MultiKueueClusterStatus(in *MultiKueueClusterStatus, out *v1beta2.MultiKueueClusterStatus, s conversion.Scope) error {
-	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
+	*out = *(*v1beta2.MultiKueueClusterStatus)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1781,7 +1734,7 @@ func Convert_v1beta1_MultiKueueClusterStatus_To_v1beta2_MultiKueueClusterStatus(
 }
 
 func autoConvert_v1beta2_MultiKueueClusterStatus_To_v1beta1_MultiKueueClusterStatus(in *v1beta2.MultiKueueClusterStatus, out *MultiKueueClusterStatus, s conversion.Scope) error {
-	out.Conditions = *(*[]v1.Condition)(unsafe.Pointer(&in.Conditions))
+	*out = *(*MultiKueueClusterStatus)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1965,8 +1918,7 @@ func Convert_v1beta2_PodSetAssignment_To_v1beta1_PodSetAssignment(in *v1beta2.Po
 }
 
 func autoConvert_v1beta1_PodSetRequest_To_v1beta2_PodSetRequest(in *PodSetRequest, out *v1beta2.PodSetRequest, s conversion.Scope) error {
-	out.Name = v1beta2.PodSetReference(in.Name)
-	out.Resources = *(*corev1.ResourceList)(unsafe.Pointer(&in.Resources))
+	*out = *(*v1beta2.PodSetRequest)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -1976,8 +1928,7 @@ func Convert_v1beta1_PodSetRequest_To_v1beta2_PodSetRequest(in *PodSetRequest, o
 }
 
 func autoConvert_v1beta2_PodSetRequest_To_v1beta1_PodSetRequest(in *v1beta2.PodSetRequest, out *PodSetRequest, s conversion.Scope) error {
-	out.Name = PodSetReference(in.Name)
-	out.Resources = *(*corev1.ResourceList)(unsafe.Pointer(&in.Resources))
+	*out = *(*PodSetRequest)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2019,11 +1970,7 @@ func autoConvert_v1beta2_PodSetTopologyRequest_To_v1beta1_PodSetTopologyRequest(
 }
 
 func autoConvert_v1beta1_PodSetUpdate_To_v1beta2_PodSetUpdate(in *PodSetUpdate, out *v1beta2.PodSetUpdate, s conversion.Scope) error {
-	out.Name = v1beta2.PodSetReference(in.Name)
-	out.Labels = *(*map[string]string)(unsafe.Pointer(&in.Labels))
-	out.Annotations = *(*map[string]string)(unsafe.Pointer(&in.Annotations))
-	out.NodeSelector = *(*map[string]string)(unsafe.Pointer(&in.NodeSelector))
-	out.Tolerations = *(*[]corev1.Toleration)(unsafe.Pointer(&in.Tolerations))
+	*out = *(*v1beta2.PodSetUpdate)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2033,11 +1980,7 @@ func Convert_v1beta1_PodSetUpdate_To_v1beta2_PodSetUpdate(in *PodSetUpdate, out 
 }
 
 func autoConvert_v1beta2_PodSetUpdate_To_v1beta1_PodSetUpdate(in *v1beta2.PodSetUpdate, out *PodSetUpdate, s conversion.Scope) error {
-	out.Name = PodSetReference(in.Name)
-	out.Labels = *(*map[string]string)(unsafe.Pointer(&in.Labels))
-	out.Annotations = *(*map[string]string)(unsafe.Pointer(&in.Annotations))
-	out.NodeSelector = *(*map[string]string)(unsafe.Pointer(&in.NodeSelector))
-	out.Tolerations = *(*[]corev1.Toleration)(unsafe.Pointer(&in.Tolerations))
+	*out = *(*PodSetUpdate)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2095,12 +2038,7 @@ func Convert_v1beta2_ProvisioningRequestConfigList_To_v1beta1_ProvisioningReques
 }
 
 func autoConvert_v1beta1_ProvisioningRequestConfigSpec_To_v1beta2_ProvisioningRequestConfigSpec(in *ProvisioningRequestConfigSpec, out *v1beta2.ProvisioningRequestConfigSpec, s conversion.Scope) error {
-	out.ProvisioningClassName = in.ProvisioningClassName
-	out.Parameters = *(*map[string]v1beta2.Parameter)(unsafe.Pointer(&in.Parameters))
-	out.ManagedResources = *(*[]corev1.ResourceName)(unsafe.Pointer(&in.ManagedResources))
-	out.RetryStrategy = (*v1beta2.ProvisioningRequestRetryStrategy)(unsafe.Pointer(in.RetryStrategy))
-	out.PodSetUpdates = (*v1beta2.ProvisioningRequestPodSetUpdates)(unsafe.Pointer(in.PodSetUpdates))
-	out.PodSetMergePolicy = (*v1beta2.ProvisioningRequestConfigPodSetMergePolicy)(unsafe.Pointer(in.PodSetMergePolicy))
+	*out = *(*v1beta2.ProvisioningRequestConfigSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2110,12 +2048,7 @@ func Convert_v1beta1_ProvisioningRequestConfigSpec_To_v1beta2_ProvisioningReques
 }
 
 func autoConvert_v1beta2_ProvisioningRequestConfigSpec_To_v1beta1_ProvisioningRequestConfigSpec(in *v1beta2.ProvisioningRequestConfigSpec, out *ProvisioningRequestConfigSpec, s conversion.Scope) error {
-	out.ProvisioningClassName = in.ProvisioningClassName
-	out.Parameters = *(*map[string]Parameter)(unsafe.Pointer(&in.Parameters))
-	out.ManagedResources = *(*[]corev1.ResourceName)(unsafe.Pointer(&in.ManagedResources))
-	out.RetryStrategy = (*ProvisioningRequestRetryStrategy)(unsafe.Pointer(in.RetryStrategy))
-	out.PodSetUpdates = (*ProvisioningRequestPodSetUpdates)(unsafe.Pointer(in.PodSetUpdates))
-	out.PodSetMergePolicy = (*ProvisioningRequestConfigPodSetMergePolicy)(unsafe.Pointer(in.PodSetMergePolicy))
+	*out = *(*ProvisioningRequestConfigSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2125,7 +2058,7 @@ func Convert_v1beta2_ProvisioningRequestConfigSpec_To_v1beta1_ProvisioningReques
 }
 
 func autoConvert_v1beta1_ProvisioningRequestPodSetUpdates_To_v1beta2_ProvisioningRequestPodSetUpdates(in *ProvisioningRequestPodSetUpdates, out *v1beta2.ProvisioningRequestPodSetUpdates, s conversion.Scope) error {
-	out.NodeSelector = *(*[]v1beta2.ProvisioningRequestPodSetUpdatesNodeSelector)(unsafe.Pointer(&in.NodeSelector))
+	*out = *(*v1beta2.ProvisioningRequestPodSetUpdates)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2135,7 +2068,7 @@ func Convert_v1beta1_ProvisioningRequestPodSetUpdates_To_v1beta2_ProvisioningReq
 }
 
 func autoConvert_v1beta2_ProvisioningRequestPodSetUpdates_To_v1beta1_ProvisioningRequestPodSetUpdates(in *v1beta2.ProvisioningRequestPodSetUpdates, out *ProvisioningRequestPodSetUpdates, s conversion.Scope) error {
-	out.NodeSelector = *(*[]ProvisioningRequestPodSetUpdatesNodeSelector)(unsafe.Pointer(&in.NodeSelector))
+	*out = *(*ProvisioningRequestPodSetUpdates)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2145,8 +2078,7 @@ func Convert_v1beta2_ProvisioningRequestPodSetUpdates_To_v1beta1_ProvisioningReq
 }
 
 func autoConvert_v1beta1_ProvisioningRequestPodSetUpdatesNodeSelector_To_v1beta2_ProvisioningRequestPodSetUpdatesNodeSelector(in *ProvisioningRequestPodSetUpdatesNodeSelector, out *v1beta2.ProvisioningRequestPodSetUpdatesNodeSelector, s conversion.Scope) error {
-	out.Key = in.Key
-	out.ValueFromProvisioningClassDetail = in.ValueFromProvisioningClassDetail
+	*out = *(*v1beta2.ProvisioningRequestPodSetUpdatesNodeSelector)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2156,8 +2088,7 @@ func Convert_v1beta1_ProvisioningRequestPodSetUpdatesNodeSelector_To_v1beta2_Pro
 }
 
 func autoConvert_v1beta2_ProvisioningRequestPodSetUpdatesNodeSelector_To_v1beta1_ProvisioningRequestPodSetUpdatesNodeSelector(in *v1beta2.ProvisioningRequestPodSetUpdatesNodeSelector, out *ProvisioningRequestPodSetUpdatesNodeSelector, s conversion.Scope) error {
-	out.Key = in.Key
-	out.ValueFromProvisioningClassDetail = in.ValueFromProvisioningClassDetail
+	*out = *(*ProvisioningRequestPodSetUpdatesNodeSelector)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2167,9 +2098,7 @@ func Convert_v1beta2_ProvisioningRequestPodSetUpdatesNodeSelector_To_v1beta1_Pro
 }
 
 func autoConvert_v1beta1_ProvisioningRequestRetryStrategy_To_v1beta2_ProvisioningRequestRetryStrategy(in *ProvisioningRequestRetryStrategy, out *v1beta2.ProvisioningRequestRetryStrategy, s conversion.Scope) error {
-	out.BackoffLimitCount = (*int32)(unsafe.Pointer(in.BackoffLimitCount))
-	out.BackoffBaseSeconds = (*int32)(unsafe.Pointer(in.BackoffBaseSeconds))
-	out.BackoffMaxSeconds = (*int32)(unsafe.Pointer(in.BackoffMaxSeconds))
+	*out = *(*v1beta2.ProvisioningRequestRetryStrategy)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2179,9 +2108,7 @@ func Convert_v1beta1_ProvisioningRequestRetryStrategy_To_v1beta2_ProvisioningReq
 }
 
 func autoConvert_v1beta2_ProvisioningRequestRetryStrategy_To_v1beta1_ProvisioningRequestRetryStrategy(in *v1beta2.ProvisioningRequestRetryStrategy, out *ProvisioningRequestRetryStrategy, s conversion.Scope) error {
-	out.BackoffLimitCount = (*int32)(unsafe.Pointer(in.BackoffLimitCount))
-	out.BackoffBaseSeconds = (*int32)(unsafe.Pointer(in.BackoffBaseSeconds))
-	out.BackoffMaxSeconds = (*int32)(unsafe.Pointer(in.BackoffMaxSeconds))
+	*out = *(*ProvisioningRequestRetryStrategy)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2191,8 +2118,7 @@ func Convert_v1beta2_ProvisioningRequestRetryStrategy_To_v1beta1_ProvisioningReq
 }
 
 func autoConvert_v1beta1_ReclaimablePod_To_v1beta2_ReclaimablePod(in *ReclaimablePod, out *v1beta2.ReclaimablePod, s conversion.Scope) error {
-	out.Name = v1beta2.PodSetReference(in.Name)
-	out.Count = in.Count
+	*out = *(*v1beta2.ReclaimablePod)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2202,8 +2128,7 @@ func Convert_v1beta1_ReclaimablePod_To_v1beta2_ReclaimablePod(in *ReclaimablePod
 }
 
 func autoConvert_v1beta2_ReclaimablePod_To_v1beta1_ReclaimablePod(in *v1beta2.ReclaimablePod, out *ReclaimablePod, s conversion.Scope) error {
-	out.Name = PodSetReference(in.Name)
-	out.Count = in.Count
+	*out = *(*ReclaimablePod)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2213,8 +2138,7 @@ func Convert_v1beta2_ReclaimablePod_To_v1beta1_ReclaimablePod(in *v1beta2.Reclai
 }
 
 func autoConvert_v1beta1_RequeueState_To_v1beta2_RequeueState(in *RequeueState, out *v1beta2.RequeueState, s conversion.Scope) error {
-	out.Count = (*int32)(unsafe.Pointer(in.Count))
-	out.RequeueAt = (*v1.Time)(unsafe.Pointer(in.RequeueAt))
+	*out = *(*v1beta2.RequeueState)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2224,8 +2148,7 @@ func Convert_v1beta1_RequeueState_To_v1beta2_RequeueState(in *RequeueState, out 
 }
 
 func autoConvert_v1beta2_RequeueState_To_v1beta1_RequeueState(in *v1beta2.RequeueState, out *RequeueState, s conversion.Scope) error {
-	out.Count = (*int32)(unsafe.Pointer(in.Count))
-	out.RequeueAt = (*v1.Time)(unsafe.Pointer(in.RequeueAt))
+	*out = *(*RequeueState)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2283,10 +2206,7 @@ func Convert_v1beta2_ResourceFlavorList_To_v1beta1_ResourceFlavorList(in *v1beta
 }
 
 func autoConvert_v1beta1_ResourceFlavorSpec_To_v1beta2_ResourceFlavorSpec(in *ResourceFlavorSpec, out *v1beta2.ResourceFlavorSpec, s conversion.Scope) error {
-	out.NodeLabels = *(*map[string]string)(unsafe.Pointer(&in.NodeLabels))
-	out.NodeTaints = *(*[]corev1.Taint)(unsafe.Pointer(&in.NodeTaints))
-	out.Tolerations = *(*[]corev1.Toleration)(unsafe.Pointer(&in.Tolerations))
-	out.TopologyName = (*v1beta2.TopologyReference)(unsafe.Pointer(in.TopologyName))
+	*out = *(*v1beta2.ResourceFlavorSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2296,10 +2216,7 @@ func Convert_v1beta1_ResourceFlavorSpec_To_v1beta2_ResourceFlavorSpec(in *Resour
 }
 
 func autoConvert_v1beta2_ResourceFlavorSpec_To_v1beta1_ResourceFlavorSpec(in *v1beta2.ResourceFlavorSpec, out *ResourceFlavorSpec, s conversion.Scope) error {
-	out.NodeLabels = *(*map[string]string)(unsafe.Pointer(&in.NodeLabels))
-	out.NodeTaints = *(*[]corev1.Taint)(unsafe.Pointer(&in.NodeTaints))
-	out.Tolerations = *(*[]corev1.Toleration)(unsafe.Pointer(&in.Tolerations))
-	out.TopologyName = (*TopologyReference)(unsafe.Pointer(in.TopologyName))
+	*out = *(*ResourceFlavorSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2309,8 +2226,7 @@ func Convert_v1beta2_ResourceFlavorSpec_To_v1beta1_ResourceFlavorSpec(in *v1beta
 }
 
 func autoConvert_v1beta1_ResourceGroup_To_v1beta2_ResourceGroup(in *ResourceGroup, out *v1beta2.ResourceGroup, s conversion.Scope) error {
-	out.CoveredResources = *(*[]corev1.ResourceName)(unsafe.Pointer(&in.CoveredResources))
-	out.Flavors = *(*[]v1beta2.FlavorQuotas)(unsafe.Pointer(&in.Flavors))
+	*out = *(*v1beta2.ResourceGroup)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2320,8 +2236,7 @@ func Convert_v1beta1_ResourceGroup_To_v1beta2_ResourceGroup(in *ResourceGroup, o
 }
 
 func autoConvert_v1beta2_ResourceGroup_To_v1beta1_ResourceGroup(in *v1beta2.ResourceGroup, out *ResourceGroup, s conversion.Scope) error {
-	out.CoveredResources = *(*[]corev1.ResourceName)(unsafe.Pointer(&in.CoveredResources))
-	out.Flavors = *(*[]FlavorQuotas)(unsafe.Pointer(&in.Flavors))
+	*out = *(*ResourceGroup)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2331,10 +2246,7 @@ func Convert_v1beta2_ResourceGroup_To_v1beta1_ResourceGroup(in *v1beta2.Resource
 }
 
 func autoConvert_v1beta1_ResourceQuota_To_v1beta2_ResourceQuota(in *ResourceQuota, out *v1beta2.ResourceQuota, s conversion.Scope) error {
-	out.Name = corev1.ResourceName(in.Name)
-	out.NominalQuota = in.NominalQuota
-	out.BorrowingLimit = (*resource.Quantity)(unsafe.Pointer(in.BorrowingLimit))
-	out.LendingLimit = (*resource.Quantity)(unsafe.Pointer(in.LendingLimit))
+	*out = *(*v1beta2.ResourceQuota)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2344,10 +2256,7 @@ func Convert_v1beta1_ResourceQuota_To_v1beta2_ResourceQuota(in *ResourceQuota, o
 }
 
 func autoConvert_v1beta2_ResourceQuota_To_v1beta1_ResourceQuota(in *v1beta2.ResourceQuota, out *ResourceQuota, s conversion.Scope) error {
-	out.Name = corev1.ResourceName(in.Name)
-	out.NominalQuota = in.NominalQuota
-	out.BorrowingLimit = (*resource.Quantity)(unsafe.Pointer(in.BorrowingLimit))
-	out.LendingLimit = (*resource.Quantity)(unsafe.Pointer(in.LendingLimit))
+	*out = *(*ResourceQuota)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2357,9 +2266,7 @@ func Convert_v1beta2_ResourceQuota_To_v1beta1_ResourceQuota(in *v1beta2.Resource
 }
 
 func autoConvert_v1beta1_ResourceUsage_To_v1beta2_ResourceUsage(in *ResourceUsage, out *v1beta2.ResourceUsage, s conversion.Scope) error {
-	out.Name = corev1.ResourceName(in.Name)
-	out.Total = in.Total
-	out.Borrowed = in.Borrowed
+	*out = *(*v1beta2.ResourceUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2369,9 +2276,7 @@ func Convert_v1beta1_ResourceUsage_To_v1beta2_ResourceUsage(in *ResourceUsage, o
 }
 
 func autoConvert_v1beta2_ResourceUsage_To_v1beta1_ResourceUsage(in *v1beta2.ResourceUsage, out *ResourceUsage, s conversion.Scope) error {
-	out.Name = corev1.ResourceName(in.Name)
-	out.Total = in.Total
-	out.Borrowed = in.Borrowed
+	*out = *(*ResourceUsage)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2381,7 +2286,7 @@ func Convert_v1beta2_ResourceUsage_To_v1beta1_ResourceUsage(in *v1beta2.Resource
 }
 
 func autoConvert_v1beta1_SchedulingStats_To_v1beta2_SchedulingStats(in *SchedulingStats, out *v1beta2.SchedulingStats, s conversion.Scope) error {
-	out.Evictions = *(*[]v1beta2.WorkloadSchedulingStatsEviction)(unsafe.Pointer(&in.Evictions))
+	*out = *(*v1beta2.SchedulingStats)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2391,7 +2296,7 @@ func Convert_v1beta1_SchedulingStats_To_v1beta2_SchedulingStats(in *SchedulingSt
 }
 
 func autoConvert_v1beta2_SchedulingStats_To_v1beta1_SchedulingStats(in *v1beta2.SchedulingStats, out *SchedulingStats, s conversion.Scope) error {
-	out.Evictions = *(*[]WorkloadSchedulingStatsEviction)(unsafe.Pointer(&in.Evictions))
+	*out = *(*SchedulingStats)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2439,8 +2344,7 @@ func autoConvert_v1beta2_TopologyAssignment_To_v1beta1_TopologyAssignment(in *v1
 }
 
 func autoConvert_v1beta1_TopologyInfo_To_v1beta2_TopologyInfo(in *TopologyInfo, out *v1beta2.TopologyInfo, s conversion.Scope) error {
-	out.Name = v1beta2.TopologyReference(in.Name)
-	out.Levels = *(*[]string)(unsafe.Pointer(&in.Levels))
+	*out = *(*v1beta2.TopologyInfo)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2450,8 +2354,7 @@ func Convert_v1beta1_TopologyInfo_To_v1beta2_TopologyInfo(in *TopologyInfo, out 
 }
 
 func autoConvert_v1beta2_TopologyInfo_To_v1beta1_TopologyInfo(in *v1beta2.TopologyInfo, out *TopologyInfo, s conversion.Scope) error {
-	out.Name = TopologyReference(in.Name)
-	out.Levels = *(*[]string)(unsafe.Pointer(&in.Levels))
+	*out = *(*TopologyInfo)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2461,7 +2364,7 @@ func Convert_v1beta2_TopologyInfo_To_v1beta1_TopologyInfo(in *v1beta2.TopologyIn
 }
 
 func autoConvert_v1beta1_TopologyLevel_To_v1beta2_TopologyLevel(in *TopologyLevel, out *v1beta2.TopologyLevel, s conversion.Scope) error {
-	out.NodeLabel = in.NodeLabel
+	*out = *(*v1beta2.TopologyLevel)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2471,7 +2374,7 @@ func Convert_v1beta1_TopologyLevel_To_v1beta2_TopologyLevel(in *TopologyLevel, o
 }
 
 func autoConvert_v1beta2_TopologyLevel_To_v1beta1_TopologyLevel(in *v1beta2.TopologyLevel, out *TopologyLevel, s conversion.Scope) error {
-	out.NodeLabel = in.NodeLabel
+	*out = *(*TopologyLevel)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2503,7 +2406,7 @@ func Convert_v1beta2_TopologyList_To_v1beta1_TopologyList(in *v1beta2.TopologyLi
 }
 
 func autoConvert_v1beta1_TopologySpec_To_v1beta2_TopologySpec(in *TopologySpec, out *v1beta2.TopologySpec, s conversion.Scope) error {
-	out.Levels = *(*[]v1beta2.TopologyLevel)(unsafe.Pointer(&in.Levels))
+	*out = *(*v1beta2.TopologySpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2513,7 +2416,7 @@ func Convert_v1beta1_TopologySpec_To_v1beta2_TopologySpec(in *TopologySpec, out 
 }
 
 func autoConvert_v1beta2_TopologySpec_To_v1beta1_TopologySpec(in *v1beta2.TopologySpec, out *TopologySpec, s conversion.Scope) error {
-	out.Levels = *(*[]TopologyLevel)(unsafe.Pointer(&in.Levels))
+	*out = *(*TopologySpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2523,7 +2426,7 @@ func Convert_v1beta2_TopologySpec_To_v1beta1_TopologySpec(in *v1beta2.TopologySp
 }
 
 func autoConvert_v1beta1_UnhealthyNode_To_v1beta2_UnhealthyNode(in *UnhealthyNode, out *v1beta2.UnhealthyNode, s conversion.Scope) error {
-	out.Name = in.Name
+	*out = *(*v1beta2.UnhealthyNode)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2533,7 +2436,7 @@ func Convert_v1beta1_UnhealthyNode_To_v1beta2_UnhealthyNode(in *UnhealthyNode, o
 }
 
 func autoConvert_v1beta2_UnhealthyNode_To_v1beta1_UnhealthyNode(in *v1beta2.UnhealthyNode, out *UnhealthyNode, s conversion.Scope) error {
-	out.Name = in.Name
+	*out = *(*UnhealthyNode)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2663,9 +2566,7 @@ func Convert_v1beta2_WorkloadPriorityClassList_To_v1beta1_WorkloadPriorityClassL
 }
 
 func autoConvert_v1beta1_WorkloadSchedulingStatsEviction_To_v1beta2_WorkloadSchedulingStatsEviction(in *WorkloadSchedulingStatsEviction, out *v1beta2.WorkloadSchedulingStatsEviction, s conversion.Scope) error {
-	out.Reason = in.Reason
-	out.UnderlyingCause = v1beta2.EvictionUnderlyingCause(in.UnderlyingCause)
-	out.Count = in.Count
+	*out = *(*v1beta2.WorkloadSchedulingStatsEviction)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -2675,9 +2576,7 @@ func Convert_v1beta1_WorkloadSchedulingStatsEviction_To_v1beta2_WorkloadScheduli
 }
 
 func autoConvert_v1beta2_WorkloadSchedulingStatsEviction_To_v1beta1_WorkloadSchedulingStatsEviction(in *v1beta2.WorkloadSchedulingStatsEviction, out *WorkloadSchedulingStatsEviction, s conversion.Scope) error {
-	out.Reason = in.Reason
-	out.UnderlyingCause = EvictionUnderlyingCause(in.UnderlyingCause)
-	out.Count = in.Count
+	*out = *(*WorkloadSchedulingStatsEviction)(unsafe.Pointer(in))
 	return nil
 }
 

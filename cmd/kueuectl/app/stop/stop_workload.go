@@ -50,7 +50,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 		Long:                  wlLong,
 		Example:               wlExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.WorkloadNameFunc(clientGetter, new(true)),
+		ValidArgsFunction:     completion.SingleArg(completion.WorkloadNameFunc(clientGetter, new(true))),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, cmd, args)

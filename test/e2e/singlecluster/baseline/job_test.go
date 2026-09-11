@@ -583,7 +583,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 
 			highCreatedWorkload := &kueue.Workload{}
-			highWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: ns.Name}
+			highWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("Checking that the high-priority workload is created and admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

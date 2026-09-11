@@ -2736,6 +2736,66 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 })
 
+var _ = ginkgo.Describe("Pod controller when waitForPodsReady enabled with scheduling observations", ginkgo.Label("job:pod", "area:jobs"), func() {
+	ginkgo.DescribeTable("propagates the scheduling observation",
+		func(gateEnabled, podGroup bool, wantReason string) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, gateEnabled)
+			fwk.StartManager(ctx, cfg, managerSetup(false, false,
+				&configapi.Configuration{WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
+				}},
+				jobframework.WithEnabledFrameworks([]string{"pod"}),
+			))
+			ginkgo.DeferCleanup(func() { fwk.StopManager(ctx) })
+			ns := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
+			ginkgo.DeferCleanup(func() { gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed()) })
+			flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+			ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true) })
+
+			pod := testingpod.MakePod("pod", ns.Name).
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1")
+			if podGroup {
+				pod.GroupNameLabel("pod-group").
+					GroupTotalCount("1")
+			}
+			util.MustCreate(ctx, k8sClient, pod.Obj())
+			wlKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Obj().Name, pod.Obj().UID), Namespace: ns.Name}
+			if podGroup {
+				wlKey.Name = "pod-group"
+			}
+			wl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			admission := utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Count(1).
+					Obj()).
+				Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			util.SetPodsScheduledCondition(ctx, k8sClient, wlKey, metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			})
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  wantReason,
+				Message: workload.PodsNotReadyMessage,
+			})
+		},
+		ginkgo.Entry("Unscheduled Pods", true, false, kueue.WorkloadWaitForScheduling),
+		ginkgo.Entry("Unscheduled Pods in a group", true, true, kueue.WorkloadWaitForScheduling),
+		ginkgo.Entry("Scheduling observation ignored with feature disabled", false, false, kueue.WorkloadWaitForStart),
+		ginkgo.Entry("Scheduling observation for a group ignored with feature disabled", false, true, kueue.WorkloadWaitForStart),
+	)
+})
+
 var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForPodsReady enabled", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		backoffBaseSeconds = 1

@@ -161,12 +161,27 @@ jobs:
             echo "${EOF_DELIM}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Check if Release is Already Published
+        id: check_published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.parse.outputs.version }}
+          TARGET_REPO: ${{ github.repository }}
+        run: |
+          RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
+            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
+
+          if [ "$RELEASE_STATE" = "published" ]; then
+            echo "error_message=❌ Release \`$VERSION\` has already been published. No further commands are allowed." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
       - name: Report Parse Failure
         if: ${{ failure() }}
         uses: ./.github/actions/report-result
         with:
           alias: "Authorization"
-          message: ${{ steps.parse.outputs.error_message || steps.auth.outputs.error_message }}
+          message: ${{ steps.parse.outputs.error_message || steps.auth.outputs.error_message || steps.check_published.outputs.error_message }}
 
       - name: Clear Authorization Log
         if: ${{ success() }}
@@ -174,7 +189,7 @@ jobs:
         with:
           alias: "Authorization"
           cleanup: true
-      
+
       - name: Log command start
         if: ${{ success() }}
         uses: ./.github/actions/report-result
@@ -273,22 +288,6 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: 'go.mod'
-
-      - name: Check if Release is Already Published
-        id: check_published
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: |
-          RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
-            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
-
-          if [ "$RELEASE_STATE" = "published" ]; then
-            BODY="❌ Release \`$VERSION\` has already been published. Skipping release candidate creation."
-            echo "message=$BODY" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
 
       - name: Calculate Release Candidate Version
         id: rc-version
