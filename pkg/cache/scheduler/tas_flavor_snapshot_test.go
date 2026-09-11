@@ -2460,8 +2460,8 @@ func (s *templateOnlySimulatorSnapshot) FindFeasibleNodes(
 
 // A PodSetUpdate from a Ready AdmissionCheck has to reach the leader's Pod template,
 // since the scheduler-library filters nodes with the template rather than the compiled
-// filters. With the gate off nothing may change, including for the workers, whose
-// template carries the same gap and is corrected separately.
+// filters. With the gate off the leader's template is left alone, so the update does
+// not steer the group.
 func TestPodSetUpdatesReachTheTemplate(t *testing.T) {
 	for _, gateOn := range []bool{true, false} {
 		t.Run(fmt.Sprintf("gate=%t", gateOn), func(t *testing.T) {
@@ -2491,9 +2491,10 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 		&templateOnlySimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot()})
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
-	// Both PodSets are steered to pool "a" by an AdmissionCheck, not by their own
-	// templates. Only n2 is in that pool, and it is in the second rack, so picking the
-	// first rack means the update never reached the template.
+	// Only the leader is steered to pool "a" by an AdmissionCheck, not by its own
+	// template, so the workers alone accept either rack. Only n2 is in that pool, and
+	// it is in the second rack, so picking the first rack means the update never
+	// reached the leader's template.
 	podSet := func(name string, count int32) TASPodSetRequests {
 		groupName := "group"
 		return TASPodSetRequests{
@@ -2504,20 +2505,21 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 					PodSetGroupName: &groupName,
 				},
 			},
-			PodSetUpdates:     []*kueue.PodSetUpdate{{Name: kueue.PodSetReference(name), NodeSelector: map[string]string{"pool": "a"}}},
 			SinglePodRequests: oneCPU,
 			Count:             count,
 			PodSetGroupName:   &groupName,
 		}
 	}
+	leader := podSet("leader", 1)
+	leader.PodSetUpdates = []*kueue.PodSetUpdate{{Name: "leader", NodeSelector: map[string]string{"pool": "a"}}}
 	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
-		podSet("workers", 1), podSet("leader", 1),
+		podSet("workers", 1), leader,
 	})
 	if failure := result.Failure(); failure != nil {
 		t.Fatalf("FindTopologyAssignmentsForFlavor() = %q, want a fit", failure.Reason)
 	}
-	// With the gate off the workers' unmerged template accepts either rack, which is
-	// what Kueue does today.
+	// With the gate off the leader's template is left alone and the workers accept
+	// either rack, so the group stays in the first one.
 	wantRack := "r1"
 	if gateOn {
 		wantRack = "r2"
