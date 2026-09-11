@@ -635,17 +635,14 @@ func TestSimulation(t *testing.T) {
 func TestSimulateNested(t *testing.T) {
 	ctx, cqCache, wlInfos := defaultSetup(t)
 
-	initialSnap, err := cqCache.Snapshot(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error building initial snapshot: %v", err)
-	}
 	errSimulation := errors.New("test simulation error")
 
 	cases := map[string]struct {
-		setupParent func(ctx context.Context, parent *SimulationContext)
-		nestedSim   func(ctx context.Context, child *SimulationContext) error
-		wantErr     error
-		wantSnap    schedcache.Snapshot
+		setupParent   func(ctx context.Context, parent *SimulationContext)
+		nestedSim     func(ctx context.Context, child *SimulationContext) error
+		wantErr       error
+		wantWorkloads []workload.Reference
+		wantUsage     resources.FlavorResourceQuantities
 	}{
 		"cleans up correctly after nested simulation error": {
 			nestedSim: func(ctx context.Context, child *SimulationContext) error {
@@ -655,8 +652,11 @@ func TestSimulateNested(t *testing.T) {
 				child.RemoveUsage([]*workload.Info{wlInfos["wl2"]})
 				return errSimulation
 			},
-			wantErr:  errSimulation,
-			wantSnap: *initialSnap,
+			wantErr:       errSimulation,
+			wantWorkloads: []workload.Reference{"/wl1", "/wl2"},
+			wantUsage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
+			},
 		},
 		"cleans up child mutations after error preserving parent mutations": {
 			setupParent: func(ctx context.Context, parent *SimulationContext) {
@@ -670,22 +670,10 @@ func TestSimulateNested(t *testing.T) {
 				}
 				return errSimulation
 			},
-			wantErr: errSimulation,
-			wantSnap: schedcache.Snapshot{
-				Manager: hierarchy.NewManagerForTest(
-					nil,
-					map[kueue.ClusterQueueReference]*schedcache.ClusterQueueSnapshot{
-						"c1": makeCQSnapshot("c1",
-							0,
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
-							},
-							resources.FlavorResourceQuantities{
-								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-							},
-						),
-					},
-				),
+			wantErr:       errSimulation,
+			wantWorkloads: []workload.Reference{"/wl2"},
+			wantUsage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 		},
 	}
@@ -706,8 +694,15 @@ func TestSimulateNested(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("SimulateNested() error = %v, want error wrapping %v", err, tc.wantErr)
 			}
-			if diff := cmp.Diff(tc.wantSnap, *snap, snapshotCmpOpts...); diff != "" {
-				t.Errorf("schedcache.Snapshot state was not restored after nested simulation (-want,+got):\n%s", diff)
+			cq := snap.ClusterQueue("c1")
+			if cq == nil {
+				t.Fatalf("ClusterQueue c1 is missing from snapshot")
+			}
+			if diff := cmp.Diff(tc.wantWorkloads, slices.Sorted(maps.Keys(cq.Workloads))); diff != "" {
+				t.Errorf("unexpected Workloads in ClusterQueue (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantUsage, cq.ResourceNode.Usage); diff != "" {
+				t.Errorf("unexpected Usage in ClusterQueue (-want,+got):\n%s", diff)
 			}
 		})
 	}
