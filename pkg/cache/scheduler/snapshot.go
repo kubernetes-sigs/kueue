@@ -39,6 +39,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type inactiveCQReason string
@@ -58,9 +59,40 @@ type Snapshot struct {
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SimulatorSnapshot        simulator.SimulatorSnapshot
 
-	// HostnameLeafTASFlavors holds the flavor snapshots sharing topology
+	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
-	HostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
+	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
+}
+
+// UpdateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
+// with the cross-flavor usage aggregated when the snapshot is built.
+func (s *Snapshot) UpdateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, op UsageOp) {
+	if len(usage) == 0 || !features.Enabled(features.TASHandleOverlappingFlavors) {
+		return
+	}
+	for sourceFlavor, tasUsage := range usage {
+		if sourceFlavors[sourceFlavor] == nil || s.hostnameLeafTASFlavors[sourceFlavor] == nil {
+			continue
+		}
+		for flavor, tasFlavor := range s.hostnameLeafTASFlavors {
+			if flavor == sourceFlavor {
+				continue
+			}
+			tasFlavor.UpdateTASUsageForHeldDomains(tasUsage, op)
+		}
+	}
+}
+
+func (s *Snapshot) RemoveUsage(cqRef kueue.ClusterQueueReference, usage workload.Usage) {
+	cq := s.ClusterQueue(cqRef)
+	cq.RemoveUsage(usage)
+	s.UpdateOverlappingTASUsage(cq.TASFlavors, usage.TAS, Subtract)
+}
+
+func (s *Snapshot) AddUsage(cqRef kueue.ClusterQueueReference, usage workload.Usage) {
+	cq := s.ClusterQueue(cqRef)
+	cq.AddUsage(usage)
+	s.UpdateOverlappingTASUsage(cq.TASFlavors, usage.TAS, Add)
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
@@ -172,7 +204,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		flvTASCache := c.tasCache.Clone()
 
 		if features.Enabled(features.TASHandleOverlappingFlavors) {
-			snap.HostnameLeafTASFlavors = make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
+			snap.hostnameLeafTASFlavors = make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
 			for _, cache := range flvTASCache {
 				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
@@ -197,7 +229,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 				return nil, err
 			}
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tasSnapshots[flavor].declaresHostnameLevel() {
-				snap.HostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
+				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
 			}
 		}
 	}

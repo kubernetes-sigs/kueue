@@ -1305,13 +1305,13 @@ func TestTerminatedContextExportedMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error building snapshot: %v", err)
 	}
-	callbacksBefore := len(sim.restoreUsageCallbacks)
+	callbacksBefore := len(sim.revertUsageMutationsFns)
 	sim.RemoveUsage([]*workload.Info{wlInfos["wl1"]})
 	if diff := cmp.Diff(*snapBefore, *snap, snapshotCmpOpts...); diff != "" {
 		t.Errorf("RemoveUsage() modified snapshot unexpectedly (-want,+got):\n%s", diff)
 	}
-	if len(sim.restoreUsageCallbacks) != callbacksBefore {
-		t.Errorf("RemoveUsage() registered callbacks on terminated context, count = %d, want %d", len(sim.restoreUsageCallbacks), callbacksBefore)
+	if len(sim.revertUsageMutationsFns) != callbacksBefore {
+		t.Errorf("RemoveUsage() registered callbacks on terminated context, count = %d, want %d", len(sim.revertUsageMutationsFns), callbacksBefore)
 	}
 
 	// 5. SimulateNested should fail with terminated error and not run the nested simulation

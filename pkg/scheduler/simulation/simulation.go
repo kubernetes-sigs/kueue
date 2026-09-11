@@ -29,7 +29,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -46,8 +45,8 @@ type Simulation func(*SimulationContext) (simErr error)
 type SimulationContext struct {
 	schdcache.Snapshot
 
-	simulatedPreemptions  map[workloadKey]preemption
-	restoreUsageCallbacks []func()
+	simulatedPreemptions    map[workloadKey]preemption
+	revertUsageMutationsFns []func()
 
 	log           logr.Logger
 	terminalError error
@@ -62,11 +61,11 @@ type preemption struct {
 
 func newSimulationContext(ctx context.Context, snapshot *schdcache.Snapshot) *SimulationContext {
 	return &SimulationContext{
-		Snapshot:              *snapshot,
-		simulatedPreemptions:  make(map[workloadKey]preemption),
-		restoreUsageCallbacks: make([]func(), 0),
-		log:                   ctrl.LoggerFrom(ctx).V(3),
-		terminalError:         nil,
+		Snapshot:                *snapshot,
+		simulatedPreemptions:    make(map[workloadKey]preemption),
+		revertUsageMutationsFns: make([]func(), 0),
+		log:                     ctrl.LoggerFrom(ctx).V(3),
+		terminalError:           nil,
 	}
 }
 
@@ -151,25 +150,27 @@ func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 		return
 	}
 
-	type cqUsage struct {
-		cq    kueue.ClusterQueueReference
-		usage workload.Usage
-	}
-	cqUsages := make([]cqUsage, 0, len(workloads))
 	for _, w := range workloads {
-		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
+		s.Snapshot.RemoveUsage(w.ClusterQueue, w.Usage())
 	}
-	for _, cqUsage := range cqUsages {
-		cq := s.ClusterQueue(cqUsage.cq)
-		cq.RemoveUsage(cqUsage.usage)
-		s.updateOverlappingTASUsage(cq.TASFlavors, cqUsage.usage.TAS, schdcache.Subtract)
-	}
-	s.restoreUsageCallbacks = append(s.restoreUsageCallbacks, func() {
-		for _, cqUsage := range cqUsages {
-			cq := s.Snapshot.ClusterQueue(cqUsage.cq)
-			cq.AddUsage(cqUsage.usage)
-			s.updateOverlappingTASUsage(cq.TASFlavors, cqUsage.usage.TAS, schdcache.Add)
+	s.revertUsageMutationsFns = append(s.revertUsageMutationsFns, func() {
+		for _, w := range workloads {
+			s.Snapshot.AddUsage(w.ClusterQueue, w.Usage())
 		}
+	})
+}
+
+// AddUsage modifies the snapshot by adding the usage
+// corresponding to the list of workloads to workloads' respective
+// ClusterQueues.
+func (s *SimulationContext) AddUsage(cqRef kueue.ClusterQueueReference, usage workload.Usage) {
+	if err := s.errorTerminated(); err != nil {
+		return
+	}
+
+	s.Snapshot.AddUsage(cqRef, usage)
+	s.revertUsageMutationsFns = append(s.revertUsageMutationsFns, func() {
+		s.Snapshot.RemoveUsage(cqRef, usage)
 	})
 }
 
@@ -179,25 +180,6 @@ func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *schdc
 	}
 
 	return s.Snapshot.ClusterQueue(ref)
-}
-
-// updateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
-// with the cross-flavor usage aggregated when the snapshot is built.
-func (s *SimulationContext) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot, usage workload.TASUsage, op schdcache.UsageOp) {
-	if len(usage) == 0 || !features.Enabled(features.TASHandleOverlappingFlavors) {
-		return
-	}
-	for sourceFlavor, tasUsage := range usage {
-		if sourceFlavors[sourceFlavor] == nil || s.HostnameLeafTASFlavors[sourceFlavor] == nil {
-			continue
-		}
-		for flavor, tasFlavor := range s.HostnameLeafTASFlavors {
-			if flavor == sourceFlavor {
-				continue
-			}
-			tasFlavor.UpdateTASUsageForHeldDomains(tasUsage, op)
-		}
-	}
 }
 
 func (s *SimulationContext) terminate(reason error) {
@@ -216,21 +198,12 @@ func (s *SimulationContext) errorTerminated() error {
 // childContext returns a new context for running a nested simulation.
 func (s *SimulationContext) childContext() *SimulationContext {
 	return &SimulationContext{
-		Snapshot:              s.Snapshot,
-		simulatedPreemptions:  make(map[workloadKey]preemption),
-		restoreUsageCallbacks: make([]func(), 0),
-		log:                   s.log,
-		terminalError:         nil,
+		Snapshot:                s.Snapshot,
+		simulatedPreemptions:    make(map[workloadKey]preemption),
+		revertUsageMutationsFns: make([]func(), 0),
+		log:                     s.log,
+		terminalError:           nil,
 	}
-}
-
-// removeWorkload removes a workload from its corresponding ClusterQueue and
-// updates resource usage.
-func (s *SimulationContext) removeWorkload(wl *workload.Info) {
-	cq := s.Snapshot.ClusterQueue(wl.ClusterQueue)
-	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.RemoveUsage(wl.Usage())
-	s.updateOverlappingTASUsage(cq.TASFlavors, wl.Usage().TAS, schdcache.Subtract)
 }
 
 // RestoreWorkload tries to restore preempted workloads as listed.
@@ -260,20 +233,27 @@ func (s *SimulationContext) restoreWorkloads(targets ...types.NamespacedName) er
 func (s *SimulationContext) addWorkload(wl *workload.Info) {
 	cq := s.Snapshot.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.AddUsage(wl.Usage())
-	s.updateOverlappingTASUsage(cq.TASFlavors, wl.Usage().TAS, schdcache.Add)
+	s.Snapshot.AddUsage(wl.ClusterQueue, wl.Usage())
 }
 
-func (s *SimulationContext) restoreUsage() {
-	for _, restoreFn := range s.restoreUsageCallbacks {
-		restoreFn()
+// removeWorkload removes a workload from its corresponding ClusterQueue and
+// updates resource usage.
+func (s *SimulationContext) removeWorkload(wl *workload.Info) {
+	cq := s.Snapshot.ClusterQueue(wl.ClusterQueue)
+	delete(cq.Workloads, workload.Key(wl.Obj))
+	s.Snapshot.RemoveUsage(wl.ClusterQueue, wl.Usage())
+}
+
+func (s *SimulationContext) revertUsageMutations() {
+	for _, revertFn := range s.revertUsageMutationsFns {
+		revertFn()
 	}
-	clear(s.restoreUsageCallbacks)
+	clear(s.revertUsageMutationsFns)
 }
 
 // Clear clears the context, reverting all changes made within its scope.
 func (s *SimulationContext) clear() {
-	s.restoreUsage()
+	s.revertUsageMutations()
 	for _, preemption := range s.simulatedPreemptions {
 		s.addWorkload(preemption.target)
 	}
