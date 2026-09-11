@@ -23,6 +23,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -113,10 +114,17 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 
+	oldPodSets := map[kueue.PodSetReference]*kueue.PodSet{}
+	if oldObj != nil {
+		for i := range oldObj.Spec.PodSets {
+			oldPodSets[oldObj.Spec.PodSets[i].Name] = &oldObj.Spec.PodSets[i]
+		}
+	}
+
 	variableCountPodSets := 0
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
-		allErrs = append(allErrs, validatePodSet(ps, specPath.Child("podSets").Index(i))...)
+		allErrs = append(allErrs, validatePodSet(ps, oldPodSets[ps.Name], specPath.Child("podSets").Index(i))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
 		}
@@ -164,7 +172,10 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	return allErrs
 }
 
-func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
+// validatePodSet validates the given PodSet. oldPS is the PodSet with the same
+// name from the previous version of the Workload, or nil on create or when the
+// PodSet was added by the update.
+func validatePodSet(ps, oldPS *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
 	// validate metadata labels and annotations
@@ -191,7 +202,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	}
 
 	if features.Enabled(features.TASValidateWorkloadSliceSize) {
-		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, ps.Count, path.Child("topologyRequest"))...)
+		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
+		if sliceSizeRequestChanged(ps, oldPS) {
+			allErrs = append(allErrs, validateTASSliceSizeAgainstCount(ps.TopologyRequest, ps.Count, path.Child("topologyRequest"))...)
+		}
 	}
 
 	return allErrs
@@ -510,12 +524,10 @@ func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, statusPath *field
 // validateTASSliceSize enforces basic topology-slice invariants:
 //   - legacy fields must appear together (required-topology <-> slice-size)
 //   - slice sizes must be strictly positive (legacy and multi-layer constraints)
-//   - slice sizes must not exceed the pod set count (legacy and the first
-//     multi-layer constraint), matching the jobframework upper-bound check
 //
 // Kept in the Workload webhook as defense-in-depth for direct Workload writes,
 // including cases where CRDs or producer-side validators are older or bypassed.
-func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, count int32, path *field.Path) field.ErrorList {
+func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
 	if tr == nil {
 		return nil
 	}
@@ -527,29 +539,11 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, count int32, path *fi
 			allErrs = append(allErrs, field.Required(path.Child("podSetSliceSize"), "must be set when podSetSliceRequiredTopology is specified"))
 		case *tr.PodSetSliceSize <= 0:
 			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, "must be greater than 0"))
-		case *tr.PodSetSliceSize > count:
-			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, fmt.Sprintf("must not be greater than pod set count %d", count)))
-		case count > 0 && count%*tr.PodSetSliceSize != 0:
-			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, fmt.Sprintf("must evenly divide pod set count %d", count)))
 		}
 	}
 
 	if tr.PodSetSliceRequiredTopology == nil && tr.PodSetSliceSize != nil {
 		allErrs = append(allErrs, field.Forbidden(path.Child("podSetSliceSize"), "may not be set when podSetSliceRequiredTopology is not specified"))
-	}
-
-	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 && tr.PodsetSliceRequiredTopologyConstraints[0].Size > count {
-		allErrs = append(allErrs,
-			field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(0).Child("size"),
-				tr.PodsetSliceRequiredTopologyConstraints[0].Size,
-				fmt.Sprintf("must not be greater than pod set count %d", count)))
-	} else if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 && count > 0 &&
-		tr.PodsetSliceRequiredTopologyConstraints[0].Size > 0 &&
-		count%tr.PodsetSliceRequiredTopologyConstraints[0].Size != 0 {
-		allErrs = append(allErrs,
-			field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(0).Child("size"),
-				tr.PodsetSliceRequiredTopologyConstraints[0].Size,
-				fmt.Sprintf("must evenly divide pod set count %d", count)))
 	}
 
 	for i := range tr.PodsetSliceRequiredTopologyConstraints {
@@ -559,4 +553,57 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, count int32, path *fi
 		}
 	}
 	return allErrs
+}
+
+// validateTASSliceSizeAgainstCount enforces the count-dependent topology-slice
+// invariants: slice sizes must not exceed the PodSet count and must evenly
+// divide it, for the legacy slice-size field and the first multi-layer
+// constraint, matching the jobframework upper-bound check. It is only called
+// for new PodSets and for PodSets whose count or topology request changed, so
+// that pre-existing non-divisible PodSets remain admissible on updates that do
+// not touch their slice request.
+func validateTASSliceSizeAgainstCount(tr *kueue.PodSetTopologyRequest, count int32, path *field.Path) field.ErrorList {
+	if tr == nil {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+	if tr.PodSetSliceRequiredTopology != nil && tr.PodSetSliceSize != nil && *tr.PodSetSliceSize > 0 {
+		switch {
+		case *tr.PodSetSliceSize > count:
+			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, fmt.Sprintf("must not be greater than pod set count %d", count)))
+		case count > 0 && count%*tr.PodSetSliceSize != 0:
+			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, fmt.Sprintf("must evenly divide pod set count %d", count)))
+		}
+	}
+
+	if len(tr.PodsetSliceRequiredTopologyConstraints) > 0 {
+		switch {
+		case tr.PodsetSliceRequiredTopologyConstraints[0].Size > count:
+			allErrs = append(allErrs,
+				field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(0).Child("size"),
+					tr.PodsetSliceRequiredTopologyConstraints[0].Size,
+					fmt.Sprintf("must not be greater than pod set count %d", count)))
+		case count > 0 && tr.PodsetSliceRequiredTopologyConstraints[0].Size > 0 &&
+			count%tr.PodsetSliceRequiredTopologyConstraints[0].Size != 0:
+			allErrs = append(allErrs,
+				field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(0).Child("size"),
+					tr.PodsetSliceRequiredTopologyConstraints[0].Size,
+					fmt.Sprintf("must evenly divide pod set count %d", count)))
+		}
+	}
+
+	return allErrs
+}
+
+// sliceSizeRequestChanged returns true when the PodSet count or topology
+// request differs from the previous version of the PodSet, or when there is no
+// previous version. When the request is unchanged, the count-dependent
+// slice-size checks are skipped so that pre-existing PodSets with a
+// non-divisible slice size stay admissible on unrelated updates.
+func sliceSizeRequestChanged(ps, oldPS *kueue.PodSet) bool {
+	if oldPS == nil {
+		return true
+	}
+	return ps.Count != oldPS.Count || !equality.Semantic.DeepEqual(ps.TopologyRequest, oldPS.TopologyRequest)
 }
