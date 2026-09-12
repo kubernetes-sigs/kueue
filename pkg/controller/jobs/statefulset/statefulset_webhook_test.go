@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
@@ -703,7 +704,30 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"change in replicas (scale up)": {
+		"change in replicas (scale up) for pending workload": {
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				Queue("test-queue").
+				Replicas(4).
+				Obj(),
+		},
+		"change in replicas (scale up) for admitted workload is blocked": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("", "test-sts"), "test-ns").
+					Admission(utiltestingapi.MakeAdmission("cluster-queue").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Queue("test-queue").
 				Replicas(3).
@@ -714,7 +738,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
+					Type:  field.ErrorTypeForbidden,
 					Field: replicasPath.String(),
 				},
 			}.ToAggregate(),
