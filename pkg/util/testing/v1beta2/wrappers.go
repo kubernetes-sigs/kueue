@@ -867,6 +867,18 @@ func (q *LocalQueueWrapper) AdmittedWorkloads(n int32) *LocalQueueWrapper {
 	return q
 }
 
+// FlavorsReservation sets the reserved resources per flavor.
+func (q *LocalQueueWrapper) FlavorsReservation(usage ...kueue.LocalQueueFlavorUsage) *LocalQueueWrapper {
+	q.Status.FlavorsReservation = usage
+	return q
+}
+
+// FlavorsUsage sets the admitted resources per flavor.
+func (q *LocalQueueWrapper) FlavorsUsage(usage ...kueue.LocalQueueFlavorUsage) *LocalQueueWrapper {
+	q.Status.FlavorsUsage = usage
+	return q
+}
+
 // Condition sets a condition on the LocalQueue.
 func (q *LocalQueueWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string, generation int64) *LocalQueueWrapper {
 	apimeta.SetStatusCondition(&q.Status.Conditions, metav1.Condition{

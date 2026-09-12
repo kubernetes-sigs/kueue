@@ -30,6 +30,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -37,6 +38,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -55,18 +57,26 @@ const pendingWlKey queueafs.WorkloadReference = "ns/pending-wl"
 func TestLocalQueueReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+	flavorUsage := kueue.LocalQueueFlavorUsage{
+		Name: "rf",
+		Resources: []kueue.LocalQueueResourceUsage{{
+			Name:  corev1.ResourceCPU,
+			Total: resource.MustParse("4"),
+		}},
+	}
 	cases := map[string]struct {
-		clusterQueue             *kueue.ClusterQueue
-		deleteClusterQueue       bool
-		localQueue               *kueue.LocalQueue
-		wantLocalQueue           *kueue.LocalQueue
-		wantError                error
-		afsConfig                *config.AdmissionFairSharing
-		runningWls               []kueue.Workload
-		wantRequeueAfter         *time.Duration
-		initialConsumedResources queueafs.UsageLedgerEntry
-		pendingEntryPenalty      corev1.ResourceList
-		wantConsumedResources    *queueafs.UsageLedgerEntry
+		clusterQueue                 *kueue.ClusterQueue
+		deleteClusterQueue           bool
+		deleteClusterQueueFromCaches bool
+		localQueue                   *kueue.LocalQueue
+		wantLocalQueue               *kueue.LocalQueue
+		wantError                    error
+		wantResult                   reconcile.Result
+		afsConfig                    *config.AdmissionFairSharing
+		runningWls                   []kueue.Workload
+		initialConsumedResources     queueafs.UsageLedgerEntry
+		pendingEntryPenalty          corev1.ResourceList
+		wantConsumedResources        *queueafs.UsageLedgerEntry
 	}{
 		"local queue with Hold StopPolicy": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
@@ -147,6 +157,49 @@ func TestLocalQueueReconcile(t *testing.T) {
 			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				Generation(1).
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FlavorsReservation(*flavorUsage.DeepCopy()).
+				FlavorsUsage(*flavorUsage.DeepCopy()).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("test-queue").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("test-cluster-queue", "rf", now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FlavorsReservation(*flavorUsage.DeepCopy()).
+				FlavorsUsage(*flavorUsage.DeepCopy()).
+				Obj(),
+			wantResult: reconcile.Result{
+				RequeueAfter: constants.UpdatesBatchPeriod,
+			},
+			wantError: nil,
+		},
+		"cluster queue deleted after its scheduler cache entry is removed": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			deleteClusterQueue:           true,
+			deleteClusterQueueFromCaches: true,
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FlavorsReservation(*flavorUsage.DeepCopy()).
+				FlavorsUsage(*flavorUsage.DeepCopy()).
 				Obj(),
 			runningWls: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "default").
@@ -162,12 +215,13 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Condition(
 					kueue.LocalQueueActive,
 					metav1.ConditionFalse,
-					"ClusterQueueDoesNotExist",
+					clusterQueueDoesNotExistReason,
 					clusterQueueIsInactiveMsg,
 					1,
 				).
 				Obj(),
-			wantError: nil,
+			wantError:  nil,
+			wantResult: reconcile.Result{},
 		},
 		"local queue decaying usage decays if there is no running workloads": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -206,6 +260,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"clamps a future LastUpdate stamped by a concurrent settlement": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -262,7 +317,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			// The full interval pins that the tick ran; the sampling-interval
 			// guard short-circuit would return interval minus the (negative)
 			// sinceLastUpdate instead.
-			wantRequeueAfter: new(5 * time.Minute),
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue decaying usage sums the previous state and running workloads": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -311,6 +366,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue decaying usage sums the usage from different flavors and resources": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -373,6 +429,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue decaying usage sums the previous state and running workloads half time twice larger than sampling": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -421,6 +478,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue decaying usage sums the previous state and running workloads with long half time": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -459,6 +517,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 24 * time.Hour},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue decaying usage sums the previous state and running GPU workloads half time twice larger than sampling": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -507,6 +566,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue decaying usage resets to 0 when half life is 0": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -536,7 +596,9 @@ func TestLocalQueueReconcile(t *testing.T) {
 				AdmittedWorkloads(1).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{},
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{},
+						},
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
@@ -551,6 +613,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 0 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue decaying usage is not reconciled if not enough time has passed": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -593,7 +656,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantRequeueAfter: new(time.Minute),
+			wantResult: reconcile.Result{RequeueAfter: time.Minute},
 			afsConfig: &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
@@ -628,6 +691,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue with uninitialized cache and no prior status seeds empty usage": {
 			// The admitted workload must not be counted at full weight here:
@@ -673,6 +737,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue with uninitialized cache seeds from persisted status usage": {
 			// Restart recovery: the persisted status EMA (8 CPU) is restored
@@ -727,6 +792,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue seed merges persisted status into a settlement-created entry": {
 			// Restart recovery when settlement wins the race: the entry (2 CPU,
@@ -797,6 +863,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"local queue seed does not re-merge persisted status into an accounted entry": {
 			// Same shape as above but the entry is already StatusAccounted: the
@@ -865,6 +932,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
 			},
+			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"AFS reconcile skips when cache is recent but status lacks AdmissionFairSharingStatus": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq-afs-skip").
@@ -893,7 +961,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				Obj(),
 			// 5s interval - 1s elapsed = 4s remaining
-			wantRequeueAfter: new(4 * time.Second),
+			wantResult: reconcile.Result{RequeueAfter: 4 * time.Second},
 			afsConfig: &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 60 * time.Second},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Second},
@@ -932,6 +1000,10 @@ func TestLocalQueueReconcile(t *testing.T) {
 					t.Fatalf("Unexpected error: %v", err)
 				}
 			}
+			if tc.deleteClusterQueueFromCaches {
+				cqCache.DeleteClusterQueue(tc.clusterQueue)
+				qManager.DeleteClusterQueue(log, tc.clusterQueue)
+			}
 			if tc.initialConsumedResources.Resources != nil {
 				lqKey := utilqueue.Key(tc.localQueue)
 				qManager.AfsUsageLedger.Update(lqKey, func(queueafs.UsageLedgerEntry, bool) queueafs.UsageLedgerEntry {
@@ -954,10 +1026,8 @@ func TestLocalQueueReconcile(t *testing.T) {
 				ctx,
 				reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.localQueue)},
 			)
-			if tc.wantRequeueAfter != nil {
-				if diff := cmp.Diff(*tc.wantRequeueAfter, result.RequeueAfter); diff != "" {
-					t.Errorf("unexpected reconcile requeue after (-want/+got):\n%s", diff)
-				}
+			if diff := cmp.Diff(tc.wantResult, result); diff != "" {
+				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
@@ -973,7 +1043,6 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 
 			cmpOpts := cmp.Options{
-				cmpopts.EquateEmpty(),
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,
 				cmpopts.IgnoreFields(kueue.LocalQueueAdmissionFairSharingStatus{}, "LastUpdate"),
@@ -1007,6 +1076,82 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLocalQueueNotifyClusterQueueUpdate(t *testing.T) {
+	clusterQueue := utiltestingapi.MakeClusterQueue("cq").Obj()
+	cases := map[string]struct {
+		oldClusterQueue *kueue.ClusterQueue
+		newClusterQueue *kueue.ClusterQueue
+		wantEvent       *kueue.ClusterQueue
+	}{
+		"create does not notify": {
+			newClusterQueue: clusterQueue,
+		},
+		"update does not notify": {
+			oldClusterQueue: clusterQueue,
+			newClusterQueue: clusterQueue.DeepCopy(),
+		},
+		"delete notifies with the deleted ClusterQueue": {
+			oldClusterQueue: clusterQueue,
+			wantEvent:       utiltestingapi.MakeClusterQueue("cq").Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			reconciler := NewLocalQueueReconciler(nil, nil, nil)
+			reconciler.NotifyClusterQueueUpdate(tc.oldClusterQueue, tc.newClusterQueue)
+
+			select {
+			case gotEvent := <-reconciler.cqUpdateCh:
+				if tc.wantEvent == nil {
+					t.Fatal("unexpected ClusterQueue update event")
+				}
+				gotClusterQueue, ok := gotEvent.Object.(*kueue.ClusterQueue)
+				if !ok {
+					t.Fatalf("event object type = %T, want *kueue.ClusterQueue", gotEvent.Object)
+				}
+				if diff := cmp.Diff(tc.wantEvent, gotClusterQueue); diff != "" {
+					t.Errorf("event ClusterQueue mismatch (-want/+got):\n%s", diff)
+				}
+			default:
+				if tc.wantEvent != nil {
+					t.Fatal("expected ClusterQueue update event")
+				}
+			}
+		})
+	}
+}
+
+func reconcileRequestLess(a, b reconcile.Request) bool {
+	return a.String() < b.String()
+}
+
+func TestLocalQueueClusterQueueHandlerGeneric(t *testing.T) {
+	clusterQueue := utiltestingapi.MakeClusterQueue("cq").Obj()
+	matchingQueues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("lq-a", "ns-a").ClusterQueue(clusterQueue.Name).Obj(),
+		utiltestingapi.MakeLocalQueue("lq-b", "ns-b").ClusterQueue(clusterQueue.Name).Obj(),
+	}
+	unrelatedQueue := utiltestingapi.MakeLocalQueue("other", "ns-a").ClusterQueue("other-cq").Obj()
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(matchingQueues[0], matchingQueues[1], unrelatedQueue).
+		Build()
+	handler := qCQHandler{client: cl}
+	queue := &utiltesting.MockTypedRateLimitingInterface{}
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	handler.Generic(ctx, event.GenericEvent{Object: clusterQueue}, queue)
+
+	wantRequests := []reconcile.Request{
+		{NamespacedName: client.ObjectKey{Namespace: "ns-a", Name: "lq-a"}},
+		{NamespacedName: client.ObjectKey{Namespace: "ns-b", Name: "lq-b"}},
+	}
+	sortRequests := cmpopts.SortSlices(reconcileRequestLess)
+	if diff := cmp.Diff(wantRequests, queue.Items, sortRequests); diff != "" {
+		t.Errorf("enqueued requests mismatch (-want/+got):\n%s", diff)
 	}
 }
 
