@@ -96,7 +96,7 @@ func managerSetupWithConfig(
 			// suites that do not configure it.
 			schdcache.WithFairSharing(fairsharing.Enabled(controllersCfg.FairSharing)),
 		}
-		cacheOptions = append(cacheOptions, framework.SchedulingSimulatorCacheOptions(ctx, mgr.GetConfig())...)
+		cacheOptions = append(cacheOptions, util.SchedulingSimulatorCacheOptions(ctx, mgr.GetConfig())...)
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
