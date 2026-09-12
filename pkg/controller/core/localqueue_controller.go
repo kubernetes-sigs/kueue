@@ -649,6 +649,9 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	return r.updateStatusIfChanged(ctx, queue, nil, conditionStatus, reason, msg)
 }
 
+// updateStatusIfChanged recomputes the LocalQueue status from the queue manager and the given usage
+// stats (or the cache when usage is nil), and writes it to the API server only when it differs from
+// the current status.
 func (r *LocalQueueReconciler) updateStatusIfChanged(
 	ctx context.Context,
 	queue *kueue.LocalQueue,
@@ -697,7 +700,7 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 			}, conditionStatus, r.customLabels.LQGet(utilqueue.Key(queue)), r.roleTracker)
 		}
 	}
-	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
+	if !equality.Semantic.DeepEqual(oldStatus, &queue.Status) {
 		return r.client.Status().Update(ctx, queue)
 	}
 	return nil
