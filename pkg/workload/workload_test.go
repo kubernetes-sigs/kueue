@@ -4185,6 +4185,82 @@ func TestShouldSkipClusterNomination(t *testing.T) {
 	}
 }
 
+func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
+	cases := map[string]struct {
+		annotationValue string
+		annotationSet   bool
+		want            int
+		wantErr         bool
+	}{
+		"absent annotation defaults to 1": {
+			annotationSet: false,
+			want:          1,
+		},
+		"explicit threshold of 1": {
+			annotationSet:   true,
+			annotationValue: "1",
+			want:            1,
+		},
+		"explicit threshold greater than 1": {
+			annotationSet:   true,
+			annotationValue: "3",
+			want:            3,
+		},
+		"maximum threshold is valid": {
+			annotationSet:   true,
+			annotationValue: "8",
+			want:            MaxUnhealthyNodesEvictionThreshold,
+		},
+		"zero falls back to default": {
+			annotationSet:   true,
+			annotationValue: "0",
+			want:            1,
+			wantErr:         true,
+		},
+		"negative falls back to default": {
+			annotationSet:   true,
+			annotationValue: "-2",
+			want:            1,
+			wantErr:         true,
+		},
+		"above maximum falls back to default": {
+			annotationSet:   true,
+			annotationValue: "9",
+			want:            1,
+			wantErr:         true,
+		},
+		"non-numeric falls back to default": {
+			annotationSet:   true,
+			annotationValue: "many",
+			want:            1,
+			wantErr:         true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wlWrapper := utiltestingapi.MakeWorkload("wl", "ns")
+			if tc.annotationSet {
+				wlWrapper = wlWrapper.Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, tc.annotationValue)
+			}
+			wl := wlWrapper.Obj()
+			got, err := UnhealthyNodesEvictionThreshold(wl)
+			if got != tc.want {
+				t.Errorf("UnhealthyNodesEvictionThreshold() = %d, want %d", got, tc.want)
+			}
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Errorf("UnhealthyNodesEvictionThreshold() error = %v, wantErr %t", err, tc.wantErr)
+			}
+		})
+	}
+	got, err := UnhealthyNodesEvictionThreshold(nil)
+	if got != DefaultUnhealthyNodesEvictionThreshold {
+		t.Errorf("UnhealthyNodesEvictionThreshold(nil) = %d, want %d", got, DefaultUnhealthyNodesEvictionThreshold)
+	}
+	if err != nil {
+		t.Errorf("UnhealthyNodesEvictionThreshold(nil) error = %v, want nil", err)
+	}
+}
+
 func TestCalcLocalQueueFSUsage(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	errOther := errors.New("other error")

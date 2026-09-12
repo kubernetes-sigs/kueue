@@ -849,8 +849,10 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	wl *kueue.Workload,
 	assumedUsage *assumedUsage,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
-	tr.Count = deleteDomain(existingAssignment, wl.Status.UnhealthyNodes[0].Name)
-	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
+	headNodeName := wl.Status.UnhealthyNodes[0].Name
+	tr.Count = deleteDomain(existingAssignment, headNodeName)
+	ignoreNodes := s.replacementIgnoreNodes(wl, existingAssignment)
+	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
@@ -884,10 +886,36 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		return nil, nil, reason
 	}
 	if replacementAssignment == nil || len(replacementAssignment[tr.PodSet.Name].Domains) == 0 {
-		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", wl.Status.UnhealthyNodes[0].Name)
+		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", headNodeName)
 	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
+}
+
+func (s *TASFlavorSnapshot) replacementIgnoreNodes(
+	wl *kueue.Workload,
+	existingAssignment *utiltas.TopologyAssignment,
+) sets.Set[string] {
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		return nil
+	}
+
+	// We only replace the head; other queued unhealthy nodes that may also be
+	// missing from the snapshot must not make the assignment appear stale.
+	ignoreNodes := sets.New[string]()
+	for _, n := range wl.Status.UnhealthyNodes[1:] {
+		ignoreNodes.Insert(n.Name)
+	}
+
+	// A node can fail after this replacement attempt was queued. Treat any other
+	// missing node-level domain as pending replacement; the admission patch
+	// preserves failures added after the recorded head.
+	for _, domain := range existingAssignment.Domains {
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
+			ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
+		}
+	}
+	return ignoreNodes
 }
 
 // assumedUsage holds the usage of the placements made earlier in this
@@ -1043,6 +1071,25 @@ func (s *TASFlavorSnapshot) domainForAssignmentValues(levels, values []string) *
 func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssignment) (bool, string) {
 	for _, domain := range ta.Domains {
 		if s.domainForAssignmentValues(ta.Levels, domain.Values) == nil {
+			return true, domain.Values[0]
+		}
+	}
+	return false, ""
+}
+
+// isTopologyAssignmentStaleIgnoring returns whether the topologyAssignment contains
+// node-level domains missing from the snapshot, ignoring any node names in
+// ignoreNodes. Used by the head-of-queue replacement path so that other queued
+// unhealthy nodes (which may also be missing from the snapshot) do not poison
+// the stale-check for the head we are actively replacing.
+func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoring(ta *utiltas.TopologyAssignment, ignoreNodes sets.Set[string]) (bool, string) {
+	for _, domain := range ta.Domains {
+		// Node name is the lowest-level value (last entry).
+		nodeName := domain.Values[len(domain.Values)-1]
+		if ignoreNodes.Has(nodeName) {
+			continue
+		}
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
 			return true, domain.Values[0]
 		}
 	}
@@ -2373,7 +2420,7 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 		aDomain := s.domainForAssignmentValues(levels, a.Values)
 		bDomain := s.domainForAssignmentValues(levels, b.Values)
 		if aDomain == nil || bDomain == nil {
-			// Defensive: staleness is verified before merging.
+			// Queued unhealthy nodes may already be absent from the snapshot.
 			return cmp.Compare(utiltas.DomainID(a.Values), utiltas.DomainID(b.Values))
 		}
 		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))

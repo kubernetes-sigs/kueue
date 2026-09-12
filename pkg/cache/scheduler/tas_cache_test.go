@@ -8870,6 +8870,114 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
+		"multi-node replacement: reusing a node already in the assignment is allowed": {
+			// https://github.com/kubernetes-sigs/kueue/pull/12344#discussion_r3457906799
+			// The only replacement capacity spans an already assigned node and a new node.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:         true,
+				features.TASCacheNodeMatchResults:      true,
+				features.TASReplaceMultipleFailedNodes: true,
+			},
+			levels: []string{tasBlockLabel, corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1").
+					Label(tasBlockLabel, "block-1").Label(corev1.LabelHostname, "node-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("node-2").
+					Label(tasBlockLabel, "block-1").Label(corev1.LabelHostname, "node-2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("node-3").
+					Label(tasBlockLabel, "block-1").Label(corev1.LabelHostname, "node-3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-0", "test-ns").NodeName("node-2").Request(corev1.ResourceCPU, "1").Obj(),
+				*testingpod.MakePod("pod-1", "test-ns").NodeName("node-2").Request(corev1.ResourceCPU, "1").Obj(),
+				*testingpod.MakePod("pod-2", "test-ns").NodeName("node-2").Request(corev1.ResourceCPU, "1").Obj(),
+				*testingpod.MakePod("pod-3", "test-ns").NodeName("node-2").Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("test-wl", "test-ns").
+				Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(8).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(tas.TopologyDomainAssignment{Count: 4, Values: []string{"node-1"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 4, Values: []string{"node-2"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("node-1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasBlockLabel),
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    8,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 6, Values: []string{"node-2"}},
+						{Count: 2, Values: []string{"node-3"}},
+					},
+				},
+			}},
+		},
+		"multi-node replacement: tolerates a concurrent failed node before status catches up": {
+			// node-2 is absent from the snapshot before the node controller
+			// appends it to UnhealthyNodes; it must not block replacement of node-1.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:         true,
+				features.TASCacheNodeMatchResults:      true,
+				features.TASReplaceMultipleFailedNodes: true,
+			},
+			levels: []string{corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1").
+					Label(corev1.LabelHostname, "node-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("node-2").
+					Label(corev1.LabelHostname, "node-2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("node-3").
+					Label(corev1.LabelHostname, "node-3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("test-wl", "test-ns").
+				Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(2).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-1"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("node-1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(corev1.LabelHostname),
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: []string{corev1.LabelHostname},
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"node-2"}},
+						{Count: 1, Values: []string{"node-3"}},
+					},
+				},
+			}},
+		},
 		"multi-layer replacement: replacement fails when no capacity in incomplete slice domain": {
 			//       b1
 			//   /        \
