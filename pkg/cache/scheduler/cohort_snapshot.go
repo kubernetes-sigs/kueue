@@ -90,3 +90,9 @@ func (c *CohortSnapshot) fairWeight() float64 {
 func (c *CohortSnapshot) BorrowingWith(fr resources.FlavorResource, val resources.Amount) bool {
 	return c.ResourceNode.SubtreeQuota[fr].Cmp(c.ResourceNode.Usage[fr].Add(val)) < 0
 }
+
+// Available returns the capacity of the Cohort available for its members to
+// borrow, accounting for usage and BorrowingLimits up the cohort hierarchy.
+func (c *CohortSnapshot) Available(fr resources.FlavorResource) resources.Amount {
+	return resources.MaxAmount(resources.NewAmount(0), available(c, fr))
+}
