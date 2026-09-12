@@ -59,10 +59,8 @@ var _ = ginkgo.Describe("MultiKueue remote object retention", ginkgo.Ordered, gi
 	})
 
 	ginkgo.JustBeforeEach(func() {
-		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce,
-				multikueue.WithRemoteObjectsAfterFinished(remoteObjectsAfterFinished))
-		})
+		setup := &retentionManagerSetup{afterFinished: remoteObjectsAfterFinished}
+		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, setup.setup)
 
 		f = setupMultiKueueFixture()
 	})
@@ -315,4 +313,13 @@ func expectWorker1ObjectsDeleted(jobLookupKey, wlLookupKey types.NamespacedName,
 		createdJob := batchv1.Job{}
 		g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, &createdJob)).To(utiltesting.BeNotFoundError())
 	}, timeout, util.Interval).Should(gomega.Succeed())
+}
+
+type retentionManagerSetup struct {
+	afterFinished time.Duration
+}
+
+func (s *retentionManagerSetup) setup(ctx context.Context, mgr manager.Manager) {
+	managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce,
+		multikueue.WithRemoteObjectsAfterFinished(s.afterFinished))
 }
