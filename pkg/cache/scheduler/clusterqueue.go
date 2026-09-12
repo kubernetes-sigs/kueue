@@ -497,7 +497,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if features.Enabled(features.CustomMetricLabels) {
 		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
 	}
-	c.updateWorkloadUsage(log, wi, add)
+	c.updateWorkloadUsage(log, wi, Add)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
 	}
@@ -513,7 +513,7 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 	if !exist {
 		return
 	}
-	c.updateWorkloadUsage(log, wi, subtract)
+	c.updateWorkloadUsage(log, wi, Subtract)
 	if c.podsReadyTracking {
 		c.WorkloadsNotReady.Delete(wlKey)
 	}
@@ -595,14 +595,14 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
-func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
+func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op UsageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.ResourceUsage().Assigned
 	for fr, q := range frUsage {
-		if op == add {
+		if op == Add {
 			addUsage(c, fr, q)
 		}
-		if op == subtract {
+		if op == Subtract {
 			removeUsage(c, fr, q)
 		}
 	}
@@ -645,7 +645,7 @@ func (c *clusterQueue) getLQLabelValuesFor(wlRef workload.Reference, lqKey strin
 	})
 }
 
-func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info, op usageOp) {
+func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info, op UsageOp) {
 	if !features.Enabled(features.TopologyAwareScheduling) || !wi.IsUsingTAS() {
 		return
 	}
@@ -656,15 +656,15 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		switch {
 		case tasFlvCache == nil:
 			log.V(2).Info("TAS flavor used by workload not found in cache", "tasFlavor", tasFlavor)
-		case op == add:
+		case op == Add:
 			tasFlvCache.addUsage(log, key, tasUsage)
-		case op == subtract:
+		case op == Subtract:
 			tasFlvCache.removeUsage(log, key)
 		}
 	}
 }
 
-func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op usageOp) {
+func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op UsageOp) {
 	sign := int64(op.asSignedOne())
 	for fr, q := range newUsage {
 		oldUsage[fr] = oldUsage[fr].AddInt64(utilmath.SaturatingMul(sign, q.Int64()))
@@ -693,10 +693,10 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			frq := wl.ResourceUsage().Assigned
-			updateFlavorUsage(frq, qImpl.totalReserved, add)
+			updateFlavorUsage(frq, qImpl.totalReserved, Add)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
-				qImpl.updateAdmittedUsage(frq, add)
+				qImpl.updateAdmittedUsage(frq, Add)
 				qImpl.admittedWorkloads++
 			}
 		}

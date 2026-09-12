@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -50,8 +51,12 @@ const (
 	inactiveCQReasonTASUsageNotSynced inactiveCQReason = "TASUsageNotSynced"
 )
 
+// Snapshot is a snapshot of the cluster state.
+// Mutating this object outside of the Simulator function risks corrupting the state
+// and should be avoided.
 type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
+	Lock                     *sync.Mutex
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SimulatorSnapshot        simulator.SimulatorSnapshot
@@ -61,40 +66,12 @@ type Snapshot struct {
 	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 }
 
-// RemoveWorkload removes a workload from its corresponding ClusterQueue and
-// updates resource usage.
-func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
-	delete(cq.Workloads, workload.Key(wl.Obj))
-	s.removeUsage(cq, wl.Usage())
-}
-
-// AddWorkload adds a workload to its corresponding ClusterQueue and
-// updates resource usage.
-func (s *Snapshot) AddWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
-	cq.Workloads[workload.Key(wl.Obj)] = wl
-	s.AddUsage(cq, wl.Usage())
-}
-
-// AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
-func (s *Snapshot) AddUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
-	cq.AddUsage(usage)
-	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, add)
-}
-
-func (s *Snapshot) removeUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
-	cq.RemoveUsage(usage)
-	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, subtract)
-}
-
-// updateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
+// UpdateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
 // with the cross-flavor usage aggregated when the snapshot is built.
-func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, op usageOp) {
+func (s *Snapshot) UpdateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, op UsageOp) {
 	if len(usage) == 0 || !features.Enabled(features.TASHandleOverlappingFlavors) {
 		return
 	}
-
 	for sourceFlavor, tasUsage := range usage {
 		if sourceFlavors[sourceFlavor] == nil || s.hostnameLeafTASFlavors[sourceFlavor] == nil {
 			continue
@@ -103,46 +80,21 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 			if flavor == sourceFlavor {
 				continue
 			}
-			tasFlavor.updateTASUsageForHeldDomains(tasUsage, op)
+			tasFlavor.UpdateTASUsageForHeldDomains(tasUsage, op)
 		}
 	}
 }
 
-// SimulateWorkloadUsageRemoval modifies the snapshot by removing the usage
-// corresponding to the list of workloads from workloads' respective
-// ClusterQueues. It returns a function which can be used to restore
-// this usage.
-func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func() {
-	type cqUsage struct {
-		cq    kueue.ClusterQueueReference
-		usage workload.Usage
-	}
-	cqUsages := make([]cqUsage, 0, len(workloads))
-	for _, w := range workloads {
-		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
-	}
-	for _, cqUsage := range cqUsages {
-		s.removeUsage(s.ClusterQueue(cqUsage.cq), cqUsage.usage)
-	}
-	return func() {
-		for _, cqUsage := range cqUsages {
-			s.AddUsage(s.ClusterQueue(cqUsage.cq), cqUsage.usage)
-		}
-	}
+func (s *Snapshot) RemoveUsage(cqRef kueue.ClusterQueueReference, usage workload.Usage) {
+	cq := s.ClusterQueue(cqRef)
+	cq.RemoveUsage(usage)
+	s.UpdateOverlappingTASUsage(cq.TASFlavors, usage.TAS, Subtract)
 }
 
-// SimulateWorkloadRemoval modifies the snapshot by removing the list
-// of workloads from workloads' respective ClusterQueues. It returns a
-// function which can be used to restore these workloads.
-func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
-	for _, w := range workloads {
-		s.RemoveWorkload(w)
-	}
-	return func() {
-		for _, w := range workloads {
-			s.AddWorkload(w)
-		}
-	}
+func (s *Snapshot) AddUsage(cqRef kueue.ClusterQueueReference, usage workload.Usage) {
+	cq := s.ClusterQueue(cqRef)
+	cq.AddUsage(usage)
+	s.UpdateOverlappingTASUsage(cq.TASFlavors, usage.TAS, Add)
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
@@ -213,6 +165,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 
 	snap := Snapshot{
+		Lock:                     &sync.Mutex{},
 		Manager:                  hierarchy.NewManager(newCohortSnapshot),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
@@ -224,6 +177,8 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		snap.SimulatorSnapshot = newDefaultSimulatorSnapshot()
 	}
 
 	for _, cohort := range c.hm.Cohorts() {
