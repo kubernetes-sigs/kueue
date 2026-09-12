@@ -200,6 +200,10 @@ The following table lists the configurable parameters of the kueue chart and the
 | metricsService.type | string | `"ClusterIP"` | metricsService's type |
 | mutatingWebhook.reinvocationPolicy | string | `"Never"` | MutatingWebhookConfiguration's reinvocationPolicy |
 | nameOverride | string | `""` | Override the resource name |
+| networkPolicy.egress.enabled | bool | `false` | Enable the ControllerManager's egress NetworkPolicy. This applies default-deny egress, which breaks MultiKueue unless every remote cluster API server is reachable through the built-in rules or through extraEgress. |
+| networkPolicy.egress.extraEgress | list | `[]` | Additional egress rules appended to the ControllerManager's NetworkPolicy. |
+| networkPolicy.enabled | bool | `false` | Enable NetworkPolicies restricting traffic to the Kueue components. Requires a CNI plugin that enforces NetworkPolicy, and cannot be combined with controllerManager.hostNetwork, because most CNI plugins do not apply NetworkPolicy to host-network pods. |
+| networkPolicy.extraIngress | list | `[]` | Additional ingress rules appended to the ControllerManager's NetworkPolicy. Ingress rules are additive, so these permit extra traffic and cannot narrow the built-in rules. |
 | webhookService.ipDualStack.enabled | bool | `false` | webhookService's ipDualStack enabled |
 | webhookService.ipDualStack.ipFamilies | list | `["IPv6","IPv4"]` | webhookService's ipDualStack ipFamilies |
 | webhookService.ipDualStack.ipFamilyPolicy | string | `"PreferDualStack"` | webhookService's ipDualStack ipFamilyPolicy |
