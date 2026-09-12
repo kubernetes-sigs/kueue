@@ -1400,6 +1400,11 @@ func ClearCohortMetrics(cohortName kueue.CohortReference) {
 
 func ClearCohortAdmittedWorkloadsMetrics(cohortName kueue.CohortReference) {
 	CohortSubtreeAdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
+	ClearCohortAdmittedActiveWorkloadsMetrics(cohortName)
+}
+
+// ClearCohortAdmittedActiveWorkloadsMetrics removes all active-workload series for a Cohort.
+func ClearCohortAdmittedActiveWorkloadsMetrics(cohortName kueue.CohortReference) {
 	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohortName)})
 }
 

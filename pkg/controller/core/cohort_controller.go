@@ -18,10 +18,12 @@ package core
 
 import (
 	"context"
+	"errors"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -42,6 +44,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
+
+type CohortUpdateWatcher interface {
+	NotifyCohortUpdate(oldCohort, newCohort *kueue.Cohort)
+}
 
 type CohortReconcilerOptions struct {
 	FairSharingEnabled bool
@@ -78,6 +84,7 @@ type CohortReconciler struct {
 	cache              *schdcache.Cache
 	qManager           *qcache.Manager
 	cqUpdateCh         chan event.GenericEvent
+	watchers           []CohortUpdateWatcher
 	fairSharingEnabled bool
 	roleTracker        *roletracker.RoleTracker
 	customLabels       *metrics.CustomLabels
@@ -103,6 +110,16 @@ func NewCohortReconciler(
 		fairSharingEnabled: options.FairSharingEnabled,
 		roleTracker:        options.roleTracker,
 		customLabels:       options.customLabels,
+	}
+}
+
+func (r *CohortReconciler) AddUpdateWatcher(watchers ...CohortUpdateWatcher) {
+	r.watchers = append(r.watchers, watchers...)
+}
+
+func (r *CohortReconciler) notifyWatchers(oldCohort, newCohort *kueue.Cohort) {
+	for _, w := range r.watchers {
+		w.NotifyCohortUpdate(oldCohort, newCohort)
 	}
 }
 
@@ -184,6 +201,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
+			r.notifyWatchers(&kueue.Cohort{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}, nil)
 			metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 			if features.Enabled(features.CustomMetricLabels) {
 				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
@@ -204,12 +222,14 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		"resources", resourcegroups.EffectiveCohortResourceGroups(&cohort),
 		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
 	)
-	if err := r.cache.AddOrUpdateCohort(&cohort); err != nil {
-		log.V(2).Error(err, "Error adding or updating cohort in the cache")
-		// Fail fast to avoid queue/status updates from a stale cache state.
-		return ctrl.Result{}, err
-	}
+	addErr := r.cache.AddOrUpdateCohort(&cohort)
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
+	r.notifyWatchers(nil, &cohort)
+	// Continue after cycle detection so affected ClusterQueues can refresh their state.
+	if addErr != nil && !errors.Is(addErr, schdcache.ErrCohortHasCycle) {
+		log.V(2).Error(addErr, "Error adding or updating cohort in the cache")
+		return ctrl.Result{}, addErr
+	}
 	if labelsUpdated {
 		metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 		r.cache.ResyncCohortGaugeMetrics(log, kueue.CohortReference(req.Name))

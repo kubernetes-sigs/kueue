@@ -643,13 +643,19 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
-		return err
-	}
+	err := cohort.updateCohort(apiCohort, oldParent)
 	c.handleParentUpdate(oldParent)
 	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+	if errors.Is(err, ErrCohortHasCycle) {
+		for _, cyclicCohort := range c.hm.Cohorts() {
+			if hierarchy.HasCycle(cyclicCohort) {
+				metrics.ClearCohortAdmittedActiveWorkloadsMetrics(cyclicCohort.Name)
+			}
+		}
+	}
+	c.updateClusterQueues(ctrl.Log.WithName("cache"))
 
-	return nil
+	return err
 }
 
 // DeleteCohort removes the cohort from the cache and updates the SubtreeQuota
@@ -682,6 +688,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	c.handleParentUpdate(parent)
+	c.updateClusterQueues(ctrl.Log.WithName("cache"))
 }
 
 func (c *Cache) handleParentUpdate(cachedParent *cohort) {
@@ -906,7 +913,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
 	}
 
-	if c.fairSharingEnabled {
+	if c.fairSharingEnabled && (!cq.HasParent() || !hierarchy.HasCycle(cq.Parent())) {
 		drs := dominantResourceShare(cq, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
@@ -924,6 +931,12 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 	cohort := c.hm.Cohort(kueue.CohortReference(cohortObj.Name))
 	if cohort == nil {
 		return nil, ErrCohortNotFound
+	}
+
+	// A cyclic hierarchy cannot compute meaningful stats (dominantResourceShare
+	// would recurse infinitely via potentialAvailable), so return early.
+	if hierarchy.HasCycle(cohort) {
+		return &CohortUsageStats{}, nil
 	}
 
 	stats := &CohortUsageStats{}
@@ -1124,6 +1137,25 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 	for _, cq := range c.hm.ClusterQueues() {
 		if _, found := cq.AdmissionChecks[ac]; found {
 			cqs = append(cqs, cq.Name)
+		}
+	}
+	return cqs
+}
+
+func (c *Cache) ClusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []kueue.ClusterQueueReference
+
+	for _, cq := range c.hm.ClusterQueues() {
+		if !cq.HasParent() {
+			continue
+		}
+		for ancestor := range cq.Parent().PathSelfToRoot() {
+			if ancestor.Name == cohortName {
+				cqs = append(cqs, cq.Name)
+				break
+			}
 		}
 	}
 	return cqs
