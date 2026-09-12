@@ -792,31 +792,19 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		// Workloads with a plain owner reference to the served job plus a
 		// controller reference to another object (a third-party controller
 		// pattern). Distinct pod set counts make a spec hijack observable.
-		mkForeignControlled := func(name string, count int) *kueue.Workload {
-			wl := utiltestingapi.MakeWorkload(name, ns.Name).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).
-					Containers(job.Spec.Template.Spec.Containers[0]).
-					Obj()).
-				Obj()
-			wl.OwnerReferences = []metav1.OwnerReference{
-				{
-					APIVersion: batchv1.SchemeGroupVersion.String(),
-					Kind:       "Job",
-					Name:       job.Name,
-					UID:        job.UID,
-				},
-				{
-					APIVersion: corev1.SchemeGroupVersion.String(),
-					Kind:       "ConfigMap",
-					Name:       "some-config",
-					UID:        types.UID("some-config-uid"),
-					Controller: new(true),
-				},
-			}
-			return wl
-		}
-		foreignA := mkForeignControlled("foreign-a", 2)
-		foreignB := mkForeignControlled("foreign-b", 3)
+		foreignControlledWl := utiltestingapi.MakeWorkload("foreign", ns.Name).
+			OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), job.Name, string(job.UID)).
+			ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), "some-config", "some-config-uid")
+		foreignA := foreignControlledWl.Clone().Name("foreign-a").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+				Containers(job.Spec.Template.Spec.Containers[0]).
+				Obj()).
+			Obj()
+		foreignB := foreignControlledWl.Clone().Name("foreign-b").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+				Containers(job.Spec.Template.Spec.Containers[0]).
+				Obj()).
+			Obj()
 		util.MustCreate(ctx, k8sClient, foreignA)
 		util.MustCreate(ctx, k8sClient, foreignB)
 
