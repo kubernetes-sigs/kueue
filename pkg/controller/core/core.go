@@ -28,6 +28,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/dqo"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -134,6 +135,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		}
 	}
 
+	if features.Enabled(features.DynamicQuotaOrchestration) {
+		dqoRec := dqo.NewReconciler(mgr.GetClient(), dqo.WithRoleTracker(opts.RoleTracker))
+		if err := dqoRec.SetupWithManager(mgr); err != nil {
+			return "DynamicQuotaOrchestrator", err
+		}
+	}
+
 	qManager.AddTopologyUpdateWatcher(cqRec)
 	qManager.AddWorkloadUpdateWatcher(qRec)
 	qManager.AddWorkloadUpdateWatcher(cqRec)
@@ -150,6 +158,9 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 	}
 	if cfg.RecoveryTimeout != nil && cfg.RecoveryTimeout.Duration > 0 {
 		result.recoveryTimeout = &cfg.RecoveryTimeout.Duration
+	}
+	if waitforpodsready.PodsScheduledTrackingEnabled(cfg) {
+		result.unscheduledTimeout = &cfg.UnscheduledTimeout.Duration
 	}
 	if cfg.RequeuingStrategy != nil {
 		result.requeuingBackoffBaseSeconds = *cfg.RequeuingStrategy.BackoffBaseSeconds

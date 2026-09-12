@@ -20,16 +20,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -63,9 +64,12 @@ func TestWorkloadCmd(t *testing.T) {
 		args             []string
 		mapperKinds      []schema.GroupVersionKind
 		job              []runtime.Object
-		wantOut          string
-		wantOutErr       string
-		wantErr          error
+		// forbiddenLocalQueues makes Get on these LocalQueues return Forbidden.
+		forbiddenLocalQueues []string
+		listPages            []runtime.Object
+		wantOut              string
+		wantOutErr           string
+		wantErr              string
 	}{
 		"should print workload list with namespace filter": {
 			ns: "ns1",
@@ -151,6 +155,67 @@ wl1               j1         lq1          cq1            PENDING                
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
+`,
+		},
+		"should print pending workload list with clusterqueue filter resolved through localqueue": {
+			args: []string{"--clusterqueue", "cq1", "--status", "pending"},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).ClusterQueue("cq2").Obj(),
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j2", "test-uid").
+					Queue("lq2").
+					Active(true).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl3", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j3", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Creation(testStartTime.Add(-3 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1               j1         lq1          cq1            PENDING                                   60m
+`,
+		},
+		"should not read localqueues of workloads excluded by other filters": {
+			args: []string{"--localqueue", "lq1", "--clusterqueue", "cq1"},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue("cq1").Obj(),
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j1", "test-uid").
+					Queue("lq1").
+					Active(true).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "j2", "test-uid").
+					Queue("lq2").
+					Active(true).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			forbiddenLocalQueues: []string{"lq2"},
 			wantOut: `NAME   JOB TYPE   JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
 wl1               j1         lq1          cq1            PENDING                                   60m
 `,
@@ -564,6 +629,44 @@ wl2    rayjob.ray.io             j2         lq2          cq2            PENDING 
 wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING                                   3h
 `,
 		},
+		"should print sorted job types and names for a workload with multiple owners": {
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "pod",
+							Kind:         "Pod",
+							Group:        "",
+						},
+					},
+				},
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-c", "pod-uid-c").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-a", "job-uid-a").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-b", "pod-uid-b").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME              LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job, pod   job-a, pod-b, pod-c   lq1          cq1            PENDING                                   60m
+`,
+		},
 		"should print workload list with resource filter": {
 			args: []string{"--for", "job.batch/job-test"},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -863,6 +966,39 @@ wl1               j1         lq1          cq1            PENDING   12           
 wl2               j2         lq2          cq2            PENDING   22                              120m
 `,
 		},
+		"should print a single yaml document across pages": {
+			args: []string{"-o", "yaml"},
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					ListMeta: metav1.ListMeta{Continue: "page2"},
+					Items:    []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Namespace: metav1.NamespaceDefault}}},
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl2", Namespace: metav1.NamespaceDefault}}},
+				},
+			},
+			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2
+items:
+- metadata:
+    name: wl1
+    namespace: default
+  spec:
+    podSets: null
+  status: {}
+- metadata:
+    name: wl2
+    namespace: default
+  spec:
+    podSets: null
+  status: {}
+kind: WorkloadList
+metadata: {}
+`,
+		},
+		"should fail with invalid status value": {
+			args:    []string{"--status", "unknown"},
+			wantErr: `invalid status value (unknown). Must be "all", "pending", "quotareserved", "admitted" or "finished"`,
+		},
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
@@ -876,6 +1012,9 @@ wl2               j2         lq2          cq2            PENDING   22           
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
 			clientset := fake.NewSimpleClientset(tc.objs...)
+			if len(tc.listPages) > 0 {
+				prependPagedListReactor(clientset, "workloads", tc.listPages)
+			}
 
 			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 			if len(tc.ns) > 0 {
@@ -917,6 +1056,16 @@ wl2               j2         lq2          cq2            PENDING   22           
 			// because of `PendingWorkload` resources not implement `runtime.Object`.
 			// Default `Reaction` handle all verbs and resources, so need to add on
 			// head of chain.
+			if len(tc.forbiddenLocalQueues) > 0 {
+				clientset.PrependReactor("get", "localqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+					name := action.(kubetesting.GetAction).GetName()
+					if slices.Contains(tc.forbiddenLocalQueues, name) {
+						return true, nil, apierrors.NewForbidden(kueue.Resource("localqueues"), name, nil)
+					}
+					return false, nil, nil
+				})
+			}
+
 			clientset.PrependReactor("get", "clusterqueues", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
 				obj := &visibility.PendingWorkloadsSummary{Items: tc.pendingWorkloads}
 				return true, obj, err
@@ -928,7 +1077,11 @@ wl2               j2         lq2          cq2            PENDING   22           
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+			var gotErrStr string
+			if gotErr != nil {
+				gotErrStr = gotErr.Error()
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 

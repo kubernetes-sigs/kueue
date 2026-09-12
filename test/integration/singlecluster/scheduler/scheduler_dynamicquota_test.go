@@ -329,6 +329,57 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 		})
 	})
+
+	ginkgo.It("should report dynamic quota orchestrator in cluster queue info metric", func() {
+		ginkgo.By("verifying initial info metric dynamic_quota_orchestrator=''", func() {
+			util.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
+		})
+
+		ginkgo.By("updating ClusterQueue status with EffectiveQuotas providing 10 CPU and orchestrator 'dqo-orchestrator'", func() {
+			updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "10", "dqo-orchestrator")
+		})
+
+		ginkgo.By("verifying info metric reports dynamic_quota_orchestrator='dqo-orchestrator'", func() {
+			util.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "dqo-orchestrator", 1)
+		})
+
+		ginkgo.By("clearing EffectiveQuotas in status", func() {
+			updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "", "")
+		})
+
+		ginkgo.By("verifying info metric reverts to dynamic_quota_orchestrator=''", func() {
+			util.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
+		})
+	})
+
+	ginkgo.It("should report dynamic quota orchestrator in cohort info metric", func() {
+		cohort = utiltestingapi.MakeCohort("dynquota-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+				Resource(corev1.ResourceCPU, "0").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cohort)
+
+		ginkgo.By("verifying initial cohort info metric dynamic_quota_orchestrator=''", func() {
+			util.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
+		})
+
+		ginkgo.By("updating Cohort status with EffectiveQuotas", func() {
+			updateCohortEffectiveQuotas(ctx, k8sClient, cohort, flavor, "20", "dqo-cohort-orchestrator")
+		})
+
+		ginkgo.By("verifying cohort info metric reports dynamic_quota_orchestrator='dqo-cohort-orchestrator'", func() {
+			util.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "dqo-cohort-orchestrator", 1)
+		})
+
+		ginkgo.By("clearing Cohort EffectiveQuotas in status", func() {
+			updateCohortEffectiveQuotas(ctx, k8sClient, cohort, flavor, "", "")
+		})
+
+		ginkgo.By("verifying cohort info metric reverts to dynamic_quota_orchestrator=''", func() {
+			util.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
+		})
+	})
 })
 
 func updateCohortEffectiveQuotas(ctx context.Context, k8sClient client.Client, cohort *kueue.Cohort, flavor *kueue.ResourceFlavor, cpuQty, orchestratorName string) {

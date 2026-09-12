@@ -56,7 +56,7 @@ const equalTestPriority = 10
 // Workload whose TAS placement fails on the flavor that quota selected can ever reach the
 // next flavor of its ResourceGroup.
 //
-// It exists because the two smaller tests for this gate (TestLastAssignmentOutdated and
+// It exists because the two smaller tests for this gate (TestFlavorScanStateOutdated and
 // TestEntryMarkSkipped) each assert one mechanism in isolation, and neither shows what a
 // Workload actually ends up admitted on. Only a multi-cycle run does, because the gate's
 // whole purpose is to carry flavor progress from one cycle into the next.
@@ -259,7 +259,7 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 				// Reproduce a busy Cohort. AllocatableResourceGeneration only advances when
 				// the quotas actually change (see updateQuotasAndResourceGroups), so flip
 				// flavor-2's quota between two values to force a real bump every cycle. The
-				// bump is what discards LastAssignment in lastAssignmentOutdated, and with
+				// bump is what discards FlavorScanState in flavorScanStateOutdated, and with
 				// it the flavor progress recorded one cycle earlier. On a cluster with
 				// steady admissions and evictions that bump happens continuously, which is
 				// the condition this gate exists to survive.

@@ -126,7 +126,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter, nil)))
 
-	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "admitted" or "finished"`)
+	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "quotareserved", "admitted" or "finished"`)
 
 	return cmd
 }
@@ -152,7 +152,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 		case "finished":
 			statuses.Insert(workloadStatusFinished)
 		default:
-			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "admitted" or "finished"`, status)
+			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "quotareserved", "admitted" or "finished"`, status)
 		}
 	}
 
@@ -279,6 +279,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 	}
 
 	tabWriter := printers.GetNewTabWriter(o.Out)
+	pager := newPagedListPrinter(o.PrintFlags.OutputFlagSpecified())
 
 	var enableOwnerReferenceFilter bool
 	for {
@@ -295,9 +296,9 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			continue
 		}
 
+		// Apply the filters that do not need LocalQueues first, so LocalQueues
+		// are only fetched for Workloads that can still be listed.
 		o.filterList(list, enableOwnerReferenceFilter, jobUID)
-
-		totalCount += len(list.Items)
 
 		r := newListWorkloadResources()
 
@@ -305,6 +306,10 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		o.filterListByClusterQueue(list, r.localQueues)
+
+		totalCount += len(list.Items)
 
 		r.pendingWorkloads, err = o.pendingWorkloads(ctx, list, r.localQueues)
 		if err != nil {
@@ -321,7 +326,7 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if err := printer.PrintObj(list, tabWriter); err != nil {
+		if err := pager.printPage(list, list.Continue == "", printer, tabWriter); err != nil {
 			return err
 		}
 
@@ -353,8 +358,21 @@ func (o *WorkloadOptions) filterList(list *kueue.WorkloadList, enableOwnerRefere
 	}
 	filteredItems := make([]kueue.Workload, 0, len(o.LocalQueueFilter))
 	for _, wl := range list.Items {
-		if o.filterByLocalQueue(&wl) && o.filterByClusterQueue(&wl) && o.filterByStatuses(&wl) &&
+		if o.filterByLocalQueue(&wl) && o.filterByStatuses(&wl) &&
 			o.filterByOwnerReference(&wl, enableOwnerReferenceFilter, uid) {
+			filteredItems = append(filteredItems, wl)
+		}
+	}
+	list.Items = filteredItems
+}
+
+func (o *WorkloadOptions) filterListByClusterQueue(list *kueue.WorkloadList, localQueues map[string]*kueue.LocalQueue) {
+	if len(o.ClusterQueueFilter) == 0 || len(list.Items) == 0 {
+		return
+	}
+	filteredItems := make([]kueue.Workload, 0, len(list.Items))
+	for _, wl := range list.Items {
+		if o.filterByClusterQueue(&wl, localQueues) {
 			filteredItems = append(filteredItems, wl)
 		}
 	}
@@ -365,9 +383,9 @@ func (o *WorkloadOptions) filterByLocalQueue(wl *kueue.Workload) bool {
 	return len(o.LocalQueueFilter) == 0 || string(wl.Spec.QueueName) == o.LocalQueueFilter
 }
 
-func (o *WorkloadOptions) filterByClusterQueue(wl *kueue.Workload) bool {
-	return len(o.ClusterQueueFilter) == 0 || wl.Status.Admission != nil &&
-		wl.Status.Admission.ClusterQueue == kueue.ClusterQueueReference(o.ClusterQueueFilter)
+func (o *WorkloadOptions) filterByClusterQueue(wl *kueue.Workload, localQueues map[string]*kueue.LocalQueue) bool {
+	return len(o.ClusterQueueFilter) == 0 ||
+		clusterQueueNameForWorkload(wl, localQueues) == kueue.ClusterQueueReference(o.ClusterQueueFilter)
 }
 
 func (o *WorkloadOptions) filterByStatuses(wl *kueue.Workload) bool {
@@ -441,12 +459,7 @@ func (o *WorkloadOptions) pendingWorkloads(ctx context.Context, list *kueue.Work
 		if !workloadPending(&wl) {
 			continue
 		}
-		var clusterQueueName kueue.ClusterQueueReference
-		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
-			clusterQueueName = wl.Status.Admission.ClusterQueue
-		} else if lq := localQueues[localQueueKeyForWorkload(&wl)]; lq != nil {
-			clusterQueueName = lq.Spec.ClusterQueue
-		}
+		clusterQueueName := clusterQueueNameForWorkload(&wl, localQueues)
 		if len(clusterQueueName) == 0 {
 			continue
 		}
@@ -500,4 +513,17 @@ func workloadPending(wl *kueue.Workload) bool {
 
 func localQueueKeyForWorkload(wl *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", wl.Namespace, wl.Spec.QueueName)
+}
+
+// clusterQueueNameForWorkload returns the ClusterQueue the workload belongs to.
+// Pending workloads have no admission yet, so the name is resolved through
+// their LocalQueue in that case.
+func clusterQueueNameForWorkload(wl *kueue.Workload, localQueues map[string]*kueue.LocalQueue) kueue.ClusterQueueReference {
+	if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
+		return wl.Status.Admission.ClusterQueue
+	}
+	if lq := localQueues[localQueueKeyForWorkload(wl)]; lq != nil {
+		return lq.Spec.ClusterQueue
+	}
+	return ""
 }

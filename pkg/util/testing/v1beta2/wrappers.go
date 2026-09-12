@@ -924,6 +924,11 @@ func (c *CohortWrapper) Obj() *kueue.Cohort {
 	return &c.Cohort
 }
 
+func (c *CohortWrapper) UID(uid types.UID) *CohortWrapper {
+	c.Cohort.UID = uid
+	return c
+}
+
 func (c *CohortWrapper) Parent(parentName kueue.CohortReference) *CohortWrapper {
 	c.Spec.ParentName = parentName
 	return c
@@ -941,6 +946,12 @@ func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWr
 		c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{}
 	}
 	c.Status.EffectiveQuotas.ResourceGroups = append(c.Status.EffectiveQuotas.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+// EffectiveQuotaStatus sets status.effectiveQuotas.
+func (c *CohortWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *CohortWrapper {
+	c.Status.EffectiveQuotas = eq
 	return c
 }
 
@@ -1002,6 +1013,11 @@ func (c *ClusterQueueWrapper) Clone() *ClusterQueueWrapper {
 // Obj returns the inner ClusterQueue.
 func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
 	return &c.ClusterQueue
+}
+
+func (c *ClusterQueueWrapper) UID(uid types.UID) *ClusterQueueWrapper {
+	c.ClusterQueue.UID = uid
+	return c
 }
 
 // Cohort sets the borrowing cohort.
@@ -1102,6 +1118,12 @@ func (c *ClusterQueueWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *Cl
 		c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{}
 	}
 	c.Status.EffectiveQuotas.ResourceGroups = append(c.Status.EffectiveQuotas.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+// EffectiveQuotaStatus sets status.effectiveQuotas.
+func (c *ClusterQueueWrapper) EffectiveQuotaStatus(eq *kueue.EffectiveQuotaStatus) *ClusterQueueWrapper {
+	c.Status.EffectiveQuotas = eq
 	return c
 }
 

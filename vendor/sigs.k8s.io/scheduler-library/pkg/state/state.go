@@ -25,28 +25,35 @@ import (
 )
 
 type ClusterState struct {
-	Cache      cache.Cache
-	profiles   *upstreamsync.ProfileMap
-	sharedSnap *cache.Snapshot
+	Cache        cache.Cache
+	snapshot     *snapshot.ClusterSnapshot
+	snapshotData *cache.Snapshot
 }
 
 // New creates a new ClusterState with an internal Kubernetes scheduler cache, frameworks,
 // and the snapshot instance shared with all frameworks via WithSnapshotSharedLister.
 func New(c cache.Cache, profiles *upstreamsync.ProfileMap, snap *cache.Snapshot) *ClusterState {
 	return &ClusterState{
-		Cache:      c,
-		profiles:   profiles,
-		sharedSnap: snap,
+		Cache:        c,
+		snapshot:     snapshot.New(snap, profiles),
+		snapshotData: snap,
 	}
 }
 
-// Snapshot constructs a snapshot from the current cluster state by updating the shared snapshot
-// in-place. Calling Snapshot again invalidates any previously returned ClusterSnapshot — the caller
-// must not use a previous snapshot after requesting a new one.
-func (s *ClusterState) Snapshot(logger klog.Logger) (*snapshot.ClusterSnapshot, error) {
-	snap := s.sharedSnap
-	if err := s.Cache.UpdateSnapshot(logger, snap); err != nil {
-		return nil, fmt.Errorf("failed to update snapshot: %w", err)
+// GetAssociatedSnapshot returns the snapshot instance associated with this [ClusterState].
+// Use [ClusterState.SyncSnapshot] to sync the snapshot state with the current cluster state.
+func (s *ClusterState) GetAssociatedSnapshot() *snapshot.ClusterSnapshot {
+	return s.snapshot
+}
+
+// SyncSnapshot uses the current cluster state to update the associated snapshot in-place.
+// Any mutations done on the snapshot since last sync will be reverted.
+func (s *ClusterState) SyncSnapshot(logger klog.Logger) error {
+	if err := s.snapshot.ResetMutations(); err != nil {
+		return fmt.Errorf("failed to reset mutations: %w", err)
 	}
-	return snapshot.New(snap, s.profiles), nil
+	if err := s.Cache.UpdateSnapshot(logger, s.snapshotData); err != nil {
+		return fmt.Errorf("failed to update snapshot: %w", err)
+	}
+	return nil
 }

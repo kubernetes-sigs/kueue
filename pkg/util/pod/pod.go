@@ -181,13 +181,18 @@ func IsTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
 }
 
-func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueue.Workload, isGroup bool, tracker *roletracker.RoleTracker) {
+func IsScheduled(p *corev1.Pod) bool {
+	return p.Spec.NodeName != "" && HasCondition(p, &corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue})
+}
+
+func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueue.Workload, isGroup bool, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
 	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		return
 	}
 	latency := cl.Now().Sub(cond.LastTransitionTime.Time)
-	metrics.RecordPodSchedulingGateRemovalSeconds(name, wl.Status.Admission.ClusterQueue, isGroup, latency, tracker)
+	cqName := wl.Status.Admission.ClusterQueue
+	metrics.RecordPodSchedulingGateRemovalSeconds(name, cqName, isGroup, latency, customLabels.CQGet(cqName), tracker)
 }
 
 // GetPodGroupName returns the pod group name for the given pod. It reads the

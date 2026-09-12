@@ -51,6 +51,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+  - default: false
+    lockToDefault: false
+    preRelease: Deprecated
+    version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false
@@ -285,6 +289,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: MultiKueueReuseClientConnectionConfigForWorkers
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PartialAdmission
   versionedSpecs:
   - default: false
@@ -459,6 +469,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASGroupedPodSetSlicing
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASHandleOverlappingFlavors
   versionedSpecs:
   - default: true
@@ -475,6 +491,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASNodeFeasibilityForAllLevels
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -583,6 +605,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WaitForPodsReadyUnscheduledTimeout
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WorkloadIdentifierAnnotations
   versionedSpecs:
   - default: true

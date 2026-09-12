@@ -22,10 +22,12 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -36,6 +38,7 @@ func TestResourceFlavorCmd(t *testing.T) {
 
 	testCases := map[string]struct {
 		objs       []runtime.Object
+		listPages  []runtime.Object
 		args       []string
 		wantOut    string
 		wantOutErr string
@@ -107,12 +110,39 @@ rf1                  60m
 		"should print not found error": {
 			wantOutErr: "No resources found\n",
 		},
+		"should print a single yaml document across pages": {
+			args: []string{"-o", "yaml"},
+			listPages: []runtime.Object{
+				&kueue.ResourceFlavorList{
+					ListMeta: metav1.ListMeta{Continue: "page2"},
+					Items:    []kueue.ResourceFlavor{{ObjectMeta: metav1.ObjectMeta{Name: "a"}}},
+				},
+				&kueue.ResourceFlavorList{
+					Items: []kueue.ResourceFlavor{{ObjectMeta: metav1.ObjectMeta{Name: "b"}}},
+				},
+			},
+			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2
+items:
+- metadata:
+    name: a
+  spec: {}
+- metadata:
+    name: b
+  spec: {}
+kind: ResourceFlavorList
+metadata: {}
+`,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			clientset := fake.NewSimpleClientset(tc.objs...)
+			if len(tc.listPages) > 0 {
+				prependPagedListReactor(clientset, "resourceflavors", tc.listPages)
+			}
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 
 			cmd := NewResourceFlavorCmd(tcg, streams, testingclock.NewFakeClock(testStartTime))
 			cmd.SetOut(out)

@@ -44,6 +44,7 @@ type AdmissionCheckStateApplyConfiguration struct {
 	// If nil when State=Retry, Kueue will retry immediately.
 	// If set, Kueue will add the workload back to the queue after
 	// lastTransitionTime + RequeueAfterSeconds is over.
+	//
 	RequeueAfterSeconds *int32 `json:"requeueAfterSeconds,omitempty"`
 	// retryCount tracks retry attempts for this admission check.
 	// Kueue automatically increments the counter whenever the

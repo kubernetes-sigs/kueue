@@ -68,6 +68,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/unscheduledpods"
 	"sigs.k8s.io/kueue/pkg/controller/workloaddispatcher"
 	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/dra"
@@ -454,7 +455,11 @@ func setupIndexes(
 	integrationManager *jobframework.IntegrationManager,
 	resourceSliceAPIAvailable bool,
 ) error {
-	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+	var indexerOpts []indexer.Option
+	if waitforpodsready.PodsScheduledTrackingEnabled(cfg.WaitForPodsReady) {
+		indexerOpts = append(indexerOpts, indexer.WithPodWorkloadSliceNameIndex())
+	}
+	err := indexer.Setup(ctx, mgr.GetFieldIndexer(), indexerOpts...)
 	if err != nil {
 		return err
 	}
@@ -558,6 +563,7 @@ func setupControllers(
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
 			multikueue.WithRoleTracker(opts.RoleTracker),
+			multikueue.WithClientConnection(cfg.ClientConnection),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
@@ -568,13 +574,20 @@ func setupControllers(
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, opts.RoleTracker); err != nil {
+		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, cfg, opts.RoleTracker, tas.WithCustomLabels(opts.CustomLabels)); err != nil {
 			return fmt.Errorf("could not setup TAS controller %s: %w", failedCtrl, err)
 		}
 	}
 
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, opts.RoleTracker); err != nil {
+		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, opts.RoleTracker, opts.CustomLabels); err != nil {
+			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
+		}
+	}
+
+	if waitforpodsready.PodsScheduledTrackingEnabled(cfg.WaitForPodsReady) {
+		tracker := unscheduledpods.NewTracker(mgr.GetClient(), opts.RoleTracker, cfg.WaitForPodsReady)
+		if failedCtrl, err := tracker.SetupWithManager(mgr, cfg); err != nil {
 			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
 		}
 	}

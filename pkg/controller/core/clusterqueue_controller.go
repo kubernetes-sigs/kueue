@@ -135,7 +135,7 @@ func NewClusterQueueReconciler(
 	}
 	return &ClusterQueueReconciler{
 		client:                client,
-		logName:               "cluster-queue-reconciler",
+		logName:               "clusterqueue-reconciler",
 		qManager:              qMgr,
 		cache:                 cache,
 		nonCQObjectUpdateCh:   make(chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], updateChBuffer),

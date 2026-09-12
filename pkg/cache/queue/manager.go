@@ -529,7 +529,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		wInfo := workload.NewInfoWithLogger(log, &w, m.workloadInfoOptions...)
+		wInfo := workload.NewInfo(log, &w, m.workloadInfoOptions...)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -717,18 +717,18 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
-	wInfo := workload.NewInfoWithLogger(log, w, allOptions...)
+	wInfo := workload.NewInfo(log, w, allOptions...)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
 	// carry it over. Any update to the Workload lands here, and on a busy cluster those
 	// arrive constantly, which would otherwise send the scan back to the first flavor every
 	// time. The progress still expires on its own, since it keeps the scheduling cycle it
-	// was recorded in and lastAssignmentOutdated discards it once it is older than that.
+	// was recorded in and flavorScanStateOutdated discards it once it is older than that.
 	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) && cq != nil {
-		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.LastAssignment != nil &&
-			tracked.LastAssignment.MatchesSchedulingShape(wInfo.SchedulingHash) {
-			wInfo.LastAssignment = tracked.LastAssignment.Clone()
+		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.FlavorScanState != nil &&
+			tracked.FlavorScanState.MatchesSchedulingShape(wInfo.SchedulingHash) {
+			wInfo.FlavorScanState = tracked.FlavorScanState.Clone()
 		}
 	}
 	m.addWorkload(wInfo, q)
@@ -912,6 +912,15 @@ type Head struct {
 	IsPreemptor bool
 }
 
+func newHead(wInfo workload.Info, cq *ClusterQueue) Head {
+	head := Head{Info: wInfo}
+	if cq != nil {
+		head.ClusterQueue = cq.GetName()
+		head.IsPreemptor = cq.IsPreemptor(&head.Info)
+	}
+	return head
+}
+
 // Heads returns the heads of the queues, along with their associated ClusterQueue.
 // It blocks if the queues empty until they have elements or the context terminates.
 func (m *Manager) Heads(ctx context.Context) []Head {
@@ -933,8 +942,12 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 	}
 }
 
+// heads returns the heads of the queues and ready second-pass workloads.
 func (m *Manager) heads() []Head {
-	heads := m.secondPassQueue.takeAllReady()
+	var heads []Head
+	for _, wInfo := range m.secondPassQueue.takeAllReady() {
+		heads = append(heads, newHead(wInfo, m.getClusterQueueLockless(wInfo.ClusterQueue)))
+	}
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -945,18 +958,11 @@ func (m *Manager) heads() []Head {
 		if wl == nil {
 			continue
 		}
+		heads = append(heads, newHead(*wl, cq))
 		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		heads = append(heads, Head{
-			Info:        wlCopy,
-			IsPreemptor: cq.IsPreemptor(wl),
-		})
-
 		qKey := m.workloadAssignedQueues[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
-
 		reportLQPendingWorkloads(m, q)
 	}
 	return heads
@@ -1038,7 +1044,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
-	wInfo := workload.NewInfoWithLogger(log, w, m.workloadInfoOptions...)
+	wInfo := workload.NewInfo(log, w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))

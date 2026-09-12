@@ -33,8 +33,8 @@ const (
 	overwriteMetricBindAddress                   = ":38081"
 	overwriteHealthProbeBindAddress              = ":38080"
 	overwriteLeaderElectionID                    = "foo.kueue.x-k8s.io"
-	expectedDefaultClientConnectionQPS   float32 = 300.0
-	expectedDefaultClientConnectionBurst int32   = 500
+	expectedDefaultClientConnectionQPS   float32 = 1000.0
+	expectedDefaultClientConnectionBurst int32   = 1000
 )
 
 func TestSetDefaults_Configuration(t *testing.T) {
@@ -131,9 +131,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -157,8 +156,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
+				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
 						Port:    new(DefaultWebhookPort),
@@ -225,8 +223,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				VisibilityServer: defaultVisibilityServer,
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
+				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
 						Port:    new(overwriteWebhookPort),
@@ -273,8 +270,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
+				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
 						Port:    new(DefaultWebhookPort),
@@ -314,9 +310,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: new(overwriteNamespace),
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(overwriteNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable:             new(true),
 					WebhookServiceName: new(DefaultWebhookServiceName),
@@ -338,9 +333,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(overwriteNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -364,9 +358,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(overwriteNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -390,9 +383,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: &ClientConnection{},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(overwriteNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -412,7 +404,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout: metav1.Duration{
 						Duration: 30 * time.Minute,
@@ -449,7 +440,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout:         customTimeout,
 					BlockAdmission:  new(false),
@@ -481,18 +471,19 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						BackoffBaseSeconds: new(int32(63)),
 						BackoffMaxSeconds:  new(int32(1800)),
 					},
-					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
+					RecoveryTimeout:    &metav1.Duration{Duration: time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
 				WaitForPodsReady: &WaitForPodsReady{
-					BlockAdmission:  new(false),
-					Timeout:         podsReadyTimeoutOverwrite,
-					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
+					BlockAdmission:     new(false),
+					Timeout:            podsReadyTimeoutOverwrite,
+					RecoveryTimeout:    &metav1.Duration{Duration: time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
 						BackoffBaseSeconds: new(int32(63)),
@@ -522,7 +513,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout:         customTimeout,
 					BlockAdmission:  new(false),
@@ -555,9 +545,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -584,9 +573,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -619,9 +607,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -649,9 +636,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -681,9 +667,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -715,9 +700,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-				Namespace:            new(DefaultNamespace),
-				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},

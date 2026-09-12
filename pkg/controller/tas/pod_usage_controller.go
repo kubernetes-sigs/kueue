@@ -286,6 +286,6 @@ func (r *PodUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, error) 
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Pod").GroupKind().String()],
 		}).
-		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASPodUsageController)).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, "tas-pod-usage-reconciler")).
 		Complete(r)
 }

@@ -41,8 +41,8 @@ const (
 	DefaultLeaderElectionLeaseDuration            = 15 * time.Second
 	DefaultLeaderElectionRenewDeadline            = 10 * time.Second
 	DefaultLeaderElectionRetryPeriod              = 2 * time.Second
-	DefaultClientConnectionQPS            float32 = 300.0
-	DefaultClientConnectionBurst          int32   = 500
+	DefaultClientConnectionQPS            float32 = 1000.0
+	DefaultClientConnectionBurst          int32   = 1000
 	defaultJobFrameworkName                       = "batch/job"
 	DefaultMultiKueueGCInterval                   = time.Minute
 	DefaultWaitForPodsReadyTimeout                = 30 * time.Minute
@@ -115,8 +115,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds, new(int32(DefaultRequeuingBackoffBaseSeconds)))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds, new(int32(DefaultRequeuingBackoffMaxSeconds)))
 	}
-
-	cfg.QuotaReleaseStrategy = cmp.Or(cfg.QuotaReleaseStrategy, new(QuotaReleaseOnTerminating))
 
 	cfg.Integrations = cmp.Or(cfg.Integrations, &Integrations{})
 	if len(cfg.Integrations.Frameworks) == 0 {

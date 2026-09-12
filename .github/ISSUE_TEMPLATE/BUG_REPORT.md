@@ -1,5 +1,6 @@
 ---
-name: Bug Report
+name: 🐛 Bug Report
+title: "🐛 "
 about: Report a bug encountered while using Kueue
 labels: kind/bug
 

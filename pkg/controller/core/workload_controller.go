@@ -128,7 +128,11 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
-func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
+// handleDRA preprocesses DRA-backed resources for a pending workload and queues it.
+// Returns done=true when reconciliation should stop (error or terminal DRA outcome).
+// When done=false, queueOptions holds the InfoOptions the caller must pass to any
+// subsequent AddOrUpdateWorkload in the same reconcile (e.g. the backoff-requeue path).
+func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	workload.AdjustResources(ctx, r.client, wl)
@@ -143,9 +147,9 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 			return updated, nil
 		})
 		if err != nil {
-			return true, ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+			return true, ctrl.Result{}, nil, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 		}
-		return true, ctrl.Result{}, nil
+		return true, ctrl.Result{}, nil, nil
 	}
 
 	log.V(3).Info("Processing DRA resources for workload")
@@ -155,7 +159,8 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	// Process ResourceClaimTemplates (existing DRA path)
 	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl)
 	if len(fieldErrs) > 0 {
-		return r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
+		done, result, err := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
+		return done, result, nil, err
 	}
 
 	// Process Extended Resources backed by DRA
@@ -163,7 +168,8 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		extendedResources, replaced, extFieldErrs := dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, wl)
 		if len(extFieldErrs) > 0 {
-			return r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
+			done, result, err := r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
+			return done, result, nil, err
 		}
 		// Merge extended resources into draResources. When a DeviceClass appears
 		// in both paths, the extended resources path uses the deviceClassMappings
@@ -176,7 +182,8 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && r.resourceSliceAPIAvailable {
 		counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, wl)
 		if len(counterFieldErrs) > 0 {
-			return r.markDRAInadmissible(ctx, wl, counterFieldErrs, "Failed to process DRA counter resources for workload")
+			done, result, err := r.markDRAInadmissible(ctx, wl, counterFieldErrs, "Failed to process DRA counter resources for workload")
+			return done, result, nil, err
 		}
 		draResources = dra.MergeDRAResources(draResources, counterResources)
 	}
@@ -185,7 +192,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && r.resourceSliceAPIAvailable {
 		ccResources, ccDone, ccResult, ccErr := r.handleDRAConsumableCapacity(ctx, wl, sliceCache, draResources)
 		if ccDone {
-			return true, ccResult, ccErr
+			return true, ccResult, nil, ccErr
 		}
 		draResources = ccResources
 	}
@@ -207,7 +214,6 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
 	}
 
-	var queueOptions []workload.InfoOption
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 	}
@@ -215,15 +221,16 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if workload.IsAdmissible(wl) {
 		if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
 			log.V(2).Info("Failed to add DRA workload to queue", "error", err)
-			return true, ctrl.Result{}, err
+			return true, ctrl.Result{}, nil, err
 		}
+		log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
 	} else {
 		if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
+		log.V(3).Info("Successfully pre-processed DRA workload for cache")
 	}
-	log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
-	return false, ctrl.Result{}, nil
+	return false, ctrl.Result{}, queueOptions, nil
 }
 
 func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) (bool, ctrl.Result, error) {
@@ -250,6 +257,7 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
 	recoveryTimeout             *time.Duration
+	unscheduledTimeout          *time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
 	requeuingBackoffMaxDuration time.Duration
@@ -268,6 +276,11 @@ func WithWaitForPodsReady(value *waitForPodsReadyConfig) Option {
 	return func(r *WorkloadReconciler) {
 		r.waitForPodsReady = value
 	}
+}
+
+func (r *WorkloadReconciler) podsScheduledTrackingEnabled() bool {
+	return features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
+		r.waitForPodsReady != nil && r.waitForPodsReady.unscheduledTimeout != nil && *r.waitForPodsReady.unscheduledTimeout > 0
 }
 
 // WithWorkloadUpdateWatchers allows to specify the workload update watchers
@@ -521,9 +534,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 		return ctrl.Result{}, nil
 	}
+	var draQueueOptions []workload.InfoOption
 	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
-		if done, result, err := r.handleDRA(ctx, &wl); done {
+		if done, result, opts, err := r.handleDRA(ctx, &wl); done {
 			return result, err
+		} else {
+			draQueueOptions = opts
 		}
 	}
 
@@ -564,7 +580,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					return ctrl.Result{}, nil
 				}
 
-				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
+				// Adjust the copy before queueing, as every sibling producer
+				// does; the queue accounting must reflect the effective
+				// resources, not the raw spec.
+				wlCopy := wl.DeepCopy()
+				workload.AdjustResources(ctx, r.client, wlCopy)
+				if err := r.queues.AddOrUpdateWorkload(log, wlCopy, draQueueOptions...); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
@@ -1650,16 +1671,41 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 		return "", 0
 	}
 
-	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == "PodsReady" {
-		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-		elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
-		return kueue.WorkloadWaitForStart, max(r.waitForPodsReady.timeout-elapsedTime, 0)
-	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil {
+	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+	if r.podsScheduledTrackingEnabled() && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
+	}
+
+	switch {
+	case podsReadyCond == nil, podsReadyCond.Reason == kueue.WorkloadWaitForStart, podsReadyCond.Reason == kueue.WorkloadPodsReady,
+		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
+		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(r.waitForPodsReady.timeout))
+	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil:
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
 		return kueue.WorkloadWaitForRecovery, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
 	}
 	return "", 0
+}
+
+func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time) time.Time {
+	deadline := metav1.NewTime(admittedAt.Add(r.waitForPodsReady.timeout))
+	if r.waitForPodsReady.unscheduledTimeout == nil {
+		return deadline.Time
+	}
+	cur := workload.CurrentPodsScheduledCondition(wl, admittedAt)
+	if cur == nil || cur.Status != metav1.ConditionFalse {
+		return deadline.Time
+	}
+	schedulingDeadline := metav1.NewTime(admittedAt.Add(*r.waitForPodsReady.unscheduledTimeout))
+	if schedulingDeadline.Before(&deadline) {
+		return schedulingDeadline.Time
+	}
+	return deadline.Time
+}
+
+func (r *WorkloadReconciler) remainingUntil(deadline time.Time) time.Duration {
+	return max(deadline.Sub(r.clock.Now()), 0)
 }
 
 type resourceUpdatesHandler struct {
@@ -1996,7 +2042,10 @@ func extendedResourceName(dc *resourcev1.DeviceClass) string {
 func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {
 	log := h.r.logger()
 
-	// Requeue only workloads that request the affected extended resources.
+	// Requeue only workloads that request the affected extended resources and have
+	// not reserved quota yet. A reserved Workload keeps the quota key resolved at
+	// reservation time: re-admitting it would need the DeviceClass the scheduler
+	// actually allocated from, which we don't watch today (#14563).
 	for _, name := range resourceNames {
 		if name == "" {
 			continue
@@ -2086,7 +2135,7 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
 			return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err), nil
 		}
-		wlInfo := workload.NewInfoWithLogger(ctrl.LoggerFrom(ctx), wl)
+		wlInfo := workload.NewInfo(ctrl.LoggerFrom(ctx), wl)
 		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
 		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
 			return "", "", admissibilityErr
