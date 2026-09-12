@@ -160,7 +160,7 @@ diagnostics, or add overhead, but cannot admit a Workload incorrectly.
 
 | Risk | Worst case | Mitigation | Status |
 |---|---|---|---|
-| [ElasticJobsViaWorkloadSlices shape gap](#elasticjobsviaworkloadslices) | A schedulable replacement is repeatedly deferred | Model replacement state or exclude replacements | **Open** |
+| [ElasticJobsViaWorkloadSlices shape gap](#elasticjobsviaworkloadslices) | A schedulable replacement is repeatedly deferred | Exclude replacement Workloads from class-wide handling | Mitigated |
 | [UsageBasedAdmissionFairSharing timestamp gap](#usagebasedadmissionfairsharing) | A Workload that can preempt is repeatedly deferred | Include the timestamp or exclude the combination | **Open** |
 | [Overly broad failure classification](#overly-broad-failure-classification) | Valid class members are deferred | Allowlist class-wide requeue reasons | Mitigated |
 | [Stale failed-class records](#stale-failed-class-records) | A class remains deferred after conditions change | Clear failed records on retry or restart | Mitigated |
@@ -169,7 +169,7 @@ diagnostics, or add overhead, but cannot admit a Workload incorrectly.
 | [Reduced diagnostics for bypassed Workloads](#reduced-diagnostics-for-bypassed-workloads) | A bypassed Workload lacks a detailed diagnosis | Preserve the representative's reason | Mitigated |
 | [Additional memory and queue work](#additional-memory-and-queue-work) | Pending state and heap scans add overhead | Bound records to classes between retries | Accepted |
 
-Only the two scheduling-shape gaps are open. The subsections below provide the
+One scheduling-shape gap remains open. The subsections below provide the
 trigger, user impact, mitigation, and residual risk for each row.
 
 #### Incomplete scheduling shape
@@ -184,8 +184,9 @@ trigger, user impact, mitigation, and residual risk for each row.
 3. **Mitigation:** Every new scheduling input must either be represented in the
    shape or cause the affected outcome to be excluded from class-wide handling.
 4. **Residual risk:** The current shape includes Pod placement and effective
-   requests, but does not model every input used by all scheduling paths. Two
-   known cases remain.
+   requests, but does not model every input used by all scheduling paths. One
+   known case remains open; the ElasticJobsViaWorkloadSlices case below is
+   mitigated by exclusion.
 
 ##### ElasticJobsViaWorkloadSlices
 
@@ -202,11 +203,13 @@ trigger, user impact, mitigation, and residual risk for each row.
    | W1 | 10 CPUs | 8 CPUs | 2 CPUs | yes |
    | W2 | 10 CPUs | 4 CPUs | 6 CPUs | no |
 
-3. **Mitigation:** Before stable, either add the replacement target and relevant
-   state to the scheduling shape or exclude replacement Workloads from
-   class-wide handling.
-4. **Residual risk:** Until then, a NoFit result from W2 can defer W1 without
-   evaluating it even though W1 fits.
+3. **Mitigation:** A Workload carrying the workload-slice replacement-target
+   annotation is assigned the unknown scheduling hash, opting it out of
+   class-wide bulk deferral entirely — it can neither become a representative
+   nor be bypassed based on another Workload's outcome.
+4. **Residual risk:** None. Replacement Workloads are always evaluated
+   individually, at the cost of losing the equivalence-hashing optimization for
+   them.
 
 ##### UsageBasedAdmissionFairSharing
 
@@ -549,9 +552,6 @@ Beta requires:
 
 Graduation to stable requires:
 
-- reevaluation of class-wide outcomes for ElasticJobsViaWorkloadSlices and a
-  decision to either include the replacement target and relevant state in the
-  scheduling shape or exclude affected Workloads from class-wide handling
 - reevaluation of PreemptionNoCandidates class-wide handling when
   UsageBasedAdmissionFairSharing is combined with LowerOrNewerEqualPriority,
   and a decision to either include the queue-order timestamp in the scheduling
