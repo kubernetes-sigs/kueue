@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -458,7 +459,7 @@ func (j *Job) podsCount() int32 {
 
 func (j *Job) minPodsCount() *int32 {
 	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
-		if iVal, err := strconv.Atoi(strVal); err == nil {
+		if iVal, err := strconv.Atoi(strVal); err == nil && iVal > 0 && iVal <= math.MaxInt32 {
 			return new(int32(iVal))
 		}
 	}
