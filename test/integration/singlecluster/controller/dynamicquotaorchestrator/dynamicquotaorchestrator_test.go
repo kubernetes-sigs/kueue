@@ -1104,6 +1104,138 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("Should take over leftover ClusterQueue ownership when the managing DQO becomes inactive", func() {
+		cpA := utiltestingalpha.MakeCapacityProvider("leftover-cp-a").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:    kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueuealpha.CapacityProviderReasonSynchronized,
+				Message: "Capacity synchronized successfully",
+			}).
+			Obj()
+		cpB := utiltestingalpha.MakeCapacityProvider("leftover-cp-b").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "200").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:    kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueuealpha.CapacityProviderReasonSynchronized,
+				Message: "Capacity synchronized successfully",
+			}).
+			Obj()
+		cps = append(cps, cpA, cpB)
+		createCapacityProvider(ctx, k8sClient, cpA)
+		createCapacityProvider(ctx, k8sClient, cpB)
+
+		cq1 = utiltestingapi.MakeClusterQueue("leftover-cq-x").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq1)
+		cq2 = utiltestingapi.MakeClusterQueue("leftover-cq-y").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
+			).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq2)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("leftover-a").
+			DiscoveryProvider("leftover-cp-a", nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "leftover-cq-x").
+			Obj()
+		util.MustCreate(ctx, k8sClient, dqo)
+
+		cqXKey := types.NamespacedName{Name: cq1.Name}
+		cqYKey := types.NamespacedName{Name: cq2.Name}
+		dqoAKey := types.NamespacedName{Name: dqo.Name}
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			expectClusterQueueOwnedBy(g, cqXKey, "leftover-a", "100")
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Retargeting A to Y and leaving X's orchestratorRef", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				latestA := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoAKey, latestA)).Should(gomega.Succeed())
+				latestA.Spec.CapacityDistribution.SubtreeRootQuotaRef.Name = cq2.Name
+				g.Expect(k8sClient.Update(ctx, latestA)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a", "100")
+				expectClusterQueueOwnedBy(g, cqXKey, "leftover-a", "100")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		childDQO = utiltestingalpha.MakeDynamicQuotaOrchestrator("leftover-b").
+			DiscoveryProvider("leftover-cp-b", nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "leftover-cq-x").
+			Obj()
+		util.MustCreate(ctx, k8sClient, childDQO)
+		dqoBKey := types.NamespacedName{Name: childDQO.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			latestB := &kueuealpha.DynamicQuotaOrchestrator{}
+			g.Expect(k8sClient.Get(ctx, dqoBKey, latestB)).Should(gomega.Succeed())
+			g.Expect(latestB.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(
+				kueuealpha.DynamicQuotaOrchestratorDistributed,
+				kueuealpha.DynamicQuotaOrchestratorReasonEffectiveQuotasConflict,
+			))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Marking A's provider unsynchronized so B can take X", func() {
+			setCapacityProviderSyncCondition(ctx, k8sClient, cpA, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonSourceUnavailable, "Backend source is unreachable")
+			gomega.Eventually(func(g gomega.Gomega) {
+				latestA := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoAKey, latestA)).Should(gomega.Succeed())
+				g.Expect(latestA.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(
+					kueuealpha.DynamicQuotaOrchestratorDistributed,
+					kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+				))
+				latestB := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoBKey, latestB)).Should(gomega.Succeed())
+				g.Expect(latestB.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+					kueuealpha.DynamicQuotaOrchestratorDistributed,
+					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+				))
+				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b", "200")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Restoring A's provider; A keeps Y and B keeps X", func() {
+			setCapacityProviderSyncCondition(ctx, k8sClient, cpA, metav1.ConditionTrue, kueuealpha.CapacityProviderReasonSynchronized, "Capacity synchronized successfully")
+			gomega.Eventually(func(g gomega.Gomega) {
+				latestA := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoAKey, latestA)).Should(gomega.Succeed())
+				g.Expect(latestA.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+					kueuealpha.DynamicQuotaOrchestratorDistributed,
+					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+				))
+				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a", "100")
+				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b", "200")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
 
 func createCapacityProvider(
@@ -1189,4 +1321,25 @@ func expectCohortEffectiveResourceGroups(
 	g.Expect(k8sClient.Get(ctx, key, &cohort)).Should(gomega.Succeed())
 	g.Expect(cohort.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
 	g.Expect(cmp.Diff(want, cohort.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+}
+
+func expectClusterQueueOwnedBy(
+	g gomega.Gomega,
+	key types.NamespacedName,
+	owner, cpu string,
+) {
+	ginkgo.GinkgoHelper()
+	var cq kueue.ClusterQueue
+	g.Expect(k8sClient.Get(ctx, key, &cq)).Should(gomega.Succeed())
+	g.Expect(cq.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
+	g.Expect(cq.Status.EffectiveQuotas.OrchestratorRef).Should(gomega.Equal(kueue.EffectiveQuotaStatusOrchestratorRef{
+		APIGroup: "kueue.x-k8s.io",
+		Kind:     "DynamicQuotaOrchestrator",
+		Name:     owner,
+	}))
+	g.Expect(cmp.Diff([]kueue.ResourceGroup{
+		utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, cpu).Obj(),
+		),
+	}, cq.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
 }

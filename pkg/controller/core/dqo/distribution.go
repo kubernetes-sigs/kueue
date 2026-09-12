@@ -189,8 +189,7 @@ func (r *Reconciler) checkManagedConflict(
 		return nil
 	}
 
-	distCond := apimeta.FindStatusCondition(other.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorDistributed)
-	if distCond != nil && distCond.Status == metav1.ConditionFalse {
+	if isDistributedFalse(other) {
 		// The other orchestrator is deactivated; its effective quota can be taken over.
 		return nil
 	}
@@ -207,6 +206,11 @@ func (r *Reconciler) checkManagedConflict(
 		return nil
 	}
 	return fmt.Errorf("%s %q already managed by %s/%s", kind, name, ref.Kind, ref.Name)
+}
+
+// isDistributedFalse reports whether Distributed is present and False.
+func isDistributedFalse(orchestrator *kueuealpha.DynamicQuotaOrchestrator) bool {
+	return apimeta.IsStatusConditionFalse(orchestrator.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorDistributed)
 }
 
 // calculateAllocations distributes total capacity across all flavors and resources to participant nodes in the subtree.
