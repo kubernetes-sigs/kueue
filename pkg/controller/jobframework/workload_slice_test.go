@@ -17,11 +17,11 @@ limitations under the License.
 package jobframework
 
 import (
-	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -46,27 +46,6 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 		Status: metav1.ConditionTrue,
 	}
 
-	makeJob := func(maximumExecutionTime *int32) client.Object {
-		job := testingjob.MakeJob("job", "ns")
-		if maximumExecutionTime != nil {
-			job.Label(controllerconsts.MaxExecTimeSecondsLabel, strconv.FormatInt(int64(*maximumExecutionTime), 10))
-		}
-		return job.Obj()
-	}
-	makeWorkload := func(name string, maximumExecutionTime int32, conditions ...metav1.Condition) *kueue.Workload {
-		return utiltestingapi.MakeWorkload(name, "ns").
-			MaximumExecutionTimeSeconds(maximumExecutionTime).
-			Conditions(conditions...).
-			Obj()
-	}
-	makeWorkloadWithoutTimeout := func(name string, conditions ...metav1.Condition) *kueue.Workload {
-		return utiltestingapi.MakeWorkload(name, "ns").
-			Conditions(conditions...).
-			Obj()
-	}
-
-	timeout5 := int32(5)
-	timeout10 := int32(10)
 	cases := map[string]struct {
 		job             client.Object
 		workloads       []*kueue.Workload
@@ -74,63 +53,114 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 		wantWorkloads   []*kueue.Workload
 	}{
 		"adds an explicit timeout to a pending slice": {
-			job: makeJob(&timeout10),
+			job: testingjob.MakeJob("job", "ns").Label(controllerconsts.MaxExecTimeSecondsLabel, "10").Obj(),
 			workloads: []*kueue.Workload{
-				makeWorkloadWithoutTimeout("pending"),
+				utiltestingapi.MakeWorkload("pending", "ns").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
 			},
 			wantWorkloads: []*kueue.Workload{
-				makeWorkload("pending", timeout10),
+				utiltestingapi.MakeWorkload("pending", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(10).
+					Obj(),
 			},
 		},
 		"updates the timeout after quota reservation but before admission": {
-			job: makeJob(&timeout10),
+			job: testingjob.MakeJob("job", "ns").Label(controllerconsts.MaxExecTimeSecondsLabel, "10").Obj(),
 			workloads: []*kueue.Workload{
-				makeWorkload("reserved", timeout5, quotaReserved, notAdmitted),
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, notAdmitted).
+					Obj(),
 			},
 			wantWorkloads: []*kueue.Workload{
-				makeWorkload("reserved", timeout10, quotaReserved, notAdmitted),
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(10).
+					Conditions(quotaReserved, notAdmitted).
+					Obj(),
 			},
 		},
 		"refreshes stale admission status before updating the timeout": {
-			job: makeJob(&timeout10),
+			job: testingjob.MakeJob("job", "ns").Label(controllerconsts.MaxExecTimeSecondsLabel, "10").Obj(),
 			workloads: []*kueue.Workload{
-				makeWorkload("reserved", timeout5, quotaReserved, notAdmitted),
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, notAdmitted).
+					Obj(),
 			},
 			workloadsToSync: []*kueue.Workload{
-				makeWorkload("reserved", timeout5, quotaReserved, admitted),
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, admitted).
+					Obj(),
 			},
 			wantWorkloads: []*kueue.Workload{
-				makeWorkload("reserved", timeout10, quotaReserved, notAdmitted),
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(10).
+					Conditions(quotaReserved, notAdmitted).
+					Obj(),
 			},
 		},
 		"refreshes stale admission status before keeping the admitted timeout": {
-			job: makeJob(&timeout10),
+			job: testingjob.MakeJob("job", "ns").Label(controllerconsts.MaxExecTimeSecondsLabel, "10").Obj(),
 			workloads: []*kueue.Workload{
-				makeWorkload("admitted", timeout5, quotaReserved, admitted),
+				utiltestingapi.MakeWorkload("admitted", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, admitted).
+					Obj(),
 			},
 			workloadsToSync: []*kueue.Workload{
-				makeWorkload("admitted", timeout5, quotaReserved, notAdmitted),
+				utiltestingapi.MakeWorkload("admitted", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, notAdmitted).
+					Obj(),
 			},
 			wantWorkloads: []*kueue.Workload{
-				makeWorkload("admitted", timeout5, quotaReserved, admitted),
+				utiltestingapi.MakeWorkload("admitted", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, admitted).
+					Obj(),
 			},
 		},
 		"keeps the timeout on an admitted slice": {
-			job: makeJob(&timeout10),
+			job: testingjob.MakeJob("job", "ns").Label(controllerconsts.MaxExecTimeSecondsLabel, "10").Obj(),
 			workloads: []*kueue.Workload{
-				makeWorkload("admitted", timeout5, quotaReserved, admitted),
+				utiltestingapi.MakeWorkload("admitted", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, admitted).
+					Obj(),
 			},
 			wantWorkloads: []*kueue.Workload{
-				makeWorkload("admitted", timeout5, quotaReserved, admitted),
+				utiltestingapi.MakeWorkload("admitted", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, admitted).
+					Obj(),
 			},
 		},
 		"keeps the timeout when the owner has no explicit value": {
-			job: makeJob(nil),
+			job: testingjob.MakeJob("job", "ns").Obj(),
 			workloads: []*kueue.Workload{
-				makeWorkload("pending", timeout5),
+				utiltestingapi.MakeWorkload("pending", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Obj(),
 			},
 			wantWorkloads: []*kueue.Workload{
-				makeWorkload("pending", timeout5),
+				utiltestingapi.MakeWorkload("pending", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Obj(),
 			},
 		},
 	}
@@ -164,7 +194,6 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 			}
 
 			compareOptions := cmp.Options{
-				cmpopts.EquateEmpty(),
 				cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta"),
 				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 			}
