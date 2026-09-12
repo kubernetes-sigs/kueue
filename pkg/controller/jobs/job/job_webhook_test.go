@@ -445,6 +445,33 @@ func TestValidateCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "elastic job with required topology is rejected even when ElasticJobsViaWorkloadSlicesWithTAS is enabled",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetRequiredTopologyAnnotation),
+				"required topology is not supported with elastic jobs")},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
+		{
+			name: "elastic job with preferred topology is accepted when ElasticJobsViaWorkloadSlicesWithTAS is enabled",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
+		{
 			name: "elastic job with unconstrained topology is accepted",
 			job: testingutil.MakeJob("job", "default").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
