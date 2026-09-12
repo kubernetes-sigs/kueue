@@ -4647,6 +4647,437 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"elastic job: the finished origin slice redirects to the admitted slice": {
+			features: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+			},
+			request: &types.NamespacedName{
+				Namespace: testNamespace,
+				Name:      "wl-1",
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-1", testNamespace).
+					UID(testWorkloadUID).
+					PodSets(*utiltestingapi.MakePodSet(testPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(testPodSetName).
+							Count(1).
+							Obj()).
+						Obj(), muchEarlier).
+					AdmittedAt(true, muchEarlier).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					FinishedAt(earlier).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl-2", testNamespace).
+					UID(testWorkloadUID).
+					PodSets(*utiltestingapi.MakePodSet(testPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(testPodSetName).
+							Count(2).
+							Obj()).
+						Obj(), earlier).
+					AdmittedAt(true, earlier).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					Obj(),
+			},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("p1", testNamespace).
+					Annotation(kueue.WorkloadAnnotation, "wl-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					Label(constants.PodSetLabel, string(testPodSetName)).
+					NodeName("node-a").
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+				testingpod.MakePod("p2", testNamespace).
+					Annotation(kueue.WorkloadAnnotation, "wl-2").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					Label(constants.PodSetLabel, string(testPodSetName)).
+					NodeName("node-a").
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantWorkloadStatuses: map[string]kueue.WorkloadStatus{
+				"wl-1": {
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  testPodSetName,
+								Count: new(int32(1)),
+							},
+						},
+					},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadQuotaReserved,
+							Status:             metav1.ConditionTrue,
+							Reason:             "AdmittedByTest",
+							Message:            "Admitted by ClusterQueue cq",
+							LastTransitionTime: metav1.NewTime(muchEarlier),
+						},
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							Reason:             "ByTest",
+							Message:            "Admitted by ClusterQueue cq",
+							LastTransitionTime: metav1.NewTime(muchEarlier),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							Reason:             "ByTest",
+							Message:            "Finished by test",
+							LastTransitionTime: metav1.NewTime(earlier),
+						},
+					},
+				},
+				"wl-2": {
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  testPodSetName,
+								Count: new(int32(2)),
+							},
+						},
+					},
+					Conditions: []metav1.Condition{
+						quotaReservedCondition,
+						admittedCondition,
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+							Message:            allPodsScheduledMessage,
+							LastTransitionTime: metav1.NewTime(fakeClock.Now()),
+						},
+					},
+				},
+			},
+		},
+		"elastic job: the replaced slice still admitted redirects to the replacement": {
+			features: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+			},
+			request: &types.NamespacedName{
+				Namespace: testNamespace,
+				Name:      "wl-1",
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-1", testNamespace).
+					UID(testWorkloadUID).
+					PodSets(*utiltestingapi.MakePodSet(testPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(testPodSetName).
+							Count(1).
+							Obj()).
+						Obj(), muchEarlier).
+					AdmittedAt(true, muchEarlier).
+					UID("uid-1").
+					Creation(muchEarlier).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPodsScheduled,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+						Message:            allPodsScheduledMessage,
+						LastTransitionTime: metav1.NewTime(muchEarlier.Add(30 * time.Second)),
+					}).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl-2", testNamespace).
+					UID(testWorkloadUID).
+					PodSets(*utiltestingapi.MakePodSet(testPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(testPodSetName).
+							Count(2).
+							Obj()).
+						Obj(), earlier).
+					AdmittedAt(true, earlier).
+					UID("uid-2").
+					Creation(earlier).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					Obj(),
+			},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("p1", testNamespace).
+					Annotation(kueue.WorkloadAnnotation, "wl-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					Label(constants.PodSetLabel, string(testPodSetName)).
+					NodeName("node-a").
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+				testingpod.MakePod("p2", testNamespace).
+					Annotation(kueue.WorkloadAnnotation, "wl-2").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					Label(constants.PodSetLabel, string(testPodSetName)).
+					Obj(),
+			},
+			wantWorkloadStatuses: map[string]kueue.WorkloadStatus{
+				"wl-1": {
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  testPodSetName,
+								Count: new(int32(1)),
+							},
+						},
+					},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadQuotaReserved,
+							Status:             metav1.ConditionTrue,
+							Reason:             "AdmittedByTest",
+							Message:            "Admitted by ClusterQueue cq",
+							LastTransitionTime: metav1.NewTime(muchEarlier),
+						},
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							Reason:             "ByTest",
+							Message:            "Admitted by ClusterQueue cq",
+							LastTransitionTime: metav1.NewTime(muchEarlier),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+							Message:            allPodsScheduledMessage,
+							LastTransitionTime: metav1.NewTime(muchEarlier.Add(30 * time.Second)),
+						},
+					},
+				},
+				"wl-2": {
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  testPodSetName,
+								Count: new(int32(2)),
+							},
+						},
+					},
+					Conditions: []metav1.Condition{
+						quotaReservedCondition,
+						admittedCondition,
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							Message:            unscheduledPodsMessage,
+							LastTransitionTime: metav1.NewTime(fakeClock.Now()),
+						},
+					},
+				},
+			},
+		},
+		"elastic job: a deleted origin slice resolves to the admitted slice": {
+			features: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+			},
+			request: &types.NamespacedName{
+				Namespace: testNamespace,
+				Name:      "wl-0",
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-2", testNamespace).
+					UID(testWorkloadUID).
+					PodSets(*utiltestingapi.MakePodSet(testPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(testPodSetName).
+							Count(2).
+							Obj()).
+						Obj(), earlier).
+					AdmittedAt(true, earlier).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-0").
+					Obj(),
+			},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("p1", testNamespace).
+					Annotation(kueue.WorkloadAnnotation, "wl-0").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-0").
+					Label(constants.PodSetLabel, string(testPodSetName)).
+					NodeName("node-a").
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+				testingpod.MakePod("p2", testNamespace).
+					Annotation(kueue.WorkloadAnnotation, "wl-2").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-0").
+					Label(constants.PodSetLabel, string(testPodSetName)).
+					Obj(),
+			},
+			wantWorkloadStatuses: map[string]kueue.WorkloadStatus{
+				"wl-2": {
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  testPodSetName,
+								Count: new(int32(2)),
+							},
+						},
+					},
+					Conditions: []metav1.Condition{
+						quotaReservedCondition,
+						admittedCondition,
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							Message:            unscheduledPodsMessage,
+							LastTransitionTime: metav1.NewTime(fakeClock.Now()),
+						},
+					},
+				},
+			},
+		},
+		"elastic job: a redirect to a variant slice is skipped": {
+			features: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.ConcurrentAdmission:                true,
+			},
+			request: &types.NamespacedName{
+				Namespace: testNamespace,
+				Name:      "wl-1",
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-1", testNamespace).
+					UID(testWorkloadUID).
+					PodSets(*utiltestingapi.MakePodSet(testPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(testPodSetName).
+							Count(1).
+							Obj()).
+						Obj(), muchEarlier).
+					AdmittedAt(true, muchEarlier).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					FinishedAt(earlier).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPodsScheduled,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+						Message:            allPodsScheduledMessage,
+						LastTransitionTime: metav1.NewTime(muchEarlier.Add(30 * time.Second)),
+					}).
+					Obj(),
+				utiltestingapi.MakeWorkload("wl-2", testNamespace).
+					UID(testWorkloadUID).
+					PodSets(*utiltestingapi.MakePodSet(testPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(testPodSetName).
+							Count(2).
+							Obj()).
+						Obj(), earlier).
+					AdmittedAt(true, earlier).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").
+					Obj(),
+			},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("p1", testNamespace).
+					Annotation(kueue.WorkloadAnnotation, "wl-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl-1").
+					Label(constants.PodSetLabel, string(testPodSetName)).
+					NodeName("node-a").
+					StatusConditions(corev1.PodCondition{
+						Type:   corev1.PodScheduled,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantWorkloadStatuses: map[string]kueue.WorkloadStatus{
+				"wl-1": {
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  testPodSetName,
+								Count: new(int32(1)),
+							},
+						},
+					},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadQuotaReserved,
+							Status:             metav1.ConditionTrue,
+							Reason:             "AdmittedByTest",
+							Message:            "Admitted by ClusterQueue cq",
+							LastTransitionTime: metav1.NewTime(muchEarlier),
+						},
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							Reason:             "ByTest",
+							Message:            "Admitted by ClusterQueue cq",
+							LastTransitionTime: metav1.NewTime(muchEarlier),
+						},
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							Reason:             "ByTest",
+							Message:            "Finished by test",
+							LastTransitionTime: metav1.NewTime(earlier),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+							Message:            allPodsScheduledMessage,
+							LastTransitionTime: metav1.NewTime(muchEarlier.Add(30 * time.Second)),
+						},
+					},
+				},
+				"wl-2": {
+					Admission: &kueue.Admission{
+						ClusterQueue: "cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  testPodSetName,
+								Count: new(int32(2)),
+							},
+						},
+					},
+					Conditions: []metav1.Condition{
+						quotaReservedCondition,
+						admittedCondition,
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
