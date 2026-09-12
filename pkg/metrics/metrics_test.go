@@ -473,6 +473,27 @@ func TestClearMultiKueueClusterQueueMetrics(t *testing.T) {
 	}
 }
 
+func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPodsReadyTimeout, leaderTracker)
+
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, roletracker.RoleLeader)); got != 2 {
+		t.Errorf("expected 2 evictions by preemption for evict-worker1, got %v", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPodsReadyTimeout, roletracker.RoleLeader)); got != 1 {
+		t.Errorf("expected 1 eviction by PodsReadyTimeout for evict-worker1, got %v", got)
+	}
+
+	// A nil tracker must be reported as standalone and not panic.
+	ReportMultiKueueWorkloadEvicted("evict-cq2", "evict-worker2", kueue.WorkloadEvictedByPreemption, nil)
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq2", "evict-worker2", kueue.WorkloadEvictedByPreemption, roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected 1 eviction for evict-worker2 with standalone role, got %v", got)
+	}
+}
+
 func TestReportAndCleanupWorkloadEvictionLatency(t *testing.T) {
 	ReportWorkloadEvictionLatency("cq-preempt-unique", kueue.WorkloadEvictedByPreemption, time.Second, nil, nil)
 	n := testutil.CollectAndCount(WorkloadEvictionLatencySeconds)

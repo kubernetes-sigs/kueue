@@ -98,6 +98,10 @@ var (
 	MultiKueueWorkloadsAdmittedTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",reason="the eviction reason reported by the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueWorkloadsEvictedTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the manager ClusterQueue referencing the worker cluster",cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueClusterByStatus *prometheus.GaugeVec
 
@@ -429,6 +433,13 @@ The label 'result' can have the following values:
 		}, []string{"cluster_queue", "cluster", "replica_role"},
 	)
 
+	MultiKueueWorkloadsEvictedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "workloads_evicted_total",
+			Help:      `The total number of remote workload evictions on a worker cluster, per 'cluster_queue', 'cluster' and 'reason'. A workload may be counted more than once if it is re-admitted and evicted again.`,
+		}, []string{"cluster_queue", "cluster", "reason", "replica_role"},
+	)
 	MultiKueueClusterByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.MultiKueueName,
@@ -1141,6 +1152,10 @@ func ClearMultiKueueClusterQueueMetrics(cqName kueue.ClusterQueueReference) {
 	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster_queue": string(cqName)})
 }
 
+func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster, reason string, tracker *roletracker.RoleTracker) {
+	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
+}
+
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
@@ -1689,6 +1704,7 @@ func Register() {
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
+		MultiKueueWorkloadsEvictedTotal,
 		MultiKueueClusterByStatus,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
