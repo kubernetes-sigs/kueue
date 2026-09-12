@@ -153,3 +153,16 @@ kind: Issuer
 name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
 {{- end }}
 {{- end }}
+
+{{/*
+Name of ServiceAccount to create/use for kueueviz, or empty to use default
+*/}}
+{{- define "kueue.kueueViz.backend.serviceAccount.name" -}}
+{{- with .Values.kueueViz.backend.serviceAccount.name -}}
+{{- . -}}
+{{- else -}}
+{{- if .Values.kueueViz.backend.serviceAccount.create -}}
+{{- include "kueue.fullname" . }}-kueueviz
+{{- end -}}
+{{- end -}}
+{{- end -}}

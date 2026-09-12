@@ -272,6 +272,14 @@ kueueViz:
       capabilities:
         drop:
           - ALL
+    serviceAccount:
+      # -- If true, create a ServiceAccount for the backend.
+      create: false
+      # -- Name of the ServiceAccount to create/use. Not set if empty and create is false.
+      name: ''
+    rbac:
+      # -- If true, create a ClusterRole(Binding) that grants the service account appropriate permissions
+      create: true
     # -- Environment variables for KueueViz backend deployment
     env:
       - name: KUEUEVIZ_ALLOWED_ORIGINS
