@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -33,27 +34,42 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-func TestPodSets(t *testing.T) {
-	collectorImage := "quay.io/kuberay/collector:v1.7.0"
-
-	// autoscaler mirrors the sidecar KubeRay injects into the head Pod when
-	// in-tree autoscaling is enabled, with KubeRay's default resources.
-	autoscaler := corev1.Container{
-		Name: "autoscaler",
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("500m"),
-				corev1.ResourceMemory: resource.MustParse("512Mi"),
+// childRayCluster builds a RayCluster owned by the named RayService, labelled the
+// way KubeRay labels children so (*RayService).PodSets discovers it by selector.
+// It carries a head group plus a single worker group with the given replica count.
+func childRayCluster(name, rayServiceName, namespace, groupName string, replicas int32) rayv1.RayCluster {
+	return rayv1.RayCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
+				rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
 			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("500m"),
-				corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+		Spec: rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
+				Template: corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+				},
+			},
+			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+				{
+					GroupName: groupName,
+					Replicas:  new(replicas),
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: groupName + "_c"}}},
+					},
+				},
 			},
 		},
 	}
+}
+
+func TestPodSets(t *testing.T) {
+	collectorImage := "quay.io/kuberay/collector:v1.7.0"
 	// collector mirrors the History Server collector KubeRay injects into every
 	// head and worker Pod, with KubeRay's default resources.
 	collector := corev1.Container{
@@ -73,7 +89,7 @@ func TestPodSets(t *testing.T) {
 
 	testCases := map[string]struct {
 		rayService   *RayService
-		rayCluster   *rayv1.RayCluster
+		children     []rayv1.RayCluster
 		wantPodSets  []kueue.PodSet
 		featureGates map[featuregate.Feature]bool
 	}{
@@ -292,18 +308,17 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
-		"with workload slicing and autoscaling enabled, update from RayCluster": {
+		"steady state: single child, PodSets reflect the child's live spec": {
+			// One admitted child RayCluster. PodSets are built from the child's spec
+			// rather than the RayService template, so a worker group the autoscaler
+			// has scaled (here group1 1->5) is reserved at its real size.
 			rayService: (*RayService)(&rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rayservice",
 					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -312,7 +327,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  new(int32(1)),
+								Replicas:  ptr.To[int32](1), // template; child has scaled to 5
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -320,171 +335,31 @@ func TestPodSets(t *testing.T) {
 						},
 					},
 				},
-				Status: rayv1.RayServiceStatuses{
-					ActiveServiceStatus: rayv1.RayServiceStatus{
-						RayClusterName: "rayservice-cluster",
-					},
-				},
 			}),
-			rayCluster: &rayv1.RayCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice-cluster",
-					Namespace: "ns",
-				},
-				Spec: rayv1.RayClusterSpec{
-					HeadGroupSpec: rayv1.HeadGroupSpec{
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
-						},
-					},
-					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-						{
-							GroupName: "group1",
-							Replicas:  new(int32(5)), // RayCluster has scaled to 5 replicas
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
-							},
-						},
-					},
-				},
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, autoscaler}}).
-					Obj(),
-				// Updated from RayCluster
-				*utiltestingapi.MakePodSet("group1", 5).
-					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
-					Obj(),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
-		},
-		"with workload slicing enabled but autoscaling disabled, use spec count": {
-			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
-				},
-				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: new(false), // Autoscaling disabled
-						HeadGroupSpec: rayv1.HeadGroupSpec{
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
-							},
-						},
-						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-							{
-								GroupName: "group1",
-								Replicas:  new(int32(2)),
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
-								},
-							},
-						},
-					},
-				},
-				Status: rayv1.RayServiceStatuses{
-					ActiveServiceStatus: rayv1.RayServiceStatus{
-						RayClusterName: "rayservice-cluster",
-					},
-				},
-			}),
-			rayCluster: &rayv1.RayCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice-cluster",
-					Namespace: "ns",
-				},
-				Spec: rayv1.RayClusterSpec{
-					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-						{
-							GroupName: "group1",
-							Replicas:  new(int32(10)), // RayCluster has different count
-						},
-					},
-				},
+			children: []rayv1.RayCluster{
+				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 5),
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
 					Obj(),
-				// Uses spec count, not RayCluster
-				*utiltestingapi.MakePodSet("group1", 2).
+				*utiltestingapi.MakePodSet("group1", 5).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
 					Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
-		"with workload slicing and autoscaling enabled, RayCluster not found fallback to spec": {
+		"zero-downtime upgrade: two children, counts are summed": {
+			// During a zero-downtime upgrade KubeRay runs an active and a pending
+			// child side by side. PodSets union by group name and sum counts so the
+			// workload reserves quota for both clusters: head 1+1=2, group1 2+2=4.
 			rayService: (*RayService)(&rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rayservice",
 					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: new(true),
-						HeadGroupSpec: rayv1.HeadGroupSpec{
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
-							},
-						},
-						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-							{
-								GroupName: "group1",
-								Replicas:  new(int32(3)),
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
-								},
-							},
-						},
-					},
-				},
-				Status: rayv1.RayServiceStatuses{
-					ActiveServiceStatus: rayv1.RayServiceStatus{
-						RayClusterName: "nonexistent-cluster",
-					},
-				},
-			}),
-			rayCluster: nil, // No RayCluster exists
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, autoscaler}}).
-					Obj(),
-				// Fallback to spec count
-				*utiltestingapi.MakePodSet("group1", 3).
-					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
-					Obj(),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
-		},
-		"with workload slicing and autoscaling enabled, no RayClusterName in status": {
-			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
-				},
-				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -501,26 +376,57 @@ func TestPodSets(t *testing.T) {
 						},
 					},
 				},
-				Status: rayv1.RayServiceStatuses{
-					ActiveServiceStatus: rayv1.RayServiceStatus{
-						RayClusterName: "", // No cluster name yet
+			}),
+			children: []rayv1.RayCluster{
+				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 2),
+				childRayCluster("rayservice-pending", "rayservice", "ns", "group1", 2),
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 2).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
+					Obj(),
+				*utiltestingapi.MakePodSet("group1", 4).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"bootstrap: no children yet, build from the RayService template": {
+			// Before KubeRay creates the first child, PodSets fall back to the
+			// RayService template so the Workload exists with the right shape.
+			rayService: (*RayService)(&rayv1.RayService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "rayservice",
+					Namespace: "ns",
+				},
+				Spec: rayv1.RayServiceSpec{
+					RayClusterSpec: rayv1.RayClusterSpec{
+						HeadGroupSpec: rayv1.HeadGroupSpec{
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+							},
+						},
+						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+							{
+								GroupName: "group1",
+								Replicas:  new(int32(2)),
+								Template: corev1.PodTemplateSpec{
+									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+								},
+							},
+						},
 					},
 				},
 			}),
-			rayCluster: nil,
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, autoscaler}}).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
 					Obj(),
-				// Uses spec count
 				*utiltestingapi.MakePodSet("group1", 2).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
 					Obj(),
 			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:      false,
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 
@@ -528,20 +434,15 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
-			// Set up fake client with optional RayCluster
+			// Seed the fake client with the RayService's child RayClusters.
 			objs := []client.Object{}
-			if tc.rayCluster != nil {
-				objs = append(objs, tc.rayCluster)
+			for i := range tc.children {
+				objs = append(objs, &tc.children[i])
 			}
 			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithObjects(objs...).Build()
 
-			// Set up the reconciler with the fake client
-			reconciler = rayServiceReconciler{
-				client: fakeClient,
-			}
-
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.rayService.PodSets(ctx, nil)
+			gotPodSets, err := tc.rayService.PodSets(ctx, fakeClient)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -557,12 +458,12 @@ func TestIsSuspended(t *testing.T) {
 		rayService *RayService
 		want       bool
 	}{
+		// IsSuspended reads the top-level Spec.Suspend (KubeRay PR #4841), not the
+		// nested RayClusterSpec.Suspend template gate.
 		"not suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(false),
-					},
+					Suspend: false,
 				},
 			}),
 			want: false,
@@ -570,18 +471,14 @@ func TestIsSuspended(t *testing.T) {
 		"suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(true),
-					},
+					Suspend: true,
 				},
 			}),
 			want: true,
 		},
-		"suspend is nil": {
+		"default (unset) - not suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
-				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{},
-				},
+				Spec: rayv1.RayServiceSpec{},
 			}),
 			want: false,
 		},
