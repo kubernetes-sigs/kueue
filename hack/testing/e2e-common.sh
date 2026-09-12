@@ -56,6 +56,14 @@ export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 # Shared by `e2e_docker_pull_if_needed` and `e2e_docker_manifest_available` below.
 export E2E_NON_RETRIABLE_IMAGE_ERRORS="no such manifest|manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
 
+# Retriable: transport-level failures reaching a git remote.
+# Composed from git's transport error strings; extend it as CI hits new ones.
+export E2E_RETRIABLE_GIT_ERRORS="could not resolve host|connection refused|connection reset by peer|connection timed out|operation timed out|rpc failed|early eof|remote end hung up unexpectedly|gnutls_handshake|ssl_error|tls handshake timeout|500 internal server error|502 bad gateway|503 service unavailable"
+
+# Retriable: registry and module proxy failures during an image build.
+# Duplicates IMAGE_BUILD_RETRIABLE_ERRORS, which Make does not export to this script.
+export E2E_RETRIABLE_IMAGE_BUILD_ERRORS="context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout|stream error: stream ID [0-9]+; INTERNAL_ERROR|http2: server sent GOAWAY|500 Internal Server Error|i/o timeout"
+
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
         echo "Skipping kind node image build for non-standard image: $E2E_KIND_VERSION"
@@ -1457,7 +1465,10 @@ function install_dra_example_driver {
     dra_driver_temp_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
     trap "rm -rf '$dra_driver_temp_dir'" RETURN
-    git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "grep -qiE '${E2E_RETRIABLE_GIT_ERRORS}' {output}" \
+        --cleanup "rm -rf -- '${dra_driver_temp_dir}'" \
+        -- git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
 
     local dra_image_repo="dra-example-driver"
     local dra_image_tag="${expected_version#v}"
@@ -1473,7 +1484,9 @@ function install_dra_example_driver {
     # Patch Makefile to ensure static build with CGO_ENABLED=0
     sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
         && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
-    docker build -t "${dra_image_repo}:${dra_image_tag}" \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "grep -qiE '${E2E_RETRIABLE_IMAGE_BUILD_ERRORS}' {output}" \
+        -- docker build -t "${dra_image_repo}:${dra_image_tag}" \
         --build-arg GO_VERSION="${go_version}" \
         --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
         -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
