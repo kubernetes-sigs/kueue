@@ -1131,9 +1131,7 @@ func TestFindMatchingWorkloads(t *testing.T) {
 	}
 	baseJob := testingjob.MakeJob(testJobName, testNS).UID(testJobUID).Obj()
 
-	baseWl := func(name string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, testNS).PodSets(basePodSets...)
-	}
+	baseWl := utiltestingapi.MakeWorkload("base", testNS).PodSets(basePodSets...)
 
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -1143,14 +1141,14 @@ func TestFindMatchingWorkloads(t *testing.T) {
 	}{
 		"workload with only a non-controller owner reference is ignored": {
 			workloads: []*kueue.Workload{
-				baseWl("foreign-plain").
+				baseWl.Clone().Name("foreign-plain").
 					OwnerReference(testGVK, testJobName, testJobUID).
 					Obj(),
 			},
 		},
 		"workload controlled by another object is ignored": {
 			workloads: []*kueue.Workload{
-				baseWl("foreign-controlled").
+				baseWl.Clone().Name("foreign-controlled").
 					OwnerReference(testGVK, testJobName, testJobUID).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), "some-config", "some-config-uid").
 					Obj(),
@@ -1158,7 +1156,7 @@ func TestFindMatchingWorkloads(t *testing.T) {
 		},
 		"workload controlled by a same-named object of a different kind is ignored": {
 			workloads: []*kueue.Workload{
-				baseWl("foreign-same-name").
+				baseWl.Clone().Name("foreign-same-name").
 					OwnerReference(testGVK, testJobName, testJobUID).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), testJobName, "some-config-uid").
 					Obj(),
@@ -1185,7 +1183,7 @@ func TestFindMatchingWorkloads(t *testing.T) {
 		"workload controlled by the job with a stale UID is collected for deletion": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workloads: []*kueue.Workload{
-				baseWl("stale-uid").
+				baseWl.Clone().Name("stale-uid").
 					ControllerReference(testGVK, testJobName, "old-uid").
 					Obj(),
 			},
@@ -1193,7 +1191,7 @@ func TestFindMatchingWorkloads(t *testing.T) {
 		},
 		"equivalent workload controlled by the job is matched": {
 			workloads: []*kueue.Workload{
-				baseWl("owned").
+				baseWl.Clone().Name("owned").
 					ControllerReference(testGVK, testJobName, testJobUID).
 					Obj(),
 			},
@@ -1201,7 +1199,7 @@ func TestFindMatchingWorkloads(t *testing.T) {
 		},
 		"equivalent workload slice controlled by the job is matched": {
 			workloads: []*kueue.Workload{
-				baseWl("owned-slice").
+				baseWl.Clone().Name("owned-slice").
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(kueue.WorkloadSliceNameAnnotation, "owned-slice").
 					ControllerReference(testGVK, testJobName, testJobUID).
@@ -1211,7 +1209,7 @@ func TestFindMatchingWorkloads(t *testing.T) {
 		},
 		"workload slice with only a non-controller owner reference is ignored": {
 			workloads: []*kueue.Workload{
-				baseWl("foreign-slice").
+				baseWl.Clone().Name("foreign-slice").
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(kueue.WorkloadSliceNameAnnotation, "foreign-slice").
 					OwnerReference(testGVK, testJobName, testJobUID).
@@ -1220,14 +1218,14 @@ func TestFindMatchingWorkloads(t *testing.T) {
 		},
 		"foreign workloads are ignored while the owned workload is matched": {
 			workloads: []*kueue.Workload{
-				baseWl("foreign-plain").
+				baseWl.Clone().Name("foreign-plain").
 					OwnerReference(testGVK, testJobName, testJobUID).
 					Obj(),
-				baseWl("foreign-controlled").
+				baseWl.Clone().Name("foreign-controlled").
 					OwnerReference(testGVK, testJobName, testJobUID).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), "some-config", "some-config-uid").
 					Obj(),
-				baseWl("owned").
+				baseWl.Clone().Name("owned").
 					ControllerReference(testGVK, testJobName, testJobUID).
 					Obj(),
 			},
@@ -1321,36 +1319,17 @@ func TestEquivalentToWorkload(t *testing.T) {
 		PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "not-a-bool").
 		Obj())
 
-	// podSetsFor builds the Workload pod sets matching the pod sets reported
-	// by the given Job, including the TAS pod index label, as
-	// TopologyAwareScheduling is enabled by default.
-	podSetsFor := func(j *job.Job, count int) *utiltestingapi.PodSetWrapper {
-		return utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).
-			PodSpec(j.Spec.Template.Spec).
-			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation))
-	}
+	baseWl := utiltestingapi.MakeWorkload("base", testNS).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			PodSpec(baseJob().Spec.Template.Spec).
+			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+			Obj())
 
-	baseWl := func(name string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, testNS).
-			PodSets(*podSetsFor(baseJob(), 1).Obj())
-	}
-
-	admittedWl := func(name string) *utiltestingapi.WorkloadWrapper {
-		return baseWl(name).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-				kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
-			).Obj(), time.Now().Truncate(time.Hour)).
-			AdmittedAt(true, time.Now().Truncate(time.Hour))
-	}
-
-	partiallyAdmittedWl := func(name string, j *job.Job) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, testNS).
-			PodSets(*podSetsFor(j, 2).SetMinimumCount(1).Obj()).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-				kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
-			).Obj(), time.Now().Truncate(time.Hour)).
-			AdmittedAt(true, time.Now().Truncate(time.Hour))
-	}
+	admittedWl := baseWl.Clone().
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
+		).Obj(), time.Now().Truncate(time.Hour)).
+		AdmittedAt(true, time.Now().Truncate(time.Hour))
 
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -1361,20 +1340,20 @@ func TestEquivalentToWorkload(t *testing.T) {
 	}{
 		"no controller owner reference (previously panicked)": {
 			job: baseJob(),
-			wl: baseWl("plain-owner").
+			wl: baseWl.Clone().Name("plain-owner").
 				OwnerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: false,
 		},
 		"without any owner references": {
 			job:  baseJob(),
-			wl:   baseWl("no-owners").Obj(),
+			wl:   baseWl.Clone().Name("no-owners").Obj(),
 			want: false,
 		},
 		"matching UID when FinishOrphanedWorkloads is enabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			job:          baseJob(),
-			wl: baseWl("owned-matching-uid").
+			wl: baseWl.Clone().Name("owned-matching-uid").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: true,
@@ -1382,14 +1361,23 @@ func TestEquivalentToWorkload(t *testing.T) {
 		"stale UID is ignored when FinishOrphanedWorkloads is disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			job:          baseJob(),
-			wl: baseWl("owned-stale-uid-gate-off").
+			wl: baseWl.Clone().Name("owned-stale-uid-gate-off").
 				ControllerReference(testGVK, testJobName, "old-uid").
 				Obj(),
 			want: true,
 		},
 		"suspended job falls back to spec comparison for an admitted workload": {
 			job: partiallyAdmittedJob(true),
-			wl: partiallyAdmittedWl("owned-admitted-partial", partiallyAdmittedJob(true)).
+			wl: utiltestingapi.MakeWorkload("owned-admitted-partial", testNS).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					PodSpec(partiallyAdmittedJob(true).Spec.Template.Spec).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					SetMinimumCount(1).
+					Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+				).Obj(), time.Now().Truncate(time.Hour)).
+				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: true,
@@ -1402,14 +1390,23 @@ func TestEquivalentToWorkload(t *testing.T) {
 		// on the next sync.
 		"running job does not fall back to spec comparison for an admitted workload": {
 			job: partiallyAdmittedJob(false),
-			wl: partiallyAdmittedWl("owned-admitted-partial-running", partiallyAdmittedJob(false)).
+			wl: utiltestingapi.MakeWorkload("owned-admitted-partial-running", testNS).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					PodSpec(partiallyAdmittedJob(false).Spec.Template.Spec).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					SetMinimumCount(1).
+					Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+				).Obj(), time.Now().Truncate(time.Hour)).
+				AdmittedAt(true, time.Now().Truncate(time.Hour)).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: false,
 		},
 		"controller with a different kind but the same name": {
 			job: baseJob(),
-			wl: baseWl("configmap-controlled").
+			wl: baseWl.Clone().Name("configmap-controlled").
 				OwnerReference(testGVK, testJobName, testJobUID).
 				ControllerReference(configMapGVK, testJobName, "some-config-uid").
 				Obj(),
@@ -1417,14 +1414,14 @@ func TestEquivalentToWorkload(t *testing.T) {
 		},
 		"controller with a different apiVersion": {
 			job: baseJob(),
-			wl: baseWl("old-api").
+			wl: baseWl.Clone().Name("old-api").
 				ControllerReference(schema.GroupVersion{Group: "batch", Version: "v1beta1"}.WithKind("Job"), testJobName, testJobUID).
 				Obj(),
 			want: false,
 		},
 		"controller with the same GVK but a different name": {
 			job: baseJob(),
-			wl: baseWl("other-job").
+			wl: baseWl.Clone().Name("other-job").
 				ControllerReference(testGVK, "other-job", "other-uid").
 				Obj(),
 			want: false,
@@ -1432,14 +1429,14 @@ func TestEquivalentToWorkload(t *testing.T) {
 		"matching controller with a stale UID (FinishOrphanedWorkloads)": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			job:          baseJob(),
-			wl: baseWl("stale-uid").
+			wl: baseWl.Clone().Name("stale-uid").
 				ControllerReference(testGVK, testJobName, "old-uid").
 				Obj(),
 			want: false,
 		},
 		"matching controller and pod sets": {
 			job: baseJob(),
-			wl: baseWl("owned").
+			wl: baseWl.Clone().Name("owned").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: true,
@@ -1447,14 +1444,17 @@ func TestEquivalentToWorkload(t *testing.T) {
 		"matching controller but different pod sets": {
 			job: baseJob(),
 			wl: utiltestingapi.MakeWorkload("owned-diff-pods", testNS).
-				PodSets(*podSetsFor(baseJob(), 2).Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					PodSpec(baseJob().Spec.Template.Spec).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: false,
 		},
 		"matching controller but different maximum execution time": {
 			job: execTimeJob,
-			wl: baseWl("owned-diff-exec-time").
+			wl: baseWl.Clone().Name("owned-diff-exec-time").
 				MaximumExecutionTimeSeconds(30).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
@@ -1462,15 +1462,18 @@ func TestEquivalentToWorkload(t *testing.T) {
 		},
 		"admitted workload with matching running pod sets": {
 			job: baseJob(),
-			wl: admittedWl("owned-admitted").
+			wl: admittedWl.Clone().Name("owned-admitted").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: true,
 		},
 		"admitted workload with different pod sets and a suspended job": {
 			job: baseJob(),
-			wl: admittedWl("owned-admitted-diff").
-				PodSets(*podSetsFor(baseJob(), 2).Obj()).
+			wl: admittedWl.Clone().Name("owned-admitted-diff").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					PodSpec(baseJob().Spec.Template.Spec).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					Obj()).
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			want: false,
@@ -1478,7 +1481,7 @@ func TestEquivalentToWorkload(t *testing.T) {
 		"error reading job pod sets is propagated": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job:          invalidTASJob,
-			wl: baseWl("owned").
+			wl: baseWl.Clone().Name("owned").
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			wantErr: true,
