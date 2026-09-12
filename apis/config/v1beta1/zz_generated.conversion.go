@@ -878,6 +878,7 @@ func autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta
 	out.RequeuingStrategy = (*RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*v1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
 	// WARNING: in.UnscheduledTimeout requires manual conversion: does not exist in peer-type
+	// WARNING: in.MaxTimeoutOnWorkload requires manual conversion: does not exist in peer-type
 	return nil
 }
 
