@@ -368,6 +368,12 @@ func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 	return p
 }
 
+// OwnerReferenceWithUID adds an ownerReference with a custom UID.
+func (p *PodWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *PodWrapper {
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, uid, new(true), new(true))
+	return p
+}
+
 // UID updates the uid of the Pod.
 func (p *PodWrapper) UID(uid string) *PodWrapper {
 	p.ObjectMeta.UID = types.UID(uid)
