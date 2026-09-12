@@ -17,18 +17,23 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -40,6 +45,31 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+// notReadyTaint mirrors the taint the node lifecycle controller adds to NotReady nodes.
+// With SchedulerLibraryIntegration enabled, TAS keeps NotReady nodes in its cache and
+// relies on the scheduler library rejecting them via this taint.
+var notReadyTaint = corev1.Taint{Key: corev1.TaintNodeNotReady, Effect: corev1.TaintEffectNoSchedule}
+
+// withoutSchedulerLibrary pins cases whose expectations are specific to the gate-off
+// path: NotReady and unschedulable nodes being dropped from the node cache, and the
+// default simulator's per-reason exclusion stats, which the scheduler library does not
+// report yet (see TODO(#13283) in simulator.NodeExclusionStats).
+var withoutSchedulerLibrary = map[featuregate.Feature]bool{features.SchedulerLibraryIntegration: false}
+
+// newTestSchedulingSimulator mirrors the wiring in cmd/kueue/main.go: the TAS cache is
+// backed by the WAS simulator only when SchedulerLibraryIntegration is enabled.
+func newTestSchedulingSimulator(ctx context.Context, t *testing.T) simulator.SchedulingSimulator {
+	t.Helper()
+	if !features.Enabled(features.SchedulerLibraryIntegration) {
+		return newDefaultSimulator()
+	}
+	sim, err := was.NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
+	}
+	return sim
+}
 
 // PodSetTestCase defines a test case for a single podset in the consolidated test.
 type PodSetTestCase struct {
@@ -433,7 +463,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().
+					NotReady().Taints(notReadyTaint).
 					Obj(),
 				*testingnode.MakeNode("x2").
 					Label(corev1.LabelHostname, "x2").
@@ -471,7 +501,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().
+					NotReady().Taints(notReadyTaint).
 					Obj(),
 				*testingnode.MakeNode("x2").
 					Label(corev1.LabelHostname, "x2").
@@ -509,7 +539,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().
+					NotReady().Taints(notReadyTaint).
 					Obj(),
 				*testingnode.MakeNode("x2").
 					Label(corev1.LabelHostname, "x2").
@@ -548,7 +578,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().
+					NotReady().Taints(notReadyTaint).
 					Obj(),
 				*testingnode.MakeNode("x2").
 					Label(corev1.LabelHostname, "x2").
@@ -587,7 +617,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().
+					NotReady().Taints(notReadyTaint).
 					Obj(),
 				*testingnode.MakeNode("x2").
 					Label(corev1.LabelHostname, "x2").
@@ -778,7 +808,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("b1-r1-x2").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().Obj(),
+					NotReady().Taints(notReadyTaint).Obj(),
 				*testingnode.MakeNode("b1-r1-x3").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -1510,9 +1540,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"rack required; untolerated taint inside the rack; per-node feasibility": {
-			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
-			nodes:        taintedRackNodes,
-			levels:       defaultTwoLevels,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASNodeFeasibilityForAllLevels: true,
+				features.SchedulerLibraryIntegration:    false,
+			},
+			nodes:  taintedRackNodes,
+			levels: defaultTwoLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: new(tasRackLabel),
@@ -2154,6 +2187,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"no assignment as node is not ready; BestFit": {
+			featureGates: withoutSchedulerLibrary,
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
@@ -2163,7 +2197,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						corev1.ResourceMemory: resource.MustParse("1Gi"),
 						corev1.ResourcePods:   resource.MustParse("10"),
 					}).
-					NotReady().
+					NotReady().Taints(notReadyTaint).
 					StatusConditions(corev1.NodeCondition{
 						Type:   corev1.NodeNetworkUnavailable,
 						Status: corev1.ConditionTrue,
@@ -2185,7 +2219,41 @@ func TestFindTopologyAssignments(t *testing.T) {
 				"zone": "zone-a",
 			},
 		},
+		"no assignment as node is not ready; BestFit; SchedulerLibraryIntegration": {
+			featureGates: map[featuregate.Feature]bool{features.SchedulerLibraryIntegration: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x3").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					NotReady().Taints(notReadyTaint).
+					StatusConditions(corev1.NodeCondition{
+						Type:   corev1.NodeNetworkUnavailable,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(corev1.LabelHostname),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			}},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+		},
 		"no assignment as node is unschedulable; BestFit": {
+			featureGates: withoutSchedulerLibrary,
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x3").
 					Label("zone", "zone-a").
@@ -2214,7 +2282,38 @@ func TestFindTopologyAssignments(t *testing.T) {
 				"zone": "zone-a",
 			},
 		},
+		"no assignment as node is unschedulable; BestFit; SchedulerLibraryIntegration": {
+			featureGates: map[featuregate.Feature]bool{features.SchedulerLibraryIntegration: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x3").
+					Label("zone", "zone-a").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Unschedulable().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(corev1.LabelHostname),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:      1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)`,
+			}},
+			nodeLabels: map[string]string{
+				"zone": "zone-a",
+			},
+		},
 		"skip node which has untolerated taint; BestFit": {
+			featureGates: withoutSchedulerLibrary,
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x3").
 					Label("zone", "zone-a").
@@ -2248,6 +2347,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"detailed failure message with exclusion stats": {
+			featureGates: withoutSchedulerLibrary,
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -2461,6 +2561,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		"skip node which doesn't match node selector, missing label; BestFit": {
+			featureGates: withoutSchedulerLibrary,
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x3").
 					Label("zone", "zone-a").
@@ -2493,6 +2594,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			}},
 		},
 		"skip node which doesn't match node selector, label exists, value doesn't match; BestFit": {
+			featureGates: withoutSchedulerLibrary,
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x3").
 					Label("zone", "zone-a").
@@ -6639,6 +6741,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// Without resetting temporary per-domain state (e.g. podCount/podCountWithLeader), stale
 		// values from the first PodSet would leak and produce a bogus assignment instead of failure.
 		"temporary state cleanup prevents leakage across PodSets": {
+			featureGates: withoutSchedulerLibrary,
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("n1").
 					Label(corev1.LabelHostname, "x1").
@@ -8753,14 +8856,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// keeps the replacement constrained to rack-a. Since x2 has no
 			// spare capacity, x3 in rack-ab must not be used as the replacement.
 			featureGates: map[featuregate.Feature]bool{
-				features.TASMultiLayerTopology:    true,
-				features.TASCacheNodeMatchResults: true,
+				features.TASMultiLayerTopology:       true,
+				features.TASCacheNodeMatchResults:    true,
+				features.SchedulerLibraryIntegration: false,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-rack-a-x1").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "rack-a").Label(corev1.LabelHostname, "x1").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().Obj(),
+					NotReady().Taints(notReadyTaint).Obj(),
 				*testingnode.MakeNode("b1-rack-a-x2").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "rack-a").Label(corev1.LabelHostname, "x2").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -8823,7 +8927,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("b1-r2-x3").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().Obj(),
+					NotReady().Taints(notReadyTaint).Obj(),
 				*testingnode.MakeNode("b1-r2-x4").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -8878,8 +8982,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// x1  x2  x3    x4
 			//          ^(NotReady)
 			featureGates: map[featuregate.Feature]bool{
-				features.TASMultiLayerTopology:    true,
-				features.TASCacheNodeMatchResults: true,
+				features.TASMultiLayerTopology:       true,
+				features.TASCacheNodeMatchResults:    true,
+				features.SchedulerLibraryIntegration: false,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -8893,7 +8998,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("b1-r2-x3").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().Obj(),
+					NotReady().Taints(notReadyTaint).Obj(),
 				*testingnode.MakeNode("b1-r2-x4").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -8971,7 +9076,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("b1-r1-s2-x3").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(tasSwitchLabel, "s2").Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().Obj(),
+					NotReady().Taints(notReadyTaint).Obj(),
 				*testingnode.MakeNode("b1-r1-s2-x4").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(tasSwitchLabel, "s2").Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -9065,8 +9170,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// that can fit 2 pods. Neither x4 nor x5 can. Replacement correctly
 			// fails rather than silently violating the topology constraint.
 			featureGates: map[featuregate.Feature]bool{
-				features.TASMultiLayerTopology:    true,
-				features.TASCacheNodeMatchResults: true,
+				features.TASMultiLayerTopology:       true,
+				features.TASCacheNodeMatchResults:    true,
+				features.SchedulerLibraryIntegration: false,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -9080,7 +9186,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("b1-r2-x3").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().Obj(),
+					NotReady().Taints(notReadyTaint).Obj(),
 				*testingnode.MakeNode("b1-r2-x4").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -9136,8 +9242,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// replacing x3, and its effective capacity is 0 CPU, so
 			// replacement must fail with the no-capacity reason.
 			featureGates: map[featuregate.Feature]bool{
-				features.TASMultiLayerTopology:    true,
-				features.TASCacheNodeMatchResults: true,
+				features.TASMultiLayerTopology:       true,
+				features.TASCacheNodeMatchResults:    true,
+				features.SchedulerLibraryIntegration: false,
 			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("b1-r1-x1").
@@ -9151,7 +9258,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				*testingnode.MakeNode("b1-r2-x3").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
-					NotReady().Obj(),
+					NotReady().Taints(notReadyTaint).Obj(),
 				*testingnode.MakeNode("b1-r2-x4").
 					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
@@ -9212,9 +9319,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 				client := clientBuilder.Build()
 
-				tasCache := NewTASCache(client, newDefaultSimulator(), resources.NewResourceFormatter())
+				sim := newTestSchedulingSimulator(ctx, t)
+				tasCache := NewTASCache(client, sim, resources.NewResourceFormatter())
 				for i := range tc.nodes {
 					tasCache.SyncNode(&tc.nodes[i])
+				}
+				simulatorSnapshot, err := sim.Snapshot(ctx, tasCache.nodesCache.getAllNodes())
+				if err != nil {
+					t.Fatalf("Simulator snapshot creation failed: %v", err)
 				}
 
 				topologyInformation := topologyInformation{
@@ -9253,7 +9365,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					newDefaultSimulatorSnapshot(),
+					simulatorSnapshot,
 					aggregatedDomainUsage,
 				)
 				if err != nil {
