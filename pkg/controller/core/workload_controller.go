@@ -450,6 +450,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 		return ctrl.Result{}, nil
 	}
+	var draQueueOptions []workload.InfoOption
 	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
 		workload.AdjustResources(ctx, r.client, &wl)
 		if workload.HasResourceClaim(&wl) {
@@ -577,13 +578,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
 		}
 
-		var queueOptions []workload.InfoOption
 		if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
-			queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
+			draQueueOptions = append(draQueueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 		}
 
 		if workload.IsAdmissible(&wl) {
-			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
+			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), draQueueOptions...); err != nil {
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
 			}
@@ -637,7 +637,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 				// resources, not the raw spec.
 				wlCopy := wl.DeepCopy()
 				workload.AdjustResources(ctx, r.client, wlCopy)
-				if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+				if err := r.queues.AddOrUpdateWorkload(log, wlCopy, draQueueOptions...); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
