@@ -56,6 +56,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return false, err
 	}
 
+	localJobRaw, err := jobframework.GetUnstructured(ctx, localClient, key, gvk)
+	if err != nil {
+		return false, err
+	}
+
 	remoteJob := batchv1.Job{}
 	err = remoteClient.Get(ctx, key, &remoteJob)
 	if client.IgnoreNotFound(err) != nil {
@@ -109,7 +114,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy enables the batch/Job controller to take over
 	remoteJob.Spec.ManagedBy = nil
 
-	return false, remoteClient.Create(ctx, &remoteJob)
+	return false, jobframework.CreateWithPreservedSpec(ctx, remoteClient, localJobRaw, &localJob, &remoteJob)
 }
 
 // determineStatusUpdate returns the JobStatus to write to the local Job, plus

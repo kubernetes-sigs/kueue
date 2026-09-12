@@ -61,6 +61,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		})
 	}
 
+	localJobRaw, err := jobframework.GetUnstructured(ctx, localClient, key, gvk)
+	if err != nil {
+		return false, err
+	}
+
 	remoteJob = kftrainerapi.TrainJob{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
@@ -77,7 +82,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return p.Manager == runtimePatchManagerName
 	})
 
-	return false, remoteClient.Create(ctx, &remoteJob)
+	return false, jobframework.CreateWithPreservedSpec(ctx, remoteClient, localJobRaw, &localJob, &remoteJob)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
@@ -123,3 +128,4 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: trainJob.Namespace}}, nil
 }
+

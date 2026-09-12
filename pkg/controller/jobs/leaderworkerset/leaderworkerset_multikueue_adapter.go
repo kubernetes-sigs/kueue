@@ -49,6 +49,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return false, err
 	}
 
+	localLWSRaw, err := jobframework.GetUnstructured(ctx, localClient, key, gvk)
+	if err != nil {
+		return false, err
+	}
+
 	remoteLWS := leaderworkersetv1.LeaderWorkerSet{}
 	err = remoteClient.Get(ctx, key, &remoteLWS)
 	if client.IgnoreNotFound(err) != nil {
@@ -78,7 +83,10 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 
 	// Use IgnoreAlreadyExists because LWS has multiple workloads (one per replica),
 	// and they may all try to create the same LWS concurrently.
-	return false, client.IgnoreAlreadyExists(remoteClient.Create(ctx, &remoteLWS))
+	if err := jobframework.CreateWithPreservedSpec(ctx, remoteClient, localLWSRaw, &localLWS, &remoteLWS); err != nil {
+		return false, client.IgnoreAlreadyExists(err)
+	}
+	return false, nil
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
