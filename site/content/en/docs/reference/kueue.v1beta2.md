@@ -2066,6 +2066,18 @@ workloads assigned to this LocalQueue.</p>
    <p>clusterSource is the source to connect to the cluster.</p>
 </td>
 </tr>
+<tr><td><code>supportedFrameworks</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>supportedFrameworks is the list of job frameworks supported by this worker cluster.
+MultiKueue only watches and dispatches jobs for these frameworks on this cluster.
+Built-in framework names must use the same values accepted by integrations.frameworks;
+external frameworks must use the name configured in multiKueue.externalFrameworks.
+An empty list means that every framework enabled in the manager is supported.
+Changes to this field take effect after restarting the Kueue controller manager.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

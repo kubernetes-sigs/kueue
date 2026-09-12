@@ -51,8 +51,8 @@ func NewAdapters(configs []configapi.MultiKueueExternalFramework) ([]*Adapter, e
 	}
 
 	var adapters []*Adapter
-	for gvk := range configsMap {
-		adapters = append(adapters, &Adapter{gvk: gvk})
+	for gvk, config := range configsMap {
+		adapters = append(adapters, &Adapter{gvk: gvk, frameworkName: config.Name})
 	}
 	return adapters, nil
 }

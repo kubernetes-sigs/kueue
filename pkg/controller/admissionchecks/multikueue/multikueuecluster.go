@@ -198,6 +198,11 @@ type remoteClient struct {
 	mu sync.RWMutex
 }
 
+func (rc *remoteClient) supportsAdapter(adapterKey string) bool {
+	_, found := rc.adapters[adapterKey]
+	return found
+}
+
 // connectionState holds a remote client's connection status. Its own mutex guards the fields
 // so connected and disconnectedSince are always read and updated together.
 type connectionState struct {
@@ -872,15 +877,30 @@ func (c *clustersReconciler) disconnectCluster(clusterName string) {
 	}
 }
 
+func filterAdapters(adapters map[string]jobframework.MultiKueueAdapter, supportedFrameworks []string) map[string]jobframework.MultiKueueAdapter {
+	if len(supportedFrameworks) == 0 {
+		return maps.Clone(adapters)
+	}
+
+	supported := sets.New(supportedFrameworks...)
+	filtered := make(map[string]jobframework.MultiKueueAdapter, len(supported))
+	for key, adapter := range adapters {
+		if supported.Has(adapter.FrameworkName()) {
+			filtered[key] = adapter
+		}
+	}
+	return filtered
+}
+
 // findOrCreateRemoteClient returns the remoteClient for clusterName, creating
 // one if absent. Only the brief map operation runs under c.lock.
-func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string) *remoteClient {
+func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string, adapters map[string]jobframework.MultiKueueAdapter) *remoteClient {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -889,8 +909,9 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 	return client
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
-	client := c.findOrCreateRemoteClient(clusterName, origin)
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string, supportedFrameworks []string) (*time.Duration, error) {
+	adapters := filterAdapters(c.adapters, supportedFrameworks)
+	client := c.findOrCreateRemoteClient(clusterName, origin, adapters)
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
@@ -958,7 +979,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, fmt.Errorf("failed to load client config, reason: %s, error: %w", reason, err)
 	}
 
-	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
+	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin, cluster.Spec.SupportedFrameworks); err != nil {
 		log.Error(err, "setting client config", "retryAfter", retryAfter)
 		c.disconnectCluster(req.Name)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {

@@ -19,6 +19,7 @@ package kubeflowjob
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -70,6 +71,10 @@ func NewMKAdapter[PtrT objAsPtr[T], T any](
 
 func (a adapter[PtrT, T]) GVK() schema.GroupVersionKind {
 	return a.gvk
+}
+
+func (a adapter[PtrT, T]) FrameworkName() string {
+	return a.gvk.Group + "/" + strings.ToLower(a.gvk.Kind)
 }
 
 func (a adapter[PtrT, T]) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {

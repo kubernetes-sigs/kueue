@@ -52,6 +52,8 @@ type MultiKueueAdapter interface {
 	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
 	// GVK returns GVK (Group Version Kind) for the job.
 	GVK() schema.GroupVersionKind
+	// FrameworkName returns the name used to enable the framework in the Kueue configuration.
+	FrameworkName() string
 }
 
 // MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter
