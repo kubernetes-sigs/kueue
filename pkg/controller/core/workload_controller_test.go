@@ -1011,7 +1011,6 @@ var (
 	}
 
 	pendingWorkloadsCmpOpts = cmp.Options{
-		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(workload.Info{},
 			"Obj", "FlavorScanState", "LocalQueueFSUsage", "SecondPassIteration",
 			"LastEvaluatedGeneration", "SchedulingHash", "NominationMapping",
