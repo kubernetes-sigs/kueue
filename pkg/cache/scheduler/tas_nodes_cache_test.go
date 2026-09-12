@@ -103,24 +103,27 @@ func TestNodesCache(t *testing.T) {
 func TestNodesCacheFind(t *testing.T) {
 	nc := newNodesCache()
 
-	node1 := node.MakeNode("test1").Obj()
-	node2 := node.MakeNode("test2").Label("cloud.provider.com/zone", "us-east-1a").Obj()
+	node1 := node.MakeNode("test1").Label(corev1.LabelHostname, "test1").Obj()
+	node2 := node.MakeNode("test2").Label("cloud.provider.com/zone", "us-east-1a").Label(corev1.LabelHostname, "test2").Obj()
 	node3 := node.MakeNode("test3").
 		Label("cloud.provider.com/zone", "us-east-1a").
 		Label("cloud.provider.com/topology-block", "b1").
+		Label(corev1.LabelHostname, "test3").
 		Obj()
-	node4 := node.MakeNode("test4").Label("cloud.provider.com/zone", "us-east-1").Obj()
+	node4 := node.MakeNode("test4").Label("cloud.provider.com/zone", "us-east-1").Label(corev1.LabelHostname, "test4").Obj()
 
 	nodes := []corev1.Node{*node1, *node2, *node3, *node4}
 
 	for i := range nodes {
 		nc.nodes[nodes[i].Name] = copyAndStripNode(&nodes[i])
+		nc.schedulableAndReadyNodes.Insert(nodes[i].Name)
 	}
 
 	testCases := map[string]struct {
-		nodeLabels map[string]string
-		levels     []string
-		wantNodes  []*corev1.Node
+		nodeLabels                        map[string]string
+		levels                            []string
+		wantNodes                         []*corev1.Node
+		enableSchedulerLibraryIntegration bool
 	}{
 		"no nodeLabels and levels": {
 			wantNodes: []*corev1.Node{
@@ -143,9 +146,28 @@ func TestNodesCacheFind(t *testing.T) {
 			levels:     []string{"cloud.provider.com/topology-block"},
 			wantNodes:  []*corev1.Node{copyAndStripNode(node3)},
 		},
+		"FG disabled: match labels filters out non-matching nodes": {
+			enableSchedulerLibraryIntegration: false,
+			nodeLabels:                        map[string]string{"cloud.provider.com/zone": "us-east-1a"},
+			levels:                            []string{corev1.LabelHostname},
+			wantNodes:                         []*corev1.Node{copyAndStripNode(node2), copyAndStripNode(node3)},
+		},
+		"FG enabled and lowest level is hostname: retains nodes not matching flavor labels": {
+			enableSchedulerLibraryIntegration: true,
+			nodeLabels:                        map[string]string{"cloud.provider.com/zone": "us-east-1a"},
+			levels:                            []string{corev1.LabelHostname},
+			wantNodes:                         []*corev1.Node{copyAndStripNode(node1), copyAndStripNode(node2), copyAndStripNode(node3), copyAndStripNode(node4)},
+		},
+		"FG enabled and lowest level is not hostname: filters out nodes not matching flavor labels": {
+			enableSchedulerLibraryIntegration: true,
+			nodeLabels:                        map[string]string{"cloud.provider.com/zone": "us-east-1a"},
+			levels:                            []string{"cloud.provider.com/topology-block"},
+			wantNodes:                         []*corev1.Node{copyAndStripNode(node3)},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, tc.enableSchedulerLibraryIntegration)
 			gotNodes, _ := nc.find(tc.nodeLabels, tc.levels)
 			if diff := cmp.Diff(tc.wantNodes, gotNodes, cmpopts.SortSlices(func(a, b *corev1.Node) bool {
 				return a.Name < b.Name

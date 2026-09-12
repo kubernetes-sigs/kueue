@@ -190,6 +190,8 @@ type TASFlavorSnapshot struct {
 	simulatorSnapshot simulator.SimulatorSnapshot
 
 	resourceFormatter *resources.ResourceFormatter
+
+	flavorNodeLabels map[string]string
 }
 
 // domainStateOf returns the snapshot's mutable state of the given shared domain.
@@ -240,6 +242,7 @@ type matchingLeavesCacheEntry struct {
 
 type tasFlavorSnapshotOptions struct {
 	resourceFormatter *resources.ResourceFormatter
+	flavorNodeLabels  map[string]string
 }
 
 type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
@@ -247,6 +250,12 @@ type tasFlavorSnapshotOption func(*tasFlavorSnapshotOptions)
 func withResourceFormatter(formatter *resources.ResourceFormatter) tasFlavorSnapshotOption {
 	return func(o *tasFlavorSnapshotOptions) {
 		o.resourceFormatter = formatter
+	}
+}
+
+func withFlavorNodeLabels(flavorNodeLabels map[string]string) tasFlavorSnapshotOption {
+	return func(o *tasFlavorSnapshotOptions) {
+		o.flavorNodeLabels = flavorNodeLabels
 	}
 }
 
@@ -280,6 +289,7 @@ func newTASFlavorSnapshot(
 		tolerations:          slices.Clone(tolerations),
 		simulatorSnapshot:    simulatorSnapshot,
 		resourceFormatter:    options.resourceFormatter,
+		flavorNodeLabels:     options.flavorNodeLabels,
 	}
 	for _, leaf := range tree.leaves {
 		snapshot.leafCapacities[leaf.leafIdx].freeCapacity = leaf.capacity.Clone()
@@ -1222,6 +1232,23 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	requirements.podRequirements.PodTemplate = workersTasPodSetRequests.PodSet.Template.DeepCopy()
+
+	if features.Enabled(features.SchedulerLibraryIntegration) {
+		combinedNodeSelector := maps.Clone(info.NodeSelector)
+		if len(s.flavorNodeLabels) > 0 {
+			for k, v := range s.flavorNodeLabels {
+				if existingVal, exists := combinedNodeSelector[k]; exists && existingVal != v {
+					return nil, nil, fmt.Sprintf("workload nodeSelector conflicts with flavor nodeLabels for key %q (%q != %q)", k, existingVal, v)
+				}
+			}
+			if combinedNodeSelector == nil {
+				combinedNodeSelector = make(map[string]string, len(s.flavorNodeLabels))
+			}
+			maps.Copy(combinedNodeSelector, s.flavorNodeLabels)
+		}
+		requirements.podRequirements.PodTemplate.Spec.NodeSelector = combinedNodeSelector
+		requirements.podRequirements.PodTemplate.Spec.Tolerations = slices.Clone(requirements.podRequirements.Tolerations)
+	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	err := s.fillInCounts(ctx, requirements, state)
