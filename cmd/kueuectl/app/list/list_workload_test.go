@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -70,7 +69,7 @@ func TestWorkloadCmd(t *testing.T) {
 		listPages            []runtime.Object
 		wantOut              string
 		wantOutErr           string
-		wantErr              error
+		wantErr              string
 	}{
 		"should print workload list with namespace filter": {
 			ns: "ns1",
@@ -996,6 +995,10 @@ kind: WorkloadList
 metadata: {}
 `,
 		},
+		"should fail with invalid status value": {
+			args:    []string{"--status", "unknown"},
+			wantErr: `invalid status value (unknown). Must be "all", "pending", "quotareserved", "admitted" or "finished"`,
+		},
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
@@ -1074,7 +1077,11 @@ metadata: {}
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+			var gotErrStr string
+			if gotErr != nil {
+				gotErrStr = gotErr.Error()
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 

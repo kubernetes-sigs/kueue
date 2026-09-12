@@ -126,7 +126,7 @@ func NewWorkloadCmd(clientGetter clientgetter.ClientGetter, streams genericioopt
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("localqueue", completion.LocalQueueNameFunc(clientGetter, nil)))
 
-	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "admitted" or "finished"`)
+	cmd.Flags().StringArray("status", nil, `Filter workloads by status. Must be "all", "pending", "quotareserved", "admitted" or "finished"`)
 
 	return cmd
 }
@@ -152,7 +152,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 		case "finished":
 			statuses.Insert(workloadStatusFinished)
 		default:
-			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "admitted" or "finished"`, status)
+			return nil, fmt.Errorf(`invalid status value (%v). Must be "all", "pending", "quotareserved", "admitted" or "finished"`, status)
 		}
 	}
 

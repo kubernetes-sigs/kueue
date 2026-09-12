@@ -250,6 +250,33 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	}
 }
 
+func TestPushOrUpdateRequeueStateChanged(t *testing.T) {
+	now := time.Now()
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	wlWaiting := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+		Creation(now).
+		RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(time.Hour)))).
+		Obj()
+	cq.PushOrUpdate(workload.NewInfo(log, wlWaiting))
+
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 1 {
+		t.Fatalf("got %d inadmissible workloads after first push, want 1", len(inadmissible))
+	}
+
+	wlElapsed := wlWaiting.DeepCopy()
+	wlElapsed.Status.RequeueState.RequeueAt = nil
+	cq.PushOrUpdate(workload.NewInfo(log, wlElapsed))
+
+	if active, _ := cq.Dump(); len(active) != 1 {
+		t.Errorf("got %d active workloads, want 1", len(active))
+	}
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 0 {
+		t.Errorf("got %d inadmissible workloads, want 0", len(inadmissible))
+	}
+}
+
 func TestPushOrUpdateGenerationChanged(t *testing.T) {
 	now := time.Now()
 
