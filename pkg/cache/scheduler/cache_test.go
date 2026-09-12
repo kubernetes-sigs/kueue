@@ -1924,7 +1924,7 @@ func TestClusterQueueUsage(t *testing.T) {
 
 func TestLocalQueueUsage(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	cq := *utiltestingapi.MakeClusterQueue("foo").
+	cq := *utiltestingapi.MakeClusterQueue("foo").UID("foo-uid").
 		ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "10", "10").Obj(),
@@ -1943,14 +1943,14 @@ func TestLocalQueueUsage(t *testing.T) {
 				Obj(),
 		).
 		Obj()
-	cq.UID = "foo-uid"
 	localQueue := *utiltestingapi.MakeLocalQueue("test", "ns1").
 		ClusterQueue("foo").Obj()
 	cases := map[string]struct {
-		cq             *kueue.ClusterQueue
-		wls            []kueue.Workload
-		wantUsage      []kueue.LocalQueueFlavorUsage
-		inAdmissibleWl sets.Set[string]
+		cq                  *kueue.ClusterQueue
+		wls                 []kueue.Workload
+		wantUsage           []kueue.LocalQueueFlavorUsage
+		wantClusterQueueUID types.UID
+		inAdmissibleWl      sets.Set[string]
 	}{
 		"clusterQueue is missing": {
 			wls: []kueue.Workload{
@@ -1961,7 +1961,8 @@ func TestLocalQueueUsage(t *testing.T) {
 			inAdmissibleWl: sets.New("one"),
 		},
 		"workloads is nothing": {
-			cq: &cq,
+			cq:                  &cq,
+			wantClusterQueueUID: "foo-uid",
 			wantUsage: []kueue.LocalQueueFlavorUsage{
 				{
 					Name: "default",
@@ -2001,7 +2002,8 @@ func TestLocalQueueUsage(t *testing.T) {
 			},
 		},
 		"all workloads are admitted": {
-			cq: &cq,
+			cq:                  &cq,
+			wantClusterQueueUID: "foo-uid",
 			wls: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("one", "ns1").
 					Queue("test").
@@ -2065,7 +2067,8 @@ func TestLocalQueueUsage(t *testing.T) {
 			},
 		},
 		"some workloads are inadmissible": {
-			cq: &cq,
+			cq:                  &cq,
+			wantClusterQueueUID: "foo-uid",
 			wls: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("one", "ns1").
 					Queue("test").
@@ -2146,35 +2149,37 @@ func TestLocalQueueUsage(t *testing.T) {
 			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
 			}
-			var wantUID types.UID
-			if tc.cq != nil {
-				wantUID = tc.cq.UID
-			}
-			if gotUsage.ClusterQueueUID != wantUID {
-				t.Errorf("ClusterQueueUID = %q, want %q", gotUsage.ClusterQueueUID, wantUID)
+			if gotUsage.ClusterQueueUID != tc.wantClusterQueueUID {
+				t.Errorf("ClusterQueueUID = %q, want %q", gotUsage.ClusterQueueUID, tc.wantClusterQueueUID)
 			}
 		})
 	}
 }
 
 func TestUpdateClusterQueueUIDMismatch(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
-	oldCQ := utiltestingapi.MakeClusterQueue("cq").Obj()
-	oldCQ.UID = "old"
-	cache := New(utiltesting.NewFakeClient())
-	if err := cache.AddClusterQueue(ctx, oldCQ); err != nil {
-		t.Fatalf("Adding ClusterQueue: %v", err)
+	cases := map[string]struct {
+		clusterQueue *kueue.ClusterQueue
+		wantError    error
+	}{
+		"same UID": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").UID("old").Obj(),
+		},
+		"different UID": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").UID("new").Obj(),
+			wantError:    ErrCqUIDMismatch,
+		},
 	}
-
-	same := oldCQ.DeepCopy()
-	if err := cache.UpdateClusterQueue(log, same); err != nil {
-		t.Fatalf("UpdateClusterQueue() same UID: %v", err)
-	}
-
-	newCQ := oldCQ.DeepCopy()
-	newCQ.UID = "new"
-	if err := cache.UpdateClusterQueue(log, newCQ); !errors.Is(err, ErrCqUIDMismatch) {
-		t.Fatalf("UpdateClusterQueue() error = %v, want %v", err, ErrCqUIDMismatch)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").UID("old").Obj()); err != nil {
+				t.Fatalf("Adding ClusterQueue: %v", err)
+			}
+			if err := cache.UpdateClusterQueue(log, tc.clusterQueue); !errors.Is(err, tc.wantError) {
+				t.Errorf("UpdateClusterQueue() error = %v, want %v", err, tc.wantError)
+			}
+		})
 	}
 }
 

@@ -173,22 +173,16 @@ func TestLocalQueueReconcile(t *testing.T) {
 			wantError: nil,
 		},
 		"cluster queue recreated with a new UID while the cache still holds the old one": {
-			clusterQueue: func() *kueue.ClusterQueue {
-				cq := utiltestingapi.MakeClusterQueue("test-cluster-queue").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
-					Active(metav1.ConditionTrue).
-					Obj()
-				cq.UID = "new"
-				return cq
-			}(),
-			cacheClusterQueue: func() *kueue.ClusterQueue {
-				cq := utiltestingapi.MakeClusterQueue("test-cluster-queue").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
-					Active(metav1.ConditionTrue).
-					Obj()
-				cq.UID = "old"
-				return cq
-			}(),
+			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
+				UID("new").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			cacheClusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
+				UID("old").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+				Active(metav1.ConditionTrue).
+				Obj(),
 			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
 				ClusterQueue("test-cluster-queue").
 				Generation(1).
@@ -574,7 +568,9 @@ func TestLocalQueueReconcile(t *testing.T) {
 				AdmittedWorkloads(1).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{},
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{},
+						},
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
@@ -1015,7 +1011,6 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 
 			cmpOpts := cmp.Options{
-				cmpopts.EquateEmpty(),
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,
 				cmpopts.IgnoreFields(kueue.LocalQueueAdmissionFairSharingStatus{}, "LastUpdate"),
