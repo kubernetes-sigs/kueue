@@ -15,7 +15,10 @@
 package fairsharing
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -53,6 +56,29 @@ func (t *TargetClusterQueue) HasWorkload() bool {
 func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare) {
 	preemptorAlmostLCA, targetAlmostLCA := getAlmostLCAs(t)
 	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare()), TargetOldShare(targetAlmostLCA.DominantResourceShare())
+}
+
+// PreemptorWithinNominal reports whether the preemptor stays within
+// nominal quota for every contested flavor-resource, at every node from
+// the preemptor ClusterQueue up to its least-common-ancestor with the
+// candidate target (inclusive). Checking the full path, rather than
+// only the almostLCA boundary, keeps this decision consistent with the
+// fair sharing admission-ordering tournament, which evaluates borrowing
+// at every ancestor level (see entryComparer.less in
+// fair_sharing_iterator.go) — otherwise a workload could be preempted
+// here only for a subsequent scheduling cycle to admit a different
+// workload in its place because some higher ancestor is still
+// borrowing. The incoming workload must already be simulated before
+// calling this method.
+func (t *TargetClusterQueue) PreemptorWithinNominal(frs sets.Set[resources.FlavorResource]) bool {
+	for _, node := range preemptorPathToLCA(t) {
+		for fr := range frs {
+			if node.BorrowingWith(fr, resources.NewAmount(0)) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // ComputeTargetShareAfterRemoval returns DominantResourceShare of the
