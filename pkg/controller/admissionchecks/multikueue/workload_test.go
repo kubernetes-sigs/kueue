@@ -77,7 +77,7 @@ func TestWlReconcile(t *testing.T) {
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false)
-	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
+	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().UID("uid1").ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -156,7 +156,10 @@ func TestWlReconcile(t *testing.T) {
 			reconcileFor: "missing workload",
 		},
 		"missing workload (in deleted workload cache)": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueRemoteObjectRetention: true,
+				features.WorkloadIdentifierAnnotations:   false,
+			},
 			reconcileFor: "wl1",
 			managersDeletedWorkloads: []*kueue.Workload{
 				baseWorkloadBuilder.Clone().
@@ -692,7 +695,10 @@ func TestWlReconcile(t *testing.T) {
 			wantResult: &reconcile.Result{RequeueAfter: defaultWorkerLostTimeout},
 		},
 		"handle workload evicted on manager cluster": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueRemoteObjectRetention: true,
+				features.WorkloadIdentifierAnnotations:   false,
+			},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -772,7 +778,10 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"handle workload evicted on worker cluster": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueRemoteObjectRetention: true,
+				features.WorkloadIdentifierAnnotations:   false,
+			},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -2168,7 +2177,10 @@ func TestWlReconcile(t *testing.T) {
 
 				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
-				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
+				reconciler := newWlReconciler(
+					managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second,
+					adapters, mkDispatcherName, nil, WithClock(t, fakeClock), withRemoteObjectsAfterFinished(time.Hour),
+				)
 
 				for _, val := range tc.managersDeletedWorkloads {
 					reconciler.Delete(event.DeleteEvent{
