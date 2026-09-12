@@ -682,6 +682,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					return ctrl.Result{}, errUpdateStatus
 				}
 			}
+			if err == nil {
+				if js, ok := job.(JobWithParentSuspension); ok {
+					if resumeErr := js.ResumeParent(ctx, r.client); resumeErr != nil {
+						log.Error(resumeErr, "Failed to resume parent")
+						return ctrl.Result{}, resumeErr
+					}
+				}
+			}
 			return ctrl.Result{}, err
 		}
 
@@ -691,6 +699,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 		if err := r.handleQueueNameChange(ctx, job, wl); err != nil {
 			return ctrl.Result{}, err
+		}
+
+		if js, ok := job.(JobWithParentSuspension); ok {
+			if err := js.SuspendParent(ctx, r.client); err != nil {
+				log.Error(err, "Failed to suspend parent")
+				return ctrl.Result{}, err
+			}
 		}
 
 		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")

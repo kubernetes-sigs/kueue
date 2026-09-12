@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
@@ -42,6 +43,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -4263,6 +4265,184 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", ginkg
 
 		gomega.Expect(createdWorkload.Labels["toCopyKey"]).Should(gomega.Equal("toCopyValue"))
 		gomega.Expect(createdWorkload.Annotations).ShouldNot(gomega.HaveKey("toCopyAnnotation"))
+	})
+})
+
+var _ = ginkgo.Describe("Pod controller Deployment parent suspension", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(
+			false,
+			false, // manual admission so we control timing
+			nil,
+			jobframework.WithEnabledFrameworks([]string{"pod", "deployment"}),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deploy-pause-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		util.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	// createDeploymentChain creates a Deployment, ReplicaSet, and a pod owned by the
+	// chain. The pod carries the SuspendedByParentAnnotation so the pod webhook
+	// gates it and the pod controller's SuspendParent/ResumeParent fire.
+	createDeploymentChain := func(name string) (*appsv1.Deployment, *corev1.Pod) {
+		deploy := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: ns.Name,
+				UID:       types.UID(name + "-uid"),
+			},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": name}},
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:      "c",
+							Image:     "pause",
+							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}},
+						}},
+					},
+				},
+			},
+		}
+		util.MustCreate(ctx, k8sClient, deploy)
+
+		rs := &appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name + "-abc123",
+				Namespace: ns.Name,
+				UID:       types.UID(name + "-rs-uid"),
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: "apps/v1",
+					Kind:       "Deployment",
+					Name:       deploy.Name,
+					UID:        deploy.UID,
+				}},
+			},
+			Spec: appsv1.ReplicaSetSpec{
+				Selector: deploy.Spec.Selector,
+				Template: deploy.Spec.Template,
+			},
+		}
+		util.MustCreate(ctx, k8sClient, rs)
+
+		pod := testingpod.MakePod(name+"-pod", ns.Name).
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "1").
+			SuspendedByParent("deployment").
+			OwnerReference(rs.Name, appsv1.SchemeGroupVersion.WithKind("ReplicaSet")).
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		return deploy, pod
+	}
+
+	ginkgo.It("should pause the parent Deployment while the pod is scheduling-gated", func() {
+		deploy, pod := createDeploymentChain("test-deploy")
+
+		ginkgo.By("waiting for the workload to be created")
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wlKey := types.NamespacedName{
+			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, createdPod.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("waiting for the workload to exist")
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("verifying the parent Deployment is paused")
+		gomega.Eventually(func(g gomega.Gomega) {
+			d := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deploy), d)).To(gomega.Succeed())
+			g.Expect(d.Spec.Paused).To(gomega.BeTrue(), "Deployment should be paused")
+			g.Expect(d.Annotations).To(gomega.HaveKeyWithValue(
+				controllerconstants.PausedByKueueAnnotation, "true",
+			))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should unpause the parent Deployment after the workload is admitted", func() {
+		deploy, pod := createDeploymentChain("test-deploy")
+
+		ginkgo.By("waiting for the workload to be created and Deployment to be paused")
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wlKey := types.NamespacedName{
+			Name:      podcontroller.GetWorkloadNameForPod(pod.Name, createdPod.UID),
+			Namespace: ns.Name,
+		}
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			d := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deploy), d)).To(gomega.Succeed())
+			g.Expect(d.Spec.Paused).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admitting the workload")
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(createdWorkload.Spec.PodSets[0].Name).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
+				Count(createdWorkload.Spec.PodSets[0].Count).
+				Obj()).
+			Obj()
+		util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+		ginkgo.By("verifying the parent Deployment is unpaused")
+		gomega.Eventually(func(g gomega.Gomega) {
+			d := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deploy), d)).To(gomega.Succeed())
+			g.Expect(d.Spec.Paused).To(gomega.BeFalse(), "Deployment should be unpaused after admission")
+			g.Expect(d.Annotations).NotTo(gomega.HaveKey(controllerconstants.PausedByKueueAnnotation))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
 

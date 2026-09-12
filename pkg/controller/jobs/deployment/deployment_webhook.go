@@ -107,6 +107,17 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 		}
 	}
 
+	// On UPDATE, actively unpause if Kueue previously paused the
+	// Deployment. This allows the Deployment controller to proceed when
+	// the pod template changes (e.g. queue-name update) or when the
+	// queue-name is removed entirely to opt out of Kueue. The pod
+	// controller will re-pause via SuspendParent when new pods are
+	// scheduling-gated.
+	if deployment.Annotations[controllerconstants.PausedByKueueAnnotation] == "true" {
+		delete(deployment.Annotations, controllerconstants.PausedByKueueAnnotation)
+		deployment.Spec.Paused = false
+	}
+
 	return nil
 }
 

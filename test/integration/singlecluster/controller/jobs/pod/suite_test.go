@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -150,6 +151,8 @@ func managerSetup(
 		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = pod.SetupWebhook(mgr, opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = deployment.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
