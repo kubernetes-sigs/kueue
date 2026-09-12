@@ -17,18 +17,23 @@ limitations under the License.
 import { env } from "../env";
 
 /**
- * Gets the backend WebSocket URL from environment variables
+ * Gets the backend WebSocket URL from the environment variables. If neither
+ * one is set, it falls back to the origin the page was served from.
  * @returns {string} The WebSocket URL
- * @throws {Error} If no backend URL is configured
  */
 export const getBackendWebSocketUrl = () => {
   const backendUrl = env.REACT_APP_WEBSOCKET_URL || env.VITE_WEBSOCKET_URL;
-  if (!backendUrl) {
-    throw new Error(
-      "Backend URL is not configured. Please set REACT_APP_WEBSOCKET_URL or VITE_WEBSOCKET_URL."
-    );
+  // The Helm chart builds "<scheme>://<host>", so an empty backend ingress
+  // host leaves just "wss://". That string is not empty, but it has no host
+  // to build on, so treat it as if nothing was set.
+  if (backendUrl && !backendUrl.endsWith("://")) {
+    return backendUrl;
   }
-  return backendUrl;
+  // Nothing is set, so use the origin of the page itself. This works if a
+  // proxy in front of both containers sends /ws and /api to the backend. The
+  // chart does not do this: it gives them separate ingress hosts.
+  const { protocol, host } = window.location;
+  return `${protocol === "https:" ? "wss" : "ws"}://${host}`;
 };
 
 /**
@@ -43,7 +48,6 @@ export const convertWebSocketToHttp = (wsUrl) => {
 /**
  * Gets the backend HTTP URL for API calls
  * @returns {string} The HTTP URL
- * @throws {Error} If no backend URL is configured
  */
 export const getBackendHttpUrl = () => {
   const wsUrl = getBackendWebSocketUrl();
