@@ -411,6 +411,28 @@ func TestParseResourceQuotas(t *testing.T) {
 			quotaArgs: []string{"alpha:cpu=1.5.5;memory=1"},
 			wantErr:   errInvalidResourceQuota,
 		},
+		"should fail when a resource is duplicated within a single nominalQuota spec": {
+			quotaArgs:      []string{"alpha:cpu=1;cpu=2;memory=1Gi"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "cpu" is specified more than once in --nominal-quota`,
+		},
+		"should fail when a resource is duplicated within a single borrowingLimit spec": {
+			quotaArgs:      []string{"alpha:cpu=1;memory=1Gi"},
+			borrowingArgs:  []string{"alpha:cpu=1;cpu=2;memory=1Gi"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "cpu" is specified more than once in --borrowing-limit`,
+		},
+		"should fail when a resource is duplicated within a single lendingLimit spec": {
+			quotaArgs:      []string{"alpha:cpu=1;memory=1Gi"},
+			lendingArgs:    []string{"alpha:cpu=1;memory=1Gi;memory=2Gi"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "memory" is specified more than once in --lending-limit`,
+		},
+		"should fail when a resource is duplicated within a single borrowingLimit spec without nominalQuota": {
+			borrowingArgs:  []string{"alpha:cpu=1;cpu=2;memory=1Gi"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "cpu" is specified more than once in --borrowing-limit`,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
