@@ -104,12 +104,14 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&kueuealpha.DynamicQuotaOrchestrator{},
 			handler.EnqueueRequestsFromMapFunc(r.mapOtherDistributingDQOs),
-			builder.WithPredicates(dqoSpecOrDeletionChangedPredicate),
+			builder.WithPredicates(otherDQOUpdatePredicate),
 		).
 		Complete(r)
 }
 
-var dqoSpecOrDeletionChangedPredicate = predicate.Funcs{
+// otherDQOUpdatePredicate filters updates that can affect other orchestrators.
+// Changes to Distributed=False affect takeover of retained effective quotas.
+var otherDQOUpdatePredicate = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		if e.ObjectOld == nil || e.ObjectNew == nil {
 			return false
@@ -117,7 +119,12 @@ var dqoSpecOrDeletionChangedPredicate = predicate.Funcs{
 		if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
 			return true
 		}
-		return e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero()
+		if e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero() {
+			return true
+		}
+		oldDQO, oldOK := e.ObjectOld.(*kueuealpha.DynamicQuotaOrchestrator)
+		newDQO, newOK := e.ObjectNew.(*kueuealpha.DynamicQuotaOrchestrator)
+		return oldOK && newOK && isDistributedFalse(oldDQO) != isDistributedFalse(newDQO)
 	},
 }
 

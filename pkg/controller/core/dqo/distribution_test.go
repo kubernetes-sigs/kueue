@@ -803,6 +803,87 @@ func TestDynamicQuotaOrchestratorDistribution(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"soft validation: takeover when managing DQO is Distributed=False": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "100").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(utiltestingapi.MakeEffectiveQuotaStatus().Name("other-dqo").Obj()).
+					Obj(),
+			},
+			otherDQOs: []*kueuealpha.DynamicQuotaOrchestrator{
+				utiltestingalpha.MakeDynamicQuotaOrchestrator("other-dqo").
+					DiscoveryProvider("cp-1", nil).
+					SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-other").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.DynamicQuotaOrchestratorDistributed,
+						Status: metav1.ConditionFalse,
+						Reason: kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					}).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "50").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-1").
+							ResourceGroups(utiltestingapi.ResourceGroup(
+								*utiltestingapi.MakeFlavorQuotas("default-flavor").Resource(corev1.ResourceCPU, "100").Obj(),
+							)).
+							Obj(),
+					).
+					Obj(),
+			},
+			wantErr: false,
+		},
 		"transition: switch to discovery-only preserves stale effective quotas and removes Distributed condition": {
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-discovery-only").
 				DiscoveryProvider("cp-1", nil).
