@@ -97,11 +97,48 @@ const (
 	// is a unit flavor assignment and topology domain fitting.
 	PodSetGroupName = "kueue.x-k8s.io/podset-group-name"
 
+	// PodSetTopologySpreadingAnnotation contains a JSON-encoded object
+	// describing how Workloads matching a label selector should be spread
+	// across topology domains. The value carries a list of workload label
+	// selector requirements identifying which Workloads are spread against
+	// each other, and a list of rules, each naming a topology level key and
+	// the maximum share of matching Workloads a domain at that level may hold
+	// for the next PodSet group to still be placed there.
+	//
+	// This annotation must be set alongside PodSetRequiredTopologyAnnotation:
+	// spreading counts a PodSet group as occupying a single domain per rule
+	// level, which only holds for required topology.
+	//
+	// This annotation is alpha-level for the TASTopologySpreading feature gate.
+	PodSetTopologySpreadingAnnotation = "kueue.x-k8s.io/podset-topology-spreading"
+
 	// WorkloadSliceNameAnnotation identifies the original workload name in a slice chain.
 	// It is set on every Workload created in the chain of the workloads, as well as on the Pods
 	// associated with that Workload.
 	// This annotation is alpha-level for the ElasticJobsViaWorkloadSlices feature gate.
 	WorkloadSliceNameAnnotation = "kueue.x-k8s.io/workload-slice-name"
+)
+
+// TopologySpreadingEnforcementMode determines whether a topology-spreading
+// rule constrains placement or only influences its ordering. It is the type of
+// the "enforcementMode" field of a rule in PodSetTopologySpreadingAnnotation.
+//
+// It is not a CRD field type: the spreading configuration is carried as a
+// JSON-encoded annotation, so these values are validated by the job webhooks
+// rather than by the apiserver.
+type TopologySpreadingEnforcementMode string
+
+const (
+	// TopologySpreadingEnforcementModeRequired indicates that a spreading rule
+	// must be respected; domains that would exceed maxShareAllowingPlacement
+	// are excluded from placement.
+	TopologySpreadingEnforcementModeRequired TopologySpreadingEnforcementMode = "Required"
+
+	// TopologySpreadingEnforcementModePreferred indicates that a spreading
+	// rule is a preference; domains that would exceed
+	// maxShareAllowingPlacement are penalized in placement ordering but not
+	// excluded.
+	TopologySpreadingEnforcementModePreferred TopologySpreadingEnforcementMode = "Preferred"
 )
 
 // TopologySpec defines the desired state of Topology

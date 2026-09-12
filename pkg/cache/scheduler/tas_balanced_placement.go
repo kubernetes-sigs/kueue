@@ -33,16 +33,16 @@ func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCoun
 	remainingLeaderCount := leaderCount
 	idx := 0
 	if leaderCount > 0 {
-		sortedWithLeader = s.sortedDomainsWithLeader(domains, false)
+		sortedWithLeader = s.sortedDomainsWithLeader(domains, false, nil)
 		for ; remainingLeaderCount > 0 && idx < len(sortedWithLeader) && s.domainStateOf(sortedWithLeader[idx]).leaderCount > 0; idx++ {
 			selectedDomainsCount++
 			lastDomainWithLeader = sortedWithLeader[idx]
 			remainingLeaderCount -= s.domainStateOf(sortedWithLeader[idx]).leaderCount
 			remainingSliceCount -= s.domainStateOf(sortedWithLeader[idx]).sliceCountWithLeader
 		}
-		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false)
+		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false, nil)
 	} else {
-		sortedWithoutLeader = s.sortedDomains(domains, false)
+		sortedWithoutLeader = s.sortedDomains(domains, false, nil)
 	}
 
 	if remainingLeaderCount > 0 {
@@ -156,7 +156,7 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 	if sliceCount < int32(len(resultDomains))*threshold {
 		return nil, "TAS Balanced Placement: Not enough slices to meet the threshold"
 	}
-	resultDomains = s.sortedDomainsWithLeader(resultDomains, false)
+	resultDomains = s.sortedDomainsWithLeader(resultDomains, false, nil)
 	extraSlicesLeft := sliceCount - int32(len(resultDomains))*threshold
 	leadersLeft := leaderCount
 	var extraSlicesToTake int32

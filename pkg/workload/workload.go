@@ -280,6 +280,13 @@ type Info struct {
 	// and will receive the same FlavorAssigner result given the same cluster state.
 	SchedulingHash EquivalenceHash
 
+	// TopologySpreading is the parsed topology-spreading configuration for
+	// each PodSet group (see tas.GroupKeyForPodSet) that carries one. Missing
+	// an entry when the annotation is absent for that group, unparseable, or
+	// the feature gate is off; a group that fails to parse schedules as if it
+	// carried none. Owned by Update, same as SchedulingHash.
+	TopologySpreading map[tas.PodSetGroupKey]*tas.SpreadingSpec
+
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
@@ -358,21 +365,23 @@ func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	return info
 }
 
-// updateSchedulingHash computes and sets the scheduling hash using the
+// updateDerivedFields recomputes the scheduling hash and the parsed
+// topology-spreading annotation from i.Obj and i.TotalRequests, using the
 // provided contextual logger. Called internally by Update.
-func (i *Info) updateSchedulingHash(log logr.Logger) {
+func (i *Info) updateDerivedFields(log logr.Logger) {
 	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
+	i.TopologySpreading = computeTopologySpreading(log, i.Obj)
 }
 
 // Update refreshes the object reference, rebuilds TotalRequests, and
-// recomputes the scheduling hash. Pass WithPreserveTotalRequests to skip
+// recomputes the derived fields. Pass WithPreserveTotalRequests to skip
 // the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	prev := i.snapshotHashInputs()
 	i.Obj = wl
 	i.rebuildTotalRequests(opts...)
-	if i.shouldUpdateSchedulingHash(prev) {
-		i.updateSchedulingHash(log)
+	if i.shouldUpdateDerivedFields(prev) {
+		i.updateDerivedFields(log)
 	}
 }
 
@@ -388,10 +397,12 @@ func (i *Info) snapshotHashInputs() schedulingHashInputs {
 	return schedulingHashInputs{hash: i.SchedulingHash, obj: i.Obj, requests: i.TotalRequests}
 }
 
-// shouldUpdateSchedulingHash reports whether prev's hash is missing or no longer
+// shouldUpdateDerivedFields reports whether prev's hash is missing or no longer
 // describes the Info. The effective requests are re-derived from cluster state,
 // so the Workload's version cannot vouch for them and both inputs are checked.
-func (i *Info) shouldUpdateSchedulingHash(prev schedulingHashInputs) bool {
+// The same condition covers TopologySpreading: it is derived from i.Obj alone,
+// which sameWorkloadVersion already proves unchanged.
+func (i *Info) shouldUpdateDerivedFields(prev schedulingHashInputs) bool {
 	return prev.hash == "" ||
 		!prev.sameWorkloadVersion(i.Obj) ||
 		!sameHashedRequests(prev.requests, i.TotalRequests)
@@ -494,6 +505,56 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 		logV.Info("Computed scheduling hash", "workload", klog.KObj(wl), "hash", hash, "shapeJSON", string(shapeJSON))
 	}
 	return EquivalenceHash(hash)
+}
+
+// computeTopologySpreading parses the topology-spreading annotation for each
+// PodSet group in wl (see tas.GroupKeyForPodSet), returning the resulting
+// per-group map, or nil if no group resolves to a spec.
+//
+// An annotation with no workloadLabelSelectors of its own spreads against the
+// Workloads of the same parent job, so wl's job-uid label is what resolves
+// that default. Deriving it here rather than defaulting the annotation itself
+// covers the Workloads the mutating webhook cannot: a prebuilt Workload is
+// created before any job adopts it, and only gets its job-uid label from the
+// later update that EnsurePrebuiltWorkloadOwnership makes. That update bumps
+// the resource version, so shouldUpdateDerivedFields re-derives this map and
+// the spreading group starts applying as soon as the label lands.
+//
+// For a multi-PodSet group, only the first PodSet (in wl.Spec.PodSets order)
+// carrying the annotation is consulted; later members' annotations are
+// ignored, even if the first one fails to parse.
+func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSetGroupKey]*tas.SpreadingSpec {
+	if !features.Enabled(features.TASTopologySpreading) {
+		return nil
+	}
+	jobUID := wl.Labels[controllerconstants.JobUIDLabel]
+	var result map[tas.PodSetGroupKey]*tas.SpreadingSpec
+	resolved := make(map[tas.PodSetGroupKey]bool)
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		groupKey := tas.GroupKeyForPodSet(ps)
+		if resolved[groupKey] {
+			continue
+		}
+		value, found := ps.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]
+		if !found {
+			continue
+		}
+		resolved[groupKey] = true
+		spec, err := tas.ParseSpreadingAnnotation(value, jobUID)
+		if err != nil {
+			// The webhook rejects malformed values, so this is reachable only
+			// for prebuilt Workloads that bypassed it. Log and carry on
+			// without spreading for this group rather than blocking admission.
+			log.Error(err, "Failed to parse topology spreading annotation", "workload", klog.KObj(wl), "group", groupKey)
+			continue
+		}
+		if result == nil {
+			result = make(map[tas.PodSetGroupKey]*tas.SpreadingSpec)
+		}
+		result[groupKey] = spec
+	}
+	return result
 }
 
 func (i *Info) CanBePartiallyAdmitted() bool {
