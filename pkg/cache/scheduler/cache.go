@@ -29,6 +29,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -53,6 +54,7 @@ var (
 	ErrCohortNotFound = errors.New("cohort not found")
 	ErrCohortHasCycle = errors.New("cohort has a cycle")
 	ErrCqNotFound     = errors.New("cluster queue not found")
+	ErrCqUIDMismatch  = errors.New("cluster queue UID does not match cached object")
 	errQNotFound      = errors.New("queue not found")
 )
 
@@ -190,6 +192,7 @@ func New(client client.Client, options ...Option) *Cache {
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
+		UID:                 cq.UID,
 		Workloads:           make(map[workload.Reference]*workload.Info),
 		WorkloadsNotReady:   sets.New[workload.Reference](),
 		NamespaceSelector:   labels.Nothing(),
@@ -453,7 +456,7 @@ func (c *Cache) ClusterQueueEmpty(name kueue.ClusterQueueReference) bool {
 	return len(cq.Workloads) == 0
 }
 
-func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
+func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) (err error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -465,6 +468,13 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	if err != nil {
 		return err
 	}
+
+	// Do not expose a partially rebuilt queue if listing its contents fails.
+	defer func() {
+		if err != nil {
+			c.deleteClusterQueueWithoutLock(cq)
+		}
+	}()
 
 	// On controller restart, an add ClusterQueue event may come after
 	// add queue and workload, so here we explicitly list and add existing queues
@@ -516,6 +526,9 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	cqImpl := c.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 	if cqImpl == nil {
 		return ErrCqNotFound
+	}
+	if cqImpl.UID != "" && cq.UID != "" && cqImpl.UID != cq.UID {
+		return fmt.Errorf("%w: cached %q, observed %q", ErrCqUIDMismatch, cqImpl.UID, cq.UID)
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
@@ -603,6 +616,10 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.Lock()
 	defer c.Unlock()
+	c.deleteClusterQueueWithoutLock(cq)
+}
+
+func (c *Cache) deleteClusterQueueWithoutLock(cq *kueue.ClusterQueue) {
 	cqName := kueue.ClusterQueueReference(cq.Name)
 	curCq := c.hm.ClusterQueue(cqName)
 	if curCq == nil {
@@ -1032,6 +1049,7 @@ func (c *Cache) getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueu
 }
 
 type LocalQueueUsageStats struct {
+	ClusterQueueUID    types.UID
 	ReservedResources  []kueue.LocalQueueFlavorUsage
 	ReservingWorkloads int
 	AdmittedResources  []kueue.LocalQueueFlavorUsage
@@ -1052,6 +1070,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}
 
 	return &LocalQueueUsageStats{
+		ClusterQueueUID:    cqImpl.UID,
 		ReservedResources:  c.filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  c.filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
