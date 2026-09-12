@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -464,6 +466,26 @@ func TestPatchAdmissionStatus(t *testing.T) {
 				wl: baseWl.Clone().ResourceVersion("3").Condition(baseCond).Obj(),
 			},
 		},
+		"unset reclaimable pods": {
+			args: args{
+				wl: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+					ResourceVersion("2").
+					ReclaimablePods(kueue.ReclaimablePod{Name: "ps1", Count: 1}).
+					Obj(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					if len(wl.Status.ReclaimablePods) > 0 {
+						wl.Status.ReclaimablePods = nil
+						return true, nil
+					}
+					return false, nil
+				},
+			},
+			want: want{
+				wl: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+					ResourceVersion("3").
+					Obj(),
+			},
+		},
 		"update returns true with unmanaged condition": {
 			skipMergePatch: true,
 			args: args{
@@ -627,5 +649,94 @@ func TestPatchAdmissionStatus(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestPatchObjectData(t *testing.T) {
+	cases := map[string]struct {
+		owner           client.FieldOwner
+		reclaimablePods []kueue.ReclaimablePod
+		wantInJSON      string
+		wantAbsentJSON  string
+	}{
+		"AdmissionName with empty reclaimable pods explicit list": {
+			owner:           constants.AdmissionName,
+			reclaimablePods: []kueue.ReclaimablePod{},
+			wantInJSON:      `"reclaimablePods":[]`,
+		},
+		"ReclaimablePodsMgr with empty reclaimable pods explicit list": {
+			owner:           constants.ReclaimablePodsMgr,
+			reclaimablePods: []kueue.ReclaimablePod{},
+			wantInJSON:      `"reclaimablePods":[]`,
+		},
+		"unrelated field manager does not include reclaimable pods": {
+			owner:           client.FieldOwner("kueue-QuotaReserved"),
+			reclaimablePods: []kueue.ReclaimablePod{},
+			wantAbsentJSON:  `"reclaimablePods"`,
+		},
+		"AdmissionName with non-empty reclaimable pods": {
+			owner:           constants.AdmissionName,
+			reclaimablePods: []kueue.ReclaimablePod{{Name: "ps1", Count: 1}},
+			wantInJSON:      `"reclaimablePods":[{"name":"ps1","count":1}]`,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).Obj()
+			wl.Status.ReclaimablePods = tc.reclaimablePods
+
+			got, err := patchObjectData(wl, tc.owner)
+			if err != nil {
+				t.Fatalf("patchObjectData returned unexpected error: %v", err)
+			}
+
+			jsonStr := string(got)
+			if tc.wantInJSON != "" && !strings.Contains(jsonStr, tc.wantInJSON) {
+				t.Errorf("patchObjectData JSON = %s, want to contain %s", jsonStr, tc.wantInJSON)
+			}
+			if tc.wantAbsentJSON != "" && strings.Contains(jsonStr, tc.wantAbsentJSON) {
+				t.Errorf("patchObjectData JSON = %s, want NOT to contain %s", jsonStr, tc.wantAbsentJSON)
+			}
+		})
+	}
+}
+
+func TestUnrelatedPatchDoesNotTouchReclaimablePods(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	wl := utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+		ReclaimablePods(kueue.ReclaimablePod{Name: "ps1", Count: 2}).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(wl).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	// Perform an unrelated status patch (e.g. updating condition under kueue-QuotaReserved manager)
+	err := PatchStatus(ctx, cl, wl, "kueue-QuotaReserved", func(w *kueue.Workload) (bool, error) {
+		apimeta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+			Type:   kueue.WorkloadQuotaReserved,
+			Status: metav1.ConditionTrue,
+			Reason: "Test",
+		})
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("PatchStatus failed: %v", err)
+	}
+
+	var updatedWl kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl); err != nil {
+		t.Fatalf("Failed to get workload from client: %v", err)
+	}
+
+	if len(updatedWl.Status.ReclaimablePods) != 1 || updatedWl.Status.ReclaimablePods[0].Count != 2 {
+		t.Errorf("updatedWl.Status.ReclaimablePods = %v, want [{ps1 2}]", updatedWl.Status.ReclaimablePods)
 	}
 }

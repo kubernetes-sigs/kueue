@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -49,6 +50,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 var (
@@ -2911,6 +2913,104 @@ func TestSetQuotaReservation(t *testing.T) {
 			SetQuotaReservation(tt.args.workload, tt.args.admission, testClock)
 			if diff := cmp.Diff(tt.want, tt.args.workload); diff != "" {
 				t.Errorf("SetQuotaReservation() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestUnsetQuotaReservationWithCondition(t *testing.T) {
+	now := time.Now()
+	admission := utiltestingapi.MakeAdmission("test-queue").Obj()
+
+	wl := utiltestingapi.MakeWorkload("test", "default").
+		Admission(admission).
+		ReclaimablePods(kueue.ReclaimablePod{Name: "ps1", Count: 2}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "QuotaReserved",
+			Message:            "Quota reserved",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj()
+
+	// Invariant: while workload has quota reservation, reclaimablePods is preserved.
+	if !HasQuotaReservation(wl) {
+		t.Fatalf("HasQuotaReservation() = false, want true before unsetting")
+	}
+	if len(wl.Status.ReclaimablePods) == 0 {
+		t.Fatalf("len(wl.Status.ReclaimablePods) = 0, want non-empty before unsetting")
+	}
+
+	changed := UnsetQuotaReservationWithCondition(wl, "Evicted", "Workload evicted", now)
+	if !changed {
+		t.Errorf("UnsetQuotaReservationWithCondition() returned false, want true")
+	}
+
+	// Invariant: after UnsetQuotaReservationWithCondition, quota reservation is removed and reclaimablePods is cleared.
+	if HasQuotaReservation(wl) {
+		t.Errorf("HasQuotaReservation() = true, want false after unsetting")
+	}
+
+	if wl.Status.Admission != nil {
+		t.Errorf("wl.Status.Admission = %v, want nil", wl.Status.Admission)
+	}
+
+	if len(wl.Status.ReclaimablePods) > 0 {
+		t.Errorf("wl.Status.ReclaimablePods = %v, want empty", wl.Status.ReclaimablePods)
+	}
+
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+	if cond == nil || cond.Status != metav1.ConditionFalse {
+		t.Errorf("WorkloadQuotaReserved condition status = %v, want ConditionFalse", cond)
+	}
+}
+
+func TestUnsetQuotaReservationWithPatchAdmissionStatus(t *testing.T) {
+	now := time.Now()
+	admission := utiltestingapi.MakeAdmission("test-queue").Obj()
+
+	for _, useMergePatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("WorkloadRequestUseMergePatch=%t", useMergePatch), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			wl := utiltestingapi.MakeWorkload("test", "default").
+				Admission(admission).
+				ReclaimablePods(kueue.ReclaimablePod{Name: "ps1", Count: 2}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionTrue,
+					Reason:             "QuotaReserved",
+					Message:            "Quota reserved",
+					LastTransitionTime: metav1.NewTime(now),
+				}).
+				Obj()
+
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(wl).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			err := workloadpatching.PatchAdmissionStatus(ctx, cl, wl, testingclock.NewFakeClock(now), func(w *kueue.Workload) (bool, error) {
+				return UnsetQuotaReservationWithCondition(w, "Evicted", "Workload evicted", now), nil
+			})
+			if err != nil {
+				t.Fatalf("PatchAdmissionStatus failed: %v", err)
+			}
+
+			var updatedWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl); err != nil {
+				t.Fatalf("Failed to get workload from client: %v", err)
+			}
+
+			if len(updatedWl.Status.ReclaimablePods) > 0 {
+				t.Errorf("updatedWl.Status.ReclaimablePods = %v, want empty", updatedWl.Status.ReclaimablePods)
 			}
 		})
 	}

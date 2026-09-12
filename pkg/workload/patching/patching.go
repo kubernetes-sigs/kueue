@@ -18,11 +18,13 @@ package patching
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -135,6 +137,12 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
 	wlCopy.Status.UnhealthyNodes = w.Status.UnhealthyNodes
 	wlCopy.Status.PreemptionGates = w.Status.PreemptionGates
+	if len(w.Status.ReclaimablePods) == 0 {
+		wlCopy.Status.ReclaimablePods = []kueue.ReclaimablePod{}
+	} else {
+		wlCopy.Status.ReclaimablePods = make([]kueue.ReclaimablePod, len(w.Status.ReclaimablePods))
+		copy(wlCopy.Status.ReclaimablePods, w.Status.ReclaimablePods)
+	}
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -258,13 +266,35 @@ func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner
 		if updated, err := update(wlCopy); err != nil || !updated {
 			return err
 		}
-		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership) //nolint:staticcheck //SA1019: client.Apply is deprecated
+		patchData, err := patchObjectData(wlCopy, owner)
+		if err != nil {
+			return err
+		}
+		err = c.Status().Patch(ctx, wlCopy, client.RawPatch(types.ApplyPatchType, patchData), owner, client.ForceOwnership)
 		if err != nil {
 			return err
 		}
 	}
 	wlCopy.DeepCopyInto(wl)
 	return nil
+}
+
+func patchObjectData(wlCopy *kueue.Workload, owner client.FieldOwner) ([]byte, error) {
+	data, err := json.Marshal(wlCopy)
+	if err != nil {
+		return nil, err
+	}
+	if (owner == constants.AdmissionName || owner == constants.ReclaimablePodsMgr) && len(wlCopy.Status.ReclaimablePods) == 0 {
+		var u map[string]any
+		if err := json.Unmarshal(data, &u); err != nil {
+			return nil, err
+		}
+		if status, ok := u["status"].(map[string]any); ok {
+			status["reclaimablePods"] = []any{}
+			return json.Marshal(u)
+		}
+	}
+	return data, nil
 }
 
 func PatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, options ...PatchStatusOption) error {
