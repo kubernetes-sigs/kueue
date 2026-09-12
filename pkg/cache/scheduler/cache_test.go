@@ -1945,10 +1945,11 @@ func TestLocalQueueUsage(t *testing.T) {
 	localQueue := *utiltestingapi.MakeLocalQueue("test", "ns1").
 		ClusterQueue("foo").Obj()
 	cases := map[string]struct {
-		cq             *kueue.ClusterQueue
-		wls            []kueue.Workload
-		wantUsage      []kueue.LocalQueueFlavorUsage
-		inAdmissibleWl sets.Set[string]
+		cq                     *kueue.ClusterQueue
+		wls                    []kueue.Workload
+		wantUsage              []kueue.LocalQueueFlavorUsage
+		wantClusterQueueExists bool
+		inAdmissibleWl         sets.Set[string]
 	}{
 		"clusterQueue is missing": {
 			wls: []kueue.Workload{
@@ -1959,7 +1960,8 @@ func TestLocalQueueUsage(t *testing.T) {
 			inAdmissibleWl: sets.New("one"),
 		},
 		"workloads is nothing": {
-			cq: &cq,
+			cq:                     &cq,
+			wantClusterQueueExists: true,
 			wantUsage: []kueue.LocalQueueFlavorUsage{
 				{
 					Name: "default",
@@ -1999,7 +2001,8 @@ func TestLocalQueueUsage(t *testing.T) {
 			},
 		},
 		"all workloads are admitted": {
-			cq: &cq,
+			cq:                     &cq,
+			wantClusterQueueExists: true,
 			wls: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("one", "ns1").
 					Queue("test").
@@ -2063,7 +2066,8 @@ func TestLocalQueueUsage(t *testing.T) {
 			},
 		},
 		"some workloads are inadmissible": {
-			cq: &cq,
+			cq:                     &cq,
+			wantClusterQueueExists: true,
 			wls: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("one", "ns1").
 					Queue("test").
@@ -2141,8 +2145,8 @@ func TestLocalQueueUsage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Couldn't get usage for the queue: %v", err)
 			}
-			if wantClusterQueueExists := tc.cq != nil; clusterQueueExists != wantClusterQueueExists {
-				t.Errorf("ClusterQueue exists = %t, want %t", clusterQueueExists, wantClusterQueueExists)
+			if clusterQueueExists != tc.wantClusterQueueExists {
+				t.Errorf("ClusterQueue exists = %t, want %t", clusterQueueExists, tc.wantClusterQueueExists)
 			}
 			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)

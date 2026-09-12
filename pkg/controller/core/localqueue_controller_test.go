@@ -57,24 +57,12 @@ const pendingWlKey queueafs.WorkloadReference = "ns/pending-wl"
 func TestLocalQueueReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
-	makeLocalQueueWithUsage := func() *kueue.LocalQueue {
-		queue := utiltestingapi.MakeLocalQueue("test-queue", "default").
-			ClusterQueue("test-cluster-queue").
-			Generation(1).
-			Active(metav1.ConditionTrue).
-			ReservingWorkloads(1).
-			AdmittedWorkloads(1).
-			Obj()
-		usage := []kueue.LocalQueueFlavorUsage{{
-			Name: "rf",
-			Resources: []kueue.LocalQueueResourceUsage{{
-				Name:  corev1.ResourceCPU,
-				Total: resource.MustParse("4"),
-			}},
-		}}
-		queue.Status.FlavorsReservation = usage
-		queue.Status.FlavorsUsage = usage
-		return queue
+	flavorUsage := kueue.LocalQueueFlavorUsage{
+		Name: "rf",
+		Resources: []kueue.LocalQueueResourceUsage{{
+			Name:  corev1.ResourceCPU,
+			Total: resource.MustParse("4"),
+		}},
 	}
 	cases := map[string]struct {
 		clusterQueue                 *kueue.ClusterQueue
@@ -166,7 +154,15 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			deleteClusterQueue: true,
-			localQueue:         makeLocalQueueWithUsage(),
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FlavorsReservation(*flavorUsage.DeepCopy()).
+				FlavorsUsage(*flavorUsage.DeepCopy()).
+				Obj(),
 			runningWls: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "default").
 					Queue("test-queue").
@@ -175,7 +171,15 @@ func TestLocalQueueReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
-			wantLocalQueue: makeLocalQueueWithUsage(),
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FlavorsReservation(*flavorUsage.DeepCopy()).
+				FlavorsUsage(*flavorUsage.DeepCopy()).
+				Obj(),
 			wantResult: reconcile.Result{
 				RequeueAfter: constants.UpdatesBatchPeriod,
 			},
@@ -188,7 +192,15 @@ func TestLocalQueueReconcile(t *testing.T) {
 				Obj(),
 			deleteClusterQueue:           true,
 			deleteClusterQueueFromCaches: true,
-			localQueue:                   makeLocalQueueWithUsage(),
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Active(metav1.ConditionTrue).
+				ReservingWorkloads(1).
+				AdmittedWorkloads(1).
+				FlavorsReservation(*flavorUsage.DeepCopy()).
+				FlavorsUsage(*flavorUsage.DeepCopy()).
+				Obj(),
 			runningWls: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "default").
 					Queue("test-queue").
@@ -584,7 +596,9 @@ func TestLocalQueueReconcile(t *testing.T) {
 				AdmittedWorkloads(1).
 				FairSharingStatus(
 					&kueue.LocalQueueFairSharingStatus{
-						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{},
+						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{},
+						},
 					}).
 				Obj(),
 			runningWls: []kueue.Workload{
@@ -1029,7 +1043,6 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 
 			cmpOpts := cmp.Options{
-				cmpopts.EquateEmpty(),
 				util.IgnoreConditionTimestamps,
 				util.IgnoreObjectMetaResourceVersion,
 				cmpopts.IgnoreFields(kueue.LocalQueueAdmissionFairSharingStatus{}, "LastUpdate"),
@@ -1071,7 +1084,7 @@ func TestLocalQueueNotifyClusterQueueUpdate(t *testing.T) {
 	cases := map[string]struct {
 		oldClusterQueue *kueue.ClusterQueue
 		newClusterQueue *kueue.ClusterQueue
-		wantEvent       bool
+		wantEvent       *kueue.ClusterQueue
 	}{
 		"create does not notify": {
 			newClusterQueue: clusterQueue,
@@ -1082,7 +1095,7 @@ func TestLocalQueueNotifyClusterQueueUpdate(t *testing.T) {
 		},
 		"delete notifies with the deleted ClusterQueue": {
 			oldClusterQueue: clusterQueue,
-			wantEvent:       true,
+			wantEvent:       utiltestingapi.MakeClusterQueue("cq").Obj(),
 		},
 	}
 
@@ -1093,23 +1106,27 @@ func TestLocalQueueNotifyClusterQueueUpdate(t *testing.T) {
 
 			select {
 			case gotEvent := <-reconciler.cqUpdateCh:
-				if !tc.wantEvent {
+				if tc.wantEvent == nil {
 					t.Fatal("unexpected ClusterQueue update event")
 				}
 				gotClusterQueue, ok := gotEvent.Object.(*kueue.ClusterQueue)
 				if !ok {
 					t.Fatalf("event object type = %T, want *kueue.ClusterQueue", gotEvent.Object)
 				}
-				if diff := cmp.Diff(tc.oldClusterQueue, gotClusterQueue); diff != "" {
+				if diff := cmp.Diff(tc.wantEvent, gotClusterQueue); diff != "" {
 					t.Errorf("event ClusterQueue mismatch (-want/+got):\n%s", diff)
 				}
 			default:
-				if tc.wantEvent {
+				if tc.wantEvent != nil {
 					t.Fatal("expected ClusterQueue update event")
 				}
 			}
 		})
 	}
+}
+
+func reconcileRequestLess(a, b reconcile.Request) bool {
+	return a.String() < b.String()
 }
 
 func TestLocalQueueClusterQueueHandlerGeneric(t *testing.T) {
@@ -1129,12 +1146,10 @@ func TestLocalQueueClusterQueueHandlerGeneric(t *testing.T) {
 	handler.Generic(ctx, event.GenericEvent{Object: clusterQueue}, queue)
 
 	wantRequests := []reconcile.Request{
-		{NamespacedName: client.ObjectKeyFromObject(matchingQueues[0])},
-		{NamespacedName: client.ObjectKeyFromObject(matchingQueues[1])},
+		{NamespacedName: client.ObjectKey{Namespace: "ns-a", Name: "lq-a"}},
+		{NamespacedName: client.ObjectKey{Namespace: "ns-b", Name: "lq-b"}},
 	}
-	sortRequests := cmpopts.SortSlices(func(a, b reconcile.Request) bool {
-		return a.String() < b.String()
-	})
+	sortRequests := cmpopts.SortSlices(reconcileRequestLess)
 	if diff := cmp.Diff(wantRequests, queue.Items, sortRequests); diff != "" {
 		t.Errorf("enqueued requests mismatch (-want/+got):\n%s", diff)
 	}
