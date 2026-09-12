@@ -155,6 +155,13 @@ func TestReconcile(t *testing.T) {
 		Obj()
 	spotOnlyLQ := utiltestingapi.MakeLocalQueue("lq-spot-only", "default").ClusterQueue("cq-spot-only").Obj()
 
+	noPolicyCQ := utiltestingapi.MakeClusterQueue("cq-no-policy").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("on-demand").Obj(),
+		).
+		Obj()
+	noPolicyLQ := utiltestingapi.MakeLocalQueue("lq-no-policy", "default").ClusterQueue("cq-no-policy").Obj()
+
 	testCases := map[string]struct {
 		parentWorkload       *kueue.Workload
 		variantWorkloads     []kueue.Workload
@@ -362,6 +369,107 @@ func TestReconcile(t *testing.T) {
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonDeletedVariant,
 					Message:   "Variant Workload \"default/wl-variant-on-demand\" deleted; flavor \"on-demand\" no longer in ClusterQueue",
+				},
+			},
+		},
+		"ConcurrentAdmissionPolicy removed; parent and variant both admitted, parent left alone, variant deactivated, parent label removed": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-no-policy").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-no-policy").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Active(false).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Variant Workload deactivated due to ConcurrentAdmission is no longer enabled for this ClusterQueue",
+				},
+			},
+		},
+		"ConcurrentAdmissionPolicy removed; admitted variant promoted onto not-yet-admitted parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-no-policy").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionTrue,
+					Reason:  "QuotaReserved",
+					Message: "Quota reserved in ClusterQueue cq-no-policy",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Admitted",
+					Message: "The variant wl-variant-on-demand is admitted",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-no-policy").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Active(false).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Variant Workload deactivated due to ConcurrentAdmission is no longer enabled for this ClusterQueue",
 				},
 			},
 		},
@@ -2182,9 +2290,22 @@ func TestReconcile(t *testing.T) {
 				qManager := qcache.NewManagerForUnitTests(cl, nil, qcache.WithPreemptionExpectations(preemptionExpectations))
 				roleTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
-				cqs := []*kueue.ClusterQueue{defaultCQ.DeepCopy(), migrationCQ.DeepCopy(), migrationCQNoConstraint.DeepCopy(), retainFirstAdmissionCQ.DeepCopy(), spotOnlyCQ.DeepCopy()}
-				lqs := []*kueue.LocalQueue{defaultLQ.DeepCopy(), migrationLQ.DeepCopy(), migrationLQNoConstraint.DeepCopy(), retainFirstAdmissionLQ.DeepCopy(), spotOnlyLQ.DeepCopy()}
-
+				cqs := []*kueue.ClusterQueue{
+					defaultCQ.DeepCopy(),
+					migrationCQ.DeepCopy(),
+					migrationCQNoConstraint.DeepCopy(),
+					retainFirstAdmissionCQ.DeepCopy(),
+					spotOnlyCQ.DeepCopy(),
+					noPolicyCQ.DeepCopy(),
+				}
+				lqs := []*kueue.LocalQueue{
+					defaultLQ.DeepCopy(),
+					migrationLQ.DeepCopy(),
+					migrationLQNoConstraint.DeepCopy(),
+					retainFirstAdmissionLQ.DeepCopy(),
+					spotOnlyLQ.DeepCopy(),
+					noPolicyLQ.DeepCopy(),
+				}
 				for _, cq := range cqs {
 					if err := cl.Create(t.Context(), cq); err != nil {
 						t.Fatal(err)

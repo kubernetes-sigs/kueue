@@ -213,7 +213,9 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	log = log.WithValues("clusterQueue", cq.Name)
 	log.V(2).Info("Found Workload family and ClusterQueue", "variants", klog.KObjSlice(variants))
 
-	// TODO: If ConcurrentAdmission is no longer enabled for this CQ, delete parent and variants.
+	if cq.Spec.ConcurrentAdmissionPolicy == nil {
+		return r.cleanupParentAndVariants(ctx, log, parent, variants)
+	}
 
 	log.V(3).Info("Reconciling variants against ClusterQueue flavors", "desired", len(flavorOrder), "actual", len(variants))
 	if err := r.createVariants(ctx, parent, variants, cqFlavors); err != nil {
@@ -247,7 +249,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncAdmissionStatus(ctx, parent, variants); err != nil {
+	if err := r.syncAdmissionStatus(ctx, parent, variants, "ConcurrentAdmission", "No variant is running"); err != nil {
 		log.Error(err, "Failed to sync admission status")
 		return ctrl.Result{}, err
 	}
@@ -259,6 +261,36 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 	return ctrl.Result{RequeueAfter: timeToWait}, nil
+}
+
+// cleanupParentAndVariants handles the case where ConcurrentAdmission is no
+// longer enabled for the parent's ClusterQueue. If a variant is already
+// admitted while the parent is not, its admission is promoted onto the
+// parent (reusing the same transfer used in syncAdmissionStatus) so an
+// already-running workload isn't needlessly interrupted. The parent is only
+// evicted if it is admitted without any admitted variant backing that
+// admission. All variants are then deactivated and the parent label is
+// removed so this reconciler stops tracking it.
+func (r *variantReconciler) cleanupParentAndVariants(ctx context.Context, log logr.Logger, parent *kueue.Workload, variants []kueue.Workload) (ctrl.Result, error) {
+	log.V(2).Info("ConcurrentAdmission is no longer enabled for this ClusterQueue, cleaning up parent and variants")
+
+	if err := r.syncAdmissionStatus(ctx, parent, variants, "ConcurrentAdmissionDisabled", "ConcurrentAdmission is no longer enabled for this ClusterQueue"); err != nil {
+		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
+	}
+
+	for i := range variants {
+		if err := r.deactivateVariant(ctx, &variants[i], "ConcurrentAdmission is no longer enabled for this ClusterQueue"); err != nil {
+			return ctrl.Result{}, fmt.Errorf("deactivating variant: %w", err)
+		}
+	}
+
+	if _, ok := parent.Labels[controllerconsts.ConcurrentAdmissionParentLabelKey]; ok {
+		delete(parent.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
+		if err := r.client.Update(ctx, parent); err != nil {
+			return ctrl.Result{}, fmt.Errorf("removing parent label: %w", err)
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *variantReconciler) getFamilyAndClusterQueue(ctx context.Context, req ctrl.Request) (*kueue.Workload, []kueue.Workload, *kueue.ClusterQueue, error) {
@@ -662,7 +694,7 @@ func (r *variantReconciler) syncPodsReadyCond(parent, variant *kueue.Workload) b
 	return apimeta.SetStatusCondition(&variant.Status.Conditions, *parentCond)
 }
 
-func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
+func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload, evictReason, evictMessage string) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(parent) {
 		return r.syncFinished(ctx, parent, variants)
@@ -673,7 +705,7 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant == nil && workload.IsAdmitted(parent):
 		log.V(2).Info("Parent admitted and no Variant is admitted, evicting parent", "parent", klog.KObj(parent))
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running"), nil
+			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), evictReason, evictMessage), nil
 		})
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
