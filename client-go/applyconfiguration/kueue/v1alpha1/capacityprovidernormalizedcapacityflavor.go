@@ -27,10 +27,8 @@ import (
 // with apply.
 type CapacityProviderNormalizedCapacityFlavorApplyConfiguration struct {
 	// name identifies the ResourceFlavor whose capacity is reported.
-	//
 	Name *kueuev1alpha1.ResourceFlavorReference `json:"name,omitempty"`
 	// resources contains total capacity by resource name.
-	//
 	Resources *v1.ResourceList `json:"resources,omitempty"`
 }
 

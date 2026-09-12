@@ -26,10 +26,8 @@ import (
 // with apply.
 type TopologyInfoApplyConfiguration struct {
 	// name is the name of the topology.
-	//
 	Name *kueuev1beta1.TopologyReference `json:"name,omitempty"`
 	// levels define the levels of topology.
-	//
 	Levels []string `json:"levels,omitempty"`
 }
 

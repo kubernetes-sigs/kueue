@@ -37,7 +37,6 @@ type LocalQueueSpecApplyConfiguration struct {
 	// - None - Workloads are admitted
 	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
 	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
-	//
 	StopPolicy *kueuev1beta1.StopPolicy `json:"stopPolicy,omitempty"`
 	// fairSharing defines the properties of the LocalQueue when
 	// participating in AdmissionFairSharing.  The values are only relevant
