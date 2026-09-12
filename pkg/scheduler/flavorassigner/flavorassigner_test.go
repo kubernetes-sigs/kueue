@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
@@ -173,6 +174,118 @@ func (f *testOracle) SimulatePreemption(
 		}
 	}
 	return preemptioncommon.Preempt, 0
+}
+
+// TestAssignFlavorsTASPreemptionWithUnhealthyNodes covers the intersection of preemption and failed-node replacement (issue #15337):
+// a marked workload must not preempt other workloads; previously it fell through both topology-assignment branches and could commit flavors-only.
+func TestAssignFlavorsTASPreemptionWithUnhealthyNodes(t *testing.T) {
+	now := time.Now()
+	tasFlavor := utiltestingapi.MakeResourceFlavor("tas").TopologyName("tas-topology").Obj()
+
+	previousAssignment := tas.InternalFrom(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+		Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+		Obj())
+
+	cases := map[string]struct {
+		unhealthyNodes []string
+		admitted       bool
+		wantRepMode    FlavorAssignmentMode
+		wantMessage    string
+	}{
+		"admitted, unhealthy node in the current assignment: NoFit, no preemption, previous assignment kept": {
+			unhealthyNodes: []string{"x1"},
+			admitted:       true,
+			wantRepMode:    NoFit,
+			wantMessage:    "awaiting free capacity to replace unhealthy node(s) x1; not preempting other workloads",
+		},
+		"admitted, unhealthy node not in the current assignment: existing placement kept": {
+			unhealthyNodes: []string{"x9"},
+			admitted:       true,
+			wantRepMode:    Fit,
+		},
+		"pending with marks from an earlier admission: NoFit, no preemption, no topology assignment": {
+			unhealthyNodes: []string{"x1"},
+			wantRepMode:    NoFit,
+			wantMessage:    "awaiting free capacity to replace unhealthy node(s) x1; not preempting other workloads",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			wl := utiltestingapi.MakeWorkload("wl", "default").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				UnhealthyNodes(tc.unhealthyNodes...)
+			if tc.admitted {
+				wl = wl.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(), now).
+					AdmittedAt(true, now)
+			}
+			wlInfo := workload.NewInfo(log, wl.Obj())
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas").
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			cache.AddOrUpdateResourceFlavor(log, tasFlavor)
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("tas-topology").Levels(corev1.LabelHostname).Obj())
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			clusterQueue := snapshot.ClusterQueue("cq")
+			if clusterQueue == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+			// Fill the only quota: the workload needs preemption to proceed.
+			clusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+				{Flavor: "tas", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+			}}})
+
+			flvAssigner := New(
+				wlInfo,
+				clusterQueue,
+				map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{"tas": tasFlavor},
+				false,
+				&testOracle{},
+				nil,
+				configapi.QuotaCheckBlockUndeclared,
+				resources.NewResourceFormatter(),
+				0,
+			)
+			assignment := flvAssigner.Assign(ctx, nil)
+			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
+				t.Errorf("assignment.RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
+			}
+			if tc.admitted {
+				if diff := cmp.Diff(previousAssignment, assignment.PodSets[0].TopologyAssignment); diff != "" {
+					t.Errorf("assignment.PodSets[0].TopologyAssignment mismatch (-want,+got):\n%s", diff)
+				}
+			} else if got := assignment.PodSets[0].TopologyAssignment; got != nil {
+				t.Errorf("assignment.PodSets[0].TopologyAssignment=%v, want nil", got)
+			}
+			if tc.wantMessage != "" {
+				if msg := assignment.Message(); !strings.Contains(msg, tc.wantMessage) {
+					t.Errorf("assignment.Message()=%q, want it to contain %q", msg, tc.wantMessage)
+				}
+			}
+		})
+	}
 }
 
 func TestAssignFlavors(t *testing.T) {
