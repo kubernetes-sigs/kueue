@@ -591,9 +591,8 @@ func (h *qCQHandler) Update(ctx context.Context, e event.UpdateEvent, wq workque
 	if !ok {
 		return
 	}
-	// Iff .status.conditions of the clusterQueue is updated,
-	// this handler sends all queues related to the clusterQueue to workqueue.
-	if equality.Semantic.DeepEqual(oldCq.Status.Conditions, newCq.Status.Conditions) {
+	// Reconcile related queues when readiness or the ClusterQueue identity changes.
+	if oldCq.UID == newCq.UID && equality.Semantic.DeepEqual(oldCq.Status.Conditions, newCq.Status.Conditions) {
 		return
 	}
 	h.addLocalQueueToWorkQueue(ctx, newCq, wq)

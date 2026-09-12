@@ -456,7 +456,7 @@ func (c *Cache) ClusterQueueEmpty(name kueue.ClusterQueueReference) bool {
 	return len(cq.Workloads) == 0
 }
 
-func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
+func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) (err error) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -468,6 +468,13 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	if err != nil {
 		return err
 	}
+
+	// Do not expose a partially rebuilt queue if listing its contents fails.
+	defer func() {
+		if err != nil {
+			c.deleteClusterQueueWithoutLock(cq)
+		}
+	}()
 
 	// On controller restart, an add ClusterQueue event may come after
 	// add queue and workload, so here we explicitly list and add existing queues
@@ -609,6 +616,10 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.Lock()
 	defer c.Unlock()
+	c.deleteClusterQueueWithoutLock(cq)
+}
+
+func (c *Cache) deleteClusterQueueWithoutLock(cq *kueue.ClusterQueue) {
 	cqName := kueue.ClusterQueueReference(cq.Name)
 	curCq := c.hm.ClusterQueue(cqName)
 	if curCq == nil {

@@ -18,9 +18,11 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"math"
 	"slices"
+	"sync"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -72,6 +74,14 @@ type ClusterQueueReconciler struct {
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
 	customLabels          *metrics.CustomLabels
+
+	cacheUpdateMu       sync.Mutex
+	pendingReplacements map[string]clusterQueueReplacement
+}
+
+type clusterQueueReplacement struct {
+	old *kueue.ClusterQueue
+	uid types.UID
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
@@ -163,6 +173,10 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.client.Get(ctx, req.NamespacedName, &cqObj); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if err := r.recoverClusterQueue(ctx, &cqObj); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	log := ctrl.LoggerFrom(ctx)
@@ -331,6 +345,10 @@ func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.
 // ClusterQueue associated with the event.
 
 func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQueue]) bool {
+	r.cacheUpdateMu.Lock()
+	defer r.cacheUpdateMu.Unlock()
+
+	delete(r.pendingReplacements, e.Object.Name)
 	defer r.notifyWatchers(nil, e.Object)
 
 	log := r.logger().WithValues("clusterQueue", klog.KObj(e.Object))
@@ -357,6 +375,10 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 }
 
 func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQueue]) bool {
+	r.cacheUpdateMu.Lock()
+	defer r.cacheUpdateMu.Unlock()
+
+	delete(r.pendingReplacements, e.Object.Name)
 	defer r.notifyWatchers(e.Object, nil)
 
 	log := r.logger()
@@ -375,8 +397,28 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 }
 
 func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
+	r.cacheUpdateMu.Lock()
+	defer r.cacheUpdateMu.Unlock()
+
 	log := r.logger().WithValues("clusterQueue", klog.KObj(e.ObjectNew))
 	log.V(2).Info("ClusterQueue update event")
+
+	if e.ObjectOld.UID != "" && e.ObjectNew.UID != "" && e.ObjectOld.UID != e.ObjectNew.UID {
+		if r.pendingReplacements == nil {
+			r.pendingReplacements = make(map[string]clusterQueueReplacement)
+		}
+		// A relist can report recreation as Update, without a Delete/Add pair.
+		// Reconcile performs the rebuild so transient failures are retried.
+		replacement, pending := r.pendingReplacements[e.ObjectNew.Name]
+		if !pending {
+			replacement.old = e.ObjectOld
+		}
+		replacement.uid = e.ObjectNew.UID
+		r.pendingReplacements[e.ObjectNew.Name] = replacement
+	}
+	if _, pending := r.pendingReplacements[e.ObjectNew.Name]; pending {
+		return true
+	}
 
 	if !e.ObjectNew.DeletionTimestamp.IsZero() {
 		return true
@@ -413,6 +455,47 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		r.resyncClusterQueueGaugeMetrics(e.ObjectNew)
 	}
 	return true
+}
+
+func (r *ClusterQueueReconciler) recoverClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
+	r.cacheUpdateMu.Lock()
+	defer r.cacheUpdateMu.Unlock()
+
+	replacement, pending := r.pendingReplacements[cq.Name]
+	if !pending {
+		return nil
+	}
+	if replacement.uid != cq.UID {
+		return fmt.Errorf("ClusterQueue %q changed while recovering its cache", cq.Name)
+	}
+	log := ctrl.LoggerFrom(ctx)
+	// Disable scheduling first. Rebuild the scheduler cache last so it becomes
+	// visible only once its queues and reserved workloads are restored.
+	r.qManager.DeleteClusterQueue(log, replacement.old)
+	r.cache.ClearCohortMetrics(log, replacement.old.Spec.CohortName)
+	r.cache.DeleteClusterQueue(replacement.old)
+	metrics.ClearClusterQueueResourceMetrics(cq.Name)
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+	}
+	if err := r.qManager.AddClusterQueue(ctx, cq); err != nil {
+		r.qManager.DeleteClusterQueue(log, cq)
+		return fmt.Errorf("rebuilding ClusterQueue in queue manager: %w", err)
+	}
+	if err := r.cache.AddClusterQueue(ctx, cq); err != nil {
+		r.cache.DeleteClusterQueue(cq)
+		r.qManager.DeleteClusterQueue(log, cq)
+		return fmt.Errorf("rebuilding ClusterQueue in scheduler cache: %w", err)
+	}
+	r.qManager.Lock()
+	r.qManager.Broadcast()
+	r.qManager.Unlock()
+	delete(r.pendingReplacements, cq.Name)
+	if r.reportResourceMetrics {
+		r.cache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(cq.Name))
+	}
+	r.notifyWatchers(replacement.old, cq)
+	return nil
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.TypedGenericEvent[*kueue.ClusterQueue]) bool {
