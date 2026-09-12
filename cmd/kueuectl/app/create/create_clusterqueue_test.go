@@ -99,6 +99,7 @@ func TestParseResourceQuotas(t *testing.T) {
 		borrowingArgs      []string
 		lendingArgs        []string
 		wantErr            error
+		wantErrMessage     string
 		wantResourceGroups []kueue.ResourceGroup
 	}{
 		"should create one resource group with one flavor and nominalQuota set": {
@@ -313,17 +314,19 @@ func TestParseResourceQuotas(t *testing.T) {
 			},
 		},
 		"should fail to create a resource group with an invalid flavor and one quota set": {
-			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:example.com/gpu=2"},
-			wantErr:   errInvalidFlavor,
+			quotaArgs:      []string{"alpha:cpu=1;memory=1", "alpha:example.com/gpu=2"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": flavor is specified more than once in --nominal-quota`,
 		},
 		"should fail to create when one resource is shared by multiple resource groups": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:cpu=1"},
 			wantErr:   errInvalidResourceGroup,
 		},
 		"should fail to create a resource group with an invalid flavor and multiple quotas set": {
-			quotaArgs:     []string{"alpha:cpu=1;memory=1"},
-			borrowingArgs: []string{"alpha:example.com/gpu=2"},
-			wantErr:       errInvalidFlavor,
+			quotaArgs:      []string{"alpha:cpu=1;memory=1"},
+			borrowingArgs:  []string{"alpha:example.com/gpu=2"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "example.com/gpu" is set in --borrowing-limit but has no matching --nominal-quota`,
 		},
 		"should create one resource group with decimal quantities": {
 			quotaArgs:     []string{"alpha:cpu=1.5;memory=1.5Gi"},
@@ -339,6 +342,50 @@ func TestParseResourceQuotas(t *testing.T) {
 					},
 				},
 			},
+		},
+		"should keep borrowingLimit and lendingLimit optional per resource": {
+			quotaArgs:     []string{"alpha:cpu=1;memory=1Gi"},
+			borrowingArgs: []string{"alpha:cpu=2"},
+			lendingArgs:   []string{"alpha:memory=512Mi"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1", "2").
+							Resource("memory", "1Gi", "", "512Mi").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should fail when borrowingLimit is set for a resource without nominalQuota": {
+			quotaArgs:      []string{"alpha:cpu=1"},
+			borrowingArgs:  []string{"alpha:cpu=2;memory=1Gi"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "memory" is set in --borrowing-limit but has no matching --nominal-quota`,
+		},
+		"should fail when lendingLimit is set for a resource without nominalQuota": {
+			quotaArgs:      []string{"alpha:cpu=1"},
+			lendingArgs:    []string{"alpha:memory=1Gi"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "memory" is set in --lending-limit but has no matching --nominal-quota`,
+		},
+		"should fail when the same resource is repeated for a flavor within nominalQuota": {
+			quotaArgs:      []string{"alpha:cpu=1;memory=1", "alpha:cpu=2"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "cpu" is specified more than once in --nominal-quota`,
+		},
+		"should fail when the same resource is repeated for a flavor within nominalQuota with a zero value": {
+			quotaArgs:      []string{"alpha:cpu=0", "alpha:cpu=1"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "cpu" is specified more than once in --nominal-quota`,
+		},
+		"should fail when the same resource is repeated for a flavor within borrowingLimit": {
+			quotaArgs:      []string{"alpha:cpu=1"},
+			borrowingArgs:  []string{"alpha:cpu=1", "alpha:cpu=2"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": resource "cpu" is specified more than once in --borrowing-limit`,
 		},
 		"should fail when invalid resource quotas": {
 			quotaArgs: []string{"alpha:cpu=;memory=1"},
@@ -376,6 +423,15 @@ func TestParseResourceQuotas(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if tc.wantErrMessage != "" {
+				var gotErrMessage string
+				if gotErr != nil {
+					gotErrMessage = gotErr.Error()
+				}
+				if diff := cmp.Diff(tc.wantErrMessage, gotErrMessage); diff != "" {
+					t.Errorf("Unexpected error message (-want,+got):\n%s", diff)
+				}
 			}
 			if diff := cmp.Diff(cqOptions.ResourceGroups, tc.wantResourceGroups); diff != "" {
 				t.Errorf("Unexpected ResourceGroups (-want,+got):\n%s", diff)
