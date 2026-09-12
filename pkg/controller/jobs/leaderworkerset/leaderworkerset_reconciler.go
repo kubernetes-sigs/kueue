@@ -552,18 +552,6 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
 			changed = true
 		}
-		if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
-			if groupIndex, ok := pod.Labels[leaderworkersetv1.GroupIndexLabelKey]; ok {
-				wlName := GetWorkloadName(GetOwnerUID(lws), lws.Name, groupIndex)
-				if pod.Annotations[kueue.WorkloadAnnotation] != wlName {
-					if pod.Annotations == nil {
-						pod.Annotations = make(map[string]string)
-					}
-					pod.Annotations[kueue.WorkloadAnnotation] = wlName
-					changed = true
-				}
-			}
-		}
 		return changed
 	}
 
@@ -599,11 +587,6 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 			pod.Annotations[podconstants.RoleHashAnnotation] = workerPodSetName
 		}
 	}
-
-	if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
-		pod.Annotations[kueue.WorkloadAnnotation] = wlName
-	}
-
 	return true
 }
 
