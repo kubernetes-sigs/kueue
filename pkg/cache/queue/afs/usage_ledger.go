@@ -49,6 +49,11 @@ type UsageLedgerEntry struct {
 	// Workload's record, and rollback or deletion subtracts exactly what was
 	// recorded.
 	penaltyRecords map[WorkloadReference]corev1.ResourceList
+	// settledPenalties retains Workload identity after a penalty is folded
+	// into Resources. Settlement drops the pending record; without this set a
+	// later re-push (admit → evict → re-admit on the same LocalQueue) would
+	// fold a second charge. Entries are in-memory only, like penaltyRecords.
+	settledPenalties map[WorkloadReference]struct{}
 	// LastUpdate anchors the decay clock: when Resources was last decayed,
 	// or when the entry was created.
 	LastUpdate time.Time
@@ -67,6 +72,13 @@ func (e UsageLedgerEntry) PendingPenalty() corev1.ResourceList {
 // HasPenaltyRecord reports whether a penalty is recorded for the Workload.
 func (e UsageLedgerEntry) HasPenaltyRecord(wlKey WorkloadReference) bool {
 	_, found := e.penaltyRecords[wlKey]
+	return found
+}
+
+// HasSettledPenalty reports whether this LocalQueue has already folded an
+// entry penalty for the Workload.
+func (e UsageLedgerEntry) HasSettledPenalty(wlKey WorkloadReference) bool {
+	_, found := e.settledPenalties[wlKey]
 	return found
 }
 
@@ -113,6 +125,46 @@ func (e UsageLedgerEntry) WithoutPenalty(wlKey WorkloadReference) (UsageLedgerEn
 	}
 	e.pendingPenalty = aggregate
 	return e, recorded
+}
+
+// SettlePenalty removes the Workload's pending record and returns the amount
+// to fold into consumed history. A Workload is charged at most once per
+// LocalQueue: after the first fold the identity is kept, so a later re-push
+// (admit → evict → re-admit) returns nil and folds nothing.
+func (e UsageLedgerEntry) SettlePenalty(wlKey WorkloadReference) (UsageLedgerEntry, corev1.ResourceList) {
+	e, penalty := e.WithoutPenalty(wlKey)
+	if e.HasSettledPenalty(wlKey) {
+		return e, nil
+	}
+	if len(penalty) == 0 {
+		return e, nil
+	}
+	return e.withSettledPenalty(wlKey), penalty
+}
+
+// withSettledPenalty records that the Workload has already been charged on
+// this LocalQueue. It copies the shared map, matching withPenalty.
+func (e UsageLedgerEntry) withSettledPenalty(wlKey WorkloadReference) UsageLedgerEntry {
+	settled := maps.Clone(e.settledPenalties)
+	if settled == nil {
+		settled = make(map[WorkloadReference]struct{}, 1)
+	}
+	settled[wlKey] = struct{}{}
+	e.settledPenalties = settled
+	return e
+}
+
+// withoutSettledPenalty forgets a prior settlement so a replacement Workload
+// with the same name, or a later entry after leaving this LocalQueue, can be
+// charged again. It copies the shared map.
+func (e UsageLedgerEntry) withoutSettledPenalty(wlKey WorkloadReference) UsageLedgerEntry {
+	if _, found := e.settledPenalties[wlKey]; !found {
+		return e
+	}
+	settled := maps.Clone(e.settledPenalties)
+	delete(settled, wlKey)
+	e.settledPenalties = settled
+	return e
 }
 
 // AfsUsageLedger is the per-LocalQueue fair-sharing accounting cache.
