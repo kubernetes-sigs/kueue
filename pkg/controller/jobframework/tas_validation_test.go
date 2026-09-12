@@ -310,13 +310,14 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 	replicaPath := field.NewPath("spec", "template", "metadata")
 
 	testCases := map[string]struct {
-		annotations map[string]string
-		podSetCount int32
-		wantErrNum  int
+		annotations  map[string]string
+		podSetCount  int32
+		featureGates map[featuregate.Feature]bool
+		wantErrNum   int
 	}{
 		"valid: PodSetSliceSizeAnnotation within bound": {
 			annotations: map[string]string{
-				kueue.PodSetSliceSizeAnnotation:             "16",
+				kueue.PodSetSliceSizeAnnotation:             "10",
 				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
 				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
 			},
@@ -335,7 +336,7 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 		"valid: multi-layer outermost size within bound": {
 			annotations: map[string]string{
 				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
-				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":20},{"topology":"kubernetes.io/hostname","size":5}]`,
 			},
 			podSetCount: 20,
 			wantErrNum:  0,
@@ -348,10 +349,67 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 			podSetCount: 10,
 			wantErrNum:  1,
 		},
+		"invalid: PodSetSliceSizeAnnotation does not evenly divide pod count": {
+			annotations: map[string]string{
+				kueue.PodSetSliceSizeAnnotation:             "5",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+			},
+			podSetCount: 19,
+			wantErrNum:  1,
+		},
+		"invalid: multi-layer outermost size does not evenly divide pod count": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":5},{"topology":"kubernetes.io/hostname","size":5}]`,
+			},
+			podSetCount: 19,
+			wantErrNum:  1,
+		},
+		"valid: PodSetSliceSizeAnnotation evenly divides pod count": {
+			annotations: map[string]string{
+				kueue.PodSetSliceSizeAnnotation:             "4",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+			},
+			podSetCount: 16,
+			wantErrNum:  0,
+		},
+		"annotation zero is skipped by the divisibility check (non-positive is validated separately)": {
+			annotations: map[string]string{
+				kueue.PodSetSliceSizeAnnotation:             "0",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+			},
+			podSetCount: 19,
+			wantErrNum:  0,
+		},
+		"annotation negative is skipped by the divisibility check (non-positive is validated separately)": {
+			annotations: map[string]string{
+				kueue.PodSetSliceSizeAnnotation:             "-5",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+			},
+			podSetCount: 19,
+			wantErrNum:  0,
+		},
+		"valid: PodSetSliceSizeAnnotation does not evenly divide pod count when TASValidateWorkloadSliceSize is disabled": {
+			annotations: map[string]string{
+				kueue.PodSetSliceSizeAnnotation:             "5",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+			},
+			podSetCount: 19,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASValidateWorkloadSliceSize: false,
+			},
+			wantErrNum: 0,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			meta := &metav1.ObjectMeta{
 				Annotations: tc.annotations,
 			}

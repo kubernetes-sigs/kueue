@@ -534,7 +534,9 @@ const (
 
 	// owner: mszadkow
 	//
-	// Rejects Workloads with non-positive TAS slice sizes in PodSet topology requests.
+	// Rejects Workloads with TAS slice sizes in PodSet topology requests that are
+	// non-positive or that do not evenly divide the PodSet count, where the count
+	// is known.
 	TASValidateWorkloadSliceSize featuregate.Feature = "TASValidateWorkloadSliceSize"
 
 	// owner: @Dasmat13
