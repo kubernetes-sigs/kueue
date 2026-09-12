@@ -164,6 +164,7 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	return allErrs
 }
 
+// validatePodSet validates the pod template and topology request of a Workload PodSet.
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
@@ -193,6 +194,7 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.TASValidateWorkloadSliceSize) {
 		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
+	allErrs = append(allErrs, validateTASGroupedPodSetSlicing(ps.TopologyRequest, path.Child("topologyRequest"))...)
 
 	return allErrs
 }
@@ -538,4 +540,22 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 		}
 	}
 	return allErrs
+}
+
+// validateTASGroupedPodSetSlicing enforces the feature gate at the Workload API
+// boundary because direct Workload writes bypass the job framework's TAS validation.
+func validateTASGroupedPodSetSlicing(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
+	if features.Enabled(features.TASGroupedPodSetSlicing) || tr == nil || tr.PodSetGroupName == nil {
+		return nil
+	}
+
+	usesSlicing := tr.PodSetSliceRequiredTopology != nil ||
+		tr.PodSetSliceSize != nil ||
+		len(tr.PodsetSliceRequiredTopologyConstraints) > 0
+	if !usesSlicing {
+		return nil
+	}
+
+	return field.ErrorList{field.Forbidden(path.Child("podSetGroupName"),
+		fmt.Sprintf("may not be set with PodSet slicing unless the %s feature gate is enabled", features.TASGroupedPodSetSlicing))}
 }
