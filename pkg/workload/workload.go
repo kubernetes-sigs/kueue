@@ -166,8 +166,8 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Inf
 }
 
 // WithPreserveTotalRequests prevents Update from rebuilding TotalRequests.
-// Used when requeuing DRA-backed workloads whose TotalRequests were
-// preprocessed by the workload controller and must survive the requeue.
+// Used when requeuing workloads whose TotalRequests were preprocessed by the
+// workload controller and must survive the scheduler cycle.
 func WithPreserveTotalRequests() InfoOption {
 	return func(o *InfoOptions) {
 		o.preserveTotalRequests = true

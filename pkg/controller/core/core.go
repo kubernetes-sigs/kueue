@@ -120,10 +120,6 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithResourceFormatter(opts.ResourceFormatter),
 		WithResourceSliceAPIAvailable(opts.ResourceSliceAPIAvailable),
 	)
-	if features.Enabled(features.KueueDRAIntegration) {
-		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
-	}
-
 	if err := workloadRec.SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}

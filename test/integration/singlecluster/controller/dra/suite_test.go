@@ -135,7 +135,6 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 		draBackedResources := dra.NewExtendedResourceCache()
 		queueOptions := []qcache.Option{
 			qcache.WithPreemptionExpectations(preemptionExpectations),
-			qcache.WithDRABackedResources(draBackedResources),
 			qcache.WithResourceFormatter(resourceFormatter),
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
