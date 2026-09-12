@@ -81,7 +81,7 @@ func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
-	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
 		t.Errorf("expected nominal quota 10000 from spec, got %v", q.Nominal)
 	}
 
@@ -97,7 +97,7 @@ func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 		t.Fatalf("unexpected error updating cohort: %v", err)
 	}
 
-	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(500000) {
+	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(500000)) {
 		t.Errorf("expected nominal quota 500000 from EffectiveQuotas, got %v", q.Nominal)
 	}
 
@@ -110,7 +110,72 @@ func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 		t.Fatalf("unexpected error updating cohort: %v", err)
 	}
 
-	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
 		t.Errorf("expected nominal quota 10000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// The Cohort effective quota is a scheduler quota source of its own, so the
+// sizes the ClusterQueue one is checked against belong here too: an effective
+// quota that no int64 holds, a rewrite of it, one past what a Quantity holds,
+// and the fall back to spec.
+func TestCohortEffectiveQuotasPastInt64(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+
+	specOnly := utiltestingapi.MakeCohort("test-cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).Obj()
+	effective1E := utiltestingapi.MakeCohort("test-cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		EffectiveQuotas(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1E").Obj(),
+		).Obj()
+	effectiveOversized := utiltestingapi.MakeCohort("test-cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		EffectiveQuotas(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "9223372036854775808").Obj(),
+		).Obj()
+
+	c := newCohort("test-cohort")
+	if err := c.updateCohort(specOnly, nil); err != nil {
+		t.Fatalf("updateCohort() = %v", err)
+	}
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	// 1E of CPU is 10^18 cores, which is 10^21 milliCPU and past int64.
+	if err := c.updateCohort(effective1E, nil); err != nil {
+		t.Fatalf("updateCohort() = %v", err)
+	}
+	if got := c.resourceNode.Quotas[fr].Nominal.String(); got != "1000000000000000000000" {
+		t.Errorf("effective quota = %s, want 1000000000000000000000", got)
+	}
+
+	// Rewriting the same effective quota reaches the same amount.
+	if err := c.updateCohort(effective1E, nil); err != nil {
+		t.Fatalf("updateCohort() = %v", err)
+	}
+	if got := c.resourceNode.Quotas[fr].Nominal.String(); got != "1000000000000000000000" {
+		t.Errorf("rewritten effective quota = %s, want 1000000000000000000000", got)
+	}
+
+	// Status does not go through the spec webhook, so an effective quota past
+	// what a Quantity holds reaches the cache. It is bounded, not taken.
+	if err := c.updateCohort(effectiveOversized, nil); err != nil {
+		t.Fatalf("updateCohort() = %v", err)
+	}
+	if got := c.resourceNode.Quotas[fr].Nominal.String(); got != "9223372036854775807000" {
+		t.Errorf("oversized effective quota = %s, want 9223372036854775807000", got)
+	}
+
+	if err := c.updateCohort(specOnly, nil); err != nil {
+		t.Fatalf("updateCohort() = %v", err)
+	}
+	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
+		t.Errorf("after clearing the effective quota = %s, want 10000", q.Nominal)
 	}
 }

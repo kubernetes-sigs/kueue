@@ -672,7 +672,7 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
-	if q := cqObj.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(5000) {
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
 		t.Errorf("expected nominal quota 5000 from spec, got %v", q.Nominal)
 	}
 
@@ -689,7 +689,7 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	cqObj = cache.hm.ClusterQueue("cq-eff")
-	if q := cqObj.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
 		t.Errorf("expected nominal quota 10000 from EffectiveQuotas, got %v", q.Nominal)
 	}
 
@@ -703,7 +703,69 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	cqObj = cache.hm.ClusterQueue("cq-eff")
-	if q := cqObj.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(5000) {
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
 		t.Errorf("expected nominal quota 5000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// An effective quota is written by something outside the ClusterQueue spec, so
+// it can carry a magnitude the spec path never had to hold. It reaches the
+// cache through the same conversion, has to arrive as the number it is rather
+// than as a ceiling, and has to fall back to the spec exactly when it is
+// cleared. Two separately built amounts of the same size also have to compare
+// equal, or every reconcile that rewrites the same effective quota would look
+// like a change and churn AllocatableResourceGeneration.
+func TestClusterQueueEffectiveQuotasPastInt64(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+
+	spec := func() *kueue.ClusterQueue {
+		return utiltestingapi.MakeClusterQueue("cq-big").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+			).Obj()
+	}
+	withEffective := func() *kueue.ClusterQueue {
+		return utiltestingapi.MakeClusterQueue("cq-big").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+			).
+			EffectiveQuotas(
+				*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1E").Obj(),
+			).Obj()
+	}
+
+	if err := cache.AddClusterQueue(ctx, spec()); err != nil {
+		t.Fatalf("AddClusterQueue() = %v", err)
+	}
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	if err := cache.UpdateClusterQueue(log, withEffective()); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj := cache.hm.ClusterQueue("cq-big")
+	// 1E of CPU is 10^18 cores, which is 10^21 milliCPU and past int64.
+	if got := cqObj.resourceNode.Quotas[fr].Nominal.String(); got != "1000000000000000000000" {
+		t.Errorf("effective quota = %s, want 1000000000000000000000", got)
+	}
+
+	// Rewriting the same effective quota is not a change.
+	genBefore := cqObj.AllocatableResourceGeneration
+	if err := cache.UpdateClusterQueue(log, withEffective()); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj = cache.hm.ClusterQueue("cq-big")
+	if got := cqObj.AllocatableResourceGeneration; got != genBefore {
+		t.Errorf("AllocatableResourceGeneration moved from %d to %d for an unchanged quota", genBefore, got)
+	}
+
+	if err := cache.UpdateClusterQueue(log, spec()); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj = cache.hm.ClusterQueue("cq-big")
+	if !cqObj.resourceNode.Quotas[fr].Nominal.Equal(resources.NewAmount(5000)) {
+		t.Errorf("after clearing the effective quota = %s, want 5000",
+			cqObj.resourceNode.Quotas[fr].Nominal)
 	}
 }

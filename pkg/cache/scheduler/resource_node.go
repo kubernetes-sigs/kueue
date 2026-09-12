@@ -33,8 +33,8 @@ type resourceNode struct {
 	Quotas map[resources.FlavorResource]ResourceQuota
 	// SubtreeQuota is the sum of the node's quota, as well as
 	// resources available from its children, constrained by
-	// LendingLimits. It uses Amount because individual quotas (or their
-	// aggregation) may saturate to Unlimited.
+	// LendingLimits. It uses Amount because individual quotas, and more so
+	// their aggregation, can leave the int64 range.
 	SubtreeQuota resources.FlavorResourceQuantities
 	// Usage is the quantity which counts against this node's
 	// SubtreeQuota. For ClusterQueues, this is simply its
@@ -111,7 +111,7 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) resou
 	parentAvailable := available(node.parentHRN(), fr)
 
 	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
-		// All of these can be Unlimited; Amount methods propagate that.
+		// Any of these can be past int64; Amount arithmetic stays exact.
 		lq := r.localQuota(fr)
 		storedInParent := r.SubtreeQuota[fr].Sub(lq)
 		usedInParent := resources.MaxAmount(resources.NewAmount(0), r.Usage[fr].Sub(lq))
@@ -124,8 +124,8 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) resou
 // potentialAvailable returns the maximum capacity available to this node,
 // assuming no usage, while respecting BorrowingLimits.
 //
-// Uses saturating arithmetic so sums of large (potentially MaxAmount) quotas
-// from this node and its ancestors never wrap around int64.
+// The sum over this node and its ancestors is exact, so quotas past int64 add
+// up to the number they are rather than to a ceiling.
 func potentialAvailable(node hierarchicalResourceNode, fr resources.FlavorResource) resources.Amount {
 	r := node.getResourceNode()
 	if !node.HasParent() {
@@ -217,7 +217,8 @@ func updateCohortTreeResourcesIfNoCycle(cohort *cohort) {
 func accumulateFromChild(parent *cohort, child flatResourceNode) {
 	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
 		delta := childQuota.Sub(child.getResourceNode().localQuota(fr))
-		// Add saturates at MaxInt64 on overflow, so large children never wrap the parent SubtreeQuota negative.
+		// Amount addition stays exact past int64, so accumulating large
+		// children cannot wrap the parent's SubtreeQuota negative.
 		parent.resourceNode.SubtreeQuota[fr] = parent.resourceNode.SubtreeQuota[fr].Add(delta)
 	}
 	for fr, childUsage := range child.getResourceNode().Usage {

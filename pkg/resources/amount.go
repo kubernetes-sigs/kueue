@@ -18,171 +18,346 @@ package resources
 
 import (
 	"math"
+	"math/big"
 	"strconv"
 
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-
-	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
-// Amount is the safe representation of a quota amount used for ClusterQueue
-// and Cohort math (Nominal, BorrowingLimit, LendingLimit, SubtreeQuota).
-//
-// It is a value type so that:
-//   - "1E" CPU quotas (whose milliCPU value overflows int64) cannot collapse
-//     to 0, since AmountFromQuantity returns Unlimited instead;
-//   - cohort aggregation can't wrap around int64 - Add of an Unlimited yields
-//     Unlimited, and bounded arithmetic saturates rather than overflowing;
-//   - the type system funnels quota arithmetic through methods, so a future
-//     contributor can't accidentally fall back to raw "+" / "-" on quota
-//     values and silently re-introduce the overflow.
-//
-// Keep usage values (which are bounded by what real workloads consume) as
-// int64. Mixed Amount-vs-int64 arithmetic uses the *Int64 methods.
-//
-// math.MaxInt64 is the sentinel for "unlimited"; bounded amounts must never
-// equal math.MaxInt64 (AmountFromQuantity enforces this at the quota boundary).
+// Amount is an exact integer resource amount, in the unit the resource is
+// accounted in: milliCPU for cpu, whole units for everything else. Equal
+// amounts are held the same way however they were reached.
 type Amount struct {
-	value int64
+	// Makes Amount uncomparable, so == is a compile error rather than an
+	// answer about the pointer in large. Use Equal or Cmp.
+	_ [0]func()
+	// Holds the value while it fits an int64, at no allocation cost.
+	small int64
+	// Holds it otherwise, and is never mutated or handed out. big.Int has no
+	// shallow copy, and resourceNode and FlavorResourceQuantities clone their
+	// maps shallowly, so a snapshot shares this pointer with the cache it came
+	// from; immutability is what makes that safe.
+	large *big.Int
 }
 
-// Unlimited represents an effectively-infinite quota amount. It is the result
-// of AmountFromQuantity for a quantity whose canonical int64 representation
-// would overflow, and any Amount arithmetic involving Unlimited stays
-// Unlimited.
-var Unlimited = Amount{value: math.MaxInt64}
+var (
+	one         = big.NewInt(1)
+	ten         = big.NewInt(10)
+	thousand    = big.NewRat(1000, 1)
+	thousandInt = big.NewInt(1000)
 
-// NewAmount returns a bounded Amount with the given int64 value.
+	// The largest magnitude a single Quantity holds, in the unit it reports.
+	maxQuantityInt = big.NewInt(math.MaxInt64)
+
+	// A Quantity holds at most MaxInt64 in magnitude in the unit it reports,
+	// and it reports CPU in cores, so this is that ceiling in milli.
+	maxCPUAmount = new(big.Int).Mul(maxQuantityInt, thousandInt)
+)
+
+// maxQuantityDigits is how many decimal digits maxQuantityInt has.
+const maxQuantityDigits = 19
+
+// maxExactFloat64Int is the largest integer magnitude a float64 holds exactly.
+const maxExactFloat64Int = 1 << 53
+
+// NewAmount returns the Amount for v.
 func NewAmount(v int64) Amount {
-	return Amount{value: v}
+	return Amount{small: v}
 }
 
-// maxCPUQuantityForAmount is the largest CPU resource.Quantity whose value in
-// milliCPU still fits in int64 (math.MaxInt64 / 1000 cores).
-var maxCPUQuantityForAmount = *resource.NewQuantity(math.MaxInt64/1000, resource.DecimalSI)
-
-// maxNonCPUQuantityForAmount is the largest non-CPU resource.Quantity whose
-// absolute value fits in int64.
-var maxNonCPUQuantityForAmount = *resource.NewQuantity(math.MaxInt64, resource.DecimalSI)
-
-// AmountFromQuantity converts a resource.Quantity into an Amount, returning
-// Unlimited when the canonical value would overflow int64.
+// fromBig returns the Amount for v, holding it in an int64 when it fits so
+// that equal values are represented the same way.
 //
-// This is the safe constructor that all quota-side conversion (Nominal,
-// BorrowingLimit, LendingLimit) must use. ResourceValue is the equivalent for
-// workload requests, clamping to math.MinInt64 or math.MaxInt64 rather than
-// returning Unlimited.
+// It takes ownership of v. A caller must not retain or mutate v afterwards,
+// because a value that does not fit an int64 is kept by pointer and the whole
+// immutability argument for sharing Amounts between a snapshot and the cache
+// rests on nothing else holding a writable reference to it.
+func fromBig(v *big.Int) Amount {
+	if v.IsInt64() {
+		return Amount{small: v.Int64()}
+	}
+	return Amount{large: v}
+}
+
+// big returns a as a *big.Int the caller may not modify.
+func (a Amount) big() *big.Int {
+	if a.large != nil {
+		return a.large
+	}
+	return big.NewInt(a.small)
+}
+
+// AmountFromQuantity converts one API Quantity into the unit the resource is
+// accounted in, milli for CPU, capping a magnitude past what a Quantity carries
+// at the ceiling AmountQuantity reports back. All quota-side conversion goes
+// through here (Nominal, BorrowingLimit, LendingLimit); ResourceValue is the
+// workload-request equivalent, which clamps instead.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
+	return fromBig(scaledBig(name, q))
+}
+
+// scaledBig returns the quantity in the unit the resource is accounted in,
+// rounding away from zero the way Quantity.Value and MilliValue do. It reads
+// the decimal the Quantity holds rather than those two, which document that
+// they may overflow: at the smallest int64 milliCPU, MilliValue returns zero.
+// The parser caps the binary spelling at the Quantity ceiling and not the
+// decimal one, so the bound below is applied to both spellings.
+func scaledBig(name corev1.ResourceName, q resource.Quantity) *big.Int {
+	d := q.AsDec()
+	unscaled := new(big.Int).Set(d.UnscaledBig())
+	if unscaled.Sign() == 0 {
+		return unscaled
+	}
+	// Bounded in the unit the API reports, which for CPU is cores, before the
+	// conversion into the unit it is accounted in. MaxInt64 cores is a legal
+	// Quantity whose milli value is not a legal one, and that is the case the
+	// exact amount exists for.
+	if exceedsQuantity(unscaled, -int64(d.Scale())) {
+		return quantityCapAmount(name, unscaled.Sign())
+	}
+	exp := -int64(d.Scale())
 	if name == corev1.ResourceCPU {
-		if q.Cmp(maxCPUQuantityForAmount) >= 0 {
-			return Unlimited
-		}
-		return Amount{value: q.MilliValue()}
+		exp += 3
 	}
-	if q.Cmp(maxNonCPUQuantityForAmount) >= 0 {
-		return Unlimited
+	if scaledIsBelowOne(unscaled, exp) {
+		// Rounds away from zero, and the divisor below can be too large to build.
+		return big.NewInt(int64(unscaled.Sign()))
 	}
-	return Amount{value: q.Value()}
+	if exp >= 0 {
+		return unscaled.Mul(unscaled, new(big.Int).Exp(ten, big.NewInt(exp), nil))
+	}
+	quo, rem := new(big.Int).QuoRem(unscaled, new(big.Int).Exp(ten, big.NewInt(-exp), nil), new(big.Int))
+	switch rem.Sign() {
+	case 1:
+		quo.Add(quo, one)
+	case -1:
+		quo.Sub(quo, one)
+	}
+	return quo
 }
 
-// isUnlimited reports whether a is the Unlimited sentinel.
-func (a Amount) isUnlimited() bool { return a.value == math.MaxInt64 }
-
-// Int64 returns the int64 representation of a. Unlimited is math.MaxInt64;
-// this is only correct at consumption boundaries (metrics, formatting,
-// comparisons that already saturate). Don't use Int64 inside quota arithmetic
-// - use the Amount methods instead.
-func (a Amount) Int64() int64 {
-	return a.value
-}
-
-// AsApproximateFloat64 returns the amount in the resource's standard unit,
-// converting milliCPU to CPU and mapping Unlimited to +Inf.
-func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
-	if a.isUnlimited() {
-		return math.Inf(1)
-	}
-	if name == corev1.ResourceCPU {
-		return float64(a.value) / 1000
-	}
-	return float64(a.value)
-}
-
-// Add returns a + b, propagating Unlimited and saturating bounded overflow at
-// math.MaxInt64.
+// Add returns a + b.
 func (a Amount) Add(b Amount) Amount {
-	if a.isUnlimited() || b.isUnlimited() {
-		return Unlimited
+	if a.large == nil && b.large == nil {
+		if sum, ok := addInt64(a.small, b.small); ok {
+			return Amount{small: sum}
+		}
 	}
-	return Amount{value: utilmath.SaturatingAdd(a.value, b.value)}
+	return fromBig(new(big.Int).Add(a.big(), b.big()))
 }
 
 // AddInt64 returns a + v.
 func (a Amount) AddInt64(v int64) Amount {
-	if a.isUnlimited() {
-		return a
-	}
-	return Amount{value: utilmath.SaturatingAdd(a.value, v)}
+	return a.Add(Amount{small: v})
 }
 
-// Sub returns a - b. If a is Unlimited and b is bounded, the result stays
-// Unlimited. If b is Unlimited and a is bounded, the result is math.MinInt64
-// (callers treat any negative as "no available capacity").
-// Sub(Unlimited, Unlimited) returns bounded zero.
+// Sub returns a - b.
 func (a Amount) Sub(b Amount) Amount {
-	if a.isUnlimited() && b.isUnlimited() {
-		return Amount{}
+	if a.large == nil && b.large == nil {
+		if diff, ok := subInt64(a.small, b.small); ok {
+			return Amount{small: diff}
+		}
 	}
-	if a.isUnlimited() {
-		return Unlimited
-	}
-	if b.isUnlimited() {
-		return Amount{value: math.MinInt64}
-	}
-	return Amount{value: utilmath.SaturatingSub(a.value, b.value)}
+	return fromBig(new(big.Int).Sub(a.big(), b.big()))
 }
 
 // SubInt64 returns a - v.
 func (a Amount) SubInt64(v int64) Amount {
-	if a.isUnlimited() {
-		return a
-	}
-	return Amount{value: utilmath.SaturatingSub(a.value, v)}
+	return a.Sub(Amount{small: v})
 }
 
-// Cmp returns -1 / 0 / +1 like bytes.Compare. Two Unlimited values compare
-// equal; Unlimited is greater than any bounded value.
+// addInt64 returns x + y, and false when the sum leaves the int64 range.
+func addInt64(x, y int64) (int64, bool) {
+	sum := x + y
+	if (x > 0 && y > 0 && sum < 0) || (x < 0 && y < 0 && sum >= 0) {
+		return 0, false
+	}
+	return sum, true
+}
+
+// subInt64 returns x - y, and false when the difference leaves the int64 range.
+func subInt64(x, y int64) (int64, bool) {
+	if y == math.MinInt64 {
+		return 0, false
+	}
+	return addInt64(x, -y)
+}
+
+// Cmp returns -1 / 0 / +1 like bytes.Compare.
 func (a Amount) Cmp(b Amount) int {
+	if a.large == nil && b.large == nil {
+		switch {
+		case a.small < b.small:
+			return -1
+		case a.small > b.small:
+			return 1
+		default:
+			return 0
+		}
+	}
+	// Only a value outside the int64 range is held in large, so against one
+	// held in small its sign is already the answer.
 	switch {
-	case a.isUnlimited() && b.isUnlimited():
-		return 0
-	case a.isUnlimited():
-		return 1
-	case b.isUnlimited():
+	case b.large == nil:
+		return a.large.Sign()
+	case a.large == nil:
+		return -b.large.Sign()
+	default:
+		return a.large.Cmp(b.large)
+	}
+}
+
+// CmpInt64 returns -1 / 0 / +1 for a against v.
+func (a Amount) CmpInt64(v int64) int {
+	return a.Cmp(Amount{small: v})
+}
+
+// Sign returns -1, 0 or +1 for a negative, zero or positive amount.
+func (a Amount) Sign() int {
+	if a.large != nil {
+		return a.large.Sign()
+	}
+	switch {
+	case a.small < 0:
 		return -1
-	case a.value < b.value:
-		return -1
-	case a.value > b.value:
+	case a.small > 0:
 		return 1
 	default:
 		return 0
 	}
 }
 
-// CmpInt64 returns -1 / 0 / +1 for a vs the bounded value v.
-func (a Amount) CmpInt64(v int64) int {
-	if a.isUnlimited() {
-		return 1
+// asInt64 returns a as an int64, and false when it does not fit one.
+func (a Amount) asInt64() (int64, bool) {
+	if a.large != nil {
+		return 0, false
 	}
-	switch {
-	case a.value < v:
-		return -1
-	case a.value > v:
-		return 1
-	default:
+	return a.small, true
+}
+
+// asSaturatedInt64 returns a clamped to the int64 range. Only the boundaries
+// that have no way to report a refusal should use it.
+func (a Amount) asSaturatedInt64() int64 {
+	if a.large == nil {
+		return a.small
+	}
+	if a.large.Sign() > 0 {
+		return math.MaxInt64
+	}
+	return math.MinInt64
+}
+
+// AsApproximateFloat64 returns the amount in the resource's standard unit,
+// converting milliCPU to CPU. A magnitude past float64 becomes an infinity,
+// which is what the metrics boundary reports for it.
+func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
+	if a.large == nil {
+		f := float64(a.small)
+		if name == corev1.ResourceCPU {
+			return f / 1000
+		}
+		return f
+	}
+	// Dividing after the float conversion would answer +Inf for a milliCPU
+	// magnitude past float64 whose value in cores is not.
+	r := new(big.Rat).SetInt(a.large)
+	if name == corev1.ResourceCPU {
+		r.Quo(r, thousand)
+	}
+	f, _ := r.Float64()
+	return f
+}
+
+// PerThousandOf returns a over b in thousandths, as a float64, for a
+// non-negative a over a positive b. The division is taken on the exact values
+// and only the result is approximated, so operands past the range float64 holds
+// exactly do not move the answer. A ratio too small for float64 comes back as
+// the smallest positive value rather than as zero, which a caller reads as no
+// borrowing at all. The correction is one-sided, so a negative a underflows to
+// negative zero rather than to the smallest negative value.
+func (a Amount) PerThousandOf(b Amount) float64 {
+	if b.Sign() == 0 {
 		return 0
 	}
+	// Both operands are exact in float64 and the scale is applied without
+	// leaving that range, so the IEEE division is already the correctly
+	// rounded result that the exact ratio converts to.
+	if a.large == nil && b.large == nil &&
+		absAtMost(a.small, maxExactFloat64Int/1000) && absAtMost(b.small, maxExactFloat64Int) {
+		return float64(a.small*1000) / float64(b.small)
+	}
+	r := new(big.Rat).SetFrac(a.big(), b.big())
+	r.Mul(r, thousand)
+	f, _ := r.Float64()
+	if f == 0 && r.Sign() > 0 {
+		return math.SmallestNonzeroFloat64
+	}
+	return f
+}
+
+// exceedsQuantity reports whether the magnitude of unscaled x 10^exp is past
+// what a Quantity holds. It answers from the digit count wherever it can: a
+// short exponent spelling reaches a scale of two billion, and building that
+// power of ten to compare is the allocation the bound exists to prevent.
+func exceedsQuantity(unscaled *big.Int, exp int64) bool {
+	abs := new(big.Int).Abs(unscaled)
+	switch digits := int64(len(abs.String())); {
+	case digits+exp < maxQuantityDigits:
+		return false
+	case digits+exp > maxQuantityDigits:
+		return true
+	case exp >= 0:
+		// Within one power of ten of the ceiling, so the shorter side is scaled
+		// up to meet the other. Either power is at most as long as the mantissa,
+		// and scaling the ceiling up rather than the mantissa down keeps the
+		// fraction that decides the comparison.
+		abs.Mul(abs, new(big.Int).Exp(ten, big.NewInt(exp), nil))
+		return abs.Cmp(maxQuantityInt) > 0
+	default:
+		limit := new(big.Int).Mul(maxQuantityInt, new(big.Int).Exp(ten, big.NewInt(-exp), nil))
+		return abs.Cmp(limit) > 0
+	}
+}
+
+// scaledIsBelowOne reports whether the magnitude of unscaled x 10^exp is under
+// one, which is the other end of the same scale: the divisor would be the power
+// of ten the check above refuses to build.
+func scaledIsBelowOne(unscaled *big.Int, exp int64) bool {
+	return exp < 0 && -exp >= int64(len(new(big.Int).Abs(unscaled).String()))
+}
+
+// quantityCapAmount is the largest amount one Quantity expresses, with sign, in
+// the unit the resource is accounted in.
+func quantityCapAmount(name corev1.ResourceName, sign int) *big.Int {
+	limit := maxQuantityInt
+	if name == corev1.ResourceCPU {
+		limit = maxCPUAmount
+	}
+	capped := new(big.Int).Set(limit)
+	if sign < 0 {
+		capped.Neg(capped)
+	}
+	return capped
+}
+
+// absAtMost reports whether the magnitude of v is at most limit. MinInt64
+// cannot be negated, so both ends are compared rather than an absolute taken.
+func absAtMost(v, limit int64) bool {
+	return v <= limit && v >= -limit
+}
+
+// milliDec returns a as a decimal at milli scale, and false when its magnitude
+// is past what a Quantity carries. Only the CPU boundary uses it, where the
+// amount is held in milli. inf copies the value it is handed, so passing the
+// stored pointer does not expose it.
+func (a Amount) milliDec() (*inf.Dec, bool) {
+	v := a.big()
+	if v.CmpAbs(maxCPUAmount) > 0 {
+		return nil, false
+	}
+	return inf.NewDecBig(v, 3), true
 }
 
 // MinAmount returns the smaller of a and b.
@@ -201,17 +376,17 @@ func MaxAmount(a, b Amount) Amount {
 	return b
 }
 
-// String formats the Amount; Unlimited is printed as "<unlimited>".
+// String formats the Amount in the unit it is accounted in.
 func (a Amount) String() string {
-	if a.isUnlimited() {
-		return "<unlimited>"
+	if a.large == nil {
+		return strconv.FormatInt(a.small, 10)
 	}
-	return strconv.FormatInt(a.value, 10)
+	return a.large.String()
 }
 
-// Equal lets go-cmp and other reflection-based comparators treat Amount as a
-// comparable value type without requiring cmpopts.EquateComparable everywhere
-// quotas appear in test fixtures.
+// Equal reports whether a and b are the same number. go-cmp reaches this
+// rather than comparing the unexported fields, which would answer for the
+// pointer in large.
 func (a Amount) Equal(b Amount) bool {
-	return a == b
+	return a.Cmp(b) == 0
 }
