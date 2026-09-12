@@ -433,7 +433,6 @@ func (r *ClusterQueueReconciler) updateResourceMetrics(log logr.Logger, oldCq, n
 
 func (r *ClusterQueueReconciler) resyncClusterQueueGaugeMetrics(cq *kueue.ClusterQueue) {
 	cqRef := kueue.ClusterQueueReference(cq.Name)
-	metrics.ClearClusterQueueMetrics(cqRef)
 	metrics.ClearClusterQueueMetricsOnLabelChange(cqRef)
 	metrics.ClearCacheMetrics(cq.Name)
 	metrics.ClearClusterQueueResourceMetrics(cq.Name)
