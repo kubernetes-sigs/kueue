@@ -154,11 +154,11 @@ func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorL
 func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	if strVal, found := job.Annotations[JobMinParallelismAnnotation]; found {
-		v, err := strconv.Atoi(strVal)
+		v, err := strconv.ParseInt(strVal, 10, 32)
 		if err != nil {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, job.Annotations[JobMinParallelismAnnotation], err.Error()))
 		} else if int32(v) >= job.podsCount() || v <= 0 {
-			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
+			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, int(v), fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
 		if workloadslicing.Enabled(job.Object()) {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, strVal, "partial admission and elastic job cannot be used together"))
