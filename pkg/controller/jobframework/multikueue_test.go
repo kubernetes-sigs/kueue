@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -109,6 +110,137 @@ func TestValidateRemoteObjectOwnership(t *testing.T) {
 				t.Fatalf("ValidateRemoteObjectOwnership() found = %v, wantFound %v", found, tc.wantFound)
 			}
 		})
+	}
+}
+
+func TestSyncJobWithRemoteObjectOwnership(t *testing.T) {
+	key := types.NamespacedName{Name: "test", Namespace: "default"}
+	secondaryKey := types.NamespacedName{Name: "secondary", Namespace: "default"}
+	const origin = "origin-1"
+
+	makeJob := func(key types.NamespacedName, labels map[string]string) *batchv1.Job {
+		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace, Labels: labels}}
+	}
+
+	tests := map[string]struct {
+		remoteJobs []client.Object
+		getKeys    []types.NamespacedName
+		origin     string
+		callSync   bool
+		wantErr    error
+	}{
+		"empty origin is rejected before sync": {
+			wantErr: jobframework.ErrMultiKueueOriginEmpty,
+		},
+		"missing remote object allows sync": {
+			origin:   origin,
+			callSync: true,
+		},
+		"owned remote object allows sync": {
+			remoteJobs: []client.Object{makeJob(key, map[string]string{kueue.MultiKueueOriginLabel: origin})},
+			origin:     origin,
+			callSync:   true,
+		},
+		"unowned remote object blocks sync": {
+			remoteJobs: []client.Object{makeJob(key, nil)},
+			origin:     origin,
+			callSync:   true,
+			wantErr:    jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+		},
+		"remote object from another origin blocks sync": {
+			remoteJobs: []client.Object{makeJob(key, map[string]string{kueue.MultiKueueOriginLabel: "origin-2"})},
+			origin:     origin,
+			callSync:   true,
+			wantErr:    jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+		},
+		"unowned secondary object blocks sync": {
+			remoteJobs: []client.Object{
+				makeJob(key, map[string]string{kueue.MultiKueueOriginLabel: origin}),
+				makeJob(secondaryKey, nil),
+			},
+			getKeys:  []types.NamespacedName{key, secondaryKey},
+			origin:   origin,
+			callSync: true,
+			wantErr:  jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := batchv1.AddToScheme(scheme); err != nil {
+				t.Fatalf("adding batch scheme: %v", err)
+			}
+
+			remoteClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.remoteJobs...).Build()
+			localClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+			adapter := mocks.NewMockMultiKueueAdapter(gomock.NewController(t))
+			if tc.callSync {
+				adapter.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job"))
+				adapter.EXPECT().SyncJob(gomock.Any(), localClient, gomock.Any(), key, "workload", tc.origin).
+					DoAndReturn(func(ctx context.Context, _ client.Client, validatingClient client.Client, key types.NamespacedName, _, _ string) (bool, error) {
+						getKeys := tc.getKeys
+						if len(getKeys) == 0 {
+							getKeys = []types.NamespacedName{key}
+						}
+						for _, getKey := range getKeys {
+							if err := validatingClient.Get(ctx, getKey, &batchv1.Job{}); client.IgnoreNotFound(err) != nil {
+								return false, err
+							}
+						}
+						return false, nil
+					})
+			}
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, err := jobframework.SyncJobWithRemoteObjectOwnership(ctx, localClient, remoteClient, adapter, key, "workload", tc.origin)
+			if diff := cmp.Diff(err, tc.wantErr, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v, wantErr %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestDeleteRemoteObjectIfOwnedSkipsUnownedAdapterObjects(t *testing.T) {
+	const origin = "origin-1"
+	ownedKey := types.NamespacedName{Name: "owned", Namespace: "default"}
+	foreignKey := types.NamespacedName{Name: "foreign", Namespace: "default"}
+
+	scheme := runtime.NewScheme()
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("adding batch scheme: %v", err)
+	}
+	ownedJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
+		Name: ownedKey.Name, Namespace: ownedKey.Namespace,
+		Labels: map[string]string{kueue.MultiKueueOriginLabel: origin},
+	}}
+	foreignJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: foreignKey.Name, Namespace: foreignKey.Namespace}}
+	remoteClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ownedJob, foreignJob).Build()
+	localClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	adapter := mocks.NewMockMultiKueueAdapter(gomock.NewController(t))
+	adapter.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+	adapter.EXPECT().DeleteRemoteObject(gomock.Any(), localClient, gomock.Any(), ownedKey).
+		DoAndReturn(func(ctx context.Context, _ client.Client, validatingClient client.Client, _ types.NamespacedName) error {
+			for _, key := range []types.NamespacedName{ownedKey, foreignKey} {
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace}}
+				if err := validatingClient.Delete(ctx, job); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, localClient, remoteClient, adapter, ownedKey, origin); err != nil {
+		t.Fatalf("DeleteRemoteObjectIfOwned() error = %v", err)
+	}
+	if err := remoteClient.Get(ctx, ownedKey, &batchv1.Job{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("owned object Get() error = %v, want NotFound", err)
+	}
+	if err := remoteClient.Get(ctx, foreignKey, &batchv1.Job{}); err != nil {
+		t.Fatalf("foreign object Get() error = %v, want object preserved", err)
 	}
 }
 
