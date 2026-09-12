@@ -334,7 +334,9 @@ func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]k
 
 func toResourceGroup(spec, quotaType string) (kueue.ResourceGroup, error) {
 	flavorName, userSpecifiedResources := parseKeyValue(spec, ":")
-	resourceSpecs := strings.Split(userSpecifiedResources, ";")
+	// The spec regex allows a single trailing ";", which would otherwise
+	// produce an empty resource spec after splitting.
+	resourceSpecs := strings.Split(strings.TrimSuffix(userSpecifiedResources, ";"), ";")
 	flavorQuotas, err := toFlavorQuotas(flavorName, resourceSpecs, quotaType)
 	if err != nil {
 		return kueue.ResourceGroup{}, err
