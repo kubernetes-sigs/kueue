@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/disaggregatedset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	kubeflowjobs "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
@@ -49,6 +50,7 @@ func RegisterIntegrations(manager *jobframework.IntegrationManager) error {
 	for _, register := range []func(*jobframework.IntegrationManager) error{
 		appwrapper.RegisterIntegration,
 		deployment.RegisterIntegration,
+		disaggregatedset.RegisterIntegration,
 		job.RegisterIntegration,
 		jobset.RegisterIntegration,
 		kubeflowjobs.RegisterIntegrations,
