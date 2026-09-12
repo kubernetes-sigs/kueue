@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -42,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -258,18 +261,78 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
+// nonInheritableLabels are the labels a Workload must not inherit from the object
+// below it. Who else may write one is a separate question.
+var nonInheritableLabels = []string{
+	// Whether a Workload is one MultiKueue placed here is ours to say.
+	kueue.MultiKueueOriginLabel,
+	// The variant controller trusts this without rechecking eligibility.
+	controllerconstants.ConcurrentAdmissionParentLabelKey,
+	// Names who a Workload speaks for in preemption events and the orphan check.
+	controllerconstants.JobUIDLabel,
+}
+
+// IsNonInheritableWorkloadLabel reports whether a configuration may name key as
+// one to copy onto a Workload.
+func IsNonInheritableWorkloadLabel(key string) bool {
+	return slices.Contains(nonInheritableLabels, key)
+}
+
+// CopyableLabelKeys returns the label keys a Workload may inherit from the object
+// below it, however the configuration came to ask for the rest. It never writes to
+// the caller's set, which the reconciler options hold across reconciles, and
+// returns that same set when there is nothing to drop, so the result is read-only.
+func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
+	if !keys.HasAny(nonInheritableLabels...) {
+		return keys
+	}
+	safe := keys.Clone()
+	safe.Delete(nonInheritableLabels...)
+	return safe
+}
+
+// nonInheritableAnnotations is nonInheritableLabels for annotations.
+var nonInheritableAnnotations = []string{
+	// The LeaderWorkerSet adapter orders component Workloads by this.
+	controllerconstants.ComponentWorkloadIndexAnnotation,
+	// MultiKueue answers this pair ahead of the Workload's own owner reference.
+	controllerconstants.JobOwnerGVKAnnotation,
+	controllerconstants.JobOwnerNameAnnotation,
+	// Here for what it does: the scheduler adds it to the base priority, and a
+	// Job's own design gives it no way to ask for one.
+	controllerconstants.PriorityBoostAnnotationKey,
+	// The flavor assigner honours these on any Workload carrying them.
+	controllerconstants.WorkloadAllowedResourceFlavorAnnotation,
+	// Answered over the Workload's own name, and the ungater lists Pods by it.
+	kueue.WorkloadSliceNameAnnotation,
+	// The scheduler finishes rather than preempts the target this names.
+	workloadslicing.WorkloadSliceReplacementFor,
+	// OwnedBySinglePod reads this to keep a Workload out of reassignment.
+	podconstants.IsGroupWorkloadAnnotationKey,
+}
+
+// CopyableAnnotationKeys is CopyableLabelKeys for annotations.
+func CopyableAnnotationKeys(keys sets.Set[string]) sets.Set[string] {
+	if !keys.HasAny(nonInheritableAnnotations...) {
+		return keys
+	}
+	safe := keys.Clone()
+	safe.Delete(nonInheritableAnnotations...)
+	return safe
+}
+
 // NewWorkload creates a new Workload object with the specified name,
-// associated object, pod sets, and label keys to copy.
+// associated object, pod sets, and metadata keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
 	if features.Enabled(features.CustomMetricLabels) {
-		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
+		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), CopyableAnnotationKeys(annotationsToCopy).UnsortedList()))
 	}
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   obj.GetNamespace(),
-			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
+			Labels:      maps.FilterKeys(obj.GetLabels(), CopyableLabelKeys(labelKeysToCopy).UnsortedList()),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
 			Annotations: annotations,
 		},
