@@ -31,6 +31,7 @@ import (
 var (
 	errParseTopologyConstraints      = errors.New("failed to parse multi-layer topology constraints annotation")
 	errTopologyConstraintsLayerCount = errors.New("topology constraints must contain between 1 and 3 entries")
+	errUnconstrainedTopologyNotTrue  = errors.New("unconstrained topology annotation must be true")
 )
 
 type podSetTopologyRequestBuilder struct {
@@ -78,6 +79,9 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		unconstrained, err := strconv.ParseBool(unconstrained)
 		if err != nil {
 			return nil, err
+		}
+		if !unconstrained {
+			return nil, errUnconstrainedTopologyNotTrue
 		}
 		psTopologyReq.Unconstrained = &unconstrained
 	default:
