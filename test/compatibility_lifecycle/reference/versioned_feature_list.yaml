@@ -311,6 +311,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: PodIntegrationVerifyRoleRequests
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PrioritizePreemptorWorkloads
   versionedSpecs:
   - default: false

@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -75,9 +76,10 @@ var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more th
 
 // Event reasons used by the pod controller
 const (
-	ReasonExcessPodDeleted     = "ExcessPodDeleted"
-	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
-	ReasonWorkloadNameConflict = "WorkloadNameConflict"
+	ReasonExcessPodDeleted       = "ExcessPodDeleted"
+	ReasonOwnerReferencesAdded   = "OwnerReferencesAdded"
+	ReasonWorkloadNameConflict   = "WorkloadNameConflict"
+	ReasonPodExceedsRoleRequests = "PodExceedsRoleRequests"
 )
 
 const (
@@ -322,6 +324,8 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 		}
 
 		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
+	} else if err := validatePodsBeforeUngating(p.list.Items, wl, recorder); err != nil {
+		return err
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -799,57 +803,243 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
-	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
+	var (
+		foundRoleHash string
+		podSets       []kueue.PodSet
+		found         bool
+	)
+	for i := range pods {
+		podInGroup := &pods[i]
+		if !isPodRunnableOrSucceeded(podInGroup) {
 			continue
 		}
-		roleHash, err := getRoleHash(podInGroup)
+		hash, err := getRoleHash(*podInGroup)
 		if err != nil {
-			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+			return nil, errRoleHashCalculation(podInGroup.Name, err)
 		}
-		podSets, err := constructPodSets(&podInGroup)
-		if err != nil {
-			return nil, err
-		}
-		podSets[0].Name = kueue.NewPodSetReference(roleHash)
-		podSets[0].Count = int32(groupTotalCount)
-		return podSets, nil
-	}
-
-	return nil, errors.New("failed to find a runnable pod in the group")
-}
-
-func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
-	var resultPodSets []kueue.PodSet
-
-	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
-			continue
-		}
-
-		roleHash, err := getRoleHash(podInGroup)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
-		}
-
-		podRoleFound := false
-		for psi := range resultPodSets {
-			if string(resultPodSets[psi].Name) == roleHash {
-				podRoleFound = true
-				resultPodSets[psi].Count++
-				break
-			}
-		}
-
-		if !podRoleFound {
-			podSet, err := constructPodSet(&podInGroup)
+		if !found {
+			podSets, err = constructPodSets(podInGroup)
 			if err != nil {
 				return nil, err
 			}
-			podSet.Name = kueue.NewPodSetReference(roleHash)
-
-			resultPodSets = append(resultPodSets, podSet)
+			foundRoleHash = hash
+			podSets[0].Name = kueue.NewPodSetReference(foundRoleHash)
+			podSets[0].Count = int32(groupTotalCount)
+			found = true
+			continue
 		}
+		if hash != foundRoleHash {
+			return nil, errFastAdmissionRoleMismatch(podInGroup.Name, hash, foundRoleHash)
+		}
+		mergeMaxPodSpecsInto(&podSets[0].Template.Spec, &podInGroup.Spec)
+	}
+	if !found {
+		return nil, errors.New("failed to find a runnable pod in the group")
+	}
+	return podSets, nil
+}
+
+// mergeMaxPodSpecsInto merges resource requests, taking the element-wise maximum.
+// Regular containers are merged by index. InitContainers (including sidecars
+// with restartPolicy: Always) are merged by index, and extra init containers on
+// other are appended. Pod-level Resources (KEP-2837) are merged the same way.
+// This matches resourcehelpers.PodRequests, which accounts for all three.
+func mergeMaxPodSpecsInto(template, other *corev1.PodSpec) {
+	if template == nil || other == nil {
+		return
+	}
+	for i := range template.Containers {
+		if i >= len(other.Containers) {
+			continue
+		}
+		merged := mergeMaxRequests(
+			resources.NewRequestsFromResourceList(template.Containers[i].Resources.Requests),
+			resources.NewRequestsFromResourceList(other.Containers[i].Resources.Requests),
+		)
+		template.Containers[i].Resources.Requests = merged.ToResourceList(resources.NewResourceFormatter())
+	}
+	for i := range other.InitContainers {
+		if i >= len(template.InitContainers) {
+			template.InitContainers = append(template.InitContainers, *other.InitContainers[i].DeepCopy())
+			continue
+		}
+		merged := mergeMaxRequests(
+			resources.NewRequestsFromResourceList(template.InitContainers[i].Resources.Requests),
+			resources.NewRequestsFromResourceList(other.InitContainers[i].Resources.Requests),
+		)
+		template.InitContainers[i].Resources.Requests = merged.ToResourceList(resources.NewResourceFormatter())
+	}
+	if other.Resources == nil {
+		return
+	}
+	if template.Resources == nil {
+		template.Resources = other.Resources.DeepCopy()
+		return
+	}
+	merged := mergeMaxRequests(
+		resources.NewRequestsFromResourceList(template.Resources.Requests),
+		resources.NewRequestsFromResourceList(other.Resources.Requests),
+	)
+	template.Resources.Requests = merged.ToResourceList(resources.NewResourceFormatter())
+}
+
+// mergeMaxRequests returns the element-wise maximum of two request vectors.
+func mergeMaxRequests(base, other resources.Requests) resources.Requests {
+	if other == nil {
+		return base
+	}
+	if base == nil {
+		return other.Clone()
+	}
+	result := base.Clone()
+	other.ForEach(func(name corev1.ResourceName, val int64) {
+		if val > result.ResourceValue(name) {
+			result.Set(name, val)
+		}
+	})
+	return result
+}
+
+// podWithMaxRequests returns a pod template whose requests are the element-wise
+// maximum across all pods in the group, per container.
+func podWithMaxRequests(pods []corev1.Pod) *corev1.Pod {
+	if len(pods) == 0 {
+		return nil
+	}
+	template := pods[0].DeepCopy()
+	for i := 1; i < len(pods); i++ {
+		mergeMaxPodSpecsInto(&template.Spec, &pods[i].Spec)
+	}
+	return template
+}
+
+// podExceedsRequests reports whether the pod requests more of any resource than reserved
+// for its role. Unreserved / missing reserved keys count as zero.
+func podExceedsRequests(pod *corev1.Pod, reserved resources.Requests) bool {
+	_, found := firstExceededResource(pod, reserved)
+	return found
+}
+
+// firstExceededResource returns the first resource the pod requests above the reservation.
+// A resource absent from the reservation is treated as zero.
+func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1.ResourceName, bool) {
+	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
+	if reserved == nil {
+		reserved = resources.NewRequests()
+	}
+	for name, val := range actual.Iter() {
+		if val > reserved.ResourceValue(name) {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// validatePodsBeforeUngating verifies that every gated pod fits the PodSet its
+// role-hash annotation names. The annotation is user-supplied and is treated as an
+// untrusted PodSet name: it selects the reservation to check against, it does not
+// assert anything about the pod. Verifying here rather than at admission means the
+// pod is in its final shape (admission-check nodeSelectors already applied) and no
+// pod annotation has to be rewritten to make the check sound.
+func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) error {
+	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
+		return nil
+	}
+	podSets := utilslices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
+	for i := range pods {
+		pod := &pods[i]
+		if !isGated(pod) {
+			continue
+		}
+		role, err := getRoleHash(*pod)
+		if err != nil {
+			return errRoleHashCalculation(pod.Name, err)
+		}
+		ps, found := podSets[kueue.NewPodSetReference(role)]
+		if !found {
+			return fmt.Errorf("%w: no podset named %q for pod %q", podset.ErrInvalidPodsetInfo, role, pod.Name)
+		}
+		reserved := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+		resourceName, exceeds := firstExceededResource(pod, reserved)
+		if !exceeds {
+			continue
+		}
+		msg := fmt.Sprintf("Pod %q requests more %s than podset %q reserves", pod.Name, resourceName, role)
+		if recorder != nil {
+			recorder.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodExceedsRoleRequests, "Admission", api.TruncateEventMessage(msg))
+		}
+		return fmt.Errorf("%w: pod %q requests more than podset %q reserves",
+			podset.ErrInvalidPodsetInfo, pod.Name, role)
+	}
+	return nil
+}
+
+func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {
+	return jobframework.UnretryableError(fmt.Sprintf(
+		"pod %q has role %q but fast admission requires all pods to have the same role %q",
+		podName, gotRole, expectedRole))
+}
+
+func errRoleHashCalculation(podName string, err error) error {
+	return fmt.Errorf("failed to calculate pod role hash for pod %q: %w", podName, err)
+}
+
+func errRoleHashCalculations(errs []error) error {
+	return fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(errs...))
+}
+
+// validateFastAdmissionSingleRole ensures every active pod shares the expected role hash.
+func validateFastAdmissionSingleRole(activePods []corev1.Pod, expectedRole string) error {
+	for i := range activePods {
+		pod := &activePods[i]
+		hash, err := getRoleHash(*pod)
+		if err != nil {
+			return errRoleHashCalculation(pod.Name, err)
+		}
+		if hash != expectedRole {
+			return errFastAdmissionRoleMismatch(pod.Name, hash, expectedRole)
+		}
+	}
+	return nil
+}
+
+func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
+	type roleInfo struct {
+		pods []corev1.Pod
+	}
+	roles := make(map[string]*roleInfo)
+	var roleOrder []string
+
+	for _, podInGroup := range pods {
+		if !isPodRunnableOrSucceeded(&podInGroup) {
+			continue
+		}
+
+		roleHash, err := getRoleHash(podInGroup)
+		if err != nil {
+			return nil, errRoleHashCalculation(podInGroup.Name, err)
+		}
+
+		info, ok := roles[roleHash]
+		if !ok {
+			info = &roleInfo{}
+			roles[roleHash] = info
+			roleOrder = append(roleOrder, roleHash)
+		}
+		info.pods = append(info.pods, podInGroup)
+	}
+
+	resultPodSets := make([]kueue.PodSet, 0, len(roles))
+	for _, roleHash := range roleOrder {
+		info := roles[roleHash]
+		templatePod := podWithMaxRequests(info.pods)
+		podSet, err := constructPodSet(templatePod)
+		if err != nil {
+			return nil, err
+		}
+		podSet.Name = kueue.NewPodSetReference(roleHash)
+		podSet.Count = int32(len(info.pods))
+		resultPodSets = append(resultPodSets, podSet)
 	}
 
 	slices.SortFunc(resultPodSets, func(a, b kueue.PodSet) int {
@@ -1333,6 +1523,17 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	// Cleanup excess pods for each workload pod set (role)
 	activePods, inactivePods := p.partitionPods()
 
+	// Fast admission reserves one role for the group; refuse adoption if an active pod
+	// has a different role rather than silently dropping it.
+	if p.fastAdmission() && len(workload.Spec.PodSets) > 0 {
+		// For pod groups, PodSet.Name is the role hash (NewPodSetReference(roleHash)).
+		expectedRole := string(workload.Spec.PodSets[0].Name)
+		if err := validateFastAdmissionSingleRole(activePods, expectedRole); err != nil {
+			r.Eventf(&p.pod, nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", api.TruncateEventMessage(err.Error()))
+			return nil, nil, err
+		}
+	}
+
 	var absentPods int
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
@@ -1352,7 +1553,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
-			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+			return nil, nil, errRoleHashCalculations(roleHashErrors)
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
