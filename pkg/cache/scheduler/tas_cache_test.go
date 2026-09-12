@@ -4753,6 +4753,128 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		// Two equal-capacity racks; only r2 matches preferred node affinity.
+		// Topology declares kubernetes.io/hostname, so requested rack is above
+		// the slice level and domain selection uses compareDomainCapacityAndEntropy.
+		// Without balanced placement both Pods land on r2; with balanced placement
+		// the entropy path must keep that affinity ranking instead of falling back
+		// to level values (r1).
+		//
+		//          b1
+		//        /    \
+		//      r1      r2
+		//       |       |
+		//     x1:2    x2:2     x2 has region=us-west (preferred)
+		// request: 2
+		// expected outcome: x2:2
+		"balanced placement; equal-capacity racks; prefer affinity-matching rack": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASBalancedPlacement:            true,
+				features.TASRespectNodeAffinityPreferred: true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new(tasRackLabel),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(10, "region", corev1.NodeSelectorOpIn, "us-west").
+						Obj(),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  2,
+							Values: []string{"x2"},
+						},
+					},
+				},
+			}},
+		},
+		"balanced placement; equal-capacity racks; ignore affinity when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASBalancedPlacement:            true,
+				features.TASRespectNodeAffinityPreferred: false,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					Label("region", "us-east").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r2").
+					Label(corev1.LabelHostname, "x2").
+					Label("region", "us-west").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred: new(tasRackLabel),
+				},
+				nodeAffinity: &corev1.NodeAffinity{
+					PreferredDuringSchedulingIgnoredDuringExecution: utiltesting.MakePreferredSchedulingTerms().
+						Term(10, "region", corev1.NodeSelectorOpIn, "us-west").
+						Obj(),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  2,
+							Values: []string{"x1"},
+						},
+					},
+				},
+			}},
+		},
 		"block required for podset; rack required for slices; podset fits in a block, but slices do not fit in racks": {
 
 			//         b1
