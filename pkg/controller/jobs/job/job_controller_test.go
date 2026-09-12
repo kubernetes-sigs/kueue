@@ -1144,6 +1144,7 @@ func TestReconciler(t *testing.T) {
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -1175,6 +1176,7 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
@@ -1293,6 +1295,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2678,6 +2681,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				NodeSelector("node-selector-key1", "common-value").
 				NodeSelector("node-selector-key2", "only-in-check2").
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2790,6 +2794,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2894,6 +2899,7 @@ func TestReconciler(t *testing.T) {
 				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 				PodLabel(constants.LocalQueueLabel, localQueueName).
 				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "a").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a", "ns").
