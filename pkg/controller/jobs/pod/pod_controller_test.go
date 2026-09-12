@@ -6273,6 +6273,108 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"deleting prebuilt group pods are finalized when the workload is missing": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("test-group").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodFailed).
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+			},
+			wantPods:      []corev1.Pod{},
+			wantWorkloads: []kueue.Workload{},
+			wantErr:       jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"replaced terminating pods are finalized for a prebuilt pod group": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("running").
+					UID("running-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodRunning).
+					NodeName("test-node").
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("succeeded").
+					UID("succeeded-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodSucceeded).
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					UID("replacement-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					UID("replacement-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "running", "running-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "succeeded", "succeeded-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(1).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "running", "running-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "succeeded", "succeeded-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "replacement-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(1).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "prebuilt-workload", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "OwnerReferencesAdded",
+					Message:   "Added 1 owner reference(s)",
+				},
+			},
+		},
 		"when the prebuilt workload exists its owner info is updated": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
@@ -6758,6 +6860,79 @@ func TestReconciler(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFindMatchingWorkloadsPreservesMultiKueueMembers(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	oldPod := testingpod.MakePod("old", "ns").UID("old-uid").
+		GroupNameLabel("group").GroupTotalCount("1").RoleHash("role").
+		PrebuiltWorkloadLabel("prebuilt").Label(kueue.MultiKueueOriginLabel, "manager").
+		KueueFinalizer().StatusPhase(corev1.PodRunning).NodeName("node").Obj()
+	replacement := testingpod.MakePod("replacement", "ns").UID("new-uid").
+		GroupNameLabel("group").GroupTotalCount("1").RoleHash("role").
+		PrebuiltWorkloadLabel("prebuilt").Label(kueue.MultiKueueOriginLabel, "manager").
+		KueueFinalizer().KueueSchedulingGate().Obj()
+	wl := utiltestingapi.MakeWorkload("prebuilt", "ns").
+		PodSets(*utiltestingapi.MakePodSet("role", 1).Obj()).Obj()
+	c := utiltesting.NewClientBuilder().WithObjects(oldPod, replacement, wl).Build()
+	p := &Pod{pod: *oldPod, isGroup: true, list: corev1.PodList{Items: []corev1.Pod{*oldPod, *replacement}}}
+	wantPods := p.list.DeepCopy()
+
+	matched, toDelete, err := p.FindMatchingWorkloads(ctx, c, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("FindMatchingWorkloads returned error: %v", err)
+	}
+	if matched == nil || matched.Name != wl.Name || len(toDelete) != 0 {
+		t.Fatalf("Expected the prebuilt Workload without cleanup, got match %v and deletions %v", matched, toDelete)
+	}
+	if diff := cmp.Diff(wantPods, &p.list); diff != "" {
+		t.Errorf("Mirrored membership changed (-want,+got):\n%s", diff)
+	}
+	for _, pod := range wantPods.Items {
+		got := &corev1.Pod{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(&pod), got); err != nil {
+			t.Fatalf("Could not get mirrored Pod: %v", err)
+		}
+		if diff := cmp.Diff(pod, *got, podCmpOpts...); diff != "" {
+			t.Errorf("Mirrored Pod changed (-want,+got):\n%s", diff)
+		}
+	}
+}
+
+func TestDeletingPrebuiltPodAccounting(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mirrored        bool
+		wantActive      int
+		wantReclaimable []kueue.ReclaimablePod
+	}{
+		"local replacement retains its slot": {},
+		"mirrored completion retains existing accounting": {
+			mirrored: true, wantActive: 1,
+			wantReclaimable: []kueue.ReclaimablePod{{Name: "role", Count: 1}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			pod := testingpod.MakePod("pod", "ns").GroupNameLabel("group").RoleHash("role").
+				PrebuiltWorkloadLabel("prebuilt").StatusPhase(corev1.PodSucceeded).
+				NodeName("node").DeletionTimestamp(time.Now()).Obj()
+			if tc.mirrored {
+				pod.Labels[kueue.MultiKueueOriginLabel] = "manager"
+			}
+			p := &Pod{pod: *pod, isGroup: true, list: corev1.PodList{Items: []corev1.Pod{*pod}}}
+			active, _ := p.partitionPods()
+			if len(active) != tc.wantActive {
+				t.Errorf("Expected %d active Pods, got %d", tc.wantActive, len(active))
+			}
+			reclaimable, err := p.ReclaimablePods(ctx, nil)
+			if err != nil {
+				t.Fatalf("ReclaimablePods returned error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantReclaimable, reclaimable); diff != "" {
+				t.Errorf("Reclaimable Pods differ (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 
