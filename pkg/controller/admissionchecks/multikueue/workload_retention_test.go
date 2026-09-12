@@ -163,12 +163,12 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 			withQuota:       true,
 			selectedMissing: true,
 		},
-		"unavailable retained worker keeps retention": {
+		"unavailable retained worker retries before retention expires": {
 			gate:                true,
 			withQuota:           true,
 			selectedUnavailable: true,
 			wantRetained:        true,
-			wantRequeueAfter:    9 * time.Minute,
+			wantRequeueAfter:    time.Minute,
 		},
 		"quota loss remains immediate": {
 			gate:         true,
@@ -252,8 +252,13 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 			if tc.selectedUnavailable {
 				delete(group.remotes, "worker1")
 				delete(group.remoteClients, "worker1")
+				group.unavailableClusters = []string{"worker1"}
 			}
-			reconciler := &wlReconciler{clock: testingclock.NewFakeClock(now), remoteObjectsAfterFinished: 10 * time.Minute}
+			reconciler := &wlReconciler{
+				clock:                      testingclock.NewFakeClock(now),
+				remoteObjectsAfterFinished: 10 * time.Minute,
+				workerLostTimeout:          time.Minute,
+			}
 			result, err := reconciler.reconcileGroup(ctx, group)
 			if err != nil {
 				t.Fatalf("reconcileGroup() error = %v", err)
