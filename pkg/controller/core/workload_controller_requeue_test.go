@@ -1162,6 +1162,236 @@ func TestReconcileRequeue(t *testing.T) {
 				Obj(),
 			wantResult: reconcile.Result{},
 		},
+		"record firstEvictedAt on the first PodsReadyTimeout eviction when backoffLimitTimeout is set": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                      3 * time.Second,
+					requeuingBackoffLimitTimeout: new(time.Hour),
+					requeuingBackoffBaseSeconds:  10,
+					requeuingBackoffJitter:       0,
+					requeuingBackoffMaxDuration:  time.Duration(3600) * time.Second,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				Generation(1).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
+				RequeueStateFirstEvictedAt(new(metav1.NewTime(now))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"keep firstEvictedAt on a PodsReadyTimeout eviction within backoffLimitTimeout": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                      3 * time.Second,
+					requeuingBackoffLimitCount:   new(int32(100)),
+					requeuingBackoffLimitTimeout: new(time.Hour),
+					requeuingBackoffBaseSeconds:  10,
+					requeuingBackoffJitter:       0,
+					requeuingBackoffMaxDuration:  time.Duration(3600) * time.Second,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				RequeueState(new(int32(3)), nil).
+				RequeueStateFirstEvictedAt(new(metav1.NewTime(now.Add(-30 * time.Minute)))).
+				Generation(1).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:    "check",
+					State:   kueue.CheckStatePending,
+					Message: "Reset to Pending after eviction. Previously: Ready",
+				}).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				// 10s * 2^(4-1) = 80s
+				RequeueState(new(int32(4)), new(metav1.NewTime(now.Add(80*time.Second).Truncate(time.Second)))).
+				RequeueStateFirstEvictedAt(new(metav1.NewTime(now.Add(-30 * time.Minute)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"trigger deactivation of workload when exceeding backoffLimitTimeout before backoffLimitCount": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                      3 * time.Second,
+					requeuingBackoffLimitCount:   new(int32(100)),
+					requeuingBackoffLimitTimeout: new(time.Hour),
+					requeuingBackoffBaseSeconds:  10,
+					requeuingBackoffJitter:       0,
+					requeuingBackoffMaxDuration:  time.Duration(3600) * time.Second,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(now.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				AdmittedAt(true, now).
+				RequeueState(new(int32(3)), nil).
+				RequeueStateFirstEvictedAt(new(metav1.NewTime(now.Add(-time.Hour)))).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadDeactivationTarget,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadRequeuingLimitExceeded,
+					Message: "exceeding the maximum time 1h0m0s for re-queuing retries",
+				}).
+				RequeueState(new(int32(3)), nil).
+				RequeueStateFirstEvictedAt(new(metav1.NewTime(now.Add(-time.Hour)))).
+				Obj(),
+		},
+		"clear firstEvictedAt when the workload reaches PodsReady=True": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                      3 * time.Second,
+					requeuingBackoffLimitTimeout: new(time.Hour),
+					requeuingBackoffBaseSeconds:  10,
+					requeuingBackoffJitter:       0,
+					requeuingBackoffMaxDuration:  time.Duration(3600) * time.Second,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				RequeueState(new(int32(3)), nil).
+				RequeueStateFirstEvictedAt(new(metav1.NewTime(now.Add(-30 * time.Minute)))).
+				Obj(),
+			// The fake client treats SSA as a strategic merge patch, which cannot clear the field.
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				RequeueState(new(int32(3)), nil).
+				RequeueStateFirstEvictedAt(new(metav1.NewTime(now.Add(-30 * time.Minute)))).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadStarted,
+					Message: "All pods reached readiness and the workload is running",
+				}).
+				RequeueState(new(int32(3)), nil).
+				Obj(),
+		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
 }

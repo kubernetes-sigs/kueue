@@ -108,7 +108,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	// Only include RequeueState in the patch if it has meaningful content.
-	if w.Status.RequeueState != nil && (w.Status.RequeueState.Count != nil || w.Status.RequeueState.RequeueAt != nil) {
+	if w.Status.RequeueState != nil && (w.Status.RequeueState.Count != nil || w.Status.RequeueState.RequeueAt != nil || w.Status.RequeueState.FirstEvictedAt != nil) {
 		wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
 	}
 	if wlCopy.Status.Admission != nil {

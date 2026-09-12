@@ -407,10 +407,11 @@ func TestValidate(t *testing.T) {
 					},
 					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp:          new(configapi.CreationTimestamp),
-						BackoffLimitCount:  new(int32(10)),
-						BackoffBaseSeconds: new(int32(30)),
-						BackoffMaxSeconds:  new(int32(1800)),
+						Timestamp:           new(configapi.CreationTimestamp),
+						BackoffLimitCount:   new(int32(10)),
+						BackoffBaseSeconds:  new(int32(30)),
+						BackoffMaxSeconds:   new(int32(1800)),
+						BackoffLimitTimeout: &metav1.Duration{Duration: 24 * time.Hour},
 					},
 				},
 			},
@@ -548,6 +549,40 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
 					Field: "featureGates[WaitForPodsReadyUnscheduledTimeout]",
+				},
+			},
+		},
+		"zero waitForPodsReady.requeuingStrategy.backoffLimitTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffLimitTimeout: &metav1.Duration{Duration: 0},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.requeuingStrategy.backoffLimitTimeout",
+				},
+			},
+		},
+		"negative waitForPodsReady.requeuingStrategy.backoffLimitTimeout": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						BackoffLimitTimeout: &metav1.Duration{Duration: -time.Minute},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.requeuingStrategy.backoffLimitTimeout",
 				},
 			},
 		},

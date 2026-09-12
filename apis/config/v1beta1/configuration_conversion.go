@@ -107,6 +107,12 @@ func Convert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue, ou
 	return autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in, out, s)
 }
 
+func Convert_v1beta2_RequeuingStrategy_To_v1beta1_RequeuingStrategy(in *v1beta2.RequeuingStrategy, out *RequeuingStrategy, s conversionapi.Scope) error {
+	// BackoffLimitTimeout is intentionally dropped during conversion to
+	// v1beta1 as it has no equivalent field.
+	return autoConvert_v1beta2_RequeuingStrategy_To_v1beta1_RequeuingStrategy(in, out, s)
+}
+
 func Convert_v1beta2_ControllerMetricsCustomLabel_To_v1beta1_ControllerMetricsCustomLabel(in *v1beta2.ControllerMetricsCustomLabel, out *ControllerMetricsCustomLabel, s conversionapi.Scope) error {
 	return autoConvert_v1beta2_ControllerMetricsCustomLabel_To_v1beta1_ControllerMetricsCustomLabel(in, out, s)
 }

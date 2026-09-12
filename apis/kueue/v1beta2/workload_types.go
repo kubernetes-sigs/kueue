@@ -790,6 +790,16 @@ type RequeueState struct {
 	//
 	// +optional
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
+
+	// firstEvictedAt records the time of the first eviction with the PodsReadyTimeout
+	// reason since the workload last reached the PodsReady=true condition.
+	// It is only recorded when waitForPodsReady.requeuingStrategy.backoffLimitTimeout
+	// is configured and is used to enforce that timeout.
+	// It is reset to null when the workload reaches PodsReady=true, and when a
+	// deactivated (`.spec.active`=`false`) workload is reactivated (`.spec.active`=`true`).
+	//
+	// +optional
+	FirstEvictedAt *metav1.Time `json:"firstEvictedAt,omitempty"`
 }
 
 // AdmissionCheckReference is the name of an AdmissionCheck.
@@ -1151,7 +1161,7 @@ const (
 	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
 
 	// WorkloadRequeuingLimitExceeded indicates that the workload exceeded max number
-	// of re-queuing retries.
+	// of re-queuing retries or the maximum time for re-queuing retries.
 	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
 
 	// WorkloadMaximumExecutionTimeExceeded indicates that the workload exceeded its

@@ -47,6 +47,12 @@ func Convert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in *WorkloadStatus
 	return autoConvert_v1beta1_WorkloadStatus_To_v1beta2_WorkloadStatus(in, out, s)
 }
 
+func Convert_v1beta2_RequeueState_To_v1beta1_RequeueState(in *v1beta2.RequeueState, out *RequeueState, s conversionapi.Scope) error {
+	// FirstEvictedAt is intentionally dropped during conversion to v1beta1
+	// as it has no equivalent field.
+	return autoConvert_v1beta2_RequeueState_To_v1beta1_RequeueState(in, out, s)
+}
+
 func Convert_v1beta1_WorkloadSpec_To_v1beta2_WorkloadSpec(in *WorkloadSpec, out *v1beta2.WorkloadSpec, s conversionapi.Scope) error {
 	switch in.PriorityClassSource {
 	case WorkloadPriorityClassSource:
