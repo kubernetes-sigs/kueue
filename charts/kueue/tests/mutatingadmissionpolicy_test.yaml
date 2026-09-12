@@ -1,0 +1,70 @@
+suite: test mutating admission policy
+templates:
+  - map/manifests.yaml
+
+tests:
+  - it: should not render MutatingAdmissionPolicy on Kubernetes 1.35 without API
+    capabilities:
+      majorVersion: 1
+      minorVersion: 35
+    set:
+      enableMutatingAdmissionPolicy: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render MutatingAdmissionPolicy when API is available
+    capabilities:
+      majorVersion: 1
+      minorVersion: 35
+      apiVersions:
+        - admissionregistration.k8s.io/v1/MutatingAdmissionPolicy
+    set:
+      enableMutatingAdmissionPolicy: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: MutatingAdmissionPolicy
+        documentIndex: 0
+      - isKind:
+          of: MutatingAdmissionPolicyBinding
+        documentIndex: 1
+
+  - it: should not render MutatingAdmissionPolicy when disabled and API is available
+    capabilities:
+      majorVersion: 1
+      minorVersion: 35
+      apiVersions:
+        - admissionregistration.k8s.io/v1/MutatingAdmissionPolicy
+    set:
+      enableMutatingAdmissionPolicy: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render MutatingAdmissionPolicy on Kubernetes 1.36
+    capabilities:
+      majorVersion: 1
+      minorVersion: 36
+    set:
+      enableMutatingAdmissionPolicy: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: MutatingAdmissionPolicy
+        documentIndex: 0
+      - isKind:
+          of: MutatingAdmissionPolicyBinding
+        documentIndex: 1
+
+  - it: should not render MutatingAdmissionPolicy when disabled
+    capabilities:
+      majorVersion: 1
+      minorVersion: 36
+    set:
+      enableMutatingAdmissionPolicy: false
+    asserts:
+      - hasDocuments:
+          count: 0
