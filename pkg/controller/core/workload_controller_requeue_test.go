@@ -27,12 +27,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestReconcileRequeue(t *testing.T) {
@@ -707,6 +705,31 @@ func TestReconcileRequeue(t *testing.T) {
 				Obj(),
 			wantResult: reconcile.Result{},
 		},
+		"requeue after backoff accounts for the effective cpu request": {
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(true).
+				Limit(corev1.ResourceCPU, "3").
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-time.Minute)))).
+				Obj(),
+			wantPendingWorkloads: map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info{
+				"cq": {
+					"ns/wl": {
+						TotalRequests: []workload.PodSetResources{
+							{
+								Name:  kueue.DefaultPodSetName,
+								Count: 1,
+								Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 3000,
+								}),
+							},
+						},
+					},
+				},
+			},
+		},
 		"should use the biggest total time not the biggest RequeueAfterSeconds": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				AdmissionCheck(kueue.AdmissionCheckState{
@@ -756,51 +779,4 @@ func TestReconcileRequeue(t *testing.T) {
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
-}
-
-// The requeue-after-backoff path must account the workload by its effective
-// resources: a container that declares only a cpu limit is charged that limit
-// (mirroring the requests the created Pods will carry), not the raw empty
-// requests.
-func TestRequeueAfterBackoffUsesAdjustedResources(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	fakeClock := testingclock.NewFakeClock(now)
-
-	wl := utiltestingapi.MakeWorkload("wl", "ns").
-		Queue("lq").
-		Active(true).
-		Limit(corev1.ResourceCPU, "3").
-		RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-time.Minute)))).
-		Obj()
-
-	cl := utiltesting.NewClientBuilder().
-		WithObjects(wl).
-		WithStatusSubresource(wl).
-		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-		Build()
-	recorder := &utiltesting.EventRecorder{}
-	cqCache := schdcache.New(cl)
-	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
-		qcache.WithClock(fakeClock),
-		qcache.WithPreemptionExpectations(preemptexpectations.New()))
-	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
-	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
-
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl"}}); err != nil {
-		t.Fatalf("Reconcile() failed: %v", err)
-	}
-
-	pending := qManager.PendingWorkloadsInfo("cq")
-	if len(pending) != 1 {
-		t.Fatalf("expected 1 pending workload after the backoff requeue, got %d", len(pending))
-	}
-	// The effective cpu request is the limit (3 CPU = 3000m); raw accounting
-	// would report 0.
-	if got := pending[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 3000 {
-		t.Errorf("requeued workload accounted cpu=%dm, want 3000m", got)
-	}
 }
