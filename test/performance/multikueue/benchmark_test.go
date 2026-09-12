@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -136,11 +136,7 @@ func TestReceiveWorkloadsReturnsReconnectError(t *testing.T) {
 	watcher := watch.NewRaceFreeFake()
 	watcher.Stop()
 	wantErr := errors.New("watch reconnect failed")
-	c := interceptor.NewClient(utiltesting.NewClientBuilder().Build(), interceptor.Funcs{
-		Watch: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) (watch.Interface, error) {
-			return nil, wantErr
-		},
-	})
+	c := &watchErrorClient{WithWatch: utiltesting.NewClientBuilder().Build(), err: wantErr}
 	out := make(chan timedWorkload, 1)
 	if err := receiveWorkloads(t.Context(), c, "run", watcher, "1", &watchTracker{}, out); !errors.Is(err, wantErr) {
 		t.Fatalf("receiveWorkloads() error = %v, want %v", err, wantErr)
@@ -165,93 +161,38 @@ func testRunBenchmarkCancelsAndJoinsBackgroundWork(t *testing.T, releaseGenerati
 	malformedWorkload.ResourceVersion = "1"
 	watcher.Add(malformedWorkload)
 
-	generationCanceled := make(chan struct{})
-	generationReturned := make(chan struct{})
-	releaseGeneration := make(chan struct{})
-	watchCanceled := make(chan struct{})
-	watchReturned := make(chan struct{})
-	releaseWatch := make(chan struct{})
-	generationReleased := false
-	watchReleased := false
-	defer func() {
-		if !generationReleased {
-			close(releaseGeneration)
-		}
-		if !watchReleased {
-			close(releaseWatch)
-		}
-	}()
+	generation := newBlockedOperation()
+	watcherOperation := newBlockedOperation()
+	defer generation.release()
+	defer watcherOperation.release()
 
-	benchmarkClient := interceptor.NewClient(utiltesting.NewClientBuilder().Build(), interceptor.Funcs{
-		Create: func(ctx context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
-			<-ctx.Done()
-			close(generationCanceled)
-			<-releaseGeneration
-			close(generationReturned)
-			return ctx.Err()
-		},
-		Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
-			go func() {
-				<-ctx.Done()
-				close(watchCanceled)
-				<-releaseWatch
-				watcher.Stop()
-				close(watchReturned)
-			}()
-			return watcher, nil
-		},
-	})
-
+	benchmarkClient := &blockingBenchmarkClient{
+		WithWatch:  utiltesting.NewClientBuilder().Build(),
+		watcher:    watcher,
+		generation: generation,
+		watch:      watcherOperation,
+	}
 	result := make(chan error, 1)
-	go func() {
-		_, err := runBenchmark(t.Context(), &benchmarkCluster{client: benchmarkClient}, benchmarkConfig{
-			WorkloadCount:   1,
-			WorkerClusters:  1,
-			CreationWorkers: 1,
-			CPURequest:      "1m",
-		})
-		result <- err
-	}()
+	go runBenchmarkForTest(t.Context(), benchmarkClient, result)
 
-	waitForSignal := func(signal <-chan struct{}, name string) {
-		t.Helper()
-		select {
-		case <-signal:
-		case <-time.After(time.Second):
-			t.Fatalf("timed out waiting for %s", name)
-		}
-	}
-	assertRunning := func(wait time.Duration) {
-		t.Helper()
-		select {
-		case err := <-result:
-			t.Fatalf("runBenchmark() returned before its background work stopped: %v", err)
-		case <-time.After(wait):
-		}
-	}
-
-	waitForSignal(generationCanceled, "workload generation cancellation")
-	waitForSignal(watchCanceled, "workload watch cancellation")
-	assertRunning(10 * time.Millisecond)
+	waitForSignal(t, generation.canceled, "workload generation cancellation")
+	waitForSignal(t, watcherOperation.canceled, "workload watch cancellation")
+	assertBenchmarkRunning(t, result, 10*time.Millisecond)
 
 	if releaseGenerationFirst {
-		generationReleased = true
-		close(releaseGeneration)
-		waitForSignal(generationReturned, "workload generation return")
-		assertRunning(100 * time.Millisecond)
+		generation.release()
+		waitForSignal(t, generation.returned, "workload generation return")
+		assertBenchmarkRunning(t, result, 100*time.Millisecond)
 
-		watchReleased = true
-		close(releaseWatch)
-		waitForSignal(watchReturned, "workload watch return")
+		watcherOperation.release()
+		waitForSignal(t, watcherOperation.returned, "workload watch return")
 	} else {
-		watchReleased = true
-		close(releaseWatch)
-		waitForSignal(watchReturned, "workload watch return")
-		assertRunning(100 * time.Millisecond)
+		watcherOperation.release()
+		waitForSignal(t, watcherOperation.returned, "workload watch return")
+		assertBenchmarkRunning(t, result, 100*time.Millisecond)
 
-		generationReleased = true
-		close(releaseGeneration)
-		waitForSignal(generationReturned, "workload generation return")
+		generation.release()
+		waitForSignal(t, generation.returned, "workload generation return")
 	}
 
 	select {
@@ -312,20 +253,22 @@ func TestSummarizeRejectsIncompleteTiming(t *testing.T) {
 	cfg := benchmarkConfig{WorkloadCount: 1, WorkerClusters: 1, CreationWorkers: 1, CPURequest: "1m"}
 
 	testCases := map[string]struct {
-		mutate func(*kueue.Workload)
+		admissionChecks []kueue.AdmissionCheckState
+		clusterName     *string
 	}{
 		"missing dispatch-ready check": {
-			mutate: func(wl *kueue.Workload) { wl.Status.AdmissionChecks = nil },
+			clusterName: new(workerName(0)),
 		},
 		"missing worker assignment": {
-			mutate: func(wl *kueue.Workload) { wl.Status.ClusterName = nil },
+			admissionChecks: []kueue.AdmissionCheckState{{Name: multiKueueAdmissionCheck, State: kueue.CheckStateReady}},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			workload := admittedWorkload(time.Now())
-			tc.mutate(workload)
+			workload.Status.AdmissionChecks = tc.admissionChecks
+			workload.Status.ClusterName = tc.clusterName
 
 			collector := newObservationCollector()
 			if err := collector.observe(workload, time.Now()); err != nil {
@@ -335,5 +278,95 @@ func TestSummarizeRejectsIncompleteTiming(t *testing.T) {
 				t.Error("summarize() returned no error for incomplete timing data")
 			}
 		})
+	}
+}
+
+type watchErrorClient struct {
+	client.WithWatch
+	err error
+}
+
+func (c *watchErrorClient) Watch(context.Context, client.ObjectList, ...client.ListOption) (watch.Interface, error) {
+	return nil, c.err
+}
+
+type blockedOperation struct {
+	canceled    chan struct{}
+	returned    chan struct{}
+	releaseCh   chan struct{}
+	releaseOnce sync.Once
+}
+
+func newBlockedOperation() *blockedOperation {
+	return &blockedOperation{
+		canceled:  make(chan struct{}),
+		returned:  make(chan struct{}),
+		releaseCh: make(chan struct{}),
+	}
+}
+
+func (o *blockedOperation) waitForCancellationAndRelease(ctx context.Context) {
+	<-ctx.Done()
+	close(o.canceled)
+	<-o.releaseCh
+}
+
+func (o *blockedOperation) release() {
+	o.releaseOnce.Do(o.closeReleaseChannel)
+}
+
+func (o *blockedOperation) closeReleaseChannel() {
+	close(o.releaseCh)
+}
+
+type blockingBenchmarkClient struct {
+	client.WithWatch
+	watcher    *watch.RaceFreeFakeWatcher
+	generation *blockedOperation
+	watch      *blockedOperation
+}
+
+func (c *blockingBenchmarkClient) Create(ctx context.Context, _ client.Object, _ ...client.CreateOption) error {
+	c.generation.waitForCancellationAndRelease(ctx)
+	close(c.generation.returned)
+	return ctx.Err()
+}
+
+func (c *blockingBenchmarkClient) Watch(ctx context.Context, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+	go c.stopWatch(ctx)
+	return c.watcher, nil
+}
+
+func (c *blockingBenchmarkClient) stopWatch(ctx context.Context) {
+	c.watch.waitForCancellationAndRelease(ctx)
+	c.watcher.Stop()
+	close(c.watch.returned)
+}
+
+func runBenchmarkForTest(ctx context.Context, c client.WithWatch, result chan<- error) {
+	_, err := runBenchmark(ctx, &benchmarkCluster{client: c}, benchmarkConfig{
+		WorkloadCount:   1,
+		WorkerClusters:  1,
+		CreationWorkers: 1,
+		CPURequest:      "1m",
+	})
+	result <- err
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func assertBenchmarkRunning(t *testing.T, result <-chan error, wait time.Duration) {
+	t.Helper()
+	select {
+	case err := <-result:
+		t.Fatalf("runBenchmark() returned before its background work stopped: %v", err)
+	case <-time.After(wait):
 	}
 }

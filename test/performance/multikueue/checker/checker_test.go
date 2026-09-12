@@ -292,81 +292,58 @@ func TestCheckSummary(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		mutate func(*report.Summary)
-		want   string
+		summary report.Summary
+		want    string
 	}{
-		"valid": {},
+		"valid": {summary: validSummary},
 		"throughput regression": {
-			mutate: func(summary *report.Summary) {
-				summary.ThroughputPerSecond = 0.7
-			},
-			want: "throughput",
+			summary: withThroughput(validSummary, 0.7),
+			want:    "throughput",
 		},
 		"admission regression": {
-			mutate: func(summary *report.Summary) {
-				summary.Latencies.AdmissionMs.P95Ms = 160_000
-			},
-			want: "admission P95",
+			summary: withAdmissionP95(validSummary, 160_000),
+			want:    "admission P95",
 		},
 		"quota reservation regression": {
-			mutate: func(summary *report.Summary) {
-				summary.Latencies.QuotaReservationMs.P95Ms = 600
-			},
-			want: "quota reservation P95",
+			summary: withQuotaReservationP95(validSummary, 600),
+			want:    "quota reservation P95",
 		},
 		"incomplete samples": {
-			mutate: func(summary *report.Summary) {
-				summary.Latencies.AdmissionMs.Count = 99
-			},
-			want: "sample count",
+			summary: withAdmissionSamples(validSummary, 99),
+			want:    "sample count",
 		},
 		"idle worker": {
-			mutate: func(summary *report.Summary) {
-				summary.WorkerDistribution["worker-3"] = 0
-			},
-			want: "did not admit",
+			summary: withWorkerAssignment(validSummary, "worker-3", 0),
+			want:    "did not admit",
 		},
 		"scenario mismatch": {
-			mutate: func(summary *report.Summary) {
-				summary.Scenario.CreationWorkers = 10
-			},
-			want: "CreationWorkers",
+			summary: withCreationWorkers(validSummary, 10),
+			want:    "CreationWorkers",
 		},
 		"remote rate limit mismatch": {
-			mutate: func(summary *report.Summary) {
-				summary.Scenario.RemoteClientQPS = 300
-			},
-			want: "RemoteClientQPS",
+			summary: withRemoteClientQPS(validSummary, 300),
+			want:    "RemoteClientQPS",
 		},
 		"reconcile concurrency mismatch": {
-			mutate: func(summary *report.Summary) {
-				summary.Scenario.WorkloadConcurrency = 1
-			},
-			want: "WorkloadConcurrency",
+			summary: withWorkloadConcurrency(validSummary, 1),
+			want:    "WorkloadConcurrency",
 		},
 		"one watch gap is tolerated": {
-			mutate: func(summary *report.Summary) {
-				summary.WatchGaps = 1
-			},
+			summary: withWatchGaps(validSummary, 1),
+		},
+		"reject summary from before shared worker budget": {
+			summary: withRemoteClientRateLimitScope(validSummary, ""),
+			want:    "RemoteClientRateLimitScope",
 		},
 		"repeated watch gaps": {
-			mutate: func(summary *report.Summary) {
-				summary.WatchGaps = 2
-			},
-			want: "re-established its workload watch",
+			summary: withWatchGaps(validSummary, 2),
+			want:    "re-established its workload watch",
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			summary := validSummary
-			summary.WorkerDistribution = make(map[string]int, len(validSummary.WorkerDistribution))
-			maps.Copy(summary.WorkerDistribution, validSummary.WorkerDistribution)
-			if tc.mutate != nil {
-				tc.mutate(&summary)
-			}
-
-			failures := checkSummary(summary, validRange)
+			failures := checkSummary(tc.summary, validRange)
 			if tc.want == "" && len(failures) != 0 {
 				t.Fatalf("checkSummary() failures = %v, want none", failures)
 			}
@@ -375,14 +352,6 @@ func TestCheckSummary(t *testing.T) {
 			}
 		})
 	}
-	t.Run("reject summary from before shared worker budget", func(t *testing.T) {
-		summary := validSummary
-		summary.Scenario.RemoteClientRateLimitScope = ""
-		failures := checkSummary(summary, validRange)
-		if !strings.Contains(strings.Join(failures, "\n"), "RemoteClientRateLimitScope") {
-			t.Fatalf("checkSummary() failures = %v, want remote rate limit scope mismatch", failures)
-		}
-	})
 }
 
 func TestDecodeBenchmarkSummary(t *testing.T) {
@@ -526,4 +495,55 @@ func rewriteRangeField(t *testing.T, data, field, replacement string) string {
 		t.Fatalf("Field %q not found in committed range", field)
 	}
 	return line.ReplaceAllString(data, replacement)
+}
+
+func withThroughput(summary report.Summary, value float64) report.Summary {
+	summary.ThroughputPerSecond = value
+	return summary
+}
+
+func withAdmissionP95(summary report.Summary, value int64) report.Summary {
+	summary.Latencies.AdmissionMs.P95Ms = value
+	return summary
+}
+
+func withQuotaReservationP95(summary report.Summary, value int64) report.Summary {
+	summary.Latencies.QuotaReservationMs.P95Ms = value
+	return summary
+}
+
+func withAdmissionSamples(summary report.Summary, value int) report.Summary {
+	summary.Latencies.AdmissionMs.Count = value
+	return summary
+}
+
+func withCreationWorkers(summary report.Summary, value int) report.Summary {
+	summary.Scenario.CreationWorkers = value
+	return summary
+}
+
+func withRemoteClientQPS(summary report.Summary, value float32) report.Summary {
+	summary.Scenario.RemoteClientQPS = value
+	return summary
+}
+
+func withWorkloadConcurrency(summary report.Summary, value int) report.Summary {
+	summary.Scenario.WorkloadConcurrency = value
+	return summary
+}
+
+func withWatchGaps(summary report.Summary, value int) report.Summary {
+	summary.WatchGaps = value
+	return summary
+}
+
+func withWorkerAssignment(summary report.Summary, worker string, count int) report.Summary {
+	summary.WorkerDistribution = maps.Clone(summary.WorkerDistribution)
+	summary.WorkerDistribution[worker] = count
+	return summary
+}
+
+func withRemoteClientRateLimitScope(summary report.Summary, scope string) report.Summary {
+	summary.Scenario.RemoteClientRateLimitScope = scope
+	return summary
 }
