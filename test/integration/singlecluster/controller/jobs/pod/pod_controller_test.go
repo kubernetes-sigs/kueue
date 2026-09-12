@@ -3325,11 +3325,11 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			nodeKey := types.NamespacedName{Name: nodeName}
 			nodeToUpdate := &corev1.Node{}
 			gomega.Expect(k8sClient.Get(ctx, nodeKey, nodeToUpdate)).Should(gomega.Succeed())
+			util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 			util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 				Type:   corev1.NodeReady,
 				Status: corev1.ConditionFalse,
 			})
-			util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 		})
 
 		ginkgo.By("terminating a pod", func() {
@@ -3422,11 +3422,11 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 			nodeKey := types.NamespacedName{Name: nodeName}
 			nodeToUpdate := &corev1.Node{}
 			gomega.Expect(k8sClient.Get(ctx, nodeKey, nodeToUpdate)).Should(gomega.Succeed())
+			util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 			util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 				Type:   corev1.NodeReady,
 				Status: corev1.ConditionFalse,
 			})
-			util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 		})
 
 		ginkgo.By("verify the workload is assigned a new node", func() {

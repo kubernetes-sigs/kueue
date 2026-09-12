@@ -3727,12 +3727,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					nodeToUpdate := &corev1.Node{}
 					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
 
+					util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
 						Type:               corev1.NodeReady,
 						Status:             corev1.ConditionFalse,
 						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
 					})
-					util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 				})
 
 				ginkgo.By("verify the workload is evicted due to no replacement possible", func() {

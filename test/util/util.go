@@ -77,11 +77,8 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
@@ -1822,21 +1819,12 @@ func ExpectWorkloadToHaveConditions(
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
 }
 
-// SchedulingSimulatorCacheOptions mirrors cmd/kueue/main.go: the scheduler cache is
-// backed by the WAS simulator only when SchedulerLibraryIntegration is enabled.
-func SchedulingSimulatorCacheOptions(ctx context.Context, cfg *rest.Config) []schdcache.Option {
-	if !features.Enabled(features.SchedulerLibraryIntegration) {
-		return nil
-	}
-	sim, err := was.NewWASSimulator(ctx, cfg)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "Failed to initialize WAS scheduling simulator")
-	return []schdcache.Option{schdcache.WithSchedulingSimulator(sim)}
-}
-
 // TaintNodeNotReady adds the node.kubernetes.io/not-ready NoSchedule taint that the
 // node lifecycle controller applies to NotReady nodes in a real cluster. envtest runs
 // no such controller, and with SchedulerLibraryIntegration enabled TAS relies on the
-// scheduler library rejecting NotReady nodes through this taint.
+// scheduler library rejecting NotReady nodes through this taint. Call it before
+// flipping the Ready condition: the taint and the condition are separate updates, and
+// a node that is NotReady but not yet tainted is still feasible to the library.
 func TaintNodeNotReady(ctx context.Context, k8sClient client.Client, node *corev1.Node) {
 	notReadyTaint := corev1.Taint{Key: corev1.TaintNodeNotReady, Effect: corev1.TaintEffectNoSchedule}
 	var updatedNode corev1.Node

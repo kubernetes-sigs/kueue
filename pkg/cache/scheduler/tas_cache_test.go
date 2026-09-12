@@ -33,7 +33,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -52,21 +51,21 @@ import (
 var notReadyTaint = corev1.Taint{Key: corev1.TaintNodeNotReady, Effect: corev1.TaintEffectNoSchedule}
 
 // withoutSchedulerLibrary pins cases whose expectations are specific to the gate-off
-// path: NotReady and unschedulable nodes being dropped from the node cache, and the
-// default simulator's per-reason exclusion stats, which the scheduler library does not
-// report yet (see TODO(#13283) in simulator.NodeExclusionStats).
+// path. Two things differ under the gate while the resulting assignment does not:
+// NotReady and unschedulable nodes stay in the node cache and are rejected by the
+// scheduler library instead, and the failure reason carries a single aggregate
+// schedulerLibraryNoFit count in place of the default simulator's per-reason exclusion
+// stats (see TODO(#13283) in simulator.NodeExclusionStats).
 var withoutSchedulerLibrary = map[featuregate.Feature]bool{features.SchedulerLibraryIntegration: false}
 
-// newTestSchedulingSimulator mirrors the wiring in cmd/kueue/main.go: the TAS cache is
-// backed by the WAS simulator only when SchedulerLibraryIntegration is enabled.
+// newTestSchedulingSimulator builds the simulator the way production does, so the TAS
+// cache is backed by the WAS simulator exactly when SchedulerLibraryIntegration is on.
+// The discard logger keeps the WAS informer goroutines from racing the test logger.
 func newTestSchedulingSimulator(ctx context.Context, t *testing.T) simulator.SchedulingSimulator {
 	t.Helper()
-	if !features.Enabled(features.SchedulerLibraryIntegration) {
-		return newDefaultSimulator()
-	}
-	sim, err := was.NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+	sim, err := NewSchedulingSimulator(klog.NewContext(ctx, logr.Discard()), nil)
 	if err != nil {
-		t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
+		t.Fatalf("Failed to initialize scheduling simulator: %v", err)
 	}
 	return sim
 }

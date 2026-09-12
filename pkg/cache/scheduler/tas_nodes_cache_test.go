@@ -109,6 +109,7 @@ func TestNodesCacheFind(t *testing.T) {
 	node3 := node.MakeNode("test3").
 		Label("cloud.provider.com/zone", "us-east-1a").
 		Label("cloud.provider.com/topology-block", "b1").
+		Label(corev1.LabelHostname, "test3").
 		Ready().
 		Obj()
 	node4 := node.MakeNode("test4").Label("cloud.provider.com/zone", "us-east-1").Ready().Obj()
@@ -166,7 +167,7 @@ func TestNodesCacheFind(t *testing.T) {
 		"FG enabled: hostname lowest level keeps the not-ready node for the scheduler library": {
 			enableSchedulerLibraryIntegration: true,
 			levels:                            []string{"cloud.provider.com/topology-block", corev1.LabelHostname},
-			wantNodes:                         []*corev1.Node{copyAndStripNode(notReadyNode)},
+			wantNodes:                         []*corev1.Node{copyAndStripNode(node3), copyAndStripNode(notReadyNode)},
 		},
 	}
 	for name, tc := range testCases {

@@ -107,7 +107,7 @@ func managerSetup(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cacheOptions := []schdcache.Option{schdcache.WithCustomLabels(customLabels)}
-		cacheOptions = append(cacheOptions, util.SchedulingSimulatorCacheOptions(ctx, mgr.GetConfig())...)
+		cacheOptions = append(cacheOptions, framework.SchedulingSimulatorCacheOptions(ctx, mgr.GetConfig())...)
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		opts = append(opts, jobframework.WithCache(cCache))
 
