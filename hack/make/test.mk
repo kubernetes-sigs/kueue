@@ -226,12 +226,17 @@ test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-exte
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
 
+TEST_MULTIKUEUE_E2E_SEQUENTIAL_KUBERAY_TARGETS := test-multikueue-e2e-sequential test-multikueue-e2e-sequential-shard-1
+$(TEST_MULTIKUEUE_E2E_SEQUENTIAL_KUBERAY_TARGETS): export KUBERAY_VERSION := $(KUBERAY_VERSION)
+$(TEST_MULTIKUEUE_E2E_SEQUENTIAL_KUBERAY_TARGETS): export RAY_VERSION := $(RAY_VERSION)
+$(TEST_MULTIKUEUE_E2E_SEQUENTIAL_KUBERAY_TARGETS): export RAYMINI_VERSION := $(RAYMINI_VERSION)
+
 .PHONY: test-multikueue-e2e-sequential-shard-0
 test-multikueue-e2e-sequential-shard-0: GINKGO_ARGS=--label-filter=shard-0
 test-multikueue-e2e-sequential-shard-0: test-multikueue-e2e-sequential
 
 .PHONY: test-multikueue-e2e-sequential-shard-1
-test-multikueue-e2e-sequential-shard-1: GINKGO_ARGS=--label-filter=shard-1
+test-multikueue-e2e-sequential-shard-1: GINKGO_ARGS=--label-filter=shard-1,feature:kuberay
 test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
 
 .PHONY: test-multikueue-e2e-helm

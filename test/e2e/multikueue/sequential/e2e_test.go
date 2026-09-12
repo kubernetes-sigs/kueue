@@ -224,6 +224,19 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
+	registerRayAutoscalingTests(func() rayAutoscalingTestContext {
+		return rayAutoscalingTestContext{
+			managerNs:      managerNs,
+			managerCq:      managerCq,
+			managerLq:      managerLq,
+			multiKueueAc:   multiKueueAc,
+			workerCluster1: workerCluster1,
+			workerCluster2: workerCluster2,
+			worker1Cq:      worker1Cq,
+			worker2Cq:      worker2Cq,
+		}
+	})
+
 	ginkgo.Describe("Worker Job TTL clearing", ginkgo.Label(util.Shard0), func() {
 		ginkgo.It("Should not propagate Job TTL and should clean up the completed manager Job", func() {
 			defaultManagerKueueCfg := util.GetKueueConfiguration(ctx, k8sManagerClient)
