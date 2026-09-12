@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -42,6 +43,7 @@ type BaseWebhook[T any] struct {
 	FromObject                   func(T) GenericJob
 	Queues                       *qcache.Manager
 	Cache                        *schdcache.Cache
+	MaxTimeoutOnWorkload         *metav1.Duration
 }
 
 func BaseWebhookFactory[T runtime.Object](obj T, fromObject func(T) GenericJob) func(ctrl.Manager, ...Option) error {
@@ -55,6 +57,7 @@ func BaseWebhookFactory[T runtime.Object](obj T, fromObject func(T) GenericJob) 
 			FromObject:                   fromObject,
 			Queues:                       options.Queues,
 			Cache:                        options.Cache,
+			MaxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 		}
 		if options.NoopWebhook {
 			return webhook.SetupNoopWebhook(mgr, obj)
@@ -90,7 +93,7 @@ func (w *BaseWebhook[T]) ValidateCreate(ctx context.Context, obj T) (admission.W
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Validating create")
-	allErrs := ValidateJobOnCreate(job)
+	allErrs := ValidateJobOnCreate(job, w.MaxTimeoutOnWorkload)
 	if jobWithValidation, ok := job.(JobWithCustomValidation); ok {
 		validationErrs, err := jobWithValidation.ValidateOnCreate(ctx)
 		if err != nil {
@@ -107,7 +110,7 @@ func (w *BaseWebhook[T]) ValidateUpdate(ctx context.Context, oldObj, newObj T) (
 	newJob := w.FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx)
 	log.Info("Validating update")
-	allErrs := ValidateJobOnUpdate(oldJob, newJob, w.Queues.DefaultLocalQueueExist)
+	allErrs := ValidateJobOnUpdate(oldJob, newJob, w.Queues.DefaultLocalQueueExist, w.MaxTimeoutOnWorkload)
 	if jobWithValidation, ok := newJob.(JobWithCustomValidation); ok {
 		validationErrs, err := jobWithValidation.ValidateOnUpdate(ctx, oldJob)
 		if err != nil {

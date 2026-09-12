@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -74,6 +75,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utilwfpr "sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -1657,8 +1659,27 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	if r.waitForPodsReady == nil {
-		// the timeout is not configured for the workload controller
+	// Resolve the effective WaitForStart timeout: per-workload takes precedence.
+	var timeout time.Duration
+	var recoveryTimeout *time.Duration
+	cfg, err := utilwfpr.ParseAnnotation(wl.Annotations[controllerconstants.WaitForPodsReadyAnnotation])
+	if err != nil {
+		r.logger().Error(err, "Failed to unmarshal WaitForPodsReady annotation", "workload", klog.KObj(wl))
+		return "", 0
+	}
+	switch {
+	case cfg != nil:
+		timeout = cfg.Timeout
+		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > 0 {
+			recoveryTimeout = cfg.RecoveryTimeout
+		} else if cfg.RecoveryTimeout == nil {
+			recoveryTimeout = ptr.To(timeout)
+		}
+	case r.waitForPodsReady != nil:
+		timeout = r.waitForPodsReady.timeout
+		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+	default:
+		// No timeout configured at either level.
 		return "", 0
 	}
 	if !workload.IsAdmitted(wl) {
@@ -1679,11 +1700,11 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 	switch {
 	case podsReadyCond == nil, podsReadyCond.Reason == kueue.WorkloadWaitForStart, podsReadyCond.Reason == kueue.WorkloadPodsReady,
 		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
-		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(r.waitForPodsReady.timeout))
-	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil:
+		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(timeout))
+	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && recoveryTimeout != nil:
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-		return kueue.WorkloadWaitForRecovery, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
+		return kueue.WorkloadWaitForRecovery, max(*recoveryTimeout-elapsedTime, 0)
 	}
 	return "", 0
 }

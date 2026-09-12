@@ -55,6 +55,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -147,6 +148,7 @@ type Options struct {
 	CustomLabels                 *metrics.CustomLabels
 	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
+	MaxTimeoutOnWorkload         *metav1.Duration
 }
 
 // Option configures the reconciler.
@@ -182,6 +184,9 @@ func WithWaitForPodsReady(cfg *configapi.WaitForPodsReady) Option {
 	return func(o *Options) {
 		o.WaitForPodsReady = waitforpodsready.Enabled(cfg)
 		o.WaitForPodsReadyConfig = cfg
+		if cfg != nil && cfg.MaxTimeoutOnWorkload != nil {
+			o.MaxTimeoutOnWorkload = cfg.MaxTimeoutOnWorkload
+		}
 	}
 }
 
@@ -572,7 +577,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 5. handle WaitForPodsReady only for a standalone job.
 	// handle a job when waitForPodsReady is enabled, and it is the main job
-	if r.waitForPodsReady {
+	if r.waitForPodsReady || wl.Annotations[controllerconstants.WaitForPodsReadyAnnotation] != "" {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
 		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
@@ -1519,6 +1524,30 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 
 	defaultDuration := int32(-1)
 	if ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, defaultDuration) != ptr.Deref(MaximumExecutionTimeSeconds(job), defaultDuration) {
+		return false, nil
+	}
+
+	wlCfg, err := waitforpodsready.ParseAnnotation(wl.Annotations[controllerconstants.WaitForPodsReadyAnnotation])
+	if err != nil {
+		return false, err
+	}
+	var wlTimeout, jobTimeout time.Duration
+	var wlRecoveryTimeout, jobRecoveryTimeout *time.Duration
+	if wlCfg != nil {
+		wlTimeout = wlCfg.Timeout
+		wlRecoveryTimeout = wlCfg.RecoveryTimeout
+	}
+
+	jobCfg, err := waitforpodsready.ParseAnnotation(job.Object().GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation])
+	if err != nil {
+		return false, err
+	}
+	if jobCfg != nil {
+		jobTimeout = jobCfg.Timeout
+		jobRecoveryTimeout = jobCfg.RecoveryTimeout
+	}
+
+	if wlTimeout != jobTimeout || !ptr.Equal(wlRecoveryTimeout, jobRecoveryTimeout) {
 		return false, nil
 	}
 
