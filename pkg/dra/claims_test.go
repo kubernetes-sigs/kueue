@@ -104,7 +104,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			name:   "Unmapped DeviceClass returns error",
 			lookup: noLookup,
 			wantErr: field.ErrorList{
-				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName"), ""),
+				field.NotFound(field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("resourceClaimTemplateName").Child("deviceClassName"), "test-deviceclass-1"),
 			},
 		},
 		{
