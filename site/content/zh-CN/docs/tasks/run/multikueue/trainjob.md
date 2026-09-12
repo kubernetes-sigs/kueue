@@ -12,7 +12,7 @@ description: >
 查阅 [MultiKueue 安装指南](/docs/tasks/manage/setup_multikueue)以了解如何正确设置 MultiKueue 集群。
 
 为了简化设置和使用，我们建议至少使用 Kueue v0.11.0 版本以及
-Kubeflow Trainer 至少 v2.0.0 版本。
+Kubeflow Trainer 至少 v2.2.0 版本。
 
 查看 [Trainer 安装](https://www.kubeflow.org/zh/docs/components/trainer/operator-guides/installation/)获取
 Kubeflow Trainer v2 的安装和配置详情。
