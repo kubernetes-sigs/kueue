@@ -407,6 +407,7 @@ test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=
 test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
 
 .PHONY: test-e2e-multikueue-map
+test-e2e-multikueue-map: export JOBSET_VERSION := $(JOBSET_VERSION)
 test-e2e-multikueue-map: E2E_MAP_K8S_VERSION ?= 1.36.1
 test-e2e-multikueue-map: setup-e2e-env
 	@$(MAKE) run-test-multikueue-e2e-map-$(E2E_MAP_K8S_VERSION) ## Run the MultiKueue MutatingAdmissionPolicy e2e test suite (Kubernetes 1.36).
