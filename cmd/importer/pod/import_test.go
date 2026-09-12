@@ -410,7 +410,9 @@ func TestImportNamespace(t *testing.T) {
 			pcList := schedulingv1.PriorityClassList{Items: tc.priorityClasses}
 
 			builder := utiltesting.NewClientBuilder().
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).WithStatusSubresource(&kueue.Workload{}).
 				WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)
 
 			client := builder.Build()
