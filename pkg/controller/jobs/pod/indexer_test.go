@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -50,6 +51,55 @@ func TestIndexPodGroupName(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := IndexPodGroupName(tc.object)
 			if diff := cmp.Diff(tc.wantKeys, got); diff != "" {
+				t.Errorf("Unexpected keys (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestIndexMultiKueuePodGroupName(t *testing.T) {
+	cases := map[string]struct {
+		object   client.Object
+		wantKeys []string
+	}{
+		"non-pod object": {
+			object: testingnode.MakeNode("node").Label(podconstants.GroupNameLabel, "group-1").Obj(),
+		},
+		"pod without group name": {
+			object: testingpod.MakePod("pod", "ns").Obj(),
+		},
+		"pod with label group name": {
+			object: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-1").
+				Obj(),
+			wantKeys: []string{"group-1"},
+		},
+		"pod with annotation group name": {
+			object: testingpod.MakePod("pod", "ns").
+				GroupNameAnnotation("group-1").
+				Obj(),
+			wantKeys: []string{"group-1"},
+		},
+		"pod with matching label and annotation group names": {
+			object: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-1").
+				GroupNameAnnotation("group-1").
+				Obj(),
+			wantKeys: []string{"group-1"},
+		},
+		"pod with distinct label and annotation group names": {
+			object: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-1").
+				GroupNameAnnotation("group-2").
+				Obj(),
+			wantKeys: []string{"group-1", "group-2"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := indexMultiKueuePodGroupName(tc.object)
+			if diff := cmp.Diff(tc.wantKeys, got, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("Unexpected keys (-want,+got):\n%s", diff)
 			}
 		})

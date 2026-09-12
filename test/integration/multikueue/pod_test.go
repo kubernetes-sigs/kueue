@@ -33,8 +33,10 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilapi "sigs.k8s.io/kueue/pkg/util/api"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -275,6 +277,96 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, "Pods succeeded: 3/3.")
+		})
+	})
+
+	ginkgo.It("Should preserve a colliding worker PodGroup member", func() {
+		groupName := "collision-group"
+		podGroup := testingpod.MakePod(groupName, f.managerNs.Name).
+			Queue(f.managerLq.Name).
+			ManagedByKueueLabel().
+			KueueFinalizer().
+			KueueSchedulingGate().
+			MakeGroup(3)
+		for _, pod := range podGroup {
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, pod)
+		}
+
+		wlKey := types.NamespacedName{Name: groupName, Namespace: f.managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment("bf90803c").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(3).Obj()).
+			Obj()
+
+		ginkgo.By("dispatching the Workload before the worker admits it", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlKey, admission)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, &kueue.Workload{})).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		victimKey := client.ObjectKeyFromObject(podGroup[2])
+		victim := testingpod.MakePod(victimKey.Name, victimKey.Namespace).Obj()
+		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, victim)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, victimKey, victim)).To(gomega.Succeed())
+			victim.Status.Phase = corev1.PodRunning
+			g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, victim)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		victimUID := victim.UID
+		for i := range 2 {
+			remotePod := &corev1.Pod{
+				ObjectMeta: utilapi.CloneObjectMetaForCreation(&podGroup[i].ObjectMeta),
+				Spec:       *podGroup[i].Spec.DeepCopy(),
+			}
+			jobframework.SetMultiKueueMeta(remotePod, groupName, "multikueue")
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, remotePod)
+		}
+
+		ginkgo.By("admitting the worker Workload and rejecting the colliding member", func() {
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlKey, admission)
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteAnchor := &corev1.Pod{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(podGroup[0]), remoteAnchor)).To(gomega.Succeed())
+				remoteAnchor.Status.Phase = corev1.PodRunning
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, remoteAnchor)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerAnchor := &corev1.Pod{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(podGroup[0]), managerAnchor)).To(gomega.Succeed())
+				g.Expect(managerAnchor.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				managerPod := &corev1.Pod{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, victimKey, managerPod)).To(gomega.Succeed())
+				g.Expect(managerPod.Status.Phase).NotTo(gomega.Equal(corev1.PodRunning))
+				workerPod := &corev1.Pod{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, victimKey, workerPod)).To(gomega.Succeed())
+				g.Expect(workerPod.UID).To(gomega.Equal(victimUID))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("cleaning up legitimate remote objects without deleting the victim", func() {
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlKey, nil)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+				anchor := &corev1.Pod{}
+				if err := worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(podGroup[0]), anchor); err == nil {
+					// The worker Pod controller can keep a malformed group's Pods in
+					// Terminating while it reports that the group has too few runnable
+					// members. A deletion timestamp is sufficient to prove MultiKueue
+					// targeted the legitimate anchor for cleanup.
+					g.Expect(anchor.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+				} else {
+					g.Expect(err).To(utiltesting.BeNotFoundError())
+				}
+				workerPod := &corev1.Pod{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, victimKey, workerPod)).To(gomega.Succeed())
+				g.Expect(workerPod.UID).To(gomega.Equal(victimUID))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

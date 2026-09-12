@@ -54,6 +54,38 @@ type MultiKueueAdapter interface {
 	GVK() schema.GroupVersionKind
 }
 
+// MultiKueueObjectAssociation identifies the origin and remote Workload that
+// mutable MultiKueue metadata associates with an object.
+type MultiKueueObjectAssociation struct {
+	Origin       string
+	WorkloadName string
+}
+
+// MultiKueueRemoteObjectCleanupContext carries the expected remote object
+// identity and the Workload metadata needed for adapter-specific cleanup.
+// WorkloadAnnotations must be a copy so later API mutations cannot change the
+// cleanup decision.
+type MultiKueueRemoteObjectCleanupContext struct {
+	RemoteObjectUID     types.UID
+	Association         MultiKueueObjectAssociation
+	WorkloadKey         types.NamespacedName
+	WorkloadAnnotations map[string]string
+}
+
+// MultiKueueAdapterWithRemoteObjectCleanup is an optional extension for adapters
+// whose cleanup must remain bound to an exact remote controller-object instance.
+// Multi-object cleanup is one use case.
+type MultiKueueAdapterWithRemoteObjectCleanup interface {
+	MultiKueueAdapter
+	DeleteRemoteObjectWithCleanupContext(
+		ctx context.Context,
+		localClient client.Client,
+		remoteClient client.Client,
+		key types.NamespacedName,
+		cleanupContext MultiKueueRemoteObjectCleanupContext,
+	) error
+}
+
 // MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter
 // to receive job related watch events from the worker cluster.
 // If not implemented, MultiKueue will only receive events related to the job's workload.
