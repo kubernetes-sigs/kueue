@@ -1840,7 +1840,6 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 	for _, w := range lst.Items {
 		wlCopy := w.DeepCopy()
 		log := log.WithValues("workload", klog.KObj(wlCopy))
-		log.V(5).Info("Queue reconcile for")
 		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 
 		if dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
