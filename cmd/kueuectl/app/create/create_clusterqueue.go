@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -362,11 +363,16 @@ func getCoveredResources(resourceSpecs []string) []corev1.ResourceName {
 
 func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) (kueue.FlavorQuotas, error) {
 	resourceQuotas := make([]kueue.ResourceQuota, 0, len(resourceSpecs))
+	seen := sets.New[corev1.ResourceName]()
 	for _, spec := range resourceSpecs {
 		rq, err := toResourceQuota(spec, quotaType)
 		if err != nil {
 			return kueue.FlavorQuotas{}, err
 		}
+		if seen.Has(rq.Name) {
+			return kueue.FlavorQuotas{}, fmt.Errorf("%w %q: resource %q is specified more than once in --%s", errMisconfiguredFlavor, name, rq.Name, quotaType)
+		}
+		seen.Insert(rq.Name)
 
 		resourceQuotas = append(resourceQuotas, rq)
 	}
