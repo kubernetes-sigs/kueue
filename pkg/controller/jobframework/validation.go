@@ -31,6 +31,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -81,12 +82,12 @@ var (
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
-func ValidateJobOnCreate(job GenericJob) field.ErrorList {
+func ValidateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
-	allErrs = append(allErrs, validateCreateForPodsReadyTimeout(job)...)
+	allErrs = append(allErrs, validateCreateForPodsReadyTimeout(job, maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
@@ -107,13 +108,13 @@ func ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob GenericJob, manageJobsWi
 }
 
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
-func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
+func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob, defaultQueueExist)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
-	allErrs = append(allErrs, validateUpdateForPodsReadyTimeout(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForPodsReadyTimeout(oldJob, newJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
 	}
@@ -266,7 +267,7 @@ func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *co
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
 }
 
-func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
+func validateCreateForPodsReadyTimeout(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		return nil
 	}
@@ -279,16 +280,25 @@ func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
 		return field.ErrorList{field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, fmt.Sprintf("must be a valid JSON object: %v", err))}
 	}
 	var allErrs field.ErrorList
-	if cfg != nil && cfg.Timeout <= 0 {
-		allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout, "timeoutSeconds must be greater than 0"))
+	if cfg != nil {
+		if cfg.Timeout <= 0 {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout, "timeoutSeconds must be greater than 0"))
+		}
+		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout < 0 {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, *cfg.RecoveryTimeout, "recoveryTimeoutSeconds must be greater than or equal to 0"))
+		}
+		if maxTimeoutOnWorkload != nil && cfg.Timeout > maxTimeoutOnWorkload.Duration {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.Timeout.Seconds(), fmt.Sprintf("timeoutSeconds must be less than or equal to %d", int64(maxTimeoutOnWorkload.Duration.Seconds()))))
+		}
+		if maxTimeoutOnWorkload != nil && cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > maxTimeoutOnWorkload.Duration {
+			allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, cfg.RecoveryTimeout.Seconds(), fmt.Sprintf("recoveryTimeoutSeconds must be less than or equal to %d", int64(maxTimeoutOnWorkload.Duration.Seconds()))))
+		}
 	}
-	if cfg != nil && cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout < 0 {
-		allErrs = append(allErrs, field.Invalid(waitForPodsReadyAnnotationPath, *cfg.RecoveryTimeout, "recoveryTimeoutSeconds must be greater than or equal to 0"))
-	}
+
 	return allErrs
 }
 
-func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		return nil
 	}
@@ -299,7 +309,7 @@ func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorLis
 			waitForPodsReadyAnnotationPath,
 		)
 	}
-	return validateCreateForPodsReadyTimeout(newJob)
+	return validateCreateForPodsReadyTimeout(newJob, maxTimeoutOnWorkload)
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {
