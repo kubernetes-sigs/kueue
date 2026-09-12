@@ -129,3 +129,14 @@ func (s *defaultSimulatorSnapshot) Simulate(_ context.Context, fn func()) error 
 	fn()
 	return nil
 }
+
+func (s *defaultSimulatorSnapshot) ScheduleWorkload(
+	ctx context.Context,
+	wlKey simulator.WorkloadKey,
+	preemptionCandidates []simulator.WorkloadKey,
+	preemptedWorkloads []simulator.WorkloadKey,
+) (result simulator.SchedulingResult, preemptionResult simulator.PreemptionResult, err error) {
+	return simulator.SchedulingResult{}, simulator.PreemptionResult{
+		PreemptionTargets: preemptedWorkloads,
+	}, nil
+}

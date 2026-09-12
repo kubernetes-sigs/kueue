@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -84,4 +85,19 @@ func (s *NodeExclusionStats) RecordExclusion(exclusionType NodeExclusionType, ta
 	case ExclusionAffinity:
 		s.Affinity++
 	}
+}
+
+type WorkloadKey = client.ObjectKey
+
+type SchedulingResult struct {
+	Bindings []PodBinding
+}
+
+type PodBinding struct {
+	Pod      *corev1.Pod
+	NodeName string
+}
+
+type PreemptionResult struct {
+	PreemptionTargets []WorkloadKey
 }

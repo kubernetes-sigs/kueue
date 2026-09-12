@@ -242,3 +242,17 @@ func (s *wasSimulatorSnapshot) Simulate(ctx context.Context, fn func()) error {
 		return schedLibSnapshot.Revert, nil
 	})
 }
+
+func (s *wasSimulatorSnapshot) ScheduleWorkload(
+	ctx context.Context,
+	wlKey simulator.WorkloadKey,
+	preemptionCandidates []simulator.WorkloadKey,
+	preemptedWorkloads []simulator.WorkloadKey,
+) (result simulator.SchedulingResult, preemptionResult simulator.PreemptionResult, err error) {
+	// 1.1. Get list of pods mapped to the wlKey -> pods
+	// 1.2. Translate the keys of preemption candidates (workloads) to the sets of victim pods -> potentialVictims
+	// 1.3. Translate the keys of preempted workloads to the sets of victim pods -> existingVictims
+	// 2. Call s.wasSnapshot.ScheduleWorkload(ctx, opts, pods, potentialVictims, existingVictims)
+	// 3. Convert the results to: (A) a list of PodBindings for the scheduled pods and (B) a list of preempted workloads
+	panic("not implemented")
+}
