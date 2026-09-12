@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -4663,11 +4664,11 @@ func TestReconcile(t *testing.T) {
 						}
 						return c.List(ctx, objs, opts...)
 					},
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if _, isWl := obj.(*kueue.Workload); isWl && errors.Is(tc.wantErr, errConflict) {
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						if errors.Is(tc.wantErr, errConflict) {
 							return errConflict
 						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 					},
 				})
 			for _, p := range tc.pods {
