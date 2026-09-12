@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -6455,5 +6456,750 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("dont-copy-label"))
 		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
 		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("dont-copy-annotation"))
+	})
+})
+
+var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	const shortUnscheduledTimeout = 8 * time.Second
+
+	var (
+		backoffBaseSeconds int32
+		timeout            time.Duration
+		unscheduledTimeout *metav1.Duration
+		ns                 *corev1.Namespace
+		fl                 *kueue.ResourceFlavor
+		cq                 *kueue.ClusterQueue
+		lq                 *kueue.LocalQueue
+		jobKey             types.NamespacedName
+		wlKey              types.NamespacedName
+		admission          *kueue.Admission
+	)
+
+	ginkgo.JustBeforeEach(func() {
+		waitForPodsReady := &configapi.WaitForPodsReady{
+			BlockAdmission: new(true),
+			Timeout:        metav1.Duration{Duration: timeout},
+			RequeuingStrategy: &configapi.RequeuingStrategy{
+				Timestamp:          new(configapi.EvictionTimestamp),
+				BackoffBaseSeconds: new(backoffBaseSeconds),
+			},
+			RecoveryTimeout:    &metav1.Duration{},
+			UnscheduledTimeout: unscheduledTimeout,
+		}
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(
+			false,
+			false,
+			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+			jobframework.WithWaitForPodsReady(waitForPodsReady),
+		))
+
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "unscheduled-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		util.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "10").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).
+			ClusterQueue(cq.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+
+		ginkgo.By("creating the job")
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+		jobKey = client.ObjectKeyFromObject(job)
+		wlKey = types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+		admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "2").
+				Obj()).
+			Obj()
+	})
+
+	ginkgo.JustAfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+		fwk.StopManager(ctx)
+	})
+
+	getWorkload := func(g gomega.Gomega) *kueue.Workload {
+		wl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		return wl
+	}
+
+	createPod := func(pod *corev1.Pod) {
+		ginkgo.GinkgoHelper()
+		gomega.Eventually(func(g gomega.Gomega) {
+			getWorkload(g)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		// envtest has no kubelet to complete graceful deletion after binding.
+		pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
+		util.MustCreate(ctx, k8sClient, pod)
+	}
+
+	markScheduled := func(pod *corev1.Pod) {
+		ginkgo.GinkgoHelper()
+		if pod.Spec.NodeName == "" {
+			util.BindPodWithNode(ctx, k8sClient, "node", pod)
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+			pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}}
+			g.Expect(k8sClient.Status().Update(ctx, pod)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
+	admitWorkload := func() {
+		ginkgo.GinkgoHelper()
+		util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+		util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
+	}
+
+	updateJobStatus := func(active int32, ready *int32, failed int32) {
+		ginkgo.GinkgoHelper()
+		gomega.Eventually(func(g gomega.Gomega) {
+			job := &batchv1.Job{}
+			g.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
+			job.Status.Active = active
+			job.Status.Ready = ready
+			job.Status.Failed = failed
+			g.Expect(k8sClient.Status().Update(ctx, job)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
+	expectCurrentObservation := func(want metav1.Condition) (metav1.Condition, time.Time) {
+		ginkgo.GinkgoHelper()
+		var observation metav1.Condition
+		var admittedAt time.Time
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := getWorkload(g)
+			admitted := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+			g.Expect(admitted).To(gomega.HaveValue(gomega.HaveField("Status", metav1.ConditionTrue)))
+			observed := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)
+			g.Expect(observed).To(gomega.HaveValue(gomega.BeComparableTo(want, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			g.Expect(observed.LastTransitionTime.Time).To(gomega.BeTemporally(">", admitted.LastTransitionTime.Time))
+			observation = *observed
+			admittedAt = admitted.LastTransitionTime.Time
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		return observation, admittedAt
+	}
+
+	expectPodsScheduledToEqual := func(want metav1.Condition) {
+		ginkgo.GinkgoHelper()
+		got := apimeta.FindStatusCondition(getWorkload(gomega.Default).Status.Conditions, kueue.WorkloadPodsScheduled)
+		gomega.Expect(got).To(gomega.HaveValue(gomega.BeComparableTo(want, util.IgnoreConditionTimestamps)))
+		gomega.Expect(got.LastTransitionTime.Time).To(gomega.BeTemporally("==", want.LastTransitionTime.Time))
+	}
+
+	expectEvicted := func(cause kueue.EvictionUnderlyingCause, count int32, budget time.Duration) metav1.Condition {
+		ginkgo.GinkgoHelper()
+		var evicted metav1.Condition
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := getWorkload(g)
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+			g.Expect(cond).To(gomega.HaveValue(gomega.BeComparableTo(metav1.Condition{
+				Type:    kueue.WorkloadEvicted,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+				Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+			}, util.IgnoreConditionTimestampsAndObservedGeneration)))
+			g.Expect(wl.Status.SchedulingStats).To(gomega.HaveValue(gomega.HaveField("Evictions", gomega.ContainElement(
+				kueue.WorkloadSchedulingStatsEviction{
+					Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+					UnderlyingCause: cause,
+					Count:           count,
+				},
+			))))
+			evicted = *cond
+		}, budget, util.Interval).Should(gomega.Succeed())
+		util.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, string(cause), "", int(count))
+		return evicted
+	}
+
+	expectNotEvicted := func(duration time.Duration) {
+		ginkgo.GinkgoHelper()
+		gomega.Consistently(func(g gomega.Gomega) {
+			wl := getWorkload(g)
+			g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeFalse())
+			g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+		}, duration, util.Interval).Should(gomega.Succeed())
+	}
+
+	ginkgo.When("waitForPodsReady is configured with a short unscheduledTimeout", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, false)
+			backoffBaseSeconds = 10
+			timeout = 5 * time.Minute
+			unscheduledTimeout = &metav1.Duration{Duration: shortUnscheduledTimeout}
+		})
+
+		ginkgo.It("should evict the workload when a required pod is not scheduled within the unscheduledTimeout, and again after a re-admission", func() {
+			ginkgo.By("creating an unscheduled pod linked to the workload")
+			createPod(testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj())
+
+			ginkgo.By("admitting the workload")
+			admitWorkload()
+
+			ginkgo.By("checking the workload annotations are injected into the pod template of the job")
+			gomega.Eventually(func(g gomega.Gomega) {
+				job := &batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
+				g.Expect(job.Spec.Template.Annotations).To(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, wlKey.Name))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the tracker reports the unscheduled pod and the job framework propagates it")
+			observation, _ := expectCurrentObservation(
+				metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled"},
+			)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is evicted with the WaitForScheduling cause")
+			expectEvicted(kueue.WorkloadWaitForScheduling, 1, util.Timeout+shortUnscheduledTimeout)
+			util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+				Reason: "EvictedDueToPodsReadyTimeoutDueToWaitForScheduling",
+				Type:   corev1.EventTypeNormal,
+				Note:   fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+			})
+
+			ginkgo.By("checking quota is released and Job reconcile resets PodsReady")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := getWorkload(g)
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+				g.Expect(wl.Status.Conditions).To(gomega.ContainElement(
+					gomega.BeComparableTo(
+						metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
+						util.IgnoreConditionTimestampsAndObservedGeneration,
+					),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the unscheduled observation is retained after quota release and readiness reset")
+			expectPodsScheduledToEqual(observation)
+
+			ginkgo.By("admitting the workload again while the pod is still unscheduled")
+			admitWorkload()
+
+			ginkgo.By("checking the tracker observes the pod again for the new admission")
+			expectCurrentObservation(
+				metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled"},
+			)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is evicted again with the WaitForScheduling cause")
+			expectEvicted(kueue.WorkloadWaitForScheduling, 2, util.Timeout+shortUnscheduledTimeout)
+		})
+
+		ginkgo.It("should not extend an expired admission deadline when the first pod is observed late", func() {
+			admitWorkload()
+			fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+			admittedAt := metav1.NewTime(fakeClock.Now().Add(-shortUnscheduledTimeout))
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := getWorkload(g)
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
+				apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime = admittedAt
+				g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("creating the first pod after the scheduling deadline, before the overall readiness deadline")
+			podCreatedAt := time.Now().Truncate(time.Second)
+			createPod(testingpod.MakePod("late-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).Obj())
+			evicted := expectEvicted(kueue.WorkloadWaitForScheduling, 1, util.Timeout)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(shortUnscheduledTimeout)))
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally("<", podCreatedAt.Add(shortUnscheduledTimeout)))
+		})
+
+		ginkgo.DescribeTable("scheduling requires both node binding and PodScheduled=True", func(nodeNameFirst bool) {
+			pod := testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).Obj()
+			if nodeNameFirst {
+				pod.Spec.NodeName = "node"
+			}
+			createPod(pod)
+			if !nodeNameFirst {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					pod.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}}
+					g.Expect(k8sClient.Status().Update(ctx, pod)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+			admitWorkload()
+
+			ginkgo.By("waiting for scheduling while only one signal is present")
+			expectCurrentObservation(metav1.Condition{
+				Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled",
+			})
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage,
+			})
+
+			ginkgo.By("completing scheduling when the second signal is observed")
+			markScheduled(pod)
+			expectCurrentObservation(metav1.Condition{
+				Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadAllRequiredPodsScheduled, Message: "All required pods were scheduled or succeeded",
+			})
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage,
+			})
+		},
+			ginkgo.Entry("node name is set first", true),
+			ginkgo.Entry("PodScheduled=True is set first", false),
+		)
+
+		ginkgo.DescribeTable("the tracker resets scheduled history on non-admission", func(gateEnabled bool, schedulingTimeout *metav1.Duration, wantReset bool) {
+			pod := testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				NodeName("node").Obj()
+			createPod(pod)
+			markScheduled(pod)
+			admitWorkload()
+			observation, _ := expectCurrentObservation(metav1.Condition{
+				Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadAllRequiredPodsScheduled, Message: "All required pods were scheduled or succeeded",
+			})
+			updateJobStatus(1, new(int32(1)), 0)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			})
+			ginkgo.By("deleting the pod before quota release, leaving no further Pod events for the reset")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+			fwk.StopManager(ctx)
+			features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: gateEnabled,
+			})
+			wl := getWorkload(gomega.Default)
+			fakeClock := testingclock.NewFakeClock(time.Now())
+			gomega.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, fakeClock, func(wl *kueue.Workload) (bool, error) {
+				return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadOnHold, "Job on hold", fakeClock.Now()), nil
+			})).To(gomega.Succeed())
+			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.HaveValue(gomega.Equal(observation)))
+
+			waitForPodsReady := &configapi.WaitForPodsReady{Timeout: metav1.Duration{Duration: timeout}, UnscheduledTimeout: schedulingTimeout}
+			fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false,
+				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+				jobframework.WithWaitForPodsReady(waitForPodsReady),
+			))
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage,
+			})
+			if !wantReset {
+				expectPodsScheduledToEqual(observation)
+				return
+			}
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage,
+			})
+
+			ginkgo.By("preserving the scheduling reset across a readiness-only update")
+			wl = getWorkload(gomega.Default)
+			reset := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled).DeepCopy()
+			gomega.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadPodsReady,
+				metav1.ConditionFalse, kueue.WorkloadWaitForStart, workload.PodsNotReadyMessage,
+				pkgconstants.JobControllerName, fakeClock)).To(gomega.Succeed())
+			expectPodsScheduledToEqual(*reset)
+
+			ginkgo.By("re-admitting and preserving the fresh observation across readiness updates")
+			// envtest has no Job controller to clear active/ready counts after suspension.
+			updateJobStatus(0, new(int32(0)), 0)
+			replacementPod := testingpod.MakePod("replacement-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				NodeName("node").Obj()
+			createPod(replacementPod)
+			markScheduled(replacementPod)
+			admitWorkload()
+			refreshed, _ := expectCurrentObservation(metav1.Condition{
+				Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadAllRequiredPodsScheduled, Message: "All required pods were scheduled or succeeded",
+			})
+			updateJobStatus(1, new(int32(1)), 0)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			})
+			expectPodsScheduledToEqual(refreshed)
+		},
+			ginkgo.Entry("without pods", true, &metav1.Duration{Duration: time.Minute}, true),
+			ginkgo.Entry("gate disabled", false, nil, false),
+			ginkgo.Entry("timeout omitted", true, nil, false),
+			ginkgo.Entry("timeout zero", true, &metav1.Duration{}, false),
+		)
+
+		ginkgo.It("should not apply the unscheduledTimeout once all the required pods were scheduled, even after a pod disappears", func() {
+			ginkgo.By("creating a scheduled pod linked to the workload")
+			pod := testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj()
+			createPod(pod)
+			markScheduled(pod)
+
+			ginkgo.By("admitting the workload")
+			admitWorkload()
+
+			ginkgo.By("checking the tracker reports all the pods scheduled while the workload waits for the pods to be ready")
+			observation, _ := expectCurrentObservation(
+				metav1.Condition{
+					Type:    kueue.WorkloadPodsScheduled,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadAllRequiredPodsScheduled,
+					Message: "All required pods were scheduled or succeeded",
+				},
+			)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is not evicted after the unscheduledTimeout")
+			expectNotEvicted(shortUnscheduledTimeout + util.ShortTimeout)
+
+			ginkgo.By("deleting the scheduled pod")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+
+			ginkgo.By("checking the observation of the admission is kept")
+			gomega.Consistently(func(g gomega.Gomega) {
+				got := apimeta.FindStatusCondition(getWorkload(g).Status.Conditions, kueue.WorkloadPodsScheduled)
+				g.Expect(got).To(gomega.HaveValue(gomega.BeComparableTo(observation, util.IgnoreConditionTimestamps)))
+				g.Expect(got.LastTransitionTime.Time).To(gomega.BeTemporally("==", observation.LastTransitionTime.Time))
+			}, pkgconstants.UpdatesBatchPeriod+util.ShortTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should keep the PodsScheduled observation while the workload waits for recovery", func() {
+			ginkgo.By("creating a scheduled pod linked to the workload")
+			pod := testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj()
+			createPod(pod)
+			markScheduled(pod)
+
+			ginkgo.By("admitting the workload")
+			admitWorkload()
+			observation, _ := expectCurrentObservation(
+				metav1.Condition{
+					Type:    kueue.WorkloadPodsScheduled,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadAllRequiredPodsScheduled,
+					Message: "All required pods were scheduled or succeeded",
+				},
+			)
+
+			ginkgo.By("setting all job's pods to be ready")
+			updateJobStatus(1, new(int32(1)), 0)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue, Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running"},
+			)
+
+			ginkgo.By("failing the pod and deleting it")
+			updateJobStatus(0, new(int32(0)), 1)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+
+			ginkgo.By("checking the workload waits for recovery with the observation of the admission kept")
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForRecovery, Message: "At least one pod has failed, waiting for recovery"},
+			)
+			expectPodsScheduledToEqual(observation)
+
+			ginkgo.By("checking the workload is not evicted")
+			expectNotEvicted(shortUnscheduledTimeout + util.ShortTimeout)
+			expectPodsScheduledToEqual(observation)
+		})
+
+		ginkgo.It("should apply only the timeout when no pod is linked to the workload", func() {
+			ginkgo.By("admitting the workload")
+			admitWorkload()
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload keeps waiting without a PodsScheduled condition")
+			expectNotEvicted(shortUnscheduledTimeout + util.ShortTimeout)
+			gomega.Expect(getWorkload(gomega.Default).Status.Conditions).NotTo(gomega.ContainElement(gomega.HaveField("Type", kueue.WorkloadPodsScheduled)))
+		})
+	})
+
+	ginkgo.When("waitForPodsReady is configured without unscheduledTimeout", func() {
+		const podsReadyTimeout = 10 * time.Second
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, false)
+			backoffBaseSeconds = 10
+			timeout = podsReadyTimeout
+			unscheduledTimeout = nil
+		})
+
+		ginkgo.It("should use only the ordinary readiness timeout without tracking", func() {
+			ginkgo.By("creating an unscheduled pod linked to the workload and admitting the workload")
+			createPod(testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj())
+			admitWorkload()
+
+			ginkgo.By("checking no scheduling observation or linking annotation is introduced")
+			wl := getWorkload(gomega.Default)
+			admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
+			job := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
+			gomega.Expect(job.Spec.Template.Annotations).NotTo(gomega.HaveKey(kueue.WorkloadAnnotation))
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is evicted at the timeout")
+			evicted := expectEvicted(kueue.WorkloadWaitForStart, 1, util.Timeout+podsReadyTimeout)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(podsReadyTimeout)))
+			gomega.Expect(apimeta.FindStatusCondition(getWorkload(gomega.Default).Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
+		})
+	})
+
+	ginkgo.When("waitForPodsReady is configured with unscheduledTimeout set to zero", func() {
+		const podsReadyTimeout = 10 * time.Second
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, false)
+			backoffBaseSeconds = 10
+			timeout = podsReadyTimeout
+			unscheduledTimeout = &metav1.Duration{}
+		})
+
+		ginkgo.It("should use only the ordinary readiness timeout without tracking", func() {
+			ginkgo.By("creating an unscheduled pod linked to the workload and admitting the workload")
+			createPod(testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj())
+			admitWorkload()
+
+			ginkgo.By("checking no scheduling observation or linking annotation is introduced")
+			wl := getWorkload(gomega.Default)
+			admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
+			job := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
+			gomega.Expect(job.Spec.Template.Annotations).NotTo(gomega.HaveKey(kueue.WorkloadAnnotation))
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is evicted at the timeout")
+			evicted := expectEvicted(kueue.WorkloadWaitForStart, 1, util.Timeout+podsReadyTimeout)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(podsReadyTimeout)))
+			gomega.Expect(apimeta.FindStatusCondition(getWorkload(gomega.Default).Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
+		})
+	})
+
+	ginkgo.When("scheduling tracking is disabled after an observation", func() {
+		const podsReadyTimeout = 25 * time.Second
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+			backoffBaseSeconds = 10
+			timeout = podsReadyTimeout
+			unscheduledTimeout = &metav1.Duration{Duration: 15 * time.Second}
+		})
+
+		ginkgo.DescribeTable("should ignore the leftover condition and use the normal deadline and cause after restart", func(gateEnabled bool, schedulingTimeout *metav1.Duration) {
+			createPod(testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj())
+			admitWorkload()
+			observation, admittedAt := expectCurrentObservation(metav1.Condition{
+				Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled",
+			})
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("restarting with scheduling tracking disabled")
+			fwk.StopManager(ctx)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, gateEnabled)
+			waitForPodsReady := &configapi.WaitForPodsReady{
+				BlockAdmission:     new(true),
+				Timeout:            metav1.Duration{Duration: podsReadyTimeout},
+				UnscheduledTimeout: schedulingTimeout,
+				RecoveryTimeout:    &metav1.Duration{},
+				RequeuingStrategy: &configapi.RequeuingStrategy{
+					Timestamp:          new(configapi.EvictionTimestamp),
+					BackoffBaseSeconds: new(int32(10)),
+				},
+			}
+			fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false,
+				&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+				jobframework.WithWaitForPodsReady(waitForPodsReady),
+			))
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
+			)
+			expectPodsScheduledToEqual(observation)
+			evicted := expectEvicted(kueue.WorkloadWaitForStart, 1, util.Timeout+podsReadyTimeout)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(podsReadyTimeout)))
+			expectPodsScheduledToEqual(observation)
+		},
+			ginkgo.Entry("feature gate disabled", false, nil),
+			ginkgo.Entry("timeout omitted", true, nil),
+			ginkgo.Entry("timeout set to zero", true, &metav1.Duration{}),
+		)
+	})
+
+	ginkgo.When("the scheduling feature gate is disabled", func() {
+		const podsReadyTimeout = 10 * time.Second
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.TopologyAwareScheduling:            false,
+				features.SchedulerLibraryIntegration:        false,
+			})
+			backoffBaseSeconds = 10
+			timeout = podsReadyTimeout
+			unscheduledTimeout = nil
+		})
+
+		ginkgo.It("should retain the original annotations, conditions, deadline and eviction cause", func() {
+			createPod(testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj())
+			admitWorkload()
+			job := &batchv1.Job{}
+			gomega.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
+			gomega.Expect(job.Spec.Template.Annotations).NotTo(gomega.HaveKey(kueue.WorkloadAnnotation))
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
+			)
+			admittedAt := apimeta.FindStatusCondition(getWorkload(gomega.Default).Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(getWorkload(g).Status.Conditions).NotTo(gomega.ContainElement(gomega.HaveField("Type", kueue.WorkloadPodsScheduled)))
+			}, util.ShortTimeout, util.Interval).Should(gomega.Succeed())
+			evicted := expectEvicted(kueue.WorkloadWaitForStart, 1, util.Timeout+podsReadyTimeout)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(podsReadyTimeout)))
+			util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+				Reason: "EvictedDueToPodsReadyTimeout",
+				Type:   corev1.EventTypeNormal,
+				Note:   fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+			})
+		})
+	})
+
+	ginkgo.When("unscheduledTimeout is equal to the timeout", func() {
+		const podsReadyTimeout = 10 * time.Second
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+			backoffBaseSeconds = 10
+			timeout = podsReadyTimeout
+			unscheduledTimeout = &metav1.Duration{Duration: podsReadyTimeout}
+		})
+
+		ginkgo.It("should evict the workload at the timeout and not before", func() {
+			ginkgo.By("creating an unscheduled pod linked to the workload and admitting the workload")
+			createPod(testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj())
+			admitWorkload()
+
+			ginkgo.By("checking the tracker reports the unscheduled pod and the job framework propagates it")
+			_, admittedAt := expectCurrentObservation(
+				metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled"},
+			)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is evicted at the timeout since the admission")
+			evicted := expectEvicted(kueue.WorkloadWaitForScheduling, 1, util.Timeout+podsReadyTimeout)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(podsReadyTimeout)))
+		})
+	})
+
+	ginkgo.When("waitForPodsReady is configured with a short unscheduledTimeout and no requeuing backoff", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+			backoffBaseSeconds = 0
+			timeout = 5 * time.Minute
+			unscheduledTimeout = &metav1.Duration{Duration: shortUnscheduledTimeout}
+		})
+
+		ginkgo.It("should time the re-admitted workload from its new admission", func() {
+			ginkgo.By("creating an unscheduled pod linked to the workload and admitting the workload")
+			createPod(testingpod.MakePod("job-pod", ns.Name).
+				Annotation(kueue.WorkloadAnnotation, wlKey.Name).
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Obj())
+			admitWorkload()
+			first, _ := expectCurrentObservation(
+				metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled"},
+			)
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is evicted with the WaitForScheduling cause")
+			expectEvicted(kueue.WorkloadWaitForScheduling, 1, util.Timeout+shortUnscheduledTimeout)
+
+			ginkgo.By("re-admitting the workload as soon as its quota reservation is released")
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := getWorkload(g)
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+				released := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+				fakeClock := testingclock.NewFakeClock(released.LastTransitionTime.Add(time.Second))
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, fakeClock, func(wl *kueue.Workload) (bool, error) {
+					return workload.SetQuotaReservation(wl, admission, fakeClock), nil
+				})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
+
+			ginkgo.By("checking the tracker observes the pod again for the new admission")
+			second, admittedAt := expectCurrentObservation(
+				metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: "At least one required pod is not scheduled"},
+			)
+			gomega.Expect(second.LastTransitionTime.Time).To(gomega.BeTemporally(">", first.LastTransitionTime.Time))
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, Message: workload.PodsNotReadyMessage},
+			)
+
+			ginkgo.By("checking the workload is evicted again, timed from the new admission")
+			evicted := expectEvicted(kueue.WorkloadWaitForScheduling, 2, util.Timeout+shortUnscheduledTimeout)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(shortUnscheduledTimeout)))
+		})
 	})
 })
