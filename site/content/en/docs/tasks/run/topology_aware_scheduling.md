@@ -170,6 +170,76 @@ kubectl -n default get workloads.kueue.x-k8s.io <workload-name> -o yaml
 That field lists the topology levels and domain values into which each PodSet
 was placed. It is the authoritative signal that TAS was applied.
 
+## Co-locating multiple PodSets (PodSet Grouping)
+
+Some distributed workloads, such as [LeaderWorkerSet](/docs/tasks/run/leaderworkerset), define their computing requirements across multiple, distinct Pod templates (e.g., one template for the Leader, and another for the Workers). Kueue translates these templates into separate `PodSets` within a single `Workload`.
+
+By default, Kueue evaluates TAS constraints for each `PodSet` independently, which could result in the Leader and Workers being scheduled into completely different topology domains, drastically increasing network latency.
+
+To prevent this, you can use the `kueue.x-k8s.io/podset-group-name` annotation in conjunction with a required or preferred topology annotation. By assigning the exact same group name to multiple Pod templates, you instruct Kueue to treat them as a single atomic unit and co-locate them in the same topology domain (strictly enforced for required placement, and best-effort for preferred placement).
+
+### Example: LeaderWorkerSet Rack-Level Co-location
+
+The following example requires Kueue to schedule both the Leader PodSet and the Worker PodSet into the exact same rack by setting both the `kueue.x-k8s.io/podset-required-topology` and `kueue.x-k8s.io/podset-group-name: "lws-group"` annotations on both templates.
+
+{{< include "examples/serving-workloads/sample-leaderworkerset-tas.yaml" "yaml" >}}
+
+Submit the LeaderWorkerSet using `kubectl create`:
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/serving-workloads/sample-leaderworkerset-tas.yaml
+```
+
+#### Verify rack co-location
+
+After the LeaderWorkerSet is admitted, list all Pods and the node they were assigned to, along with the rack label of that node:
+
+```shell
+kubectl get pods -l leaderworkerset.sigs.k8s.io/name=nginx-leaderworkerset \
+  -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,GROUP:.metadata.labels.leaderworkerset\.sigs\.k8s\.io/group-index,WORKER:.metadata.labels.leaderworkerset\.sigs\.k8s\.io/worker-index'
+```
+
+The output is similar to the following:
+
+```text
+NAME                             NODE           GROUP   WORKER
+nginx-leaderworkerset-0          kind-worker    0       0
+nginx-leaderworkerset-0-1        kind-worker2   0       1
+nginx-leaderworkerset-0-2        kind-worker3   0       2
+nginx-leaderworkerset-1          kind-worker5   1       0
+nginx-leaderworkerset-1-1        kind-worker6   1       1
+nginx-leaderworkerset-1-2        kind-worker7   1       2
+```
+
+To confirm the topology of the assigned nodes, list their labels:
+
+```shell
+kubectl get nodes -l cloud.provider.com/node-group=tas-group \
+  -L cloud.provider.com/topology-block,cloud.provider.com/topology-rack
+```
+
+The output is similar to the following:
+
+```text
+NAME           STATUS   ROLES    AGE   VERSION   TOPOLOGY-BLOCK   TOPOLOGY-RACK
+kind-worker    Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker2   Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker3   Ready    <none>   5m    v1.31.0   b1               r1
+kind-worker4   Ready    <none>   5m    v1.31.0   b1               r2
+kind-worker5   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker6   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker7   Ready    <none>   5m    v1.31.0   b2               r1
+kind-worker8   Ready    <none>   5m    v1.31.0   b2               r2
+```
+
+Observe that all Pods belonging to group `0` (the Leader at worker index `0` and its Workers at indices `1` and `2`) are placed on nodes within the same rack, and all Pods for group `1` are placed on nodes within a different rack. The Leader and Workers within each group are never split across racks.
+
+To see the authoritative topology placement chosen by Kueue, inspect the `topologyAssignment` field on the corresponding `Workload`:
+
+```shell
+kubectl get workloads.kueue.x-k8s.io -o yaml | grep -A 10 topologyAssignment
+```
+
 ## Advanced topics
 
 The page above covers the three basic TAS annotations. Kueue also supports
@@ -188,7 +258,7 @@ additional placement behavior:
   [Balanced Placement](/docs/concepts/topology_aware_scheduling#balanced-placement).
 - **PodSet groups** - co-locate multiple PodSets of a single workload in the
   same topology domain using `kueue.x-k8s.io/podset-group-name`. See
-  [Configure Topology Aware Scheduling for LeaderWorkerSet](/docs/tasks/run/leaderworkerset#configure-topology-aware-scheduling)
+  [Co-locating multiple PodSets](#co-locating-multiple-podsets-podset-grouping)
   for a working example.
 - **PodSet slices** - split a PodSet into fixed-size slices, each pinned to a
   single domain, using `kueue.x-k8s.io/podset-slice-required-topology` and
