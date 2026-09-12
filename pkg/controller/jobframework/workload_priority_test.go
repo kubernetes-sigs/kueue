@@ -460,22 +460,26 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 	}
 }
 
-// TestExtractPriorityReportsMissingWorkloadPriorityClass pins which lookup
-// failure is reported. Only the class the label named can be reported by name;
-// a failure anywhere else leaves the answer unknown, so saying the class does
-// not exist would be a guess.
-func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
-	forbidden := apierrors.NewForbidden(
+// TestExtractPriorityReportsMissingClass pins which lookup failure is reported.
+// Only a class the object named can be reported by name, whether it is the
+// WorkloadPriorityClass the label named or the PriorityClass the integration or
+// a Pod template named. A failure anywhere else leaves the answer unknown, so
+// saying the class does not exist would be a guess.
+func TestExtractPriorityReportsMissingClass(t *testing.T) {
+	forbiddenWorkloadPriorityClass := apierrors.NewForbidden(
 		kueue.SchemeGroupVersion.WithResource("workloadpriorityclasses").GroupResource(),
 		"denied", errors.New("not allowed"))
+	forbiddenPriorityClass := apierrors.NewForbidden(
+		schedulingv1.Resource("priorityclasses"), "denied", errors.New("not allowed"))
 
 	cases := map[string]struct {
-		job          *batchv1.Job
-		podSets      []kueue.PodSet
-		objects      []client.Object
-		interceptors interceptor.Funcs
-		wantEvents   []utiltesting.EventRecord
-		wantErr      error
+		job                     *batchv1.Job
+		podSets                 []kueue.PodSet
+		customPriorityClassFunc func() string
+		objects                 []client.Object
+		interceptors            interceptor.Funcs
+		wantEvents              []utiltesting.EventRecord
+		wantErr                 error
 	}{
 		"an explicitly referenced class that does not exist": {
 			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("missing").Obj(),
@@ -499,23 +503,105 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 		"no class referenced at all": {
 			job: testingjob.MakeJob("job", "ns").Obj(),
 		},
-		// scheduling.k8s.io is a different resource and keeps its own handling.
 		"a pod template naming a PriorityClass that does not exist": {
 			job:     testingjob.MakeJob("job", "ns").Obj(),
 			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("missing-pc").Obj()},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "job"},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPriorityClassNotFound,
+				Message:   `PriorityClass "missing-pc" not found`,
+			}},
 			wantErr: apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), "missing-pc"),
 		},
-		"a lookup that failed for another reason": {
-			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("denied").Obj(),
+		"a pod template naming a PriorityClass that exists": {
+			job:     testingjob.MakeJob("job", "ns").Obj(),
+			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("present-pc").Obj()},
+			objects: []client.Object{
+				utiltesting.MakePriorityClass("present-pc").PriorityValue(10).Obj(),
+			},
+		},
+		// An integration that resolves the name itself is asked before the Pod
+		// templates, so the class it names is the one reported even when a
+		// template names a different, existing one.
+		"an integration resolving a PriorityClass that does not exist": {
+			job:                     testingjob.MakeJob("job", "ns").Obj(),
+			podSets:                 []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("present-pc").Obj()},
+			customPriorityClassFunc: func() string { return "missing-pc" },
+			objects: []client.Object{
+				utiltesting.MakePriorityClass("present-pc").PriorityValue(10).Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "job"},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPriorityClassNotFound,
+				Message:   `PriorityClass "missing-pc" not found`,
+			}},
+			wantErr: apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), "missing-pc"),
+		},
+		// The label wins over both, so a missing PriorityClass under it is never
+		// reached and only the class the label named is reported.
+		"a label naming a missing class over a pod template naming a missing PriorityClass": {
+			job:     testingjob.MakeJob("job", "ns").WorkloadPriorityClass("missing").Obj(),
+			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("missing-pc").Obj()},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "job"},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonWorkloadPriorityClassNotFound,
+				Message:   `WorkloadPriorityClass "missing" not found`,
+			}},
+			wantErr: apierrors.NewNotFound(
+				kueue.SchemeGroupVersion.WithResource("workloadpriorityclasses").GroupResource(),
+				"missing",
+			),
+		},
+		// An integration that names nothing resolves the cluster default, which
+		// names no class, so there is nothing that could be reported by name. The
+		// Pod template is not consulted as a fallback, which is why naming a class
+		// that does not exist there still reports nothing.
+		"an integration resolving no PriorityClass at all": {
+			job:                     testingjob.MakeJob("job", "ns").Obj(),
+			podSets:                 []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("missing-pc").Obj()},
+			customPriorityClassFunc: func() string { return "" },
+		},
+		// The cluster default is read with a List, so a NotFound from it is about
+		// the resource and not about a class the object named.
+		"a cluster default lookup that returned NotFound": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+			interceptors: interceptor.Funcs{
+				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					if _, isClassList := list.(*schedulingv1.PriorityClassList); isClassList {
+						return apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), "")
+					}
+					return c.List(ctx, list, opts...)
+				},
+			},
+			wantErr: apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), ""),
+		},
+		"a PriorityClass lookup that failed for another reason": {
+			job:     testingjob.MakeJob("job", "ns").Obj(),
+			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("denied").Obj()},
 			interceptors: interceptor.Funcs{
 				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
-						return forbidden
+					if _, isClass := obj.(*schedulingv1.PriorityClass); isClass {
+						return forbiddenPriorityClass
 					}
 					return c.Get(ctx, key, obj, opts...)
 				},
 			},
-			wantErr: forbidden,
+			wantErr: forbiddenPriorityClass,
+		},
+		"a WorkloadPriorityClass lookup that failed for another reason": {
+			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("denied").Obj(),
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
+						return forbiddenWorkloadPriorityClass
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			wantErr: forbiddenWorkloadPriorityClass,
 		},
 	}
 	for name, tc := range cases {
@@ -531,7 +617,7 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 
 			// The event does not stand in for the error: the reconcile still fails.
-			_, _, err := ExtractPriority(t.Context(), cl, recorder, tc.job, podSets, nil)
+			_, _, err := ExtractPriority(t.Context(), cl, recorder, tc.job, podSets, tc.customPriorityClassFunc)
 
 			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
 				t.Fatalf("ExtractPriority() error (-want +got):\n%s", diff)
