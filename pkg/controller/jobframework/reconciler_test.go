@@ -569,7 +569,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
-		"waitForPodsReady disabled does not add the workload annotation": {
+		"waitForPodsReady without scheduling tracking adds the workload annotation": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 				features.TopologyAwareScheduling:            false,
@@ -622,9 +622,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantPodSets: []podset.PodSetInfo{
 				{
-					Name:        "main",
-					Count:       1,
-					Annotations: map[string]string{},
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel: "default-cq",
 						kueueconstants.LocalQueueLabel:   "test-lq",
@@ -634,7 +636,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
-		"scheduling tracking disabled does not add the workload annotation": {
+		"workload annotation is added when all related feature gates are disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: false,
 				features.TopologyAwareScheduling:            false,
@@ -690,9 +692,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantPodSets: []podset.PodSetInfo{
 				{
-					Name:        "main",
-					Count:       1,
-					Annotations: map[string]string{},
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel: "default-cq",
 						kueueconstants.LocalQueueLabel:   "test-lq",

@@ -1092,9 +1092,10 @@ const (
   // into the Pod.
   TopologySchedulingGate = "kueue.x-k8s.io/topology"
 
-  // WorkloadAnnotation is an annotation set on the Job's PodTemplate to
-  // indicate the name of the admitted Workload corresponding to the Job. The
-  // annotation is set when starting the Job, and removed on stopping the Job.
+  // The `kueue.x-k8s.io/workload` annotation is added to each PodTemplate
+  // to identify the admitted Workload corresponding to the Job. It is used
+  // by TopologyAssigner to facilitate quick lookup of Pods corresponding
+  // to the workload (and more specifically PodSetAssignment).
   WorkloadAnnotation = "kueue.x-k8s.io/workload"
 
   // TASLabel is a label set on the Job's PodTemplate to indicate that the
