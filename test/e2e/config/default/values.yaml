@@ -52,7 +52,8 @@ managerConfig:
         LocalQueue.kueue.x-k8s.io: 5
         ClusterQueue.kueue.x-k8s.io: 5
         ResourceFlavor.kueue.x-k8s.io: 1
-    fairSharing: {}
+    fairSharing:
+      preemptionStrategies: ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
     clientConnection:
       qps: 300
       burst: 500
