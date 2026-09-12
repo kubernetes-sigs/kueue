@@ -131,7 +131,7 @@ func run() error {
 	}
 
 	fmt.Printf(
-		"Starting manager control plane; remote clients configured for %g QPS, burst %d per REST client\n",
+		"Starting manager control plane; remote clients configured for %g QPS, burst %d shared per worker cluster\n",
 		cfg.RemoteClientQPS,
 		cfg.RemoteClientBurst,
 	)

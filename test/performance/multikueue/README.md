@@ -47,8 +47,9 @@ configuration file.
 
 `remoteClientQPS` and `remoteClientBurst` must both be positive and explicitly
 configured. The baseline sets them to 1,000 each. The runner passes these values
-through MultiKueue's worker-client configuration and records the same values in
-the summary. A comparison against different limits fails the scenario check.
+through MultiKueue's `WithClientConnection` option and records the same values
+and the `worker-cluster` rate-limit scope in the summary. A comparison against
+different limits fails the scenario check.
 
 `workloadCount` must be between 1 and 10,000. The upper bound keeps the
 runner's per-Workload observation state and watch handover buffer bounded while
@@ -89,8 +90,10 @@ For this target, the summary is written to
 
 ## Worker-client configuration
 
-The runner uses MultiKueue's worker-client configuration API. The explicit
-1,000 QPS and 1,000 burst baseline follows the increased limits discussed in
+The runner uses the existing `clientConnection` support for worker clusters and
+requires the default-enabled `MultiKueueReuseClientConnectionConfigForWorkers`
+feature gate. The explicit 1,000 QPS and 1,000 burst baseline follows the
+increased limits discussed in
 [issue 14973](https://github.com/kubernetes-sigs/kueue/issues/14973).
 These are scenario inputs, not a claim that every Kueue deployment uses them.
 
@@ -98,32 +101,35 @@ Results from client-go's implicit 5 QPS and burst 10 measure the bottleneck
 addressed by that issue. Their throughput floor and latency ceilings are not
 comparable with this scenario and must not be reused.
 
-Five consecutive local runs on a macOS arm64 host produced:
+Five consecutive local runs on macOS arm64 with Go 1.26.5 and Kubernetes 1.36.2
+`envtest` assets produced the following results. Both local and remote clients
+used 1,000 QPS and burst, with shared per-worker remote budgets:
 
 | Measurement | Observed range |
 |---|---|
-| Throughput | 27.81–27.89 workloads/s |
-| Admission P95 | 30.13–30.59 s |
-| Quota-reservation P95 | 2.78–2.87 s |
-| Generation time | 1.90–2.19 s |
-| Total admission time | 35.86–35.96 s |
-| Watch gaps | 0 in every run |
+| Throughput | 97.00–102.42 workloads/s |
+| Admission P95 | 5.67–6.47 s |
+| Quota-reservation P95 | 0.15–0.38 s |
+| Generation time | 3.21–4.05 s |
+| Total admission time | 9.76–10.31 s |
+| Watch gaps | 0 in four runs; 1 in one run |
 
-The provisional floor of 22 workloads/s leaves about 21% headroom below the
-slowest local run. The 45-second admission P95 and 5-second quota-reservation
+The provisional floor of 75 workloads/s leaves about 23% headroom below the
+slowest local run. The 15-second admission P95 and 1-second quota-reservation
 P95 ceilings allow additional variance. These are initial regression guards,
 not CI calibration; tighten or revise them from measurements on the dedicated
 worker. No CPU or memory capacity claim follows from these results.
 
 ## What bounds the measurement
 
-The manager's local client uses Kueue's default QPS and burst with a single
-shared token bucket, matching the production entrypoint. The generator has its
-own client so its requests do not consume that bucket.
+The manager's local client uses Kueue's default QPS and burst (currently 1,000
+each) with a single shared token bucket, matching the production entrypoint.
+The generator has its own client so its requests do not consume that bucket.
 
-Worker-client QPS and burst are passed through MultiKueue to each worker's
-`rest.Config`. controller-runtime creates REST clients per GVK, so these limits
-apply per worker per Kind, rather than as one shared budget for a worker.
+Worker-client QPS and burst form one shared budget per worker cluster across
+the direct clients and remote cache. Earlier benchmark revisions used separate
+per-Kind budgets; their reports lack `remoteClientRateLimitScope` and are rejected
+by the current scenario check.
 
 Raising the remote limits can move the bottleneck onto the manager's shared
 limiter or the host. The baseline measures end-to-end control-plane throughput;
@@ -205,8 +211,7 @@ The raw runner remains observational. The dedicated test target applies broad,
 provisional guardrails, but there is no presubmit, periodic, or alert until a
 job is added and calibrated on stable CI capacity. The intended rollout is:
 
-1. merge the worker-client configuration dependency, then the runner and
-   regression-check target in this repository;
+1. merge the runner and regression-check target in this repository;
 2. add a dedicated non-alerting periodic job in
    [`kubernetes/test-infra`](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/kueue/kueue-periodics-main.yaml)
    that invokes `make test-performance-multikueue` and publishes `ARTIFACTS`;
