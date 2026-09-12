@@ -71,9 +71,8 @@ func TestWaitForManagerReady(t *testing.T) {
 				close(managerRun.done)
 			}
 
-			err := waitForManagerReady(t.Context(), "worker-1", func(context.Context) bool {
-				return tc.synced
-			}, managerRun)
+			manager := &testManager{cacheSynced: tc.synced}
+			err := waitForManagerReady(t.Context(), "worker-1", manager.waitForCacheSync, managerRun)
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatalf("waitForManagerReady() unexpected error: %v", err)
@@ -94,10 +93,8 @@ func TestWaitForManagerReadyReportsStartErrorWithoutWaitingForCacheSync(t *testi
 	}
 	close(managerRun.done)
 
-	err := waitForManagerReady(t.Context(), "worker-1", func(ctx context.Context) bool {
-		<-ctx.Done()
-		return false
-	}, managerRun)
+	manager := &testManager{waitForCancellation: true}
+	err := waitForManagerReady(t.Context(), "worker-1", manager.waitForCacheSync, managerRun)
 	if err == nil || !strings.Contains(err.Error(), "start worker-1 manager: bind failed") {
 		t.Fatalf("waitForManagerReady() error = %v, want start error", err)
 	}
@@ -106,9 +103,8 @@ func TestWaitForManagerReadyReportsStartErrorWithoutWaitingForCacheSync(t *testi
 func TestWaitForManagerReadyDoesNotConsumeDoneOnSuccess(t *testing.T) {
 	managerErr := errors.New("still running")
 	managerRun := &managerRun{done: make(chan struct{})}
-	if err := waitForManagerReady(t.Context(), "worker-1", func(context.Context) bool {
-		return true
-	}, managerRun); err != nil {
+	manager := &testManager{cacheSynced: true}
+	if err := waitForManagerReady(t.Context(), "worker-1", manager.waitForCacheSync, managerRun); err != nil {
 		t.Fatalf("waitForManagerReady() unexpected error: %v", err)
 	}
 
@@ -125,9 +121,8 @@ func TestStartManagerRunReportsUnexpectedExit(t *testing.T) {
 	clusterCtx, failClusters := context.WithCancelCause(t.Context())
 	defer failClusters(nil)
 
-	managerRun := startManagerRun(clusterCtx, "worker-1", func(context.Context) error {
-		return managerErr
-	}, failClusters)
+	manager := &testManager{err: managerErr}
+	managerRun := startManagerRun(clusterCtx, "worker-1", manager.start, failClusters)
 
 	select {
 	case <-clusterCtx.Done():
@@ -146,12 +141,8 @@ func TestStartManagerRunReportsUnexpectedExit(t *testing.T) {
 func TestStartManagerRunIgnoresExpectedCancellation(t *testing.T) {
 	managerCtx, cancelManager := context.WithCancel(t.Context())
 	reported := make(chan error, 1)
-	managerRun := startManagerRun(managerCtx, "worker-1", func(ctx context.Context) error {
-		<-ctx.Done()
-		return nil
-	}, func(err error) {
-		reported <- err
-	})
+	manager := &testManager{waitForCancellation: true, reported: reported}
+	managerRun := startManagerRun(managerCtx, "worker-1", manager.start, manager.reportUnexpectedExit)
 
 	cancelManager()
 	select {
@@ -252,4 +243,29 @@ func TestManagerControllersRequireWorkerClientConfiguration(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), string(features.MultiKueueReuseClientConnectionConfigForWorkers)) {
 		t.Fatalf("setupManagerControllers() error = %v, want disabled worker-client configuration gate", err)
 	}
+}
+
+type testManager struct {
+	cacheSynced         bool
+	waitForCancellation bool
+	err                 error
+	reported            chan<- error
+}
+
+func (m *testManager) waitForCacheSync(ctx context.Context) bool {
+	if m.waitForCancellation {
+		<-ctx.Done()
+	}
+	return m.cacheSynced
+}
+
+func (m *testManager) start(ctx context.Context) error {
+	if m.waitForCancellation {
+		<-ctx.Done()
+	}
+	return m.err
+}
+
+func (m *testManager) reportUnexpectedExit(err error) {
+	m.reported <- err
 }

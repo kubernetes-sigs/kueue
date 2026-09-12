@@ -36,64 +36,61 @@ func TestBenchmarkConfigValidate(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		mutate  func(*benchmarkConfig)
+		config  benchmarkConfig
 		valid   bool
 		wantErr string
 	}{
 		"valid": {
-			valid: true,
+			config: valid,
+			valid:  true,
 		},
 		"maximum workloads": {
-			mutate: func(c *benchmarkConfig) { c.WorkloadCount = maxWorkloadCount },
+			config: withWorkloadCount(valid, maxWorkloadCount),
 			valid:  true,
 		},
 		"too many workloads": {
-			mutate:  func(c *benchmarkConfig) { c.WorkloadCount = maxWorkloadCount + 1 },
+			config:  withWorkloadCount(valid, maxWorkloadCount+1),
 			wantErr: "workloadCount must not exceed 10000",
 		},
 		"zero workloads": {
-			mutate: func(c *benchmarkConfig) { c.WorkloadCount = 0 },
+			config: withWorkloadCount(valid, 0),
 		},
 		"zero workers": {
-			mutate: func(c *benchmarkConfig) { c.WorkerClusters = 0 },
+			config: withWorkerClusters(valid, 0),
 		},
 		"zero creation workers": {
-			mutate: func(c *benchmarkConfig) { c.CreationWorkers = 0 },
+			config: withCreationWorkers(valid, 0),
 		},
 		"missing remote QPS": {
-			mutate:  func(c *benchmarkConfig) { c.RemoteClientQPS = 0 },
+			config:  withRemoteClientQPS(valid, 0),
 			wantErr: "remoteClientQPS must be positive",
 		},
 		"negative remote QPS": {
-			mutate:  func(c *benchmarkConfig) { c.RemoteClientQPS = -1 },
+			config:  withRemoteClientQPS(valid, -1),
 			wantErr: "remoteClientQPS must be positive",
 		},
 		"missing remote burst": {
-			mutate:  func(c *benchmarkConfig) { c.RemoteClientBurst = 0 },
+			config:  withRemoteClientBurst(valid, 0),
 			wantErr: "remoteClientBurst must be positive",
 		},
 		"negative remote burst": {
-			mutate:  func(c *benchmarkConfig) { c.RemoteClientBurst = -1 },
+			config:  withRemoteClientBurst(valid, -1),
 			wantErr: "remoteClientBurst must be positive",
 		},
 		"invalid CPU": {
-			mutate: func(c *benchmarkConfig) { c.CPURequest = "not-a-quantity" },
+			config: withCPURequest(valid, "not-a-quantity"),
 		},
 		"zero CPU": {
-			mutate: func(c *benchmarkConfig) { c.CPURequest = "0" },
+			config: withCPURequest(valid, "0"),
 		},
 		"zero timeout": {
-			mutate: func(c *benchmarkConfig) { c.Timeout.Duration = 0 },
+			config: withTimeout(valid, 0),
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cfg := valid
-			if tc.mutate != nil {
-				tc.mutate(&cfg)
-			}
-			err := cfg.validate()
+			err := tc.config.validate()
 			if tc.valid {
 				if err != nil {
 					t.Fatalf("validate() unexpected error: %v", err)
@@ -108,4 +105,39 @@ func TestBenchmarkConfigValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func withWorkloadCount(cfg benchmarkConfig, value int) benchmarkConfig {
+	cfg.WorkloadCount = value
+	return cfg
+}
+
+func withWorkerClusters(cfg benchmarkConfig, value int) benchmarkConfig {
+	cfg.WorkerClusters = value
+	return cfg
+}
+
+func withCreationWorkers(cfg benchmarkConfig, value int) benchmarkConfig {
+	cfg.CreationWorkers = value
+	return cfg
+}
+
+func withRemoteClientQPS(cfg benchmarkConfig, value float32) benchmarkConfig {
+	cfg.RemoteClientQPS = value
+	return cfg
+}
+
+func withRemoteClientBurst(cfg benchmarkConfig, value int32) benchmarkConfig {
+	cfg.RemoteClientBurst = value
+	return cfg
+}
+
+func withCPURequest(cfg benchmarkConfig, value string) benchmarkConfig {
+	cfg.CPURequest = value
+	return cfg
+}
+
+func withTimeout(cfg benchmarkConfig, value time.Duration) benchmarkConfig {
+	cfg.Timeout.Duration = value
+	return cfg
 }
