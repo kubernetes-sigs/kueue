@@ -344,5 +344,5 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 		return nil
 	}
 
-	return adapter.DeleteRemoteObject(ctx, localClient, remoteClient, key)
+	return adapter.DeleteRemoteObject(ctx, localClient, &observedRemoteObjectClient{Client: remoteClient, observed: remoteObject}, key)
 }

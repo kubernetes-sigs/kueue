@@ -507,8 +507,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if retainedCluster == "" {
 			return w.removeAllRemoteObjects(ctx, group)
 		}
-		if remote := group.remotes[retainedCluster]; remote != nil &&
-			(workloadevict.IsEvicted(remote) || isRemoteSpecOutOfSync(group.local.Spec, remote.Spec)) {
+		if remote, reachable := group.remotes[retainedCluster]; reachable &&
+			(remote == nil || workloadevict.IsEvicted(remote) || isRemoteSpecOutOfSync(group.local.Spec, remote.Spec)) {
 			return w.removeAllRemoteObjects(ctx, group)
 		}
 

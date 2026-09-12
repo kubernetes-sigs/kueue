@@ -141,20 +141,34 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 
 	now := time.Now().Truncate(time.Second)
 	tests := map[string]struct {
-		gate              bool
-		withQuota         bool
-		evicted           bool
-		inactive          bool
-		selectedEvicted   bool
-		selectedOutOfSync bool
-		wantRetained      bool
-		wantRequeueAfter  time.Duration
+		gate                bool
+		withQuota           bool
+		evicted             bool
+		inactive            bool
+		selectedMissing     bool
+		selectedUnavailable bool
+		selectedEvicted     bool
+		selectedOutOfSync   bool
+		wantRetained        bool
+		wantRequeueAfter    time.Duration
 	}{
 		"retains only the finishing worker": {
 			gate:             true,
 			withQuota:        true,
 			wantRetained:     true,
 			wantRequeueAfter: 9 * time.Minute,
+		},
+		"missing retained Workload cleans up its controller object": {
+			gate:            true,
+			withQuota:       true,
+			selectedMissing: true,
+		},
+		"unavailable retained worker keeps retention": {
+			gate:                true,
+			withQuota:           true,
+			selectedUnavailable: true,
+			wantRetained:        true,
+			wantRequeueAfter:    9 * time.Minute,
 		},
 		"quota loss remains immediate": {
 			gate:         true,
@@ -228,6 +242,16 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 				remotes:       map[string]*kueue.Workload{"worker1": selectedRemote, "worker2": nonSelectedRemote},
 				remoteClients: map[string]*remoteClient{"worker1": worker1, "worker2": worker2},
 				jobAdapter:    adapter, controllerKey: types.NamespacedName{Name: "job", Namespace: TestNamespace},
+			}
+			if tc.selectedMissing {
+				if err := worker1Client.Delete(ctx, selectedRemote); err != nil {
+					t.Fatal(err)
+				}
+				group.remotes["worker1"] = nil
+			}
+			if tc.selectedUnavailable {
+				delete(group.remotes, "worker1")
+				delete(group.remoteClients, "worker1")
 			}
 			reconciler := &wlReconciler{clock: testingclock.NewFakeClock(now), remoteObjectsAfterFinished: 10 * time.Minute}
 			result, err := reconciler.reconcileGroup(ctx, group)
