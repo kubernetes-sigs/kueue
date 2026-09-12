@@ -149,6 +149,15 @@ func (w *TrainJobWebhook) validateUpdate(ctx context.Context, oldTrainJob, newTr
 func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(trainjob)...)
+
+	// Validate that the installed TrainJob CRD supports v2.2.0+ API shape
+	if err := ValidateTrainJobCRDVersion(ctx, w.client); err != nil {
+		allErrs = append(allErrs, field.InternalError(
+			field.NewPath("spec"),
+			err,
+		))
+	}
+
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, trainjob)
 		if err != nil {
