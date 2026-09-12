@@ -19,23 +19,27 @@ limitations under the License.
 // that can drift from it.
 package report
 
+// PerWorkerCluster identifies a request budget shared by all clients for one worker cluster.
+const PerWorkerCluster = "worker-cluster"
+
 // Scenario identifies the configuration a run used. Throughput and latency are only comparable
 // between runs whose scenarios are identical, so the checker matches every field exactly instead
 // of bounding it. Anything that measurably changes the result belongs here.
 type Scenario struct {
-	WorkloadCount       int     `json:"workloadCount"`
-	WorkerClusters      int     `json:"workerClusters"`
-	CreationWorkers     int     `json:"creationWorkers"`
-	CPURequest          string  `json:"cpuRequest"`
-	Dispatcher          string  `json:"dispatcher"`
-	WorkloadConcurrency int     `json:"workloadConcurrency"`
-	GCInterval          string  `json:"gcInterval"`
-	WorkerLostTimeout   string  `json:"workerLostTimeout"`
-	EventsBatchPeriod   string  `json:"eventsBatchPeriod"`
-	LocalClientQPS      float32 `json:"localClientQPS"`
-	LocalClientBurst    int     `json:"localClientBurst"`
-	RemoteClientQPS     float32 `json:"remoteClientQPS"`
-	RemoteClientBurst   int     `json:"remoteClientBurst"`
+	RemoteClientRateLimitScope string  `json:"remoteClientRateLimitScope"`
+	WorkloadCount              int     `json:"workloadCount"`
+	WorkerClusters             int     `json:"workerClusters"`
+	CreationWorkers            int     `json:"creationWorkers"`
+	CPURequest                 string  `json:"cpuRequest"`
+	Dispatcher                 string  `json:"dispatcher"`
+	WorkloadConcurrency        int     `json:"workloadConcurrency"`
+	GCInterval                 string  `json:"gcInterval"`
+	WorkerLostTimeout          string  `json:"workerLostTimeout"`
+	EventsBatchPeriod          string  `json:"eventsBatchPeriod"`
+	LocalClientQPS             float32 `json:"localClientQPS"`
+	LocalClientBurst           int     `json:"localClientBurst"`
+	RemoteClientQPS            float32 `json:"remoteClientQPS"`
+	RemoteClientBurst          int     `json:"remoteClientBurst"`
 }
 
 // Build records runtime metadata. GoVersion and Platform are always populated; GitVersion and

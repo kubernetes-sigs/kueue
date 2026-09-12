@@ -158,6 +158,8 @@ func (r rangeSpec) validate() error {
 		return errors.New("localClientQPS must be positive")
 	case r.LocalClientBurst <= 0:
 		return errors.New("localClientBurst must be positive")
+	case r.RemoteClientRateLimitScope != report.PerWorkerCluster:
+		return errors.New("remoteClientRateLimitScope must be worker-cluster")
 	case r.RemoteClientQPS <= 0:
 		return errors.New("remoteClientQPS must be positive")
 	case r.RemoteClientBurst <= 0:
@@ -254,19 +256,20 @@ func checkSummary(summary report.Summary, expected rangeSpec) []string {
 
 func TestCheckSummary(t *testing.T) {
 	validScenario := report.Scenario{
-		WorkloadCount:       100,
-		WorkerClusters:      3,
-		CreationWorkers:     20,
-		CPURequest:          "1m",
-		Dispatcher:          "all-at-once",
-		WorkloadConcurrency: 10,
-		GCInterval:          "1m",
-		WorkerLostTimeout:   "15m",
-		EventsBatchPeriod:   "1s",
-		LocalClientQPS:      300,
-		LocalClientBurst:    500,
-		RemoteClientQPS:     5,
-		RemoteClientBurst:   10,
+		RemoteClientRateLimitScope: report.PerWorkerCluster,
+		WorkloadCount:              100,
+		WorkerClusters:             3,
+		CreationWorkers:            20,
+		CPURequest:                 "1m",
+		Dispatcher:                 "all-at-once",
+		WorkloadConcurrency:        10,
+		GCInterval:                 "1m",
+		WorkerLostTimeout:          "15m",
+		EventsBatchPeriod:          "1s",
+		LocalClientQPS:             300,
+		LocalClientBurst:           500,
+		RemoteClientQPS:            5,
+		RemoteClientBurst:          10,
 	}
 	validSummary := report.Summary{
 		Scenario:            validScenario,
@@ -372,6 +375,14 @@ func TestCheckSummary(t *testing.T) {
 			}
 		})
 	}
+	t.Run("reject summary from before shared worker budget", func(t *testing.T) {
+		summary := validSummary
+		summary.Scenario.RemoteClientRateLimitScope = ""
+		failures := checkSummary(summary, validRange)
+		if !strings.Contains(strings.Join(failures, "\n"), "RemoteClientRateLimitScope") {
+			t.Fatalf("checkSummary() failures = %v, want remote rate limit scope mismatch", failures)
+		}
+	})
 }
 
 func TestDecodeBenchmarkSummary(t *testing.T) {
@@ -388,6 +399,7 @@ scenario:
   eventsBatchPeriod: 1s
   localClientQPS: 300
   localClientBurst: 500
+  remoteClientRateLimitScope: worker-cluster
   remoteClientQPS: 5
   remoteClientBurst: 10
 throughputPerSecond: 1.28

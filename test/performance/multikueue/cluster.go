@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 )
@@ -244,6 +245,9 @@ func setupCoreControllers(ctx context.Context, mgr manager.Manager) error {
 
 func setupManagerControllers(configNamespace string, cfg benchmarkConfig) managerSetup {
 	return func(ctx context.Context, mgr manager.Manager) error {
+		if !features.Enabled(features.MultiKueueReuseClientConnectionConfigForWorkers) {
+			return fmt.Errorf("benchmark requires the %s feature gate", features.MultiKueueReuseClientConnectionConfigForWorkers)
+		}
 		if err := setupCoreControllers(ctx, mgr); err != nil {
 			return err
 		}
