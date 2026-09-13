@@ -853,8 +853,16 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		Namespace: managerNs.Name,
 	}
 
-	ginkgo.By("Checking the scaled RayCluster is preempted and the high-priority Job remains admitted", func() {
-		util.ExpectWorkloadsToBePreemptedByKeys(ctx, k8sManagerClient, scaledSliceKey)
+	ginkgo.By("Checking the scaled RayCluster has been preempted and the high-priority Job remains admitted", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			scaledSlice := &kueue.Workload{}
+			g.Expect(k8sManagerClient.Get(ctx, scaledSliceKey, scaledSlice)).To(gomega.Succeed())
+			g.Expect(scaledSlice.Status.SchedulingStats).NotTo(gomega.BeNil())
+			g.Expect(scaledSlice.Status.SchedulingStats.Evictions).To(gomega.ContainElement(gomega.And(
+				gomega.HaveField("Reason", kueue.WorkloadEvictedByPreemption),
+				gomega.HaveField("Count", gomega.BeNumerically(">=", 1)),
+			)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		util.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sManagerClient, util.MediumTimeout, highWlKey)
 	})
 
