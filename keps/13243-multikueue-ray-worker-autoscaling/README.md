@@ -193,12 +193,11 @@ type FetchResult struct {
 }
 
 type RuntimeReplicaSync[PtrT any] struct {
-	// Fetch reads the effective per-worker-group pod counts from the
-	// worker-side RayCluster's spec, plus a revision identifying the observed
-	// runtime state. A nil result means the runtime object does not exist yet.
+	// Fetch reads the runtime state from the worker cluster.
+	// A nil result means the runtime object does not exist yet.
 	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (*FetchResult, error)
-	// Apply records them onto the manager copy (as annotations), returning
-	// whether anything changed.
+	// Apply records the runtime state from the worker cluster onto the manager
+	// copy, returning whether anything changed.
 	Apply func(localJob client.Object, result FetchResult) bool
 }
 ```
