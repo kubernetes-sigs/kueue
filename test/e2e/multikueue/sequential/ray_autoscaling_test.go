@@ -252,39 +252,12 @@ func runRayClusterSequentialScaleUpTest(
 	admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 	admittedWorker := kubernetesClients[admittedWorkerName]
 	workerClient := admittedWorker.client
-
-	var headPod *corev1.Pod
-	ginkgo.By("Waiting for the RayCluster head to become ready on the worker", func() {
-		gomega.Eventually(func(g gomega.Gomega) {
-			workerRayCluster := &rayv1.RayCluster{}
-			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
-			g.Expect(apimeta.IsStatusConditionTrue(workerRayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
-
-			pod, err := util.GetRayClusterHeadPod(ctx, workerClient, client.ObjectKeyFromObject(raycluster))
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-			headPod = pod
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	runOnHead := func(script string) {
-		gomega.Eventually(func(g gomega.Gomega) {
-			_, stderr, err := util.KExecute(
-				ctx,
-				admittedWorker.cfg,
-				admittedWorker.restClient,
-				managerNs.Name,
-				headPod.Name,
-				headPod.Spec.Containers[0].Name,
-				[]string{"python", "-c", script},
-			)
-			g.Expect(err).NotTo(gomega.HaveOccurred(), string(stderr))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
+	rayClusterKey := client.ObjectKeyFromObject(raycluster)
 
 	initialSlice := liveRayWorkloadSlice(gomega.Default, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
 	ginkgo.By("Creating the first actor so the autoscaler scales from zero to one worker", func() {
-		runOnHead(createDetachedActorScript(actorA, workerResource))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", createDetachedActorScript(actorA, workerResource)})
 	})
 
 	var firstScaleUpSlice *kueue.Workload
@@ -301,7 +274,8 @@ func runRayClusterSequentialScaleUpTest(
 	})
 
 	ginkgo.By("Creating the second actor so the autoscaler requests a second worker", func() {
-		runOnHead(createDetachedActorScript(actorB, workerResource))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", createDetachedActorScript(actorB, workerResource)})
 	})
 
 	ginkgo.By("Checking the second scale-up is admitted and exactly two workers run", func() {
@@ -363,43 +337,20 @@ func runRayJobAutoscalingTest(
 	ginkgo.GinkgoLogr.Info(fmt.Sprintf("elastic autoscaling RayJob %s/%s admitted in worker cluster %s", rayjob.Name, rayjob.Namespace, admittedWorkerName))
 
 	var childKey client.ObjectKey
-	var headPod *corev1.Pod
-	ginkgo.By("Waiting for the child RayCluster head to become ready on the worker", func() {
+	ginkgo.By("Waiting for the child RayCluster to be created", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdRayJob := &rayv1.RayJob{}
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
 			g.Expect(createdRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
 			childKey = client.ObjectKey{Name: createdRayJob.Status.RayClusterName, Namespace: managerNs.Name}
-
-			child := &rayv1.RayCluster{}
-			g.Expect(workerClient.Get(ctx, childKey, child)).To(gomega.Succeed())
-			g.Expect(apimeta.IsStatusConditionTrue(child.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
-
-			pod, err := util.GetRayClusterHeadPod(ctx, workerClient, childKey)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-			headPod = pod
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	runOnHead := func(script string) {
-		gomega.Eventually(func(g gomega.Gomega) {
-			_, stderr, err := util.KExecute(
-				ctx,
-				admittedWorker.cfg,
-				admittedWorker.restClient,
-				managerNs.Name,
-				headPod.Name,
-				headPod.Spec.Containers[0].Name,
-				[]string{"python", "-c", script},
-			)
-			g.Expect(err).NotTo(gomega.HaveOccurred(), string(stderr))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
-
 	ginkgo.By("Creating two detached actors so the autoscaler scales the child up to two workers", func() {
-		runOnHead(createDetachedActorScript(actorA, workerResource))
-		runOnHead(createDetachedActorScript(actorB, workerResource))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey,
+			[]string{"python", "-c", createDetachedActorScript(actorA, workerResource)})
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey,
+			[]string{"python", "-c", createDetachedActorScript(actorB, workerResource)})
 	})
 
 	// upSliceName tracks the live slice minted by the scale-up so later phases can
@@ -426,8 +377,10 @@ func runRayJobAutoscalingTest(
 	})
 
 	ginkgo.By("Terminating both actors so the autoscaler scales the child back down to zero workers", func() {
-		runOnHead(terminateDetachedActorScript(actorA))
-		runOnHead(terminateDetachedActorScript(actorB))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey,
+			[]string{"python", "-c", terminateDetachedActorScript(actorA)})
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey,
+			[]string{"python", "-c", terminateDetachedActorScript(actorB)})
 	})
 
 	ginkgo.By("Checking no worker Pod runs, the manager still admits one slice, and size (0) is reflected onto the manager RayJob", func() {
@@ -453,7 +406,8 @@ func runRayJobAutoscalingTest(
 	})
 
 	ginkgo.By("Creating one detached actor so the autoscaler scales the child back up to one worker", func() {
-		runOnHead(createDetachedActorScript(actorC, workerResource))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey,
+			[]string{"python", "-c", createDetachedActorScript(actorC, workerResource)})
 	})
 
 	ginkgo.By("Checking one worker Pod runs, size (1) is reflected onto the manager RayJob, and a fresh replacement slice is minted", func() {
@@ -523,39 +477,13 @@ func runRayClusterAutoscalingTest(
 	admittedWorker := kubernetesClients[admittedWorkerName]
 	workerClient := admittedWorker.client
 	ginkgo.GinkgoLogr.Info(fmt.Sprintf("elastic autoscaling RayCluster %s/%s admitted in worker cluster %s", raycluster.Name, raycluster.Namespace, admittedWorkerName))
-
-	var headPod *corev1.Pod
-	ginkgo.By("Waiting for the RayCluster head to become ready on the worker", func() {
-		gomega.Eventually(func(g gomega.Gomega) {
-			workerRayCluster := &rayv1.RayCluster{}
-			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
-			g.Expect(apimeta.IsStatusConditionTrue(workerRayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
-
-			pod, err := util.GetRayClusterHeadPod(ctx, workerClient, client.ObjectKeyFromObject(raycluster))
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-			headPod = pod
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	runOnHead := func(script string) {
-		gomega.Eventually(func(g gomega.Gomega) {
-			_, stderr, err := util.KExecute(
-				ctx,
-				admittedWorker.cfg,
-				admittedWorker.restClient,
-				managerNs.Name,
-				headPod.Name,
-				headPod.Spec.Containers[0].Name,
-				[]string{"python", "-c", script},
-			)
-			g.Expect(err).NotTo(gomega.HaveOccurred(), string(stderr))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
+	rayClusterKey := client.ObjectKeyFromObject(raycluster)
 
 	ginkgo.By("Creating two detached actors so the autoscaler scales up to two workers", func() {
-		runOnHead(createDetachedActorScript(actorA, workerResource))
-		runOnHead(createDetachedActorScript(actorB, workerResource))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", createDetachedActorScript(actorA, workerResource)})
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", createDetachedActorScript(actorB, workerResource)})
 	})
 
 	// upSliceName tracks the live slice minted by the scale-up so later phases can
@@ -599,8 +527,10 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Terminating both actors so the autoscaler scales back down to zero workers", func() {
-		runOnHead(terminateDetachedActorScript(actorA))
-		runOnHead(terminateDetachedActorScript(actorB))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", terminateDetachedActorScript(actorA)})
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", terminateDetachedActorScript(actorB)})
 	})
 
 	ginkgo.By("Checking no worker Pod runs, the manager still admits one slice, and size (0) is reflected back onto the manager's RayCluster", func() {
@@ -640,7 +570,8 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Creating one detached actor so the autoscaler scales back up to one worker", func() {
-		runOnHead(createDetachedActorScript(actorC, workerResource))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", createDetachedActorScript(actorC, workerResource)})
 	})
 
 	ginkgo.By("Checking one worker Pod runs, size (1) is reflected back onto the manager's RayCluster, and a fresh replacement slice is minted", func() {
@@ -723,39 +654,13 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 	admittedWorker := kubernetesClients[admittedWorkerName]
 	workerClient := admittedWorker.client
-
-	var headPod *corev1.Pod
-	ginkgo.By("Waiting for the RayCluster head to become ready on the worker", func() {
-		gomega.Eventually(func(g gomega.Gomega) {
-			workerRayCluster := &rayv1.RayCluster{}
-			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), workerRayCluster)).To(gomega.Succeed())
-			g.Expect(apimeta.IsStatusConditionTrue(workerRayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
-
-			pod, err := util.GetRayClusterHeadPod(ctx, workerClient, client.ObjectKeyFromObject(raycluster))
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-			headPod = pod
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	runOnHead := func(script string) {
-		gomega.Eventually(func(g gomega.Gomega) {
-			_, stderr, err := util.KExecute(
-				ctx,
-				admittedWorker.cfg,
-				admittedWorker.restClient,
-				managerNs.Name,
-				headPod.Name,
-				headPod.Spec.Containers[0].Name,
-				[]string{"python", "-c", script},
-			)
-			g.Expect(err).NotTo(gomega.HaveOccurred(), string(stderr))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
+	rayClusterKey := client.ObjectKeyFromObject(raycluster)
 
 	ginkgo.By("Creating two actors so the worker-side autoscaler scales from one worker to two", func() {
-		runOnHead(createDetachedActorScript(actorA, workerResource))
-		runOnHead(createDetachedActorScript(actorB, workerResource))
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", createDetachedActorScript(actorA, workerResource)})
+		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
+			[]string{"python", "-c", createDetachedActorScript(actorB, workerResource)})
 	})
 
 	var scaledSliceKey client.ObjectKey
