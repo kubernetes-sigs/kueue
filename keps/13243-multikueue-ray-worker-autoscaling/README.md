@@ -133,7 +133,7 @@ temporarily.
   (alpha, off by default) and applies only to elastic
   (`ElasticJobsViaWorkloadSlices`) Ray objects dispatched through MultiKueue with
   `enableInTreeAutoscaling` set.
-- Only per-worker-group replica counts move in the worker→manager direction, and
+- Only effective pod counts move in the worker→manager direction, and
   only as annotations — the manager spec is never rewritten. Structural changes
   (adding/removing worker groups, resource shapes) remain manager-owned.
 
