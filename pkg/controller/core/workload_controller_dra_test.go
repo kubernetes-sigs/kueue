@@ -18,23 +18,27 @@ package core
 
 import (
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/util/workqueue"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -572,61 +576,206 @@ func TestReconcileDRA(t *testing.T) {
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
+}
 
-	// The DeviceClass handler runs outside the reconcile loop: a DeviceClass
-	// event requeues Workloads through deviceClassHandler.reconcileWorkloads,
-	// which Reconcile never triggers, so this scenario drives the handler
-	// directly instead of going through runReconcileTestCases above. It pins the
-	// deliberate decision that only Workloads without a quota reservation are
-	// requeued; a reserved Workload keeps its admission-time charge and is not
-	// revisited on a DeviceClass event (see issue #14563). If that decision
-	// changes, update this subtest alongside the handler.
-	t.Run("DeviceClass handler skips reserved workloads", func(t *testing.T) {
-		const extResource = "example.com/gpu"
+// The DeviceClass handler runs outside the reconcile loop, so the tests below
+// drive it directly instead of going through runReconcileTestCases. A reserved
+// Workload is deliberately skipped on a DeviceClass event (#14563).
 
-		pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
-			Queue("lq").
-			Request(corev1.ResourceName(extResource), "1").
-			Obj()
-		reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
-			Queue("lq").
-			Request(corev1.ResourceName(extResource), "1").
-			SimpleReserveQuota("cq", "default", time.Now()).
-			Obj()
+func newDeviceClassHandlerTest(objs ...client.Object) (*deviceClassHandler, *utiltesting.MockTypedRateLimitingInterface) {
+	cl := utiltesting.NewClientBuilder().
+		WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		WithObjects(objs...).
+		Build()
 
-		cl := utiltesting.NewClientBuilder().
-			WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
-			WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
-			WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-			WithObjects(pending, reserved).
-			Build()
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(dra.NewExtendedResourceCache()))
+	return &deviceClassHandler{r: r}, &utiltesting.MockTypedRateLimitingInterface{}
+}
 
-		cqCache := schdcache.New(cl)
-		qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-		r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
-		h := &deviceClassHandler{r: r}
+func wantDeviceClassRequests(names ...string) []reconcile.Request {
+	if len(names) == 0 {
+		return nil
+	}
+	reqs := make([]reconcile.Request, 0, len(names))
+	for _, name := range names {
+		reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: name}})
+	}
+	return reqs
+}
 
-		ctx, _ := utiltesting.ContextWithLog(t)
-		q := &recordingQueue{TypedRateLimitingInterface: workqueue.NewTypedRateLimitingQueue(
-			workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())}
-		defer q.ShutDown()
-
-		h.reconcileWorkloads(ctx, q, extResource)
-
-		// Both Workloads request the same extended resource, so only the
-		// QuotaReserved filter distinguishes them: pending is requeued, reserved
-		// is deliberately skipped.
-		if got, want := sets.New(q.added...), sets.New("wl-pending"); !got.Equal(want) {
-			t.Errorf("requeued workloads = %v, want %v", sets.List(got), sets.List(want))
-		}
+func sortDeviceClassRequests(reqs []reconcile.Request) []reconcile.Request {
+	slices.SortFunc(reqs, func(a, b reconcile.Request) int {
+		return strings.Compare(a.Name, b.Name)
 	})
+	return reqs
 }
 
-type recordingQueue struct {
-	workqueue.TypedRateLimitingInterface[reconcile.Request]
-	added []string
+func TestDeviceClassHandler_Create(t *testing.T) {
+	const extResource = "example.com/gpu"
+
+	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(extResource), "1").
+		Obj()
+	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(extResource), "1").
+		SimpleReserveQuota("cq", "default", time.Now()).
+		Obj()
+
+	testCases := map[string]struct {
+		dc           *resourcev1.DeviceClass
+		wantRequests []reconcile.Request
+	}{
+		"create of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
+			dc:           utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
+			wantRequests: wantDeviceClassRequests("wl-pending"),
+		},
+		"create of a DeviceClass without an extended resource name is ignored": {
+			dc: utiltesting.MakeDeviceClass("dc1").Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			h, q := newDeviceClassHandlerTest(pending, reserved)
+
+			h.Create(ctx, event.CreateEvent{Object: tc.dc}, q)
+
+			if diff := cmp.Diff(tc.wantRequests, sortDeviceClassRequests(q.Items)); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+		})
+	}
 }
 
-func (q *recordingQueue) AddAfter(item reconcile.Request, _ time.Duration) {
-	q.added = append(q.added, item.Name)
+func TestDeviceClassHandler_Update(t *testing.T) {
+	const (
+		oldExtResource = "example.com/old-gpu"
+		newExtResource = "example.com/new-gpu"
+	)
+
+	oldPending := utiltestingapi.MakeWorkload("wl-old-pending", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(oldExtResource), "1").
+		Obj()
+	newPending := utiltestingapi.MakeWorkload("wl-new-pending", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(newExtResource), "1").
+		Obj()
+	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(oldExtResource), "1").
+		Request(corev1.ResourceName(newExtResource), "1").
+		SimpleReserveQuota("cq", "default", time.Now()).
+		Obj()
+
+	testCases := map[string]struct {
+		oldDC        *resourcev1.DeviceClass
+		newDC        *resourcev1.DeviceClass
+		wantRequests []reconcile.Request
+	}{
+		"update changing the extended resource name requeues pending workloads for both the old and new resource, and skips reserved workloads": {
+			oldDC:        utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
+			newDC:        utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(newExtResource).Obj(),
+			wantRequests: wantDeviceClassRequests("wl-new-pending", "wl-old-pending"),
+		},
+		"update keeping the same extended resource name requeues pending workloads once per resource occurrence and skips reserved workloads": {
+			oldDC:        utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
+			newDC:        utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
+			wantRequests: wantDeviceClassRequests("wl-old-pending", "wl-old-pending"),
+		},
+		"update of a DeviceClass without an extended resource name is ignored": {
+			oldDC: utiltesting.MakeDeviceClass("dc1").Obj(),
+			newDC: utiltesting.MakeDeviceClass("dc1").Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			h, q := newDeviceClassHandlerTest(oldPending, newPending, reserved)
+
+			h.Update(ctx, event.UpdateEvent{ObjectOld: tc.oldDC, ObjectNew: tc.newDC}, q)
+
+			if diff := cmp.Diff(tc.wantRequests, sortDeviceClassRequests(q.Items)); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDeviceClassHandler_Delete(t *testing.T) {
+	const extResource = "example.com/gpu"
+
+	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(extResource), "1").
+		Obj()
+	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(extResource), "1").
+		SimpleReserveQuota("cq", "default", time.Now()).
+		Obj()
+
+	testCases := map[string]struct {
+		dc           *resourcev1.DeviceClass
+		wantRequests []reconcile.Request
+	}{
+		"delete of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
+			dc:           utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
+			wantRequests: wantDeviceClassRequests("wl-pending"),
+		},
+		"delete of a DeviceClass without an extended resource name is ignored": {
+			dc: utiltesting.MakeDeviceClass("dc1").Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			h, q := newDeviceClassHandlerTest(pending, reserved)
+
+			h.Delete(ctx, event.DeleteEvent{Object: tc.dc}, q)
+
+			if diff := cmp.Diff(tc.wantRequests, sortDeviceClassRequests(q.Items)); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDeviceClassHandler_Generic(t *testing.T) {
+	const extResource = "example.com/gpu"
+
+	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
+		Queue("lq").
+		Request(corev1.ResourceName(extResource), "1").
+		Obj()
+
+	testCases := map[string]struct {
+		dc *resourcev1.DeviceClass
+	}{
+		"generic event is ignored even for a DeviceClass with an extended resource name": {
+			dc: utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			h, q := newDeviceClassHandlerTest(pending)
+
+			h.Generic(ctx, event.GenericEvent{Object: tc.dc}, q)
+
+			if diff := cmp.Diff([]reconcile.Request(nil), q.Items); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+		})
+	}
 }
