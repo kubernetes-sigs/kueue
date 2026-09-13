@@ -340,7 +340,7 @@ None beyond the coverage described below.
 
 #### e2e tests
 
-- **Real-autoscaler e2e** (extended MultiKueue suite: manager + worker clusters,
+- **Real-autoscaler e2e** (sequential MultiKueue suite: manager + worker clusters,
   KubeRay operator on the workers). Two scenarios run on this same setup:
 
   - *Single-resize lifecycle*: a standalone RayCluster and a RayJob's child are each
