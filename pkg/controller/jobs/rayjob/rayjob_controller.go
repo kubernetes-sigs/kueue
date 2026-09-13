@@ -200,7 +200,7 @@ func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 			"expectedCount", expected,
 			"gotCount", len(podSetsInfo),
 		)
-		return false
+		return raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
 	}
 
 	// RayCluster pod sets come first, the optional submitter pod set is last.
