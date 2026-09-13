@@ -225,6 +225,23 @@ func runRayClusterSequentialScaleUpTest(
 		actorB         = "raycluster-sequential-scale-up-actor-b"
 	)
 
+	currentManagerCq := &kueue.ClusterQueue{}
+	gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), currentManagerCq)).To(gomega.Succeed())
+	originalCPUQuota, found := func() (string, bool) {
+		for rgi := range currentManagerCq.Spec.ResourceGroups {
+			for fi := range currentManagerCq.Spec.ResourceGroups[rgi].Flavors {
+				for ri := range currentManagerCq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
+					resourceQuota := &currentManagerCq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri]
+					if resourceQuota.Name == corev1.ResourceCPU {
+						return resourceQuota.NominalQuota.String(), true
+					}
+				}
+			}
+		}
+		return "", false
+	}()
+	gomega.Expect(found).To(gomega.BeTrue())
+
 	setManagerCPUQuota := func(value string) {
 		gomega.Eventually(func(g gomega.Gomega) {
 			currentCq := &kueue.ClusterQueue{}
@@ -339,7 +356,7 @@ func runRayClusterSequentialScaleUpTest(
 	})
 
 	ginkgo.By("Restoring manager quota so the second scale-up can be admitted", func() {
-		setManagerCPUQuota("2")
+		setManagerCPUQuota(originalCPUQuota)
 	})
 
 	ginkgo.By("Checking the second slice is admitted before both workers run", func() {
