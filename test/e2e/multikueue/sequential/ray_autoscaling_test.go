@@ -108,20 +108,6 @@ func liveRayWorkloadSlice(g gomega.Gomega, c client.Client, ns, sliceName string
 	return &live[0]
 }
 
-func replacementRayWorkloadSlice(g gomega.Gomega, c client.Client, oldSlice *kueue.Workload) *kueue.Workload {
-	wls := &kueue.WorkloadList{}
-	g.Expect(c.List(ctx, wls, client.InNamespace(oldSlice.Namespace))).To(gomega.Succeed())
-	var replacement *kueue.Workload
-	for i := range wls.Items {
-		if replaced := workloadslicing.ReplacementForKey(&wls.Items[i]); replaced != nil && *replaced == workload.Key(oldSlice) {
-			replacement = &wls.Items[i]
-			break
-		}
-	}
-	g.Expect(replacement).NotTo(gomega.BeNil())
-	return replacement
-}
-
 func registerRayAutoscalingTests(testContext func() rayAutoscalingTestContext) {
 	ginkgo.Describe("Ray worker-side autoscaling", ginkgo.Ordered, ginkgo.Label("feature:kuberay", util.Shard1), func() {
 		var defaultManagerKueueCfg, defaultWorker1KueueCfg, defaultWorker2KueueCfg *kueueconfig.Configuration
@@ -262,12 +248,12 @@ func runRayClusterSequentialScaleUpTest(
 
 	var firstScaleUpSlice *kueue.Workload
 	ginkgo.By("Checking the first scale-up is admitted and exactly one worker runs", func() {
+		firstScaleUpSlice = util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, initialSlice)
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(1))
 
-			firstScaleUpSlice = replacementRayWorkloadSlice(g, k8sManagerClient, initialSlice)
 			g.Expect(podset.FindPodSetByName(firstScaleUpSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(1)))
 			g.Expect(workload.IsAdmitted(firstScaleUpSlice)).To(gomega.BeTrue())
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
@@ -279,12 +265,12 @@ func runRayClusterSequentialScaleUpTest(
 	})
 
 	ginkgo.By("Checking the second scale-up is admitted and exactly two workers run", func() {
+		secondScaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, firstScaleUpSlice)
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(2))
 
-			secondScaleUpSlice := replacementRayWorkloadSlice(g, k8sManagerClient, firstScaleUpSlice)
 			g.Expect(podset.FindPodSetByName(secondScaleUpSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(2)))
 			g.Expect(workload.IsAdmitted(secondScaleUpSlice)).To(gomega.BeTrue())
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
