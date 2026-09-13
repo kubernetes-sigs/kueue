@@ -323,10 +323,11 @@ func runRayJobAutoscalingTest(
 	ginkgo.GinkgoLogr.Info(fmt.Sprintf("elastic autoscaling RayJob %s/%s admitted in worker cluster %s", rayjob.Name, rayjob.Namespace, admittedWorkerName))
 
 	var childKey client.ObjectKey
-	ginkgo.By("Waiting for the child RayCluster to be created", func() {
+	ginkgo.By("Waiting for the RayJob to be running", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdRayJob := &rayv1.RayJob{}
-			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), createdRayJob)).To(gomega.Succeed())
+			g.Expect(createdRayJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusRunning))
 			g.Expect(createdRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
 			childKey = client.ObjectKey{Name: createdRayJob.Status.RayClusterName, Namespace: managerNs.Name}
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
