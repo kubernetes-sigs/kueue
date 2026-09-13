@@ -35,6 +35,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
@@ -118,6 +119,10 @@ func registerRayAutoscalingTests(testContext func() rayAutoscalingTestContext) {
 			defaultWorker2KueueCfg = util.GetKueueConfiguration(ctx, k8sWorker2Client)
 
 			updateCfg := func(cfg *kueueconfig.Configuration) {
+				if cfg.FeatureGates == nil {
+					cfg.FeatureGates = make(map[string]bool)
+				}
+				cfg.FeatureGates[string(features.MultiKueueRayInTreeAutoscaling)] = true
 				cfg.Integrations.Frameworks = append(
 					cfg.Integrations.Frameworks,
 					workloadraycluster.FrameworkName,

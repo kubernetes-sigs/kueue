@@ -1061,7 +1061,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
-		if workloadslicing.Enabled(object) {
+		if features.Enabled(features.MultiKueueRayInTreeAutoscaling) && workloadslicing.Enabled(object) {
 			resizePending, err := hasPendingElasticResize(ctx, r.client, job, wl)
 			if err != nil {
 				return nil, err

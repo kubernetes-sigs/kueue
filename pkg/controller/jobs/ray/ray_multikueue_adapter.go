@@ -302,7 +302,7 @@ func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
 	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
 		return false
 	}
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(localJob) {
+	if !features.Enabled(features.MultiKueueRayInTreeAutoscaling) || !workloadslicing.Enabled(localJob) {
 		return false
 	}
 	return a.elastic.AutoscalingEnabled(localJob)
