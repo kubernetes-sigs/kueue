@@ -543,6 +543,22 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
+	// Last check before committing: a PodSet that requires a topology
+	// assignment must have one. This must never fire in practice - every
+	// path through the flavor assigner either populates one or reports a
+	// mode other than Fit - but admitting a TAS-required PodSet with no
+	// placement silently corrupts the TAS cache, so this is the trust
+	// boundary where that invariant gets enforced regardless of how it
+	// might get violated upstream. See kubernetes-sigs/kueue#15337.
+	if features.Enabled(features.TopologyAwareScheduling) {
+		if psName, missing := e.assignment.MissingTopologyAssignment(log, &e.Info, cq); missing {
+			log.Error(nil, "PodSet requires a topology assignment but none was computed; refusing to admit without one", "podSet", psName)
+			e.requeueReason = qcache.RequeueReasonNoFit
+			e.quotaReservedReason = fmt.Sprintf("no topology assignment computed for PodSet %q", psName)
+			return
+		}
+	}
+
 	e.markNominated()
 	if err := s.admit(ctx, e, cq, oldWorkloadSlice); err != nil {
 		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
