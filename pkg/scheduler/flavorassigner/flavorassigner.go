@@ -698,11 +698,11 @@ func New(
 // FlavorAssignmentMode.
 func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment {
 	log := log.FromContext(ctx)
-	assignment, failed := a.PrepareAssignment(ctx, log, counts)
+	assignment, failed := a.AssignFlavors(ctx, log, counts)
 	if failed {
 		return assignment
 	}
-	a.findTopologyAssignment(ctx, log, &assignment)
+	a.assignTopology(ctx, log, &assignment)
 	assignment.ResolveNoFitReason(a.cq)
 	return assignment
 }
@@ -713,7 +713,7 @@ type indexedPodSet struct {
 	podSetAssignment *PodSetAssignment
 }
 
-func (a *FlavorAssigner) PrepareAssignment(ctx context.Context, log logr.Logger, counts []int32) (_ Assignment, failed bool) {
+func (a *FlavorAssigner) AssignFlavors(ctx context.Context, log logr.Logger, counts []int32) (_ Assignment, failed bool) {
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
 		for i, ps := range a.wl.TotalRequests {
@@ -868,7 +868,7 @@ func (a *FlavorAssigner) PrepareAssignment(ctx context.Context, log logr.Logger,
 	return assignment, false
 }
 
-func (a *FlavorAssigner) findTopologyAssignment(ctx context.Context, log logr.Logger, assignment *Assignment) {
+func (a *FlavorAssigner) assignTopology(ctx context.Context, log logr.Logger, assignment *Assignment) {
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
