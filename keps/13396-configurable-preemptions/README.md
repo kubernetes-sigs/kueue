@@ -1875,3 +1875,4 @@ const (
 
 With device identity modeling, the preemption simulation will be able to verify that evicting a specific workload frees the exact device(s) or device topology needed by the incoming claim before any eviction is executed.
 
+To make the candidates selection more efficient the selectors and ordering may be also extended to choose only workloads that hold the required device as candidates or to prioritize preemption of those.
