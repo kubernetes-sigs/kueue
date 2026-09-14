@@ -897,9 +897,8 @@ func TestReconcileRequeue(t *testing.T) {
 					Message: "StatefulSet scaled to zero; workload on hold",
 				}).
 				Obj(),
-			cq:                   utiltestingapi.MakeClusterQueue("cq").Obj(),
-			lq:                   utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkloadsInQueue: new(int),
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
