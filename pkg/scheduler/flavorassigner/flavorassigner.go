@@ -702,7 +702,7 @@ func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment 
 	if failed {
 		return assignment
 	}
-	a.updateForTAS(ctx, log, &assignment)
+	a.findTopologyAssignment(ctx, log, &assignment)
 	assignment.ResolveNoFitReason(a.cq)
 	return assignment
 }
@@ -868,7 +868,7 @@ func (a *FlavorAssigner) PrepareAssignment(ctx context.Context, log logr.Logger,
 	return assignment, false
 }
 
-func (a *FlavorAssigner) updateForTAS(ctx context.Context, log logr.Logger, assignment *Assignment) {
+func (a *FlavorAssigner) findTopologyAssignment(ctx context.Context, log logr.Logger, assignment *Assignment) {
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
