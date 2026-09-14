@@ -134,20 +134,6 @@ func wrapSSAPatch(patch client.Patch) client.Patch {
 	return patch
 }
 
-// TreatSSAAsStrategicMerge - can be used as a SubResourcePatch interceptor function to treat SSA patches as StrategicMergePatchType.
-// Note: By doing so the values set in the patch will be updated but the call will have no knowledge of FieldManagement when it
-// comes to detecting conflicts between managers or removing fields that are missing from the patch.
-func TreatSSAAsStrategicMerge(ctx context.Context, clnt client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-	filteredOpts := make([]client.SubResourcePatchOption, 0, len(opts))
-	for _, opt := range opts {
-		// Skip ForceOwnership for MergePatch to avoid invalid patch error, as it's only valid for ApplyPatch.
-		if opt != client.ForceOwnership {
-			filteredOpts = append(filteredOpts, opt)
-		}
-	}
-	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(patch), filteredOpts...)
-}
-
 func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 	patch, data, err := ConvertApplyConfigToObject(applyConf)
 	if err != nil {
@@ -161,7 +147,33 @@ func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt cli
 	}
 
 	ssaPatch := client.RawPatch(types.ApplyPatchType, data)
-	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(ssaPatch))
+	if err := clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(ssaPatch)); err != nil {
+		return err
+	}
+
+	// The fakes have no response of their own, so decode the applied object as the real client does.
+	applier, ok := applyConf.(json.Unmarshaler)
+	if !ok {
+		return nil
+	}
+	result, err := json.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("failed to marshal applied object: %w", err)
+	}
+	if err := applier.UnmarshalJSON(result); err != nil {
+		return fmt.Errorf("failed to decode applied object into ApplyConfiguration: %w", err)
+	}
+	return nil
+}
+
+// DecodeApplyConfiguration decodes the object carried by an ApplyConfiguration into obj, so
+// that assertions can read the patched fields from a typed object.
+func DecodeApplyConfiguration(applyConf runtime.ApplyConfiguration, obj client.Object) error {
+	_, data, err := ConvertApplyConfigToObject(applyConf)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, obj)
 }
 
 func ConvertApplyConfigToObject(applyConf runtime.ApplyConfiguration) (client.Object, []byte, error) {

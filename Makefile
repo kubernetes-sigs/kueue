@@ -70,12 +70,14 @@ CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
 
+IMAGE_BUILD_RETRIABLE_ERRORS := context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout|stream error: stream ID [0-9]+; INTERNAL_ERROR|http2: server sent GOAWAY|500 Internal Server Error|i/o timeout
+
 IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
 	--attempts 7 \
 	--delay 2 \
 	--exponential \
 	--stream \
-	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout)' {output}" \
+	--continue-if "grep -qiE '($(IMAGE_BUILD_RETRIABLE_ERRORS))' {output}" \
 	-- env
 
 MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
