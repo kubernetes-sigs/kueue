@@ -1,7 +1,7 @@
 version: 2
 updates:
 
-  # 维护发布脚本的 Python 依赖及哈希。
+  # Maintain Python dependencies and hashes for release scripts.
   - package-ecosystem: "pip"
     directory: "/hack/releasing"
     schedule:

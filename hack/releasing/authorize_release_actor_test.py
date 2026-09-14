@@ -44,25 +44,83 @@ class AuthorizationTest(unittest.TestCase):
                 )
 
     def test_invalid_configuration(self) -> None:
+        aliases_mapping_error = "OWNERS_ALIASES must contain an aliases mapping."
+        release_team_members_error = (
+            "OWNERS_ALIASES alias 'release-team' must contain a list of names."
+        )
         cases = [
-            ("empty document", "", ["release-team"], ValueError),
-            ("sequence document", "[]", ["release-team"], ValueError),
-            ("missing aliases", "{}", ["release-team"], ValueError),
-            ("null aliases", "aliases: null", ["release-team"], ValueError),
-            ("sequence aliases", "aliases: []", ["release-team"], ValueError),
-            ("missing alias", "aliases: {}", ["release-team"], ValueError),
-            ("scalar members", "aliases: {release-team: alice}", ["release-team"], ValueError),
-            ("null members", "aliases: {release-team: null}", ["release-team"], ValueError),
-            ("non-string member", "aliases: {release-team: [alice, 1]}", ["release-team"], ValueError),
-            ("malformed YAML", "aliases: [", ["release-team"], yaml.YAMLError),
-            # 命中前一个别名后仍需检查后续配置，避免配置错误被提前返回掩盖。
-            ("later alias missing", "aliases: {release-team: [alice]}", ["release-team", "approvers"], ValueError),
-            ("later alias invalid", "aliases: {release-team: [alice], approvers: bob}", ["release-team", "approvers"], ValueError),
+            ("empty document", "", ["release-team"], aliases_mapping_error),
+            (
+                "sequence document",
+                "[]",
+                ["release-team"],
+                aliases_mapping_error,
+            ),
+            ("missing aliases", "{}", ["release-team"], aliases_mapping_error),
+            (
+                "null aliases",
+                "aliases: null",
+                ["release-team"],
+                aliases_mapping_error,
+            ),
+            (
+                "sequence aliases",
+                "aliases: []",
+                ["release-team"],
+                aliases_mapping_error,
+            ),
+            (
+                "missing alias",
+                "aliases: {}",
+                ["release-team"],
+                "Alias 'release-team' not listed in OWNERS_ALIASES.",
+            ),
+            (
+                "scalar members",
+                "aliases: {release-team: alice}",
+                ["release-team"],
+                release_team_members_error,
+            ),
+            (
+                "null members",
+                "aliases: {release-team: null}",
+                ["release-team"],
+                release_team_members_error,
+            ),
+            (
+                "non-string member",
+                "aliases: {release-team: [alice, 1]}",
+                ["release-team"],
+                release_team_members_error,
+            ),
+            # Continue validating later aliases after a match so configuration errors
+            # are not masked.
+            (
+                "later alias missing",
+                "aliases: {release-team: [alice]}",
+                ["release-team", "approvers"],
+                "Alias 'approvers' not listed in OWNERS_ALIASES.",
+            ),
+            (
+                "later alias invalid",
+                "aliases: {release-team: [alice], approvers: bob}",
+                ["release-team", "approvers"],
+                "OWNERS_ALIASES alias 'approvers' must contain a list of names.",
+            ),
         ]
-        for name, owners, aliases, error in cases:
+        for name, owners, aliases, expected_message in cases:
             with self.subTest(name=name):
-                with self.assertRaises(error):
+                with self.assertRaises(ValueError) as raised:
                     authorize_release_actor.is_authorized("alice", owners, aliases)
+                self.assertEqual(expected_message, str(raised.exception))
+
+    def test_malformed_yaml(self) -> None:
+        with self.assertRaisesRegex(yaml.YAMLError, "expected the node content"):
+            authorize_release_actor.is_authorized(
+                "alice",
+                "aliases: [",
+                ["release-team"],
+            )
 
 
 class CommandLineTest(unittest.TestCase):

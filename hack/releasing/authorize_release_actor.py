@@ -33,7 +33,7 @@ def is_authorized(
     authorized = False
     for alias in authorized_aliases:
         if alias not in aliases:
-            raise ValueError(f"OWNERS_ALIASES must define alias {alias!r}.")
+            raise ValueError(f"Alias {alias!r} not listed in OWNERS_ALIASES.")
         members = aliases[alias]
         if not isinstance(members, list) or not all(
             isinstance(member, str) for member in members
