@@ -67,6 +67,8 @@
     - [Examples with Workload Priority Class Selectors](#examples-with-workload-priority-class-selectors)
       - [Story 1 - Priority Threshold for Within-ClusterQueue Preemptions](#story-1---priority-threshold-for-within-clusterqueue-preemptions)
       - [Story 2 - Priority Threshold for Reclaim Within Cohort](#story-2---priority-threshold-for-reclaim-within-cohort)
+  - [Quota-Based Candidate Selectors (QuotaConstraint)](#quota-based-candidate-selectors-quotaconstraint)
+    - [Proposed API for Quota-Based Candidate Selectors](#proposed-api-for-quota-based-candidate-selectors)
   - [PreemptionLimit (Rate-Limiting Guardrails)](#preemptionlimit-rate-limiting-guardrails)
     - [Proposed API for PreemptionLimit](#proposed-api-for-preemptionlimit)
     - [Observability When Reaching Preemption Limits](#observability-when-reaching-preemption-limits)
@@ -100,7 +102,7 @@ updates.
 
 This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` deferred to future work).
 This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
-With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, and custom numeric labels, with minimal trigger duration, time-based candidate duration selectors, priority class selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical preemption and fair sharing. In Alpha, `PreemptionConfig` is referenced via an explicit Alpha annotation on the `ClusterQueue` (`kueue.x-k8s.io/alpha-preemption-config`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical preemption, both strategies will become mutually exclusive via a formal API field, and the Alpha annotation will be retired.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, priority class selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical preemption and fair sharing. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
 
 ## Motivation
 
@@ -298,9 +300,9 @@ Therefore, the integration is designed with a two-phase evolution:
      ```yaml
      metadata:
        annotations:
-         kueue.x-k8s.io/alpha-preemption-config: "<preemption-config-name>"
+         kueue.x-k8s.io/preemption-config: "<preemption-config-name>"
      ```
-     This annotation is explicitly marked as Alpha and designated to be retired when moving to Beta.
+     This annotation will be retired when moving to Beta.
    - **Preserve `spec.preemption` defaulting**: `ClusterQueue.spec.preemption` remains fully intact, retaining its standard kubebuilder defaulting (`+kubebuilder:default={}`) and allowing any value as currently.
    - **Merge outputs of both strategies**: During preemption evaluation in the scheduler, if the annotation is set, the candidate outputs of **both** mechanisms are merged:
      - Candidates selected by classical preemption rules (configured via `spec.preemption`, such as borrowing reclaim and within-ClusterQueue preemption).
@@ -314,7 +316,7 @@ Therefore, the integration is designed with a two-phase evolution:
    - In Beta+, `PreemptionConfig` and classical preemption will become **mutually exclusive**, with `PreemptionConfig` providing full **feature parity** with classical preemption (including borrowing reclaim, within-ClusterQueue preemption, and fair sharing).
    - Because `PreemptionConfig` will have full feature parity, running or merging both strategies will no longer be necessary.
    - A formal field will be introduced on `ClusterQueueSpec` (or within a unified preemption configuration section) with validation enforcing that only one strategy is active.
-   - The Alpha annotation will be deprecated and removed.
+   - The annotation will be deprecated and removed.
 
 An example of attaching a `PreemptionConfig` to a `ClusterQueue` in Alpha:
 
@@ -324,7 +326,7 @@ kind: ClusterQueue
 metadata:
   name: "cluster-queue-a"
   annotations:
-    kueue.x-k8s.io/alpha-preemption-config: "defrag-and-hero-preemption-config"
+    kueue.x-k8s.io/preemption-config: "defrag-and-hero-preemption-config"
 spec:
   # spec.preemption continues to be defaulted or explicitly configured as today.
   # If desired, classical preemption can be disabled by setting policies to Never.
@@ -364,12 +366,12 @@ spec:
     - name: defrag-smaller-tpu-workloads
       trigger: "InsufficientTopology"
       candidateSelectors:
-        - relativeWorkloadPriority: "LowerOrEqual"
+        - priorityComparison: "LowerOrEqual"
           relationRequirement: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
-              relation: "Lower"
-              defaultValue: 0
+              comparison: "Lower"
+              fallbackValue: 0
 ```
 
 As it has an `AnyClusterQueue` relation, it can preempt workloads even if they are not related in any way to the preemptor cluster queue. In combination with a custom numeric label selector using strict `Lower`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops. Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
@@ -393,12 +395,12 @@ spec:
     - name: hero-reclaim-topology
       trigger: "InsufficientTopology"
       candidateSelectors:
-        - relativeWorkloadPriority: "Lower"
+        - priorityComparison: "Lower"
           relationRequirement: "AnyClusterQueue"
     - name: hero-reclaim-quota
       trigger: "InsufficientQuota"
       candidateSelectors:
-        - relativeWorkloadPriority: "Lower"
+        - priorityComparison: "Lower"
           relationRequirement: "AnyClusterQueue"
 ```
 
@@ -424,7 +426,7 @@ Requested functionalities from the community can be satisfied with the following
          trigger: "InsufficientQuota"
          candidateSelectors:
            - relationRequirement: "SameClusterQueue"
-             relativeWorkloadPriority: "Lower"
+             priorityComparison: "Lower"
              numericLabels:
                - key: "requested-gpus"
                  maxValue: 8
@@ -439,8 +441,8 @@ Requested functionalities from the community can be satisfied with the following
        - name: preempt-same-topology-level-workloads
          trigger: "InsufficientTopology"
          candidateSelectors:
-           - relationRequirement: "SameCohort"
-             relativeWorkloadPriority: "LowerOrEqual"
+           - relationRequirement: "SameParentCohort"
+             priorityComparison: "LowerOrEqual"
              workloadSelector:
                matchLabels:
                  kueue.x-k8s.io/topology-level: "rack"
@@ -470,7 +472,7 @@ Requested functionalities from the community can be satisfied with the following
        - name: reclaim-cohort-quota-from-low-priority
          trigger: "QuotaReclaimRequired"
          candidateSelectors:
-           - relationRequirement: "SameCohort"
+           - relationRequirement: "SameParentCohort"
              quota: "BorrowingCapacityFromPreemptor"
              candidateWorkloadPrioritySelector:
                matchLabels:
@@ -487,7 +489,7 @@ Requested functionalities from the community can be satisfied with the following
          trigger: "InsufficientQuota"
          candidateSelectors:
            - relationRequirement: "SameClusterQueue"
-             relativeWorkloadPriority: "Lower"
+             priorityComparison: "Lower"
              minExecutionDuration: "15m"
    ```
 
@@ -500,7 +502,7 @@ Requested functionalities from the community can be satisfied with the following
          trigger: "InsufficientQuota"
          candidateSelectors:
            - relationRequirement: "SameClusterQueue"
-             relativeWorkloadPriority: "Lower"
+             priorityComparison: "Lower"
              maxTimeFromCreationDuration: "1h"
    ```
 
@@ -510,7 +512,7 @@ There are many possible extensions of the proposed selectors in the rules. For n
 
 ### Constraints
 
-- **Backward Compatibility & Strategy Merging (Alpha):** `ClusterQueue.spec.preemption` remains fully backward-compatible, retaining its declarative kubebuilder defaulting (`+kubebuilder:default={}`). No new field is added to `ClusterQueueSpec` in Alpha; instead, `PreemptionConfig` is referenced via the `kueue.x-k8s.io/alpha-preemption-config` annotation. The scheduler merges candidate outputs from both classical preemption and `PreemptionConfig`. For Beta+, the two strategies will become mutually exclusive via a formal API field once `PreemptionConfig` provides full feature parity with classical preemption.
+- **Backward Compatibility & Strategy Merging (Alpha):** `ClusterQueue.spec.preemption` remains fully backward-compatible, retaining its declarative kubebuilder defaulting (`+kubebuilder:default={}`). No new field is added to `ClusterQueueSpec` in Alpha; instead, `PreemptionConfig` is referenced via the `kueue.x-k8s.io/preemption-config` annotation. The scheduler merges candidate outputs from both classical preemption and `PreemptionConfig`. For Beta+, the two strategies will become mutually exclusive via a formal API field once `PreemptionConfig` provides full feature parity with classical preemption.
 - **Deterministic Scheduling:** Candidate selection, victim evaluation, and tie-breaking must remain strictly deterministic across scheduling cycles (guaranteed by multi-key comparison chains and Workload UID tie-breaking).
 - **Non-mutating Evaluation:** Preemption evaluation operates strictly on cluster snapshot state and simulated usage without mutating workload specs or priorities during preemption simulation.
 - **Resource Scope:** `PreemptionConfig` is a cluster-scoped CRD subject to standard Kubernetes RBAC and controller-runtime caching mechanisms (`PreemptionLimit` is deferred to future work).
@@ -552,14 +554,14 @@ As preemption configs will be modifiable only by cluster administrators, there a
 
 ```go
 const (
-  // AlphaPreemptionConfigAnnotation is the annotation key used on ClusterQueue to reference
+  // PreemptionConfigAnnotation is the annotation key used on ClusterQueue to reference
   // a PreemptionConfig during Alpha.
-  // This annotation is explicitly alpha-level and designated to go away when moving to Beta.
-  AlphaPreemptionConfigAnnotation = "kueue.x-k8s.io/alpha-preemption-config"
+  // This annotation will be removed in Beta.
+  PreemptionConfigAnnotation = "kueue.x-k8s.io/preemption-config"
 )
 
 // PreemptionConfigReference is the name of the PreemptionConfig.
-// In Alpha, it is specified via the AlphaPreemptionConfigAnnotation on ClusterQueue.
+// In Alpha, it is specified via the PreemptionConfigAnnotation on ClusterQueue.
 // In Beta+, it will be introduced as a formal field on ClusterQueueSpec.
 //
 // Validation of a PreemptionConfig name is equivalent to that of object names:
@@ -577,9 +579,11 @@ type PreemptionConfig struct {
 type PreemptionConfigSpec struct {
   // Rules to select preemption candidates.
   //
+  // +optional
   // +listType=map
   // +listMapKey=name
-  Rules []PreemptionRule `json:"rules"`
+  // +kubebuilder:validation:MaxItems=64
+  Rules []PreemptionRule `json:"rules,omitempty"`
 }
 
 // +kubebuilder:validation:Enum=InsufficientQuota;QuotaReclaimRequired;InsufficientTopology
@@ -607,15 +611,16 @@ type PreemptionRule struct {
   // Name is the identifier of the preemption rule.
   //
   // +kubebuilder:validation:Required
+  // +kubebuilder:validation:MinLength=1
   // +kubebuilder:validation:MaxLength=63
   // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
   Name string `json:"name"`
 
-  // MatchingPreemptorWorkloads is a label selector indicating which workloads can trigger preemptions
+  // PreemptorSelector is a label selector indicating which workloads can trigger preemptions
   // using this rule. Accepts all workloads if not set.
   //
   // +optional
-  MatchingPreemptorWorkloads *metav1.LabelSelector `json:"matchingPreemptorWorkloads,omitempty"`
+  PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
 
   // Trigger specifies the condition (InsufficientQuota, QuotaReclaimRequired, or InsufficientTopology)
   // that must be observed on the preemptor workload for this rule to apply.
@@ -650,50 +655,39 @@ By maintaining triggers in-memory, the scheduler avoids etcd write amplification
 
 ```go
 
-// PreemptionRelationConstraint specifies the relational boundary between
+// PreemptionQueueScope specifies the relational boundary between
 // the preempting workload's queue and candidate workloads' queues.
 // Possible values are:
 // - "SameLocalQueue": restricts preemption candidates to workloads submitted to the exact same LocalQueue (matching name and namespace).
 // - "SameClusterQueue": restricts preemption candidates to workloads submitted to the same ClusterQueue as the preemptor.
-// - "SameCohort": restricts preemption candidates to workloads in ClusterQueues that share the exact same immediate direct Cohort, as well as workloads in the preemptor's own ClusterQueue (even if standalone).
+// - "SameParentCohort": restricts preemption candidates to workloads in ClusterQueues that share the exact same immediate direct Cohort, as well as workloads in the preemptor's own ClusterQueue (even if standalone).
 // - "SameCohortTree": restricts preemption candidates to workloads in ClusterQueues that belong to the same Cohort Tree (sharing the same root ancestor Cohort), as well as workloads in the preemptor's own ClusterQueue (even if standalone).
 // - "AnyClusterQueue": places no relationship restrictions on preemption candidates.
 //
-// +kubebuilder:validation:Enum=SameLocalQueue;SameClusterQueue;SameCohort;SameCohortTree;AnyClusterQueue
-type PreemptionRelationConstraint string
+// +kubebuilder:validation:Enum=SameLocalQueue;SameClusterQueue;SameParentCohort;SameCohortTree;AnyClusterQueue
+type PreemptionQueueScope string
 
 const (
   // SameLocalQueue restricts preemption candidates to workloads submitted
   // to the exact same LocalQueue (matching name and namespace).
-  SameLocalQueue PreemptionRelationConstraint = "SameLocalQueue"
+  SameLocalQueue PreemptionQueueScope = "SameLocalQueue"
 
   // SameClusterQueue restricts preemption candidates to workloads submitted
   // to the same ClusterQueue as the preemptor.
-  SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
+  SameClusterQueue PreemptionQueueScope = "SameClusterQueue"
 
-  // SameCohort restricts preemption candidates to workloads in ClusterQueues
+  // SameParentCohort restricts preemption candidates to workloads in ClusterQueues
   // that share the exact same immediate direct Cohort, as well as workloads in the
   // preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
-  SameCohort PreemptionRelationConstraint = "SameCohort"
+  SameParentCohort PreemptionQueueScope = "SameParentCohort"
 
   // SameCohortTree restricts preemption candidates to workloads in ClusterQueues
   // that belong to the same Cohort Tree (sharing the same root ancestor Cohort),
   // as well as workloads in the preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
-  SameCohortTree PreemptionRelationConstraint = "SameCohortTree"
+  SameCohortTree PreemptionQueueScope = "SameCohortTree"
 
   // AnyClusterQueue places no relationship restrictions on preemption candidates.
-  AnyClusterQueue PreemptionRelationConstraint = "AnyClusterQueue"
-)
-
-
-// +kubebuilder:validation:Enum=BorrowingCapacityFromPreemptor;DRSLessThanOrEqualToFinalShare;DRSLessThanInitialShare;DRSAllStrategies
-type QuotaConstraint string
-
-const (
-  BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
-  DRSLessThanOrEqualToFinalShare QuotaConstraint = "DRSLessThanOrEqualToFinalShare"
-  DRSLessThanInitialShare QuotaConstraint = "DRSLessThanInitialShare"
-  DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
+  AnyClusterQueue PreemptionQueueScope = "AnyClusterQueue"
 )
 
 
@@ -702,20 +696,14 @@ type PreemptionCandidateSelector struct {
   // RelationRequirement specifies the queue or cohort relation boundary to the preemptor workload.
   //
   // +kubebuilder:validation:Required
-  RelationRequirement PreemptionRelationConstraint `json:"relationRequirement"`
-
-  // Quota specifies quota-based preemption constraints (e.g., borrowing capacity or fair sharing share).
-  // Cannot be set if RelationRequirement is SameLocalQueue or SameClusterQueue.
-  // Accepts all if not set.
-  //
-  // +optional
-  Quota *QuotaConstraint `json:"quota,omitempty"`
+  RelationRequirement PreemptionQueueScope `json:"relationRequirement"`
 
   // NumericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
   // Multiple numeric labels are joined using AND-rule (all have to be satisfied).
   // Accepts all if not set.
   //
   // +optional
+  // +listType=atomic
   NumericLabels []NumericLabelConstraint `json:"numericLabels,omitempty"`
 
   // ClusterQueueSelector defines label selector constraints on candidate ClusterQueues.
@@ -730,14 +718,14 @@ type PreemptionCandidateSelector struct {
   // +optional
   WorkloadSelector *metav1.LabelSelector `json:"workloadSelector,omitempty"`
 
-  // RelativeWorkloadPriority defines how the candidate's priority compares to the preemptor's priority.
+  // PriorityComparison defines how the candidate's priority compares to the preemptor's priority.
   // For example "Lower" means that only workloads with lower
   // priority will be allowed as preemption candidates.
   // The comparison is made using effective priority (accounting for priority boost if enabled).
   // If nil, no relative priority check is enforced.
   //
   // +optional
-  RelativeWorkloadPriority *RelativeConstraint `json:"relativeWorkloadPriority,omitempty"`
+  PriorityComparison *NumericComparison `json:"priorityComparison,omitempty"`
 }
 
 
@@ -747,7 +735,7 @@ type PreemptionCandidateSelector struct {
 // required topology domain size, such as the "number of TPUs".
 // If a user has a label "number-of-tpus" that describes the number of TPUs required in a single cube,
 // it can be used to create a rule that selects only workloads requiring smaller cube slices
-// by defining relation: "Lower". Such a configuration would allow preemption of "smaller" workloads,
+// by defining comparison: "Lower". Such a configuration would allow preemption of "smaller" workloads,
 // to achieve better cluster utilization and decrease fragmentation.
 // Please note that those labels are not copied out of the box from job-like objects.
 // You should remember to append the designated labels to the list of labels
@@ -761,17 +749,17 @@ type NumericLabelConstraint struct {
   // +kubebuilder:validation:MaxLength=316
   Key string `json:"key"`
 
-  // DefaultValue is used when a workload does not have the label key
+  // FallbackValue is used when a workload does not have the label key
   // or the value under the key cannot be parsed as an integer.
   // If not specified, workloads without the label or
   // with a label value not parsable as int are treated as incomparable,
   // and therefore excluded from preemption candidates.
   // +optional
-  DefaultValue *int32 `json:"defaultValue,omitempty"`
+  FallbackValue *int32 `json:"fallbackValue,omitempty"`
 
-  // Relation defines how the candidate's label value compares to the preemptor's.
+  // Comparison defines how the candidate's label value compares to the preemptor's.
   // +optional
-  Relation *RelativeConstraint `json:"relation,omitempty"`
+  Comparison *NumericComparison `json:"comparison,omitempty"`
 
   // MinValue specifies the lowest label value a candidate workload can have to be considered for preemption.
   // +optional
@@ -782,24 +770,24 @@ type NumericLabelConstraint struct {
   MaxValue *int32 `json:"maxValue,omitempty"`
 }
 
-// RelativeConstraint defines how a specified numeric property (e.g., effective priority) of the candidate compares to the same property of the preemptor.
+// NumericComparison defines how a specified numeric property (e.g., effective priority) of the candidate compares to the same property of the preemptor.
 // Possible values are:
 // - "Lower": permits preemption if candidate field value < preemptor field value
 // - "Greater": permits preemption if candidate field value > preemptor field value
 // - "LowerOrEqual": permits preemption if candidate field value <= preemptor field value
 // - "GreaterOrEqual": permits preemption if candidate field value >= preemptor field value
 // +kubebuilder:validation:Enum=Lower;Greater;LowerOrEqual;GreaterOrEqual
-type RelativeConstraint string
+type NumericComparison string
 
 const (
   // Lower permits preemption if candidate field value < preemptor field value
-  Lower RelativeConstraint = "Lower"
+  Lower NumericComparison = "Lower"
   // Greater permits preemption if candidate field value > preemptor field value
-  Greater RelativeConstraint = "Greater"
+  Greater NumericComparison = "Greater"
   // LowerOrEqual permits preemption if candidate field value <= preemptor field value
-  LowerOrEqual RelativeConstraint = "LowerOrEqual"
+  LowerOrEqual NumericComparison = "LowerOrEqual"
   // GreaterOrEqual permits preemption if candidate field value >= preemptor field value
-  GreaterOrEqual RelativeConstraint = "GreaterOrEqual"
+  GreaterOrEqual NumericComparison = "GreaterOrEqual"
 )
 
 // Kueue uses full, descriptive identifiers ("Lower", "Greater", "LowerOrEqual", "GreaterOrEqual").
@@ -920,7 +908,7 @@ flowchart TD
 4. **Candidate Gathering & Strategy Merging (Alpha)**:
    - In Alpha, candidates are gathered by evaluating both preemption mechanisms:
      - **Classical Preemption**: Evaluates candidates according to `cq.Spec.Preemption` policies (e.g. workloads borrowing from the preemptor's ClusterQueue, or lower-priority workloads in the same CQ or cohort).
-     - **Configurable Preemption**: Evaluates candidates matching the rules and candidate selectors of the `PreemptionConfig` referenced by the `kueue.x-k8s.io/alpha-preemption-config` annotation (subject to matching triggers).
+     - **Configurable Preemption**: Evaluates candidates matching the rules and candidate selectors of the `PreemptionConfig` referenced by the `kueue.x-k8s.io/preemption-config` annotation (subject to matching triggers).
    - The candidate outputs of both strategies are **merged and deduplicated** into a single candidate set ($C_{\text{merged}} = C_{\text{classical}} \cup C_{\text{config}}$).
    - This provides maximum flexibility while changing existing logic as little as possible: users can run both strategies concurrently, or fully stop candidates from either mechanism (e.g., setting `reclaimWithinCohort: Never` and `withinClusterQueue: Never` disables classical candidates, while omitting the annotation disables configurable preemption candidates).
 
@@ -1028,7 +1016,7 @@ Small parts of the implementation like in-memory trigger tracking or integration
 #### Alpha
 
 - `PreemptionConfig` CRD is implemented with preemption rules.
-- `ClusterQueue` references `PreemptionConfig` via the `kueue.x-k8s.io/alpha-preemption-config` annotation, without introducing a new field to `ClusterQueueSpec`.
+- `ClusterQueue` references `PreemptionConfig` via the `kueue.x-k8s.io/preemption-config` annotation, without introducing a new field to `ClusterQueueSpec`.
 - `ClusterQueue.spec.preemption` declarative defaulting (`+kubebuilder:default={}`) is preserved intact.
 - Preemption evaluator merges candidate outputs from classical preemption (`spec.preemption`) and configurable preemption (`PreemptionConfig`), allowing users to combine or selectively stop candidates from either mechanism.
 - Workloads can be preempted according to rules defined in the preemption config.
@@ -1075,14 +1063,14 @@ Implementation of the foundations of PreemptionConfig:
 - candidate ordering reusing classical preemption ordering logic
 - triggers
 - candidate gathering from both strategies into two separate sets, merging, deduplication, and ordering
-- ClusterQueue integration via `kueue.x-k8s.io/alpha-preemption-config` annotation
+- ClusterQueue integration via `kueue.x-k8s.io/preemption-config` annotation
 - preemption evaluator support for merging candidate outputs from classical preemption (`spec.preemption`) and `PreemptionConfig`
 
 Implementation of the following candidate selector fields and constraints to have an MVP of defrag:
 
 - `NumericLabels` (`NumericLabelConstraint`)
-- `RelativeWorkloadPriority` (`RelativeConstraint`)
-- `RelationRequirement` (`PreemptionRelationConstraint`)
+- `PriorityComparison` (`NumericComparison`)
+- `RelationRequirement` (`PreemptionQueueScope`)
 
 Expose the implementation under feature gate "ConfigurablePreemptions", integration should not change in any way the existing preemption logic.
 
@@ -1148,7 +1136,7 @@ Why should this KEP _not_ be implemented?
    Ruled out because:
    - `ClusterQueue.spec.preemption` has declarative defaulting (`+kubebuilder:default={}`). Setting it to `null` or altering declarative defaulting in a mutating webhook is a breaking change for existing clients and manifests.
    - If a formal field `spec.preemptionConfigName` were added in Alpha with merged behavior alongside `spec.preemption`, changing it to mutually exclusive in Beta would be a breaking change to the field's semantics.
-   - Using an explicit Alpha annotation (`kueue.x-k8s.io/alpha-preemption-config`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
+   - Using an annotation (`kueue.x-k8s.io/preemption-config`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
 
 6. Persisting trigger conditions directly on the Workload API object via status condition patches (`Workload.Status.Conditions`).
    Ruled out because:
@@ -1313,12 +1301,12 @@ spec:
     - name: defrag-smaller-tpu-workloads
       trigger: "InsufficientTopology"
       candidateSelectors:
-        - relativeWorkloadPriority: "LowerOrEqual"
+        - priorityComparison: "LowerOrEqual"
           relationRequirement: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
-              relation: "Lower"
-              defaultValue: 0
+              comparison: "Lower"
+              fallbackValue: 0
   ordering:
     - orderingField: "Priority"
       direction: "Ascending"
@@ -1332,12 +1320,12 @@ spec:
     - name: hero-reclaim-topology
       trigger: "InsufficientTopology"
       candidateSelectors:
-        - relativeWorkloadPriority: "Lower"
+        - priorityComparison: "Lower"
           relationRequirement: "AnyClusterQueue"
     - name: hero-reclaim-quota
       trigger: "InsufficientQuota"
       candidateSelectors:
-        - relativeWorkloadPriority: "Lower"
+        - priorityComparison: "Lower"
           relationRequirement: "AnyClusterQueue"
   ordering:
     - orderingField: "Priority"
@@ -1526,7 +1514,7 @@ type PreemptionCandidateSelector struct {
   MaxExecutionDuration *metav1.Duration `json:"maxExecutionDuration,omitempty"`
 
   // ExecutionTimeRelation defines how the candidate's execution time compares to the preemptor's.
-  ExecutionTimeRelation *RelativeConstraint `json:"executionTimeRelation,omitempty"`
+  ExecutionTimeRelation *NumericComparison `json:"executionTimeRelation,omitempty"`
 
   // Accepts any time from creation if not set.
   // MinTimeFromCreationDuration specifies the minimum age of the workload from creation timestamp.
@@ -1536,7 +1524,7 @@ type PreemptionCandidateSelector struct {
   MaxTimeFromCreationDuration *metav1.Duration `json:"maxTimeFromCreationDuration,omitempty"`
 
   // TimeFromCreationRelation defines how the candidate's creation time compares to the preemptor's.
-  TimeFromCreationRelation *RelativeConstraint `json:"timeFromCreationRelation,omitempty"`
+  TimeFromCreationRelation *NumericComparison `json:"timeFromCreationRelation,omitempty"`
 }
 ```
 
@@ -1551,7 +1539,7 @@ spec:
       trigger: "InsufficientQuota"
       candidateSelectors:
         - relationRequirement: "SameClusterQueue"
-          relativeWorkloadPriority: "Lower"
+          priorityComparison: "Lower"
           minExecutionDuration: "15m"
 ```
 
@@ -1564,13 +1552,13 @@ spec:
       trigger: "InsufficientQuota"
       candidateSelectors:
         - relationRequirement: "SameClusterQueue"
-          relativeWorkloadPriority: "Lower"
+          priorityComparison: "Lower"
           maxTimeFromCreationDuration: "1h"
 ```
 
 ### Workload Priority Class Selectors
 
-Selecting preemption candidates based on workload priority class label selectors allows targeting specific priority classes (e.g. preempting only `batch-low` workloads within the same ClusterQueue or when reclaiming borrowed cohort capacity). While these use cases are well-identified, configuring priority-class label selectors is deferred to future work. Preemptor workloads are qualified at the rule level via `matchingPreemptorWorkloads`.
+Selecting preemption candidates based on workload priority class label selectors allows targeting specific priority classes (e.g. preempting only `batch-low` workloads within the same ClusterQueue or when reclaiming borrowed cohort capacity). While these use cases are well-identified, configuring priority-class label selectors is deferred to future work. Preemptor workloads are qualified at the rule level via `preemptorSelector`.
 
 Relevant use cases include:
 
@@ -1619,11 +1607,52 @@ spec:
     - name: reclaim-cohort-quota-from-low-priority
       trigger: "QuotaReclaimRequired"
       candidateSelectors:
-        - relationRequirement: "SameCohort"
+        - relationRequirement: "SameParentCohort"
           quota: "BorrowingCapacityFromPreemptor"
           candidateWorkloadPrioritySelector:
             matchLabels:
               kueue.x-k8s.io/priority-class: "batch-low"
+```
+
+### Quota-Based Candidate Selectors (QuotaConstraint)
+
+In Alpha, candidate evaluation reuses the regular preemption ordering rules from classical preemption and fair sharing, which already take borrowing capacity and Dominant Resource Share (DRS) into account dynamically. Explicit pre-filtering of preemption candidates via a `Quota` constraint (such as `BorrowingCapacityFromPreemptor` or DRS share comparisons) is therefore not needed for Alpha and is deferred to future work.
+
+#### Proposed API for Quota-Based Candidate Selectors
+
+In a future iteration, `PreemptionCandidateSelector` can be extended with the `Quota` field:
+
+```go
+// +kubebuilder:validation:Enum=BorrowingCapacityFromPreemptor;DRSLessThanOrEqualToFinalShare;DRSLessThanInitialShare;DRSAllStrategies
+type QuotaConstraint string
+
+const (
+  // BorrowingCapacityFromPreemptor restricts preemption candidates to workloads
+  // that consume quota borrowed from the preemptor's ClusterQueue.
+  BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
+
+  // DRSLessThanOrEqualToFinalShare restricts preemption candidates to workloads in ClusterQueues
+  // whose Dominant Resource Share after preemption remains less than or equal to their final share.
+  DRSLessThanOrEqualToFinalShare QuotaConstraint = "DRSLessThanOrEqualToFinalShare"
+
+  // DRSLessThanInitialShare restricts preemption candidates to workloads in ClusterQueues
+  // whose Dominant Resource Share before preemption was less than their initial share.
+  DRSLessThanInitialShare QuotaConstraint = "DRSLessThanInitialShare"
+
+  // DRSAllStrategies allows any preemption candidates permitted under configured DRS fair-sharing strategies.
+  DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
+)
+
+type PreemptionCandidateSelector struct {
+  // ... baseline candidate selector fields ...
+
+  // Quota specifies quota-based preemption constraints (e.g., borrowing capacity or fair sharing share).
+  // Cannot be set if RelationRequirement is SameLocalQueue or SameClusterQueue.
+  // Accepts all if not set.
+  //
+  // +optional
+  Quota *QuotaConstraint `json:"quota,omitempty"`
+}
 ```
 
 ### PreemptionLimit (Rate-Limiting Guardrails)
@@ -1765,10 +1794,10 @@ type PreemptionRule struct {
   // Name of the preemption rule.
   Name string `json:"name"`
 
-  // MatchingPreemptorWorkloads specifies an optional label selector to limit which preemptor workloads can activate this rule.
+  // PreemptorSelector specifies an optional label selector to limit which preemptor workloads can activate this rule.
   //
   // +optional
-  MatchingPreemptorWorkloads *metav1.LabelSelector `json:"matchingPreemptorWorkloads,omitempty"`
+  PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
 
   // Trigger specifies the condition (InsufficientQuota, QuotaReclaimRequired, or InsufficientTopology)
   // that must be observed on the preemptor workload for this rule to apply.
@@ -1806,12 +1835,12 @@ spec:
       trigger: "InsufficientTopology"
       minTriggerRequiredDuration: "30s"
       candidateSelectors:
-        - relativeWorkloadPriority: "LowerOrEqual"
+        - priorityComparison: "LowerOrEqual"
           relationRequirement: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
-              relation: "Lower"
-              defaultValue: 0
+              comparison: "Lower"
+              fallbackValue: 0
 ```
 
 ### Per-Node DRA Device Feasibility Trigger (InsufficientDRADevices)
