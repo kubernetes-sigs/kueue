@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -37,13 +38,17 @@ import (
 )
 
 const (
-	testingNamespace  = "ns"
-	testingQueueLabel = "testing.lbl"
+	testingNamespace   = "ns"
+	testingQueueLabel  = "testing.lbl"
+	testingGPUResource = corev1.ResourceName("nvidia.com/gpu")
 )
 
 func TestCheckNamespace(t *testing.T) {
 	basePodWrapper := testingpod.MakePod("pod", testingNamespace).
 		Label(testingQueueLabel, "q1")
+	gpuPodWrapper := testingpod.MakePod("pod-gpu", testingNamespace).
+		Label(testingQueueLabel, "q1").
+		Request(testingGPUResource, "1")
 
 	baseLocalQueue := utiltestingapi.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
 	baseClusterQueue := utiltestingapi.MakeClusterQueue("cq1")
@@ -59,6 +64,20 @@ func TestCheckNamespace(t *testing.T) {
 			ToLocalQueue: "lq1",
 		},
 	}
+
+	gpuMapping := mapping.Rules{
+		mapping.Rule{
+			Match: mapping.Match{
+				Labels: map[string]string{
+					testingQueueLabel: "q1",
+				},
+				Resources: []corev1.ResourceName{testingGPUResource},
+			},
+			ToLocalQueue: "lq1",
+		},
+	}
+	gpuClusterQueue := utiltestingapi.MakeClusterQueue("cq1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(testingGPUResource, "1").Obj())
 
 	cases := map[string]struct {
 		pods                     []corev1.Pod
@@ -238,6 +257,39 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 			wantError: cache.ErrPCNotFound,
+		},
+		"pods not requesting the resource are skipped": {
+			pods: []corev1.Pod{
+				*gpuPodWrapper.DeepCopy(),
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: append(slices.Clone(gpuMapping), mapping.Rule{Skip: true}),
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*gpuClusterQueue.Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+		},
+		"pods not requesting the resource have no mapping without a catch-all rule": {
+			pods: []corev1.Pod{
+				*gpuPodWrapper.DeepCopy(),
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: gpuMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*gpuClusterQueue.Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+			wantError: mapping.ErrNoMapping,
 		},
 	}
 
