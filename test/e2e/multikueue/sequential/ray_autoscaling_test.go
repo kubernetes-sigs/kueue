@@ -255,6 +255,8 @@ func runRayClusterSequentialScaleUpTest(
 	ginkgo.By("Checking the first scale-up is admitted and exactly one worker runs", func() {
 		firstScaleUpSlice = util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, initialSlice)
 		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(firstScaleUpSlice), firstScaleUpSlice)).To(gomega.Succeed())
+
 			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(1))
@@ -272,6 +274,8 @@ func runRayClusterSequentialScaleUpTest(
 	ginkgo.By("Checking the second scale-up is admitted and exactly two workers run", func() {
 		secondScaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, firstScaleUpSlice)
 		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(secondScaleUpSlice), secondScaleUpSlice)).To(gomega.Succeed())
+
 			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, client.ObjectKeyFromObject(raycluster), corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(2))
