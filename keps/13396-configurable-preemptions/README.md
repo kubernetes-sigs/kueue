@@ -108,7 +108,7 @@ With `PreemptionConfig`, administrators can configure explicit triggers (quota o
 
 ### 1. Defragmentation
 
-Kueue does not support inter-ClusterQueue topology-based preemptions when workloads are within their cluster queue's nominal quota. Because of this, small workloads can sometimes block large topology domains.
+Kueue does not support inter-ClusterQueue topology-based preemptions when workloads are within their ClusterQueue's nominal quota. Because of this, small workloads can sometimes block large topology domains.
 In some clusters, this may be desired, as disruptions of critical workloads should be avoided as much as possible.
 
 In other setups, better cluster utilization or the ability to schedule higher-priority jobs that are blocked due to cluster fragmentation is more important. Therefore, additional defragmentation mechanisms are needed to allow higher-priority workloads to move smaller workloads between topology domains. The expected behavior in this case can be seen in the following example:
@@ -116,7 +116,7 @@ In other setups, better cluster utilization or the ability to schedule higher-pr
 Let us consider a cluster with 2 racks where each rack has 4 nodes.
 For simplicity, we will equate resources with nodes, and assume there is only one resource flavor with a natural 2-level topology: rack, hostname.
 
-And 3 cluster queues:
+And 3 ClusterQueues:
 
 - Queue A with quota 1.
 - Queue B with quota 1.
@@ -159,7 +159,7 @@ style rack2C fill:#369,stroke:#333,stroke-width:4px
 
 Next, Workload C arrives requiring 4 nodes in a single rack. Although sufficient quota is available, neither rack can accommodate it because Workload A and Workload B occupy one node in each rack, fragmenting both topology domains.
 
-To schedule Workload C, one of the running workloads must be preempted and relocated to the other rack. However, Kueue currently does not support this because all running workloads are within their cluster queues' nominal quotas.
+To schedule Workload C, one of the running workloads must be preempted and relocated to the other rack. However, Kueue currently does not support this because all running workloads are within their ClusterQueues' nominal quotas.
 
 ```mermaid
 block-beta
@@ -225,9 +225,9 @@ style rack2afterD fill:#f84,stroke:#333,stroke-width:4px
 Related [issue](https://github.com/kubernetes-sigs/kueue/issues/8826).
 
 Hero workloads are often high-priority and require the majority of the cluster quota.
-Currently, Kueue does not natively support their needs as it has no notion of elevated preemption privileges to overrule standard quota and topology limitations when needed. In particular, Kueue does not allow for preemption of jobs that are within cluster queues' guaranteed quotas from other cluster queues.
+Currently, Kueue does not natively support their needs as it has no notion of elevated preemption privileges to overrule standard quota and topology limitations when needed. In particular, Kueue does not allow for preemption of jobs that are within ClusterQueues' guaranteed quotas from other ClusterQueues.
 Current workarounds like "temporary" overrides of
-quotas assigned to all cluster queues are bad from the user experience perspective as they require manual handling.
+quotas assigned to all ClusterQueues are bad from the user experience perspective as they require manual handling.
 Moreover, they lead to wasted resources if a hero workload fails for
 some reason and quotas are not brought back to their previous state.
 
@@ -285,7 +285,7 @@ Introduce a new CRD **PreemptionConfig** that will be used to define:
 
 In the initial iteration, candidate workloads are gathered from both classical preemption and configurable preemption into two separate sets, merged, deduplicated, and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/common/ordering.go`) to change existing logic as little as possible. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work Ideas](#future-work-ideas).
 
-The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple cluster queues.
+The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple ClusterQueues.
 
 #### Referencing PreemptionConfig and Strategy Interaction
 
@@ -352,7 +352,7 @@ Each of the user stories mentioned in the motivation section can be fulfilled by
 
 #### Story 1 - Defragmentation
 
-A user can define a config with an `InsufficientTopology` trigger that will allow preemption of workloads blocking specific topologies when scheduling a workload from the associated cluster queue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantees asymmetry: if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
+A user can define a config with an `InsufficientTopology` trigger that will allow preemption of workloads blocking specific topologies when scheduling a workload from the associated ClusterQueue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantees asymmetry: if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
 
 - Only allow preemption of workloads with strictly lower priority.
 - Only allow preemption of workloads that require smaller topologies (e.g. using a custom numeric label).
@@ -374,11 +374,13 @@ spec:
               fallbackValue: 0
 ```
 
-As it has an `AnyClusterQueue` relation, it can preempt workloads even if they are not related in any way to the preemptor cluster queue. In combination with a custom numeric label selector using strict `Lower`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops. Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
+As it has an `AnyClusterQueue` relation, it can preempt workloads even if they are not related in any way to the preemptor ClusterQueue.
+In combination with a custom numeric label selector using strict `Lower`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops.
+Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
 
 #### Story 2 - Hero job
 
-This example shows how a hero job's preemption config can be set up. It proposes an exemplary separate preemption config for the hero job's cluster queue, but in practical deployments it should be tailored to the user's needs.
+This example shows how a hero job's preemption config can be set up. It proposes an exemplary separate preemption config for the hero job's ClusterQueue, but in practical deployments it should be tailored to the user's needs.
 
 Assumptions:
 
@@ -387,7 +389,7 @@ Assumptions:
 - The hero job is a mission-critical job and should be scheduled as soon as possible,
 - The hero job should not be preemptible by any other workload.
 
-This can be achieved by a separate preemption config for the hero job. The config should be referenced by the hero job's cluster queue. The config will have two rules, allowing it to preempt any lower-priority workload across any ClusterQueue for either quota or topology reasons:
+This can be achieved by a separate preemption config for the hero job. The config should be referenced by the hero job's ClusterQueue. The config will have two rules, allowing it to preempt any lower-priority workload across any ClusterQueue for either quota or topology reasons:
 
 ```yaml
 spec:
@@ -947,7 +949,7 @@ This two-set merge approach changes the existing preemption and scheduling codeb
 
 ### Observability
 
-As new preemptions may be far more complex than the existing classical model, it may be non-trivial to judge why a workload was preempted just by looking at the cluster queue resource. Therefore, we need to add more visibility into preemption reasons. To satisfy this need, details about the eviction will be written to the `WorkloadSchedulingStatsEviction` structure in the `Workload` status.
+As new preemptions may be far more complex than the existing classical model, it may be non-trivial to judge why a workload was preempted just by looking at the ClusterQueue resource. Therefore, we need to add more visibility into preemption reasons. To satisfy this need, details about the eviction will be written to the `WorkloadSchedulingStatsEviction` structure in the `Workload` status.
 Reason will be set to `ConfigurablePreemption` to indicate that the new mechanism was used for preemption. The `UnderlyingCause` will be filled with the following information up to the maximum characters:
 
 - preemptor workload reference,
@@ -1000,7 +1002,7 @@ Small parts of the implementation like in-memory trigger tracking or integration
 
 #### Integration tests
 
-1. New configurable preemptions are used when the `ConfigurablePreemptions` feature gate is enabled and a preemption config is specified for a cluster queue (old preemptions are covered by existing tests).
+1. New configurable preemptions are used when the `ConfigurablePreemptions` feature gate is enabled and a preemption config is specified for a ClusterQueue (old preemptions are covered by existing tests).
 2. Pre-made config tests satisfying the main user stories — defrag and hero jobs.
 3. Dedicated preemption performance test suite — to compare the performance of the new implementation with the existing implementation for identical configurations.
 
@@ -1025,7 +1027,7 @@ Small parts of the implementation like in-memory trigger tracking or integration
 
 #### Beta
 
-- Feature parity: `PreemptionConfig` covers all existing classical and fair sharing preemption use cases (reclaim within cohort, within cluster queue, borrowing preemption, fair sharing), alongside defragmentation and hero jobs.
+- Feature parity: `PreemptionConfig` covers all existing classical and fair sharing preemption use cases (reclaim within cohort, within ClusterQueue, borrowing preemption, fair sharing), alongside defragmentation and hero jobs.
 - Mutual exclusivity: `PreemptionConfig` and classical `preemption` become mutually exclusive; candidate merging is removed in favor of exclusive strategy execution.
 - API promotion: `PreemptionConfig` reference is promoted to a formal field in `ClusterQueueSpec`, and the Alpha annotation is deprecated and designated for removal.
 - No significant performance regression for existing preemptions translated to new preemption configs.
@@ -1114,22 +1116,22 @@ Why should this KEP _not_ be implemented?
    - It will not satisfy other user needs like hero jobs and SLA-aware preemptions.
    - It can lead to unnecessary preemptions and therefore wasted cluster resources if the defragmentation process "moves" the workload to a more suitable spot, but a workload in need of the freed topology domain does not arrive before the workload finishes.
 
-2. Uber cluster queues as a separate CRD with elevated permissions to preempt any workload and without quota limits.
+2. Uber ClusterQueues as a separate CRD with elevated permissions to preempt any workload and without quota limits.
    Ruled out because:
    - It would bring excessive complexity to the system and would not fulfill other user needs.
    - It would be harder to maintain as it would require "dual" handling of Kueue preemption and quota computation logic.
-   - Depending on the exact API, it can be harder for users to migrate to, as they probably already have some form of "uber" cluster queues if they really need them.
+   - Depending on the exact API, it can be harder for users to migrate to, as they probably already have some form of "uber" ClusterQueues if they really need them.
 
 3. Additional preemption related fields in **ClusterQueueSpec** like selector of queues from which it can preempt, preempted workload execution duration, etc.
    Ruled out because:
-   - It will lead to inconsistencies between cluster queues.
+   - It will lead to inconsistencies between ClusterQueues.
    - It will make preemption rules maintenance harder.
    - It will not allow defining fine-grained global preemption limits.
 
 4. Consolidation of **PreemptionConfig** and **PreemptionLimit** into a single CRD.
    Ruled out because:
-   - It will not allow limiting preemptions globally across cluster queues.
-   - It will make configurations like "this cluster queue should never be preempted" unintuitive.
+   - It will not allow limiting preemptions globally across ClusterQueues.
+   - It will make configurations like "this ClusterQueue should never be preempted" unintuitive.
    - It will make limits across different configs harder to maintain or infeasible at all.
 
 5. Adding a `preemptionConfigName` field to `ClusterQueueSpec` in Alpha and requiring `spec.preemption: null` (or merged semantics).
@@ -1351,16 +1353,18 @@ Rather than pooling all candidate workloads across the cluster into a single uns
 
 Certain preemption candidate rules—such as those based on `BorrowingCapacityFromPreemptor` or Dominant Resource Share (DRS) fair-sharing strategies—depend on dynamic cluster state that changes as candidate workloads are simulated for preemption during evaluation.
 
-For example, consider cluster queues A and B, each with a nominal quota of 5. Suppose CQ B is currently borrowing 1 unit of quota from CQ A. If a workload in CQ A triggers preemption under a rule targeting only borrowing workloads, and each candidate workload in CQ B consumes 1 unit of quota, the evaluator should only preempt a single workload from CQ B. Once that first workload is selected, CQ B is no longer borrowing quota from CQ A, so remaining workloads in CQ B must immediately become ineligible for that borrowing rule.
+For example, consider ClusterQueues A and B, each with a nominal quota of 5. Suppose CQ B is currently borrowing 1 unit of quota from CQ A.
+If a workload in CQ A triggers preemption under a rule targeting only borrowing workloads, and each candidate workload in CQ B consumes 1 unit of quota, the evaluator should only preempt a single workload from CQ B.
+Once that first workload is selected, CQ B is no longer borrowing quota from CQ A, so remaining workloads in CQ B must immediately become ineligible for that borrowing rule.
 
-Furthermore, dynamic cluster metrics (such as DRS in fair-sharing cohorts) mean that preemption eligibility and relative candidate ordering across cluster queues can shift after every candidate selection step.
+Furthermore, dynamic cluster metrics (such as DRS in fair-sharing cohorts) mean that preemption eligibility and relative candidate ordering across ClusterQueues can shift after every candidate selection step.
 
 ##### Naive Solutions and Complexity Bottlenecks
 
 Let:
 
-- $n$: total number of candidate workloads across all cluster queues in the cohort.
-- $c$: number of cluster queues in the cohort, with $c \ll n$.
+- $n$: total number of candidate workloads across all ClusterQueues in the cohort.
+- $c$: number of ClusterQueues in the cohort, with $c \ll n$.
 - $s$: number of candidate selectors configured in `PreemptionConfig` rules, with $s \le 5$.
 - $m$: number of victim workloads required to satisfy the preemptor, with $m \le n$.
 
@@ -1374,10 +1378,10 @@ Under dynamic state changes:
 Leveraging **Per-Selector, Per-ClusterQueue Priority Queues**, the evaluator achieves optimal scheduling performance without repetitive full-array scans or re-sorting:
 
 1. **Static Intra-Queue Ordering (Sort Once):**
-   Within any given cluster queue, relative candidate ordering (e.g., by Priority, `AdmissionTimestamp`, Workload UID) is static and unaffected by dynamic quota borrowing or DRS changes. Therefore, candidate workloads within each `(Selector, CQ)` queue need to be sorted only once at the start of evaluation.
+   Within any given ClusterQueue, relative candidate ordering (e.g., by Priority, `AdmissionTimestamp`, Workload UID) is static and unaffected by dynamic quota borrowing or DRS changes. Therefore, candidate workloads within each `(Selector, CQ)` queue need to be sorted only once at the start of evaluation.
 
 2. **CQ-Level State Tracking & Fast Pruning:**
-   Dynamic state—such as current borrowed quota and cluster queue DRS—is tracked via lightweight counters attached to each CQ queue. When a CQ property no longer satisfies the selector's criteria (e.g., borrowed quota reaches zero for borrowing selectors), the entire priority queue for that CQ under that selector is pruned from consideration.
+   Dynamic state—such as current borrowed quota and ClusterQueue DRS—is tracked via lightweight counters attached to each CQ queue. When a CQ property no longer satisfies the selector's criteria (e.g., borrowed quota reaches zero for borrowing selectors), the entire priority queue for that CQ under that selector is pruned from consideration.
 
 3. **Handling Workload-Specific Constraints (`DRSLessThanOrEqualToFinalShare`):**
    For selectors requiring workload-level evaluation (such as `DRSLessThanOrEqualToFinalShare`), the entire queue cannot simply be dropped at the CQ level because eligibility depends on the individual workload's DRS value. For these selectors, candidates are evaluated at extraction time when inspected at the queue head. If a candidate violates the fair-sharing constraint under current simulated state, it is popped and discarded for that selector.
@@ -1393,7 +1397,7 @@ Leveraging **Per-Selector, Per-ClusterQueue Priority Queues**, the evaluator ach
 
 ##### Example Walkthrough
 
-Consider three cluster queues (CQ A, CQ B, and CQ C) in a flat cohort, each with 2 admitted workloads:
+Consider three ClusterQueues (CQ A, CQ B, and CQ C) in a flat cohort, each with 2 admitted workloads:
 
 - **Workloads & Priorities**:
   - Preemptor: Workload A3 in ClusterQueue A, Priority = 40.
@@ -1435,12 +1439,12 @@ Maintaining separate priority queues per candidate selector is essential. If que
 
 To evaluate algorithmic efficiency under realistic cluster conditions:
 
-- $n$: total number of candidate workloads across all cluster queues in the cohort.
-- $c$: number of cluster queues in the cohort, with $c \ll n$.
+- $n$: total number of candidate workloads across all ClusterQueues in the cohort.
+- $c$: number of ClusterQueues in the cohort, with $c \ll n$.
 - $s$: number of candidate selectors configured in the `PreemptionConfig`, with $s \le 5$.
 - $m$: number of victim workloads required to admit the preemptor, with $m \le n$.
 
-Assuming workloads are roughly evenly distributed across cluster queues (approximately $n/c$ workloads per queue):
+Assuming workloads are roughly evenly distributed across ClusterQueues (approximately $n/c$ workloads per queue):
 
 1. **Queue Initialization & Sorting**:
    - The algorithm instantiates at most $s \times c$ priority queues.
@@ -1732,7 +1736,7 @@ type PreemptionLimitStatus struct {
 
   // Periodically updated, for reference only.
   // Map key depends on the scope. For Global it is just Global.
-  // For CQ it is cluster queue name.
+  // For CQ it is ClusterQueue name.
   // For Workload it is namespace + "/" + workload name.
   // Restricted to the top 1000 counts to fit within CRD size limits.
   Count map[string]int32 `json:"count,omitempty"`
