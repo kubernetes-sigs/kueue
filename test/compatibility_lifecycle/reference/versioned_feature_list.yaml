@@ -579,10 +579,14 @@
     version: "0.19"
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ValidateRayAndSparkJobUpdates
   versionedSpecs:
   - default: true
