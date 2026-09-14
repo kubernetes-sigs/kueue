@@ -652,6 +652,11 @@ const (
 	//
 	// Reuse clientConnection (QPS and Burst) for MultiKueue worker clusters instead of creating a new client for each request.
 	MultiKueueReuseClientConnectionConfigForWorkers featuregate.Feature = "MultiKueueReuseClientConnectionConfigForWorkers"
+
+	// owner: @dpastuszka
+	//
+	// Replace TAS topology assignment and followup preemption strategy with SchedulerLibrary's ScheduleWorkload.
+	SchedulerLibraryTASDeepIntegration featuregate.Feature = "WASScheduleWorkload"
 )
 
 func init() {
@@ -681,6 +686,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	FlavorFungibilityPreserveScanProgress:           {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
+	SchedulerLibraryTASDeepIntegration:              {SchedulerLibraryIntegration, TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1012,6 +1018,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueReuseClientConnectionConfigForWorkers: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryTASDeepIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
