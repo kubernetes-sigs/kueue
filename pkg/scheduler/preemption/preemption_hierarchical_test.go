@@ -2242,6 +2242,186 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Obj(),
 			},
 		},
+		//            R(0)
+		//        /            \
+		//     q(cpu 2/2,       donor(cpu 2, mem 2)
+		//       mem 2/2)
+		//
+		// Multi-resource equivalence guard for the cannotFitUnderBorrowingLimit
+		// early-return. cpu is infeasible: q_high (higher priority, non-preemptible)
+		// holds cpu 3 of q's cap 4, so R_cpu = 0 and usage-R+request = 3-0+2 = 5 > 4.
+		// mem, taken alone, is only withinBorrowing (usage 1, R_mem = 1, request 2:
+		// 1-1+2 = 2 <= cap 4). Because band collapses via min across resources, the
+		// mem resource would pull the band down to withinBorrowing and — WITHOUT the
+		// early-return — route this through the cross-queue collection path, scanning
+		// the cohort and considering donor_low across two borrowing passes. It still
+		// ends at 0 preemptions because cpu can never fit, but only after wasted work.
+		// The early-return short-circuits on cpu. This case asserts the outcome is
+		// identical (0 preemptions, donor untouched) so the optimization is proven
+		// behavior-preserving even in the multi-resource / band-lowered scenario.
+		"cannotFit on one resource while another is only withinBorrowing: no candidate": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("r").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("q").
+					Cohort("r").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "2", "2").
+					Resource(corev1.ResourceMemory, "2", "2").
+					Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).Obj(),
+				utiltestingapi.MakeClusterQueue("donor").
+					Cohort("r").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "2").
+					Resource(corev1.ResourceMemory, "2").
+					Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("q_high", "").
+					Priority(5).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q_mem_low", "").
+					Priority(-5).
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceMemory, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("donor_low", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("donor").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").
+							Assignment(corev1.ResourceMemory, "default", "3").Obj()).Obj(), now).
+					Obj(),
+			},
+			incoming: baseIncomingWl.Clone().
+				Priority(0).
+				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceMemory, "2").
+				Obj(),
+			targetCQ: "q",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: 0,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("donor_low", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("donor").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").
+							Assignment(corev1.ResourceMemory, "default", "3").Obj()).Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q_high", "").
+					Priority(5).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q_mem_low", "").
+					Priority(-5).
+					Request(corev1.ResourceMemory, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceMemory, "default", "1").Obj()).Obj(), now).
+					Obj(),
+			},
+		},
+		//            R(0)
+		//        /            \
+		//     q(2,             q_other(2)
+		//  borrowLimit 2)
+		//
+		// cannotFitUnderBorrowingLimit early-return: q holds usage 3 but all of it
+		// (q_high) is higher priority than the incoming workload, so nothing is
+		// reclaimable (R = 0). incoming(3) into q: after - R = 3+3-0 = 6 exceeds
+		// nominal(2)+borrowLimit(2) = 4, so even reclaiming everything eligible
+		// cannot bring q under its borrowing cap. The cohort is otherwise idle
+		// (q_other empty), but cross-queue preemption cannot raise q's cap, so no
+		// candidate collection can help and nothing is preempted.
+		"exceeds borrowing limit after reclaiming all eligible same-queue usage: no candidate": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("r").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("q").
+					Cohort("r").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "2", "2").
+					Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).Obj(),
+				utiltestingapi.MakeClusterQueue("q_other").
+					Cohort("r").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "2").
+					Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("q_high", "").
+					Priority(5).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+			},
+			incoming: baseIncomingWl.Clone().
+				Priority(0).
+				Request(corev1.ResourceCPU, "3").
+				Obj(),
+			targetCQ: "q",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: 0,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("q_high", "").
+					Priority(5).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+			},
+		},
 		//
 		//
 		//            R(0)
@@ -2654,6 +2834,140 @@ func TestHierarchicalPreemptions(t *testing.T) {
 						Status:             metav1.ConditionTrue,
 						Reason:             "InClusterQueue",
 						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /c/q; preemptee path: /c/q",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+		},
+		//            R(0)
+		//        /            \
+		//     q(6,             donor(2)
+		//  borrowLimit 1)
+		//
+		// Regression for the "not all usage is reclaimable" over-pruning bug.
+		// q uses 4 of its nominal 6 (lending 2 to the cohort): q_high(3) is
+		// higher priority than the incoming workload and non-preemptible, only
+		// q_low(1) is reclaimable. donor uses 4 (nominal 2 + borrowing the 2 q
+		// lent), so the cohort is full (4+4 = 8/8, q.Available == 0) and donor's
+		// excess over its nominal is reclaimable.
+		//
+		// incoming(4) into q: after = 4+4 = 8 > nominal(6)+borrowLimit(1) = 7, so
+		// the exceedsBorrowing branch is considered. Basing needed on total usage
+		// gives request-usage = 4-4 = 0, which the full cohort trivially "covers",
+		// pruning the cross-queue candidate and leaving the workload pending with 0
+		// preemptions. Basing it on the releasable same-queue usage (only q_low = 1)
+		// gives needed = 4-1 = 3 > 0 free, so the band stays withinBorrowing and
+		// donor_low is kept: reclaiming q_low frees local quota and reclaiming
+		// donor_low frees the cohort quota q must borrow.
+		"exceeds borrowing limit, some same-queue usage non-preemptible: cross-queue reclaim kept": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("r").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("q").
+					Cohort("r").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "6", "1").
+					Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).Obj(),
+				utiltestingapi.MakeClusterQueue("donor").
+					Cohort("r").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "2", "2").
+					Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("q_high", "").
+					Priority(5).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q_low", "").
+					Priority(-5).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("donor_low", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("donor").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					Obj(),
+			},
+			incoming: baseIncomingWl.Clone().
+				Priority(0).
+				Request(corev1.ResourceCPU, "4").
+				Obj(),
+			targetCQ: "q",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: 2,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("donor_low", "").
+					Priority(-10).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("donor").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "4").Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /r/q; preemptee path: /r/donor",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclaimWhileBorrowing",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to reclamation within the cohort while borrowing; preemptor path: /r/q; preemptee path: /r/donor",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q_high", "").
+					Priority(5).
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").Obj()).Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("q_low", "").
+					Priority(-5).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /r/q; preemptee path: /r/q",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-in, JobUID: job-in) due to prioritization in the ClusterQueue; preemptor path: /r/q; preemptee path: /r/q",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
