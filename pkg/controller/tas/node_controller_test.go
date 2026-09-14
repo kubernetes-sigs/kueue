@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -1174,16 +1175,18 @@ func TestNodeFailureReconciler(t *testing.T) {
 				WithObjects(initObjs...).
 				WithStatusSubresource(tc.initObjs...).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, client client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					SubResourceApply: func(ctx context.Context, client client.Client, subResource string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if tc.injectPatchError && subResource == "status" {
-							if wl, ok := obj.(*kueue.Workload); ok && wl.Name == wlName {
+							wl := &kueue.Workload{}
+							if err := utiltesting.DecodeApplyConfiguration(applyConf, wl); err != nil {
+								return err
+							}
+							if wl.Name == wlName && !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
 								// Fail only if it's trying to remove the node (it's not in the list anymore).
-								if !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
-									return errors.New("injected patch error on removal")
-								}
+								return errors.New("injected patch error on removal")
 							}
 						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResource, obj, patch, opts...)
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResource, applyConf, opts...)
 					},
 				})
 			ctx, _ := utiltesting.ContextWithLog(t)
