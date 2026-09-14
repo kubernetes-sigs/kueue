@@ -895,6 +895,100 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 	})
 
+	ginkgo.When("Cohort hierarchy contains a cycle", func() {
+		var (
+			flavor       *kueue.ResourceFlavor
+			cohortA      *kueue.Cohort
+			cohortB      *kueue.Cohort
+			cqWithCohort *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			flavor = utiltestingapi.MakeResourceFlavor("cycle-test-flavor").Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+
+			cohortA = utiltestingapi.MakeCohort("cycle-cohort-a").Obj()
+			cohortB = utiltestingapi.MakeCohort("cycle-cohort-b").Parent("cycle-cohort-a").Obj()
+			util.MustCreate(ctx, k8sClient, cohortA)
+			util.MustCreate(ctx, k8sClient, cohortB)
+
+			cqWithCohort = utiltestingapi.MakeClusterQueue("cq-cycle-test").
+				Cohort("cycle-cohort-b").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("cycle-test-flavor").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cqWithCohort)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqWithCohort, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+
+		ginkgo.It("Should mark ClusterQueue inactive when its Cohort hierarchy contains a cycle, and restore active when resolved", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqWithCohort), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Ready",
+						Message: "Can admit new workloads",
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating a cycle: setting cycle-cohort-a parent to cycle-cohort-b")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cohort kueue.Cohort
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), &cohort)).To(gomega.Succeed())
+				cohort.Spec.ParentName = "cycle-cohort-b"
+				g.Expect(k8sClient.Update(ctx, &cohort)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying ClusterQueue becomes inactive with CohortCycleDetected reason")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqWithCohort), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.ClusterQueueActiveReasonCohortCycleDetected,
+						Message: `Can't admit new workloads: Cohort "cycle-cohort-b" has a cycle in hierarchy.`,
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Resolving the cycle: removing parent from cycle-cohort-a")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cohort kueue.Cohort
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), &cohort)).To(gomega.Succeed())
+				cohort.Spec.ParentName = ""
+				g.Expect(k8sClient.Update(ctx, &cohort)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying ClusterQueue becomes active again")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqWithCohort), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Ready",
+						Message: "Can admit new workloads",
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
 		var (
 			clusterQueue *kueue.ClusterQueue
