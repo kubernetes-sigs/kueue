@@ -372,7 +372,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"ConcurrentAdmissionPolicy removed; parent and variant both admitted, parent left alone, variant deactivated, parent label removed": {
+		"ConcurrentAdmissionPolicy removed; parent and variant both admitted, parent left alone, variant deleted, parent label removed": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-no-policy").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
@@ -397,24 +397,13 @@ func TestReconcile(t *testing.T) {
 				SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
 				AdmittedAt(true, metav1.Now().Time).
 				Obj(),
-			wantVariantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
-					Queue("lq-no-policy").
-					AllowedFlavors("on-demand").
-					Request(corev1.ResourceCPU, "1").
-					PreemptionGates(caGate()).
-					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
-					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
-					AdmittedAt(true, metav1.Now().Time).
-					Active(false).
-					Obj(),
-			},
+			wantVariantWorkloads: nil,
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to ConcurrentAdmission is no longer enabled for this ClusterQueue",
+					Reason:    ReasonDeletedVariant,
+					Message:   `Variant Workload "default/wl-variant-on-demand" deleted; ConcurrentAdmission is no longer enabled for this ClusterQueue`,
 				},
 			},
 		},
@@ -452,24 +441,13 @@ func TestReconcile(t *testing.T) {
 					Message: "The variant wl-variant-on-demand is admitted",
 				}).
 				Obj(),
-			wantVariantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
-					Queue("lq-no-policy").
-					AllowedFlavors("on-demand").
-					Request(corev1.ResourceCPU, "1").
-					PreemptionGates(caGate()).
-					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
-					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
-					AdmittedAt(true, metav1.Now().Time).
-					Active(false).
-					Obj(),
-			},
+			wantVariantWorkloads: nil,
 			wantEvents: []utiltesting.EventRecord{
 				{
-					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    ReasonDeactivatedVariant,
-					Message:   "Variant Workload deactivated due to ConcurrentAdmission is no longer enabled for this ClusterQueue",
+					Reason:    ReasonDeletedVariant,
+					Message:   `Variant Workload "default/wl-variant-on-demand" deleted; ConcurrentAdmission is no longer enabled for this ClusterQueue`,
 				},
 			},
 		},
