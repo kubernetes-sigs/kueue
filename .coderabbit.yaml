@@ -7,12 +7,12 @@ knowledge_base:
     filePatterns:
       - "AGENTS.md"
 
+tone_instructions: |
+  Before opening an issue, read and follow the instructions in AGENTS.md.
+  Keep issue title and description concise.
+
 reviews:
   request_changes_workflow: false
-
-  tone_instructions: >-
-    Before opening an issue, read and follow the instructions in AGENTS.md.
-    Keep issue title and description concise.
 
   high_level_summary_instructions: |
     Keep the PR summary concise. Name the section "AI summary".
