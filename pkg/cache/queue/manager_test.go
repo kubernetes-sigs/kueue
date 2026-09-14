@@ -40,6 +40,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -2312,6 +2313,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 
 	cases := map[string]struct {
 		workloads        []*kueue.Workload
+		clientWorkloads  []*kueue.Workload
 		updateWorkload   *kueue.Workload
 		wantUpdateQueued *bool
 		passTime         time.Duration
@@ -2321,17 +2323,26 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.Obj(),
 			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Obj(),
+			},
 		},
 		"single queued workload checked after 1s": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
 				baseWorkloadNotNeedingSecondPass.DeepCopy(),
 			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
 			passTime:  time.Second,
 			wantReady: sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
 		"workload is evicted after being queued": {
 			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.DeepCopy(),
 			},
 			updateWorkload: baseWorkloadNeedingSecondPass.Clone().
@@ -2341,8 +2352,31 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:         time.Second,
 			wantReady:        nil,
 		},
+		"workload no longer needing the pass when the delay elapses is skipped": {
+			// The fire-time re-read must skip a workload healed since the request.
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNotNeedingSecondPass.DeepCopy(),
+			},
+			passTime:  time.Second,
+			wantReady: nil,
+		},
+		"workload deleted before the pass fires is dropped": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.DeepCopy(),
+			},
+			clientWorkloads: nil,
+			passTime:        time.Second,
+			wantReady:       nil,
+		},
 		"two queued workloads, one evicted before second pass": {
 			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Name("first").Obj(),
+				baseWorkloadNeedingSecondPass.Clone().Name("second").Obj(),
+			},
+			clientWorkloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.Clone().Name("first").Obj(),
 				baseWorkloadNeedingSecondPass.Clone().Name("second").Obj(),
 			},
@@ -2358,6 +2392,9 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
+			clientWorkloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Obj(),
+			},
 			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
 			wantUpdateQueued: new(false),
 			passTime:         time.Second,
@@ -2369,9 +2406,13 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
+			opts := make([]client.Object, 0, len(tc.clientWorkloads))
+			for _, wl := range tc.clientWorkloads {
+				opts = append(opts, wl)
+			}
 			fakeClock := testingclock.NewFakeClock(now)
 			manager := NewManagerForUnitTests(
-				utiltesting.NewFakeClient(),
+				utiltesting.NewFakeClient(opts...),
 				nil,
 				WithClock(fakeClock),
 			)
@@ -2398,6 +2439,68 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// A transient re-read error keeps the second-pass request and retries it after backoff.
+func TestQueueSecondPassReadErrorRetried(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+
+	wl := baseWorkloadBuilder.Clone().
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj(),
+				).
+				Obj(),
+			now,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).Obj()
+
+	failRead := true
+	c := utiltesting.NewClientBuilder().WithObjects(wl).WithStatusSubresource(wl).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if failRead {
+				return errors.New("injected read error")
+			}
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(c, nil, WithClock(fakeClock))
+
+	manager.QueueSecondPassIfNeeded(ctx, wl, 0)
+	fakeClock.Step(time.Second)
+	failRead = false
+	for range 200 {
+		if fakeClock.Waiters() > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	fakeClock.Step(2 * time.Second)
+
+	gotReady := sets.New[workload.Reference]()
+	for _, head := range manager.secondPassQueue.takeAllReady() {
+		gotReady.Insert(workload.Key(head.Obj))
+	}
+	if wantReady := sets.New(workload.Key(wl)); !gotReady.Equal(wantReady) {
+		t.Errorf("Unexpected ready workloads: want %v, got %v", wantReady, gotReady)
 	}
 }
 
