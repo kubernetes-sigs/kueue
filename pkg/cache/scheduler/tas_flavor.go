@@ -34,18 +34,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// usageOp indicates whether we should add or subtract the usage.
-type usageOp int
+// UsageOp indicates whether we should add or subtract the usage.
+type UsageOp int
 
 const (
-	// add usage to the cache
-	add usageOp = iota
-	// subtract usage from the cache
-	subtract
+	// Add usage to the cache
+	Add UsageOp = iota
+	// Subtract usage from the cache
+	Subtract
 )
 
-func (u usageOp) asSignedOne() int {
-	if u == add {
+func (u UsageOp) asSignedOne() int {
+	if u == Add {
 		return 1
 	}
 	return -1
@@ -267,7 +267,7 @@ func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topol
 		c.removeUsage(log, key)
 	}
 	c.wlUsage[key] = slices.Clone(topologyRequests)
-	c.updateUsage(topologyRequests, add)
+	c.updateUsage(topologyRequests, Add)
 }
 
 func (c *TASFlavorCache) removeUsage(log logr.Logger, key workload.Reference) {
@@ -276,11 +276,11 @@ func (c *TASFlavorCache) removeUsage(log logr.Logger, key workload.Reference) {
 		log.V(2).Info("Workload usage not found during removal from TAS flavor cache", "workload", key)
 		return
 	}
-	c.updateUsage(value, subtract)
+	c.updateUsage(value, Subtract)
 	delete(c.wlUsage, key)
 }
 
-func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, op usageOp) {
+func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainRequests, op UsageOp) {
 	c.Lock()
 	defer c.Unlock()
 	for _, tr := range topologyRequests {
@@ -289,7 +289,7 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		if !found {
 			c.usage[domainID] = resources.NewRequests()
 		}
-		if op == subtract {
+		if op == Subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
 			c.usage[domainID].Sub(
 				resources.NewRequestsFromMap(

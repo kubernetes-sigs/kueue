@@ -154,6 +154,7 @@ func isDoesNotProvideOnly(at FlavorAssignmentAttempt) bool {
 type simulationResultForFlavor struct {
 	preemptionPossiblity     preemptioncommon.PreemptionPossibility
 	borrowingAfterSimulation int
+	err                      error
 }
 
 type testOracle struct {
@@ -166,13 +167,13 @@ func (f *testOracle) SimulatePreemption(
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
-) (preemptioncommon.PreemptionPossibility, int) {
+) (preemptioncommon.PreemptionPossibility, int, error) {
 	if f.simulationResult != nil {
 		if result, ok := f.simulationResult[fr]; ok {
-			return result.preemptionPossiblity, result.borrowingAfterSimulation
+			return result.preemptionPossiblity, result.borrowingAfterSimulation, result.err
 		}
 	}
-	return preemptioncommon.Preempt, 0
+	return preemptioncommon.Preempt, 0, nil
 }
 
 func TestAssignFlavors(t *testing.T) {
@@ -207,6 +208,8 @@ func TestAssignFlavors(t *testing.T) {
 		"tas-b":      utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
 	}
 
+	errSimulation := errors.New("simulation failed")
+
 	cases := map[string]struct {
 		wlPods                     []kueue.PodSet
 		wlReclaimablePods          []kueue.ReclaimablePod
@@ -221,6 +224,7 @@ func TestAssignFlavors(t *testing.T) {
 		preemptWorkloadSlice       *workload.Info
 		featureGates               map[featuregate.Feature]bool
 		topologies                 []*kueue.Topology
+		wantErr                    error
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -810,7 +814,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "b_one", Resource: "example.com/gpu"}: resources.NewAmount(2),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "two", Resource: corev1.ResourceMemory}: {preemptioncommon.Preempt, 1},
+				{Flavor: "two", Resource: corev1.ResourceMemory}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1476,7 +1480,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1574,7 +1578,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(8_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -2363,7 +2367,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -2430,7 +2434,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -2497,7 +2501,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -2564,7 +2568,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -2913,7 +2917,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -2980,7 +2984,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -3035,7 +3039,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3098,7 +3102,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3158,7 +3162,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1, nil},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3218,7 +3222,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -3277,7 +3281,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -3577,6 +3581,28 @@ func TestAssignFlavors(t *testing.T) {
 				},
 			},
 		},
+		"terminal error handling": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "2Mi").
+						Obj(),
+				).Obj(),
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, errSimulation},
+			},
+			wantErr: errSimulation,
+		},
 	}
 	for name, tc := range cases {
 		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
@@ -3649,7 +3675,10 @@ func TestAssignFlavors(t *testing.T) {
 					resources.NewResourceFormatter(),
 					0,
 				)
-				assignment := flvAssigner.Assign(ctx, nil)
+				assignment, err := flvAssigner.Assign(ctx, nil)
+				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+					t.Fatalf("Unexpected error (-want,+got):\n%s", diff)
+				}
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -3712,8 +3741,8 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0},
-				{Flavor: "due", Resource: "gpu"}: {preemptioncommon.Reclaim, 0},
+				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0, nil},
+				{Flavor: "due", Resource: "gpu"}: {preemptioncommon.Reclaim, 0, nil},
 			},
 			wantMode:      Preempt,
 			wantAssigment: rfMap{"gpu": "due"},
@@ -3770,9 +3799,9 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0},
-				{Flavor: "due", Resource: "gpu"}: {preemptioncommon.Reclaim, 0},
-				{Flavor: "tre", Resource: "gpu"}: {preemptioncommon.Reclaim, 0},
+				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0, nil},
+				{Flavor: "due", Resource: "gpu"}: {preemptioncommon.Reclaim, 0, nil},
+				{Flavor: "tre", Resource: "gpu"}: {preemptioncommon.Reclaim, 0, nil},
 			},
 			wantMode:      Preempt,
 			wantAssigment: rfMap{"gpu": "tre", "compute": "tre"},
@@ -3843,7 +3872,10 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			assignment, err := flvAssigner.Assign(ctx, nil)
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -3992,7 +4024,10 @@ func TestDeletedFlavors(t *testing.T) {
 
 				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 
-				assignment := flvAssigner.Assign(ctx, nil)
+				assignment, err := flvAssigner.Assign(ctx, nil)
+				if err != nil {
+					t.Fatalf("Assign failed: %v", err)
+				}
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -4079,7 +4114,7 @@ func TestHierarchical(t *testing.T) {
 				Preference:     new(kueue.PreemptionOverBorrowing),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1, nil},
 			},
 			wantMode:      Fit,
 			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
@@ -4165,7 +4200,10 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			assignment, err := flvAssigner.Assign(ctx, nil)
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -5341,8 +5379,10 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
 			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			gotAssignment := assigner.Assign(ctx, nil)
-
+			gotAssignment, err := assigner.Assign(ctx, nil)
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
 				t.Errorf("RepresentativeMode() = %v, want %v", gotAssignment.RepresentativeMode(), tc.wantRepMode)
 			}
@@ -5828,7 +5868,10 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
 				0,
 			)
-			gotAssignment := assigner.Assign(ctx, nil)
+			gotAssignment, err := assigner.Assign(ctx, nil)
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 
 			if gotAssignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("gotAssignment.NoFitReason = %q, want %q", gotAssignment.NoFitReason, tc.wantNoFitReason)
@@ -6091,7 +6134,10 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 			}
 
 			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			assignment, err := flvAssigner.Assign(ctx, nil)
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 
 			gotErrors := map[kueue.PodSetReference]error{}
 			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}
@@ -6430,8 +6476,8 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0},
-				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0},
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0, nil},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0, nil},
 			},
 			fungibility: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.MayStopSearch,
@@ -6450,8 +6496,8 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
-				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
 			},
 			// Both knobs are the conservative setting, yet shouldTryNextFlavor returns
 			// true for noPreemptionCandidates before either policy is consulted, so no
@@ -6484,7 +6530,10 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
-			assignment := assigner.Assign(ctx, nil)
+			assignment, err := assigner.Assign(ctx, nil)
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 
 			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("RepresentativeMode() = %s, want %s", gotMode, tc.wantMode)
@@ -6540,8 +6589,8 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
-				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0, nil},
 			},
 			// The replayed scan no longer breaks on flavor-1, so it walks on to flavor-2,
 			// which the nomination mapping skips, and ends on the last flavor.
@@ -6564,8 +6613,11 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			flavors := bookmarkTestFlavors()
 
 			// Nomination: quota fits, topology fits, and a placement is produced.
-			nominated := New(wlInfo, cqSnapshot, flavors, false, &testOracle{}, nil,
+			nominated, err := New(wlInfo, cqSnapshot, flavors, false, &testOracle{}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 			if got := nominated.RepresentativeMode(); got != Fit {
 				t.Fatalf("nomination RepresentativeMode() = %s, want %s", got, Fit)
 			}
@@ -6601,10 +6653,12 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			}
 			wlInfo.NominationMapping = mapping
 
-			recomputed := New(wlInfo, cqSnapshot, flavors, false,
+			recomputed, err := New(wlInfo, cqSnapshot, flavors, false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
-
+			if err != nil {
+				t.Fatalf("Assign failed: %v", err)
+			}
 			recomputedIdx, ok := lastTriedFlavorIdx(recomputed, corev1.ResourceCPU)
 			if !ok {
 				t.Fatalf("recomputation recorded no bookmark for cpu; mode was %s", recomputed.RepresentativeMode())

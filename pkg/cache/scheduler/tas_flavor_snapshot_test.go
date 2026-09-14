@@ -172,7 +172,7 @@ func TestApplyTASUsageSkipsDomainTheSnapshotDoesNotHold(t *testing.T) {
 	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
-	snapshot.updateTASUsage(tas.DomainID([]string{"gone"}), oneCPU, add, 1)
+	snapshot.updateTASUsage(tas.DomainID([]string{"gone"}), oneCPU, Add, 1)
 
 	if got := len(snapshot.domainTASUsage); got != 0 {
 		t.Errorf("usage recorded for %d domains, want none", got)
@@ -197,7 +197,7 @@ func TestFreeCapacityPerDomainReportsUsageDomains(t *testing.T) {
 	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot(),
 		withResourceFormatter(resources.NewResourceFormatter()))
 	snapshot.updateTASUsage(tas.DomainID([]string{"r1"}),
-		resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}), add, 1)
+		resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}), Add, 1)
 
 	got, err := snapshot.SerializeFreeCapacityPerDomain()
 	if err != nil {
@@ -1547,7 +1547,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			usage := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 				corev1.ResourceCPU: 4000,
 			})
-			snapshot.updateTASUsage(domainID, usage, add, 1)
+			snapshot.updateTASUsage(domainID, usage, Add, 1)
 
 			// Fits should now return false because 5 CPU > 4 CPU remaining
 			if got := snapshot.Fits(flavorUsage); got {
@@ -1555,7 +1555,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			}
 
 			// Remove TAS usage
-			snapshot.updateTASUsage(domainID, usage, subtract, 1)
+			snapshot.updateTASUsage(domainID, usage, Subtract, 1)
 
 			// Fits should now return true again after cache invalidation / re-evaluation
 			if got := snapshot.Fits(flavorUsage); !got {
@@ -1696,7 +1696,7 @@ func TestFindAssignmentsWithDomainRecordedUsage(t *testing.T) {
 			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
 			if tc.priorRackUsage > 0 {
 				snapshot.updateTASUsage(tas.DomainID([]string{"b1", "r1"}),
-					oneCPU.ScaledUp(int64(tc.priorRackUsage)), add, tc.priorRackUsage)
+					oneCPU.ScaledUp(int64(tc.priorRackUsage)), Add, tc.priorRackUsage)
 			}
 			gotFit := snapshot.FindTopologyAssignmentsForFlavor(ctx, tc.requests).Failure() == nil
 			if gotFit != tc.wantFit {
@@ -2011,7 +2011,7 @@ func TestTwoPodSetsShareTheDomainBudget(t *testing.T) {
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// An admitted Workload holds one of the rack's two CPUs, and no node carries
 	// that usage.
-	snapshot.updateTASUsage(tas.DomainID([]string{"b1", "r1"}), oneCPU, add, 1)
+	snapshot.updateTASUsage(tas.DomainID([]string{"b1", "r1"}), oneCPU, Add, 1)
 
 	podSet := func(name string) TASPodSetRequests {
 		groupName := name
@@ -2092,7 +2092,7 @@ func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
 			}
 			tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
-			snapshot.updateTASUsage("r1", oneCPU.ScaledUp(int64(tc.rackUsage)), add, tc.rackUsage)
+			snapshot.updateTASUsage("r1", oneCPU.ScaledUp(int64(tc.rackUsage)), Add, tc.rackUsage)
 
 			podSet := func(name kueue.PodSetReference, singlePodRequests resources.Requests, count int32) TASPodSetRequests {
 				return TASPodSetRequests{
@@ -2186,7 +2186,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 
 	// Preemption simulation removes one Workload; the other still holds a device.
 	for _, tr := range singleDevice {
-		snapshot.updateTASUsage(tas.DomainID(tr.Values), tr.TotalRequests(), subtract, tr.Count)
+		snapshot.updateTASUsage(tas.DomainID(tr.Values), tr.TotalRequests(), Subtract, tr.Count)
 	}
 	if got := snapshot.Fits(bothDevices); got {
 		t.Errorf("Fits() after removing one Workload = %t, want false", got)

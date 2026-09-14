@@ -28,15 +28,21 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
+
+type CandidateIterator interface {
+	Next(borrow bool) (*workload.Info, string)
+	Reset()
+}
 
 type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
-	snapshot                          *schdcache.Snapshot
+	simCtx                            *simulation.SimulationContext
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
@@ -79,7 +85,7 @@ func NewCandidateIterator(
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
-	snapshot *schdcache.Snapshot,
+	simCtx *simulation.SimulationContext,
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
@@ -108,7 +114,7 @@ func NewCandidateIterator(
 	return &candidateIterator{
 		runIndex:                          0,
 		frsNeedPreemption:                 frsNeedPreemption,
-		snapshot:                          snapshot,
+		simCtx:                            simCtx,
 		candidates:                        allCandidates,
 		NoCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
 		NoCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
@@ -140,7 +146,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 	if borrow && candidate.preemptionVariant == ReclaimWithoutBorrowing {
 		return false
 	}
-	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
+	cq := c.simCtx.ClusterQueue(candidate.wl.ClusterQueue)
 	if schdcache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
 		return false
 	}

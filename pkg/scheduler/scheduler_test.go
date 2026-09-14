@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"maps"
 	"reflect"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -43,12 +45,14 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -9810,9 +9814,7 @@ func TestResourcesToReserve(t *testing.T) {
 				Borrowing: tc.borrowing,
 				Usage:     workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.assignmentUsage}},
 			}
-			e := &entry{assignment: assignment, Head: qcache.Head{Info: *workload.NewInfo(log,
-				&kueue.Workload{},
-			)}}
+			e := &entry{assignment: assignment, Head: qcache.Head{Info: *workload.NewInfo(log, &kueue.Workload{})}}
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}}).
 				Build()
@@ -10375,6 +10377,15 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 		t.Fatalf("Failed to add ClusterQueue: %v", err)
 	}
 
+	if !cache.AddOrUpdateWorkload(log, victimWL) {
+		t.Fatalf("Failed to add victim workload")
+	}
+	if !cache.AddOrUpdateWorkload(log, otherWL) {
+		t.Fatalf("Failed to add non-victim workload")
+	}
+
+	victimInfo := workload.NewInfo(log, victimWL)
+
 	snapshot, err := cache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("Failed to build snapshot: %v", err)
@@ -10383,11 +10394,6 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	if cq == nil {
 		t.Fatal("ClusterQueue snapshot missing")
 	}
-
-	victimInfo := workload.NewInfo(log, victimWL)
-	otherInfo := workload.NewInfo(log, otherWL)
-	snapshot.AddWorkload(victimInfo)
-	snapshot.AddWorkload(otherInfo)
 
 	// CQ usage is 8 CPU (victim 6 + other 2). Incoming needs 9.
 	// Freeing victim once leaves usage 2 → 8 free → 9 does not fit.
@@ -10404,8 +10410,526 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	}
 	targets := []*preemption.Target{{WorkloadInfo: victimInfo}}
 
-	got := fits(snapshot, cq, &incomingUsage, preempted, targets)
+	got, err := fits(ctx, snapshot, cq, &incomingUsage, preempted, targets)
+	if err != nil {
+		t.Fatalf("fits() error = %v, want nil", err)
+	}
 	if got != schdcache.FitsCheckNoQuota {
 		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
 	}
 }
+
+func TestScheduleSimulationErrors(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	errSimulation := errors.New("simulated error")
+
+	testCases := map[string]struct {
+		failOnCall  int
+		wantMessage string
+	}{
+		"simulation error during nomination": {
+			failOnCall:  1,
+			wantMessage: "Error while getting initial assignments: simulation failed: simulated error",
+		},
+		"simulation error during admission (fits)": {
+			failOnCall:  2,
+			wantMessage: "Error while processing entry: simulation failed: simulated error",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now().Truncate(time.Second)
+			fakeClock := testingclock.NewFakeClock(now)
+
+			sim := &mockedSimulator{
+				snapshot: newFailingSimulatorSnapshot(onSimulate, tc.failOnCall, errSimulation),
+			}
+
+			rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").
+						Obj(),
+				).
+				Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+			wl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithLists(
+					&kueue.WorkloadList{Items: []kueue.Workload{*wl}},
+					&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}},
+					&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
+				).
+				WithObjects(utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			cqCache := schdcache.New(cl, schdcache.WithSchedulingSimulator(sim))
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+
+			cqCache.AddOrUpdateResourceFlavor(log, rf)
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to cache: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed to add LocalQueue to manager: %v", err)
+			}
+
+			scheduler := New(qManager, cqCache, cl, recorder,
+				WithClock(t, fakeClock),
+				WithPreemptionExpectations(preemptexpectations.New()),
+			)
+
+			wg := sync.WaitGroup{}
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+
+			schedCtx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			defer cancel()
+			go qManager.CleanUpOnContext(schedCtx)
+
+			scheduler.schedule(schedCtx)
+			wg.Wait()
+
+			// 1. Verify workload status condition
+			gotWl := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), gotWl); err != nil {
+				t.Fatalf("Failed to get Workload: %v", err)
+			}
+
+			cond := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if cond == nil {
+				t.Fatalf("Expected QuotaReserved condition on Workload, but found none")
+			}
+			wantCondition := metav1.Condition{
+				Type:    kueue.WorkloadQuotaReserved,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed,
+				Message: tc.wantMessage,
+			}
+			if diff := cmp.Diff(&wantCondition, cond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+				t.Errorf("Unexpected QuotaReserved condition (-want,+got):\n%s", diff)
+			}
+
+			// 2. Verify workload is classified as inadmissible in queue manager
+			qDumpInadmissible := qManager.DumpInadmissible()
+			wantInadmissible := map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {"default/wl"},
+			}
+			if diff := cmp.Diff(wantInadmissible, qDumpInadmissible); diff != "" {
+				t.Errorf("Unexpected elements in inadmissible queue (-want,+got):\n%s", diff)
+			}
+			if qDump := qManager.Dump(); len(qDump) > 0 {
+				t.Errorf("Expected active queue to be empty, got: %v", qDump)
+			}
+
+			// 3. Verify event recorded
+			wantEvents := []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(metav1.NamespaceDefault, "wl", kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed, corev1.EventTypeWarning).
+					Message(tc.wantMessage).
+					Obj(),
+			}
+			if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("Unexpected events (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestScheduleWithTASSimulationErrors(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.TASRecomputeAssignmentWithinSchedulingCycle, true)
+	errSimulation := errors.New("simulated error")
+
+	t.Run("simulation error during TAS assignment recompute when processing entry (processEntry -> updateAssignmentIfNeeded -> getAssignments)", func(t *testing.T) {
+		now := time.Now().Truncate(time.Second)
+		fakeClock := testingclock.NewFakeClock(now)
+
+		sim := &mockedSimulator{
+			snapshot: newFailingSimulatorSnapshot(onSimulate, 5, errSimulation),
+		}
+		wantMessage := "Error while processing entry: simulation failed: simulated error"
+
+		topo := utiltestingapi.MakeTopology("tas-topology").Levels(corev1.LabelHostname).Obj()
+		rf := utiltestingapi.MakeResourceFlavor("default").TopologyName("tas-topology").Obj()
+		node := corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "node-1",
+				Labels: map[string]string{
+					"tas-node":           "true",
+					corev1.LabelHostname: "node-1",
+				},
+			},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse("1"),
+					corev1.ResourcePods: resource.MustParse("1"),
+				},
+				Conditions: []corev1.NodeCondition{
+					{
+						Type:   corev1.NodeReady,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		}
+		cq1 := utiltestingapi.MakeClusterQueue("cq1").
+			Cohort("cohort").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+			).
+			Obj()
+		cq2 := utiltestingapi.MakeClusterQueue("cq2").
+			Cohort("cohort").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+			).
+			Obj()
+		lq1 := utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).ClusterQueue(cq1.Name).Obj()
+		lq2 := utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).ClusterQueue(cq2.Name).Obj()
+		targetWL := utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).
+			Queue(kueue.LocalQueueName(lq2.Name)).
+			Creation(now).
+			Priority(5).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+		otherWl := utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+			Queue(kueue.LocalQueueName(lq1.Name)).
+			Creation(now.Add(-time.Minute)).
+			Priority(10).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+
+		targetCQName := kueue.ClusterQueueReference(cq2.Name)
+
+		ctx, log := utiltesting.ContextWithLog(t)
+
+		clientBuilder := utiltesting.NewClientBuilder().
+			WithLists(
+				&kueue.WorkloadList{Items: []kueue.Workload{*otherWl, *targetWL}},
+				&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq1, *cq2}},
+				&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq1, *lq2}},
+				&corev1.NodeList{Items: []corev1.Node{node}},
+			).
+			WithObjects(utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()).
+			WithStatusSubresource(&kueue.Workload{}).
+			WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+		cl := clientBuilder.Build()
+		recorder := &utiltesting.EventRecorder{}
+
+		cqCache := schdcache.New(cl, schdcache.WithSchedulingSimulator(sim))
+		qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+
+		cqCache.AddOrUpdateResourceFlavor(log, rf)
+		cqCache.AddOrUpdateTopology(log, topo)
+		cqCache.TASCache().SyncNode(&node)
+
+		for _, cq := range []*kueue.ClusterQueue{cq1, cq2} {
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to cache: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to manager: %v", err)
+			}
+		}
+		for _, lq := range []*kueue.LocalQueue{lq1, lq2} {
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed to add LocalQueue to manager: %v", err)
+			}
+		}
+
+		scheduler := New(qManager, cqCache, cl, recorder,
+			WithClock(t, fakeClock),
+			WithPreemptionExpectations(preemptexpectations.New()),
+		)
+
+		wg := sync.WaitGroup{}
+		scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+			func() { wg.Add(1) },
+			func() { wg.Done() },
+		))
+
+		schedCtx, cancel := context.WithTimeout(ctx, queueingTimeout)
+		defer cancel()
+		go qManager.CleanUpOnContext(schedCtx)
+
+		scheduler.schedule(schedCtx)
+		wg.Wait()
+
+		// 1. Verify workload status condition
+		gotWl := &kueue.Workload{}
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(targetWL), gotWl); err != nil {
+			t.Fatalf("Failed to get Workload: %v", err)
+		}
+
+		cond := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		if cond == nil {
+			t.Fatalf("Expected QuotaReserved condition on Workload, but found none")
+		}
+		wantCondition := metav1.Condition{
+			Type:    kueue.WorkloadQuotaReserved,
+			Status:  metav1.ConditionFalse,
+			Reason:  kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed,
+			Message: wantMessage,
+		}
+		if diff := cmp.Diff(&wantCondition, cond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+			t.Errorf("Unexpected QuotaReserved condition (-want,+got):\n%s", diff)
+		}
+
+		// 2. Verify workload is classified as inadmissible in queue manager
+		qDumpInadmissible := qManager.DumpInadmissible()
+		wantInadmissible := map[kueue.ClusterQueueReference][]workload.Reference{
+			targetCQName: {workload.Reference(client.ObjectKeyFromObject(targetWL).String())},
+		}
+		if diff := cmp.Diff(wantInadmissible, qDumpInadmissible); diff != "" {
+			t.Errorf("Unexpected elements in inadmissible queue (-want,+got):\n%s", diff)
+		}
+		if qDump := qManager.Dump(); len(qDump) > 0 {
+			t.Errorf("Expected active queue to be empty, got: %v", qDump)
+		}
+
+		// 3. Verify event recorded
+		wantEvents := []utiltesting.EventRecord{
+			utiltesting.MakeEventRecord(metav1.NamespaceDefault, targetWL.Name, kueue.WorkloadQuotaReservedReasonSchedulerAdmissionFailed, corev1.EventTypeWarning).
+				Message(wantMessage).
+				Obj(),
+		}
+		var targetEvents []utiltesting.EventRecord
+		for _, ev := range recorder.RecordedEvents {
+			if ev.Key.Name == targetWL.Name {
+				targetEvents = append(targetEvents, ev)
+			}
+		}
+		if diff := cmp.Diff(wantEvents, targetEvents); diff != "" {
+			t.Errorf("Unexpected events (-want,+got):\n%s", diff)
+		}
+	})
+}
+
+func TestGetInitialAssignmentsTerminalErrorInReducer(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)
+	errSimulation := errors.New("simulated error")
+
+	testCases := map[string]struct {
+		failPreemptOnCall int
+	}{
+		"terminal error when flvAssigner.Assign fails in reducer": {
+			failPreemptOnCall: 1,
+		},
+		"terminal error when preemptor.GetTargets fails in reducer": {
+			failPreemptOnCall: 2,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			now := time.Now().Truncate(time.Second)
+			fakeClock := testingclock.NewFakeClock(now)
+
+			sim := &mockedSimulator{
+				snapshot: newFailingSimulatorSnapshot(onPreempt, tc.failPreemptOnCall, errSimulation),
+			}
+
+			rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+
+			victimWl := utiltestingapi.MakeWorkload("victim-wl", metav1.NamespaceDefault).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Priority(0).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(1).
+						Obj()).
+					Obj(), now).
+				AdmittedAt(true, now).
+				Obj()
+
+			preemptorWl := utiltestingapi.MakeWorkload("preemptor-wl", metav1.NamespaceDefault).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Priority(100).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					SetMinimumCount(1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj()
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithLists(
+					&kueue.WorkloadList{Items: []kueue.Workload{*victimWl, *preemptorWl}},
+					&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}},
+					&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
+				).
+				WithObjects(utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			cqCache := schdcache.New(cl, schdcache.WithSchedulingSimulator(sim))
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+
+			cqCache.AddOrUpdateResourceFlavor(log, rf)
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to cache: %v", err)
+			}
+			if !cqCache.AddOrUpdateWorkload(log, victimWl) {
+				t.Fatalf("Failed to add victim workload to cache")
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed to add ClusterQueue to manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed to add LocalQueue to manager: %v", err)
+			}
+
+			scheduler := New(qManager, cqCache, cl, recorder,
+				WithClock(t, fakeClock),
+				WithPreemptionExpectations(preemptexpectations.New()),
+			)
+
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Failed to take snapshot: %v", err)
+			}
+
+			preemptorWlInfo := workload.NewInfo(log, preemptorWl)
+			preemptorWlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
+
+			err = simulation.Simulate(ctx, snapshot, func(simCtx *simulation.SimulationContext) error {
+				assignment, targets, inErr := scheduler.getInitialAssignments(ctx, simCtx, preemptorWlInfo, snapshot.ResourceFlavors)
+				if !errors.Is(inErr, errSimulation) {
+					t.Fatalf("getInitialAssignments() error = %v, want %v", inErr, errSimulation)
+				}
+				if len(targets) > 0 {
+					t.Errorf("Expected no preemption targets on error, got %v", targets)
+				}
+				if len(assignment.PodSets) > 0 {
+					t.Errorf("Expected empty assignment on error, got %v", assignment)
+				}
+				return inErr
+			})
+			if !errors.Is(err, errSimulation) {
+				t.Errorf("Simulate() error = %v, want %v", err, errSimulation)
+			}
+		})
+	}
+}
+
+type operation string
+
+const (
+	onSimulate operation = "Simulate"
+	onPreempt  operation = "Preempt"
+)
+
+type failingSimulatorSnapshot struct {
+	op        operation
+	failAfter int
+	callCount int
+	err       error
+}
+
+func newFailingSimulatorSnapshot(failOn operation, failAfter int, returnErr error) *failingSimulatorSnapshot {
+	return &failingSimulatorSnapshot{
+		op:        failOn,
+		failAfter: failAfter,
+		err:       returnErr,
+		callCount: 0,
+	}
+}
+
+func (s *failingSimulatorSnapshot) simulateOperation(fn func() error) error {
+	s.callCount++
+	if s.callCount >= s.failAfter {
+		return s.err
+	}
+	if fn != nil {
+		return fn()
+	}
+	return nil
+}
+
+func (s *failingSimulatorSnapshot) Simulate(_ context.Context, fn func() error) error {
+	if s.op == onSimulate {
+		return s.simulateOperation(fn)
+	}
+	return fn()
+}
+
+func (s *failingSimulatorSnapshot) FindFeasibleNodes(
+	_ context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	_ *simulator.PodRequirements,
+	_ *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	var res []simulator.MatchedCandidate
+	for c := range candidates {
+		if mc, ok := c.(simulator.MatchedCandidate); ok {
+			res = append(res, mc)
+		}
+	}
+	return res, nil
+}
+
+func (s *failingSimulatorSnapshot) PreemptWorkload(_ context.Context, _ client.ObjectKey) (func() error, error) {
+	if s.op == onPreempt {
+		return func() error { return nil }, s.simulateOperation(nil)
+	}
+	return func() error { return nil }, nil
+}
+
+type mockedSimulator struct {
+	snapshot simulator.SimulatorSnapshot
+}
+
+func (s *mockedSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s *mockedSimulator) TrackPod(_ context.Context, _ *corev1.Pod) {}
+
+func (s *mockedSimulator) UntrackPod(_ context.Context, _ client.ObjectKey) {}

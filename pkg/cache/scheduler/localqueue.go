@@ -66,7 +66,7 @@ func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQu
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }
 
-func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantities, op usageOp) {
+func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantities, op UsageOp) {
 	q.Lock()
 	defer q.Unlock()
 	updateFlavorUsage(usage, q.admittedUsage, op)
