@@ -110,9 +110,9 @@ func (t *Tracker) Reconcile(ctx context.Context, req reconcile.Request) (reconci
 	log := ctrl.LoggerFrom(ctx)
 	log.V(4).Info("Reconcile UnscheduledPodsTracker")
 
-	wl := &kueue.Workload{}
-	if err := t.client.Get(ctx, req.NamespacedName, wl); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+	wl, err := workloadslicing.FindActiveWorkload(ctx, t.client, req.NamespacedName, true)
+	if err != nil || wl == nil {
+		return reconcile.Result{}, err
 	}
 	if workloadfinish.IsFinished(wl) || (features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
 		return reconcile.Result{}, nil
