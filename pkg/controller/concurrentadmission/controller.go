@@ -279,8 +279,15 @@ func (r *variantReconciler) cleanupParentAndVariants(ctx context.Context, log lo
 	}
 
 	for i := range variants {
-		if err := r.deactivateVariant(ctx, &variants[i], "ConcurrentAdmission is no longer enabled for this ClusterQueue"); err != nil {
-			return ctrl.Result{}, fmt.Errorf("deactivating variant: %w", err)
+		v := &variants[i]
+		log.V(2).Info("Deleting variant because ConcurrentAdmission is no longer enabled", "variant", klog.KObj(v))
+		deleted, err := workload.Delete(ctx, r.client, v)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("deleting variant %s: %w", klog.KObj(v), err)
+		}
+		if deleted {
+			r.recorder.Eventf(parent, nil, corev1.EventTypeNormal, ReasonDeletedVariant, ReasonDeletedVariant,
+				"Variant Workload %q deleted; ConcurrentAdmission is no longer enabled for this ClusterQueue", klog.KObj(v))
 		}
 	}
 
