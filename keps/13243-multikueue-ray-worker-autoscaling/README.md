@@ -148,6 +148,23 @@ temporarily.
 - **The handover finishes the workload `OutOfSync` and tears the job down.** A
   worker-scoped resize tolerance absorbs the transient job/slice count mismatch
   during handover (see below).
+- **Ray Autoscaler v2 can repeat an unadmitted scale-up after its allocation
+  timeout.** A gated pod remains `ALLOCATED`; after `allocate_status_timeout_s`
+  (3600 seconds by default), Ray handles the timeout as a normal scale-down: it
+  adds the pod to `workersToDelete` and lowers the replica count. However,
+  if resource demand remains (e.g., from pending Ray actors or tasks), the
+  autoscaler can trigger another scale-up and replacement slice. Each retry is
+  separated by the allocation timeout, but the cycle can repeat without making
+  progress. This behavior can be revisited if it becomes an issue.
+- **Disabling autoscaling can delete running worker pods.** Changing
+  `enableInTreeAutoscaling` while a RayCluster is running is unsupported by
+  KubeRay, but KubeRay does not enforce immutability. The manager spec stays at its
+  original replica count while the worker autoscaler changes the runtime count.
+  If the flag is turned off after a scale-up, replica ownership returns to the
+  manager. As with an elastic RayCluster without autoscaling, the manager's lower
+  replica count is propagated to the worker, and KubeRay then deletes the excess
+  worker pods. Alpha does not enforce immutability, so users should avoid changing
+  the flag while the workload is running.
 
 ## Design Details
 
@@ -369,6 +386,8 @@ follow-ups addressed. Re-evaluate whether to generalize the annotation-based
 replica-count and revision mechanism currently represented by
 `raycluster-podset-replica-sizes` and `raycluster-generation` for non-KubeRay
 integrations such as batch/Job and JobSet.
+Decide whether `enableInTreeAutoscaling` must be immutable while an elastic
+MultiKueue workload is active or define a safe replica-ownership handoff.
 
 **Stable (GA)**: The feature has spent at least one release cycle in beta with no
 major outstanding bugs.
