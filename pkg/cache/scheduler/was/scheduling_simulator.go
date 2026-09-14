@@ -22,8 +22,12 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -55,8 +59,32 @@ type wasSimulator struct {
 }
 
 type wasSimulatorSnapshot struct {
-	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
+	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
+	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
+	// is the only set PreemptWorkload can release.
 	podsByWorkload podsByWorkload
+	// emptyCluster holds the same nodes with no Pods, for callers asking what would
+	// fit if nothing were running.
+	emptyCluster lazyCluster
+}
+
+// lazyCluster builds its cluster on first use, so cycles that never ask do not
+// pay for it.
+type lazyCluster struct {
+	// build produces the cluster. It runs at most once.
+	build func(context.Context) (*schedLibSnapshot.ClusterSnapshot, error)
+	once  sync.Once
+	// value and err hold what build returned, and are only read after once has run.
+	value *schedLibSnapshot.ClusterSnapshot
+	err   error
+}
+
+func (l *lazyCluster) get(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+	l.once.Do(func() {
+		l.value, l.err = l.build(ctx)
+	})
+	return l.value, l.err
 }
 
 var _ simulator.SimulatorSnapshot = (*wasSimulatorSnapshot)(nil)
@@ -152,10 +180,31 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simu
 	if err != nil {
 		return nil, err
 	}
-	return &wasSimulatorSnapshot{
+	snapshot := &wasSimulatorSnapshot{
 		wasSnapshot:    clusterSnap,
 		podsByWorkload: podsByWorkload,
-	}, nil
+	}
+	snapshot.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, podsByWorkload), nodes)
+	}
+	return snapshot, nil
+}
+
+// podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption
+// cannot remove them, so they keep occupying their node even when the caller assumes
+// every Workload is gone.
+func podsNotManagedByKueue(allPods []*corev1.Pod, byWorkload podsByWorkload) []*corev1.Pod {
+	managed := sets.New[client.ObjectKey]()
+	for _, pods := range byWorkload {
+		managed.Insert(slices.Collect(maps.Keys(pods))...)
+	}
+	var kept []*corev1.Pod
+	for _, pod := range allPods {
+		if !managed.Has(client.ObjectKeyFromObject(pod)) {
+			kept = append(kept, pod)
+		}
+	}
+	return kept
 }
 
 func (s *wasSimulator) TrackPod(ctx context.Context, pod *corev1.Pod) {
@@ -199,11 +248,18 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
-	placement, err := s.wasSnapshot.MakePlacement(candidateNodeNames)
+	cluster := s.wasSnapshot
+	if requirements.SimulateEmpty {
+		var err error
+		if cluster, err = s.emptyCluster.get(ctx); err != nil {
+			return nil, err
+		}
+	}
+	placement, err := cluster.MakePlacement(candidateNodeNames)
 	if err != nil {
 		return nil, err
 	}
-	feasibleNodeNames, _, err := s.wasSnapshot.CanSchedulePod(ctx, dummyPod, placement)
+	feasibleNodeNames, _, err := cluster.CanSchedulePod(ctx, dummyPod, placement)
 	if err != nil {
 		return nil, err
 	}

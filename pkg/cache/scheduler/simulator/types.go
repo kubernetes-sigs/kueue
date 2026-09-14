@@ -60,6 +60,11 @@ type PodRequirements struct {
 	// Used for SchedulerLibraryIntegration to compose the requirements in
 	// the form of `corev1.Pod`, which is accepted by the `scheduler-library`.
 	PodTemplate *corev1.PodTemplateSpec
+
+	// SimulateEmpty asks what would fit if no Workload were running. TAS uses it
+	// to check whether preemption could help, and to reserve capacity for a
+	// Workload that is waiting for preemption candidates.
+	SimulateEmpty bool
 }
 
 type NodeExclusionType int
