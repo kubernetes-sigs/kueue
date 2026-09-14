@@ -925,7 +925,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
 		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
-	fullAssignment := flvAssigner.Assign(ctx, nil)
+	fullAssignment := flvAssigner.AssignWithTopology(ctx, nil)
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -943,7 +943,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	// Handle partial admissions.
 	if workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			assignment := flvAssigner.Assign(ctx, nextCounts)
+			assignment := flvAssigner.AssignWithTopology(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
