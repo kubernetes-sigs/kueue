@@ -18,6 +18,8 @@ package core
 
 import (
 	"errors"
+	"fmt"
+	"maps"
 	"slices"
 	"testing"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -695,62 +698,95 @@ type draQueueTestCase struct {
 func runDRAQueueReconcileTestCase(t *testing.T, fakeClock *testingclock.FakeClock, tc draQueueTestCase) {
 	t.Helper()
 
-	features.SetFeatureGatesDuringTest(t, tc.featureGates)
-	features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
-
-	testWl := tc.workload.DeepCopy()
-	objs := []client.Object{
-		testWl,
-		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testWl.Namespace}},
-	}
-	objs = append(objs, tc.additionalObjects...)
-
-	clientBuilder := utiltesting.NewClientBuilder().
-		WithObjects(objs...).
-		WithStatusSubresource(objs...)
-	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		clientBuilder = clientBuilder.WithIndex(&resourcev1.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex, indexer.IndexDeviceClassExtendedResourceName)
-	}
-	cl := clientBuilder.Build()
-	recorder := &utiltesting.EventRecorder{}
-
-	cqCache := schdcache.New(cl)
-	draCache := setupDRACache(objs)
-	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
-		qcache.WithPreemptionExpectations(preemptexpectations.New()),
-		qcache.WithDRABackedResources(draCache))
-	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRAMapper(newTestDRAMapper(t)), WithDRABackedResources(draCache))
-	qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
-	reconciler.clock = fakeClock
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	setupClusterQueue(ctx, t, cl, qManager, cqCache, tc.cq, false)
-	setupLocalQueue(ctx, t, cl, qManager, tc.lq, false)
-
-	gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
-	if gotErr != nil {
-		t.Fatalf("unexpected error: %v", gotErr)
-	}
-	if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
-		t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
+	scenarios := []map[featuregate.Feature]bool{
+		{features.WorkloadRequestUseMergePatch: false, features.UnadmittedWorkloadsObservability: false},
+		{features.WorkloadRequestUseMergePatch: false, features.UnadmittedWorkloadsObservability: true},
+		{features.WorkloadRequestUseMergePatch: true, features.UnadmittedWorkloadsObservability: false},
+		{features.WorkloadRequestUseMergePatch: true, features.UnadmittedWorkloadsObservability: true},
 	}
 
-	gotWorkload := &kueue.Workload{}
-	if err := cl.Get(ctx, client.ObjectKeyFromObject(testWl), gotWorkload); err != nil {
-		t.Fatalf("could not get workload after reconcile: %v", err)
-	}
-	if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
-		t.Errorf("Workload after reconcile (-want,+got):\n%s", diff)
-	}
+	for _, scenario := range scenarios {
+		skip := false
+		for fg, val := range tc.featureGates {
+			if scenarioVal, exists := scenario[fg]; exists && scenarioVal != val {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
 
-	cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
-	if !found {
-		t.Fatalf("LocalQueue not found in queue manager - DRA workload should have been queued")
-	}
+		t.Run(fmt.Sprintf("WorkloadRequestUseMergePatch enabled: %t, UnadmittedWorkloadsObservability enabled: %t",
+			scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
+			fgMap := make(map[featuregate.Feature]bool)
+			maps.Copy(fgMap, scenario)
+			maps.Copy(fgMap, tc.featureGates)
+			features.SetFeatureGatesDuringTest(t, fgMap)
+			features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 
-	if tc.verify != nil {
-		tc.verify(t, qManager, cqName)
+			testWl := tc.workload.DeepCopy()
+			objs := []client.Object{
+				testWl,
+				&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testWl.Namespace}},
+			}
+			objs = append(objs, tc.additionalObjects...)
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(objs...)
+			if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+				clientBuilder = clientBuilder.WithIndex(&resourcev1.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex, indexer.IndexDeviceClassExtendedResourceName)
+			}
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			cqCache := schdcache.New(cl)
+			draCache := setupDRACache(objs)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+				qcache.WithDRABackedResources(draCache))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRAMapper(newTestDRAMapper(t)), WithDRABackedResources(draCache))
+			qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+			reconciler.clock = fakeClock
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, tc.cq, false)
+			setupLocalQueue(ctx, t, cl, qManager, tc.lq, false)
+
+			gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+				t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
+			}
+
+			gotWorkload := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(testWl), gotWorkload); err != nil {
+				t.Fatalf("could not get workload after reconcile: %v", err)
+			}
+			wantWl := tc.wantWorkload.DeepCopy()
+			if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+				wantWl.Status.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInWorkloadController(
+					wantWl.Status.Conditions,
+					apimeta.IsStatusConditionTrue(tc.workload.Status.Conditions, kueue.WorkloadAdmitted),
+				)
+			}
+			if diff := cmp.Diff(wantWl, gotWorkload, workloadCmpOpts...); diff != "" {
+				t.Errorf("Workload after reconcile (-want,+got):\n%s", diff)
+			}
+
+			cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
+			if !found {
+				t.Fatalf("LocalQueue not found in queue manager - DRA workload should have been queued")
+			}
+
+			if tc.verify != nil {
+				tc.verify(t, qManager, cqName)
+			}
+		})
 	}
 }
 
