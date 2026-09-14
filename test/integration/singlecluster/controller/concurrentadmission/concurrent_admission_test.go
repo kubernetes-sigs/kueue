@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -1048,8 +1049,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue))
 					g.Expect(cond.Reason).To(gomega.Equal("ConcurrentAdmissionDisabled"))
 
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variantWl), variantWl)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(variantWl.Spec.Active, true)).To(gomega.BeFalse())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variantWl), variantWl)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

@@ -269,7 +269,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // parent (reusing the same transfer used in syncAdmissionStatus) so an
 // already-running workload isn't needlessly interrupted. The parent is only
 // evicted if it is admitted without any admitted variant backing that
-// admission. All variants are then deactivated and the parent label is
+// admission. All variants are then deleted and the parent label is
 // removed so this reconciler stops tracking it.
 func (r *variantReconciler) cleanupParentAndVariants(ctx context.Context, log logr.Logger, parent *kueue.Workload, variants []kueue.Workload) (ctrl.Result, error) {
 	log.V(2).Info("ConcurrentAdmission is no longer enabled for this ClusterQueue, cleaning up parent and variants")
