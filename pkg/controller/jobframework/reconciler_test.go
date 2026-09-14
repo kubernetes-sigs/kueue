@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"testing"
 	"time"
 
@@ -916,14 +915,11 @@ func TestFindMatchingWorkloads(t *testing.T) {
 				t.Errorf("match = %q, want %q", gotMatch, tc.wantMatch)
 			}
 
-			gotToDelete := make([]string, 0, len(toDelete))
+			var gotToDelete []string
 			for _, wl := range toDelete {
 				gotToDelete = append(gotToDelete, wl.Name)
 			}
-			slices.Sort(gotToDelete)
-			wantToDelete := slices.Clone(tc.wantToDelete)
-			slices.Sort(wantToDelete)
-			if diff := cmp.Diff(wantToDelete, gotToDelete, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantToDelete, gotToDelete, cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("toDelete mismatch (-want +got):\n%s", diff)
 			}
 		})
