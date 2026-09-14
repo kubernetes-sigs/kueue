@@ -561,7 +561,7 @@ func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
 	_, log := utiltesting.ContextWithLog(t)
 	// Validate each domain's index against the per-snapshot domain state addressed
 	// by domain.idx.
-	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "default"}, tree, newDefaultSimulatorSnapshot())
 	seen := make(map[int]*domain, tree.domainCount)
 	for _, levelDomains := range tree.domainsPerLevel {
 		for _, dom := range levelDomains {

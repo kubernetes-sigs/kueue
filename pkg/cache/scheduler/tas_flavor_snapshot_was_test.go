@@ -69,7 +69,7 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	tree := newTopologyTree([]string{wasRackLabel, corev1.LabelHostname}, nodes, 0)
-	return newTASFlavorSnapshot(log, "tas-topology", tree, nil, simSnapshot), simSnapshot
+	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, simSnapshot), simSnapshot
 }
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
