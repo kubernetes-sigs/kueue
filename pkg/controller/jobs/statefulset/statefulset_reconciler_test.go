@@ -49,12 +49,14 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
 	baseCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
 )
 
@@ -68,17 +70,24 @@ func TestReconciler(t *testing.T) {
 			Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
 		},
 	}
+	var (
+		updatedBeforeHoldReleased                      atomic.Bool
+		updatedBeforeHoldReleasedObservabilityDisabled atomic.Bool
+	)
 	cases := map[string]struct {
-		featureGates    map[featuregate.Feature]bool
-		stsKey          client.ObjectKey
-		statefulSet     *appsv1.StatefulSet
-		pods            []corev1.Pod
-		workloads       []kueue.Workload
-		wantStatefulSet *appsv1.StatefulSet
-		wantPods        []corev1.Pod
-		wantWorkloads   []kueue.Workload
-		wantEvents      []utiltesting.EventRecord
-		wantErr         error
+		featureGates                map[featuregate.Feature]bool
+		stsKey                      client.ObjectKey
+		statefulSet                 *appsv1.StatefulSet
+		pods                        []corev1.Pod
+		workloads                   []kueue.Workload
+		wantStatefulSet             *appsv1.StatefulSet
+		wantPods                    []corev1.Pod
+		wantWorkloads               []kueue.Workload
+		wantEvents                  []utiltesting.EventRecord
+		wantErr                     error
+		interceptorFuncs            interceptor.Funcs
+		statefulSetForNextReconcile *appsv1.StatefulSet
+		afterReconcile              func(t *testing.T)
 	}{
 		"statefulset not found": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -248,6 +257,145 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
+					Obj(),
+			},
+		},
+		"should resize workload podSets when StatefulSet scales up from zero": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(0).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 3,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+					Obj(),
+			},
+			statefulSetForNextReconcile: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(5).
+				Obj(),
+			interceptorFuncs: interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if w, ok := obj.(*kueue.Workload); ok {
+						if len(w.Spec.PodSets) > 0 && w.Spec.PodSets[0].Count == 5 && workload.IsOnHold(w) {
+							updatedBeforeHoldReleased.Store(true)
+						}
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			},
+			afterReconcile: func(t *testing.T) {
+				if !updatedBeforeHoldReleased.Load() {
+					t.Errorf("expected Workload PodSet count to be updated to new replica count before hold is released")
+				}
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(5).
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 5,
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						Message: "Workload no longer on hold; waiting for quota reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
+					}).
+					Obj(),
+			},
+		},
+		"should resize workload podSets when StatefulSet scales up from zero with UnadmittedWorkloadsObservability disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          false,
+				features.UnadmittedWorkloadsObservability: false,
+			},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(0).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 3,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+					Obj(),
+			},
+			statefulSetForNextReconcile: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(5).
+				Obj(),
+			interceptorFuncs: interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if w, ok := obj.(*kueue.Workload); ok {
+						if len(w.Spec.PodSets) > 0 && w.Spec.PodSets[0].Count == 5 && workload.IsOnHold(w) {
+							updatedBeforeHoldReleasedObservabilityDisabled.Store(true)
+						}
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			},
+			afterReconcile: func(t *testing.T) {
+				if !updatedBeforeHoldReleasedObservabilityDisabled.Load() {
+					t.Errorf("expected Workload PodSet count to be updated to new replica count before hold is released")
+				}
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(5).
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 5,
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+						Message: "Workload no longer on hold; waiting for quota reservation",
+					}).
 					Obj(),
 			},
 		},
@@ -724,7 +872,9 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithStatusSubresource(&appsv1.StatefulSet{}, &kueue.Workload{}).
+				WithInterceptorFuncs(tc.interceptorFuncs)
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
 			if err != nil {
@@ -755,6 +905,15 @@ func TestReconciler(t *testing.T) {
 			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tc.stsKey})
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+			}
+
+			if tc.statefulSetForNextReconcile != nil {
+				if err := kClient.Update(ctx, tc.statefulSetForNextReconcile); err != nil {
+					t.Fatalf("Could not update StatefulSet before second reconcile: %v", err)
+				}
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: tc.stsKey}); err != nil {
+					t.Fatalf("Second Reconcile returned error: %v", err)
+				}
 			}
 
 			gotStatefulSet := &appsv1.StatefulSet{}
@@ -790,6 +949,10 @@ func TestReconciler(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty(), cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
 				t.Errorf("Events after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if tc.afterReconcile != nil {
+				tc.afterReconcile(t)
 			}
 		})
 	}
