@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 // Workload slicing refers to a specialized Kueue feature designed to support workload scaling up.
@@ -213,6 +214,33 @@ func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject
 	return nil, nil
 }
 
+// FindMostRecentlyGrantedWorkload returns the most recently admitted workload ever
+// owned by the given job/GVK - finished ones included - or nil if none was ever
+// admitted. Used to recover the job's last granted counts after eviction wipes
+// every live slice (issue #15399); Finish never touches Status.Admission, so a
+// finished slice still remembers them.
+func FindMostRecentlyGrantedWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
+	list := &kueue.WorkloadList{}
+	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
+		return nil, err
+	}
+
+	workloads := slices.Clone(list.Items)
+	slices.SortFunc(workloads, func(a, b kueue.Workload) int {
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.UID, b.UID)
+	})
+
+	for i := range slices.Backward(workloads) {
+		if workloads[i].Status.Admission != nil {
+			return &workloads[i], nil
+		}
+	}
+	return nil, nil
+}
+
 // ScaledDown returns true if the new pod sets represent a scale-down operation.
 // This is determined by checking whether at least one new pod set has fewer replicas
 // than its corresponding old pod set, and none of the old pod sets have fewer replicas
@@ -326,9 +354,12 @@ func EnsureWorkloadSlices(
 // normalizeActiveSlices enforces the workload slice invariant:
 //   - One non-evicted admitted workload (latestWithQuotaReservation)
 //   - At most one non-evicted pending replacement that directly replaces it
-//   - When no non-evicted admitted workload exists, the newest non-evicted
-//     workload is kept
-//   - Evicted workloads are always finished (they hold quota that must be released)
+//   - When neither exists, the newest non-evicted workload is kept - unless it's
+//     a partial scale-up probe whose target was evicted, in which case its floor
+//     can never be satisfied, so it's finished too (issue #15399).
+//
+// Finishing more than one slice per call relaxes conflict handling, same as
+// IssuePreemptions does when evicting multiple targets.
 func normalizeActiveSlices(
 	ctx context.Context,
 	clnt client.Client,
@@ -379,6 +410,22 @@ func normalizeActiveSlices(
 		}
 	}
 
+	// Don't let a probe survive if its own target was evicted: its floor was set
+	// relative to that target's admission, which is now gone, so it can never be
+	// satisfied.
+	if latestWithQuotaReservation == nil && latestNonEvicted != nil &&
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		hasMinCount(latestNonEvicted) {
+		if replKey := ReplacementForKey(latestNonEvicted); replKey != nil {
+			for i := range workloads {
+				if workload.Key(&workloads[i]) == *replKey && workloadevict.IsEvicted(&workloads[i]) {
+					latestNonEvicted = nil
+					break
+				}
+			}
+		}
+	}
+
 	log.V(3).Info("Classified workload slices",
 		"total", len(workloads),
 		"latestWithQuotaReservation", klog.KObj(latestWithQuotaReservation),
@@ -405,12 +452,24 @@ func normalizeActiveSlices(
 			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
 		}
 		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
-		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
+		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk,
+			workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
 			return nil, err
 		}
 	}
 
 	return selectedWorkload, nil
+}
+
+// hasMinCount reports whether any of the workload's PodSets carries a minCount.
+// Only a partial scale-up probe ever does.
+func hasMinCount(wl *kueue.Workload) bool {
+	for i := range wl.Spec.PodSets {
+		if wl.Spec.PodSets[i].MinCount != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // ReplacedWorkloadSlice returns the replacement workload slice for the given workload `wl`

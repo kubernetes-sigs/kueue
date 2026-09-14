@@ -33,7 +33,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
-	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -307,18 +306,15 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 	ginkgo.It("Should re-admit the partially-admitted slice after a ClusterQueue drain", func() {
 		// Regression coverage for https://github.com/kubernetes-sigs/kueue/issues/15399.
 		//
-		// Follows the batch/Job elastic spec "Should resume with the same slice chain after
-		// eviction by a stopped ClusterQueue", but for a job that was in the middle of a partial
-		// scale-up. Draining evicts the partially-admitted slice while the scale-up probe -
-		// created for the full request, and pending because its floor already exceeded the quota
-		// - is the only other slice in the chain.
-		//
-		// The probe's floor is frozen at the count admitted when it was created, so it can never
-		// carry the job's re-admission on its own: nothing shrinks that floor back down to fit.
-		// Recovery instead has to come from the partially-admitted slice resuming - the quota that
-		// held it before the drain is still there once the ClusterQueue is resumed - keeping the
-		// probe's floor meaningful again. Only reaching the probe's own (higher) floor still needs
-		// more quota, which is exercised at the end of this spec.
+		// Draining evicts the partially-admitted slice while the scale-up probe - created for
+		// the full request, and pending because its floor already exceeded the quota - is the
+		// only other slice in the chain. The probe's floor is frozen at the count admitted when
+		// it was created, so it can never carry the job's re-admission on its own: nothing
+		// shrinks that floor back down to fit once its predecessor is gone. normalizeActiveSlices
+		// finishes both instead of leaving the probe stranded, and the job's next reconcile
+		// starts over from zero workloads - but prepareWorkloadSliceForScaleUp seeds the fresh
+		// replacement at the last count this job actually held (from history, since Finish never
+		// touches Status.Admission), rather than demanding the full request from a standing start.
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
@@ -359,6 +355,10 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
 				kueue.WorkloadEvicted, kueue.WorkloadEvictedByClusterQueueStopped))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("both the evicted slice and its now-unsatisfiable probe are finished")
+		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(probe))
 		expectPodsUsage(0)
 
 		ginkgo.By("resuming the ClusterQueue with the quota unchanged")
@@ -368,45 +368,49 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		// A finished, evicted slice keeps its stale Admitted=True condition and Admission
-		// counts (Finish only sets the Finished condition), so checking admitted-count alone
-		// would pass spuriously against a dead slice. Rule that out explicitly first.
-		ginkgo.By("the partially-admitted slice was not finished by the drain")
+		// The unchanged 7-pod quota is exactly what the job held before the drain, so the fresh
+		// slice - seeded from history at minCount 6, not the full 10 - is admitted at that level
+		// without any external help. It is a new object: recovery here rebuilds the chain rather
+		// than reviving the finished one.
+		ginkgo.By("a fresh workload is created and admitted at 6 workers, with no change to the quota")
+		var freshSlice *kueue.Workload
 		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(partialSlice), wl)).Should(gomega.Succeed())
-			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
+			wlList := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			active := util.FindNonFinishedWorkloads(wlList.Items)
+			g.Expect(active).Should(gomega.HaveLen(1))
+			freshSlice = &active[0]
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		// The unchanged 7-pod quota is exactly what the partially-admitted slice held before the
-		// drain, so it is re-admitted at the same 6 workers without any external help. The probe's
-		// floor of 1 head + 7 workers is still above the 7-pod quota, so it stays pending, but its
-		// floor is meaningful again now that the slice it was computed against is back.
-		ginkgo.By("the partially-admitted slice resumes at 6 workers, with no change to the quota")
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
+		gomega.Expect(freshSlice.Name).ShouldNot(gomega.Or(gomega.Equal(partialSlice.Name), gomega.Equal(probe.Name)))
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, freshSlice, workersGroupName, 6)
 		expectPodsUsage(7)
-		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
-		// 10 pods covers the probe's floor of 1 head + 7 workers, but not its full request of 1
-		// head + 10 workers, so the probe has to be partially admitted in its turn.
-		ginkgo.By("growing the quota to 10 pods for the probe to be admitted")
+		// The fresh slice is itself admitted at less than its own full request (10), so it
+		// triggers exactly the same probe-creation path as the original scale-up did.
+		ginkgo.By("a fresh scale-up probe is created for the full request again")
+		newProbe := util.ExpectNewWorkloadSlice(ctx, k8sClient, freshSlice)
+		gomega.Expect(newProbe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(7))))
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, newProbe)
+
+		// 10 pods covers the new probe's floor of 1 head + 7 workers, but not its full request of
+		// 1 head + 10 workers, so it has to be partially admitted in its turn.
+		ginkgo.By("growing the quota to 10 pods for the new probe to be admitted")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
 			clusterQueue.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("10")
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("the probe is admitted at 9 workers, as much of the scale-up as now fits")
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, probe, workersGroupName, 9)
+		ginkgo.By("the new probe is admitted at 9 workers, as much of the scale-up as now fits")
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, newProbe, workersGroupName, 9)
 		expectPodsUsage(10)
 	})
 
 	ginkgo.It("Should re-admit the partially-admitted slice after being preempted", func() {
 		// Same regression as above (https://github.com/kubernetes-sigs/kueue/issues/15399), but
 		// evicting the partially-admitted slice through preemption instead of a ClusterQueue
-		// drain. normalizeActiveSlices finishes an evicted slice unconditionally regardless of
-		// why it was evicted, so the failure mode does not depend on the eviction cause - only on
-		// a probe surviving whatever evicted it.
+		// drain. normalizeActiveSlices' handling of an unsatisfiable probe does not depend on why
+		// its predecessor was evicted, so the recovery path is exactly the same either way.
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
@@ -458,15 +462,9 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
 		expectPodsUsage(7)
 
-		// A finished, evicted slice keeps its stale Admitted=True condition and Admission
-		// counts (Finish only sets the Finished condition), so checking admitted-count alone
-		// would pass spuriously against a dead slice. Rule that out explicitly first.
-		ginkgo.By("the partially-admitted slice was not finished by the preemption")
-		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(partialSlice), wl)).Should(gomega.Succeed())
-			g.Expect(workloadfinish.IsFinished(wl)).Should(gomega.BeFalse())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.By("both the preempted slice and its now-unsatisfiable probe are finished")
+		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
+		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(probe))
 
 		// Simulates the preemptor's job completing and releasing its quota, exactly the 7 pods
 		// the partially-admitted slice held before being preempted - the same "quota unchanged"
@@ -474,9 +472,24 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		ginkgo.By("the preemptor finishes, releasing its quota")
 		util.FinishWorkloads(ctx, k8sClient, preemptor)
 
-		ginkgo.By("the partially-admitted slice resumes at 6 workers, with no change to the quota")
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
+		// The fresh slice is a new object, seeded from history at minCount 6 rather than
+		// reviving the finished one - see the drain spec above for the full mechanism.
+		ginkgo.By("a fresh workload is created and admitted at 6 workers, with no change to the quota")
+		var freshSlice *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			wlList := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			active := util.FindNonFinishedWorkloads(wlList.Items)
+			g.Expect(active).Should(gomega.HaveLen(1))
+			freshSlice = &active[0]
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(freshSlice.Name).ShouldNot(gomega.Or(gomega.Equal(partialSlice.Name), gomega.Equal(probe.Name)))
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, freshSlice, workersGroupName, 6)
 		expectPodsUsage(7)
-		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+
+		ginkgo.By("a fresh scale-up probe is created for the full request again")
+		newProbe := util.ExpectNewWorkloadSlice(ctx, k8sClient, freshSlice)
+		gomega.Expect(newProbe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(7))))
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, newProbe)
 	})
 })

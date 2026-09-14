@@ -102,6 +102,7 @@ func TestReconcileGenericJob(t *testing.T) {
 		SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial)
 
 	partiallyAdmittedWorkload := baseWl.Clone().Name("job-test-job-prev").
+		UID("prev-uid").
 		PodSets(elasticPodSets...).
 		Annotation(kueue.WorkloadSliceNameAnnotation, "job-test-job-prev").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
@@ -192,7 +193,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			objs:          []client.Object{partiallyAdmittedWorkload.DeepCopy()},
 			wantWorkloadNames: []string{
 				"job-test-job-prev",
-				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "provider-gen-7-scale-up-probe-3"),
+				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "provider-gen-7-scale-up-probe-prev-uid-3"),
 			},
 		},
 		"elastic non-provider composes probe name": {
@@ -206,7 +207,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			objs:    []client.Object{partiallyAdmittedWorkload.DeepCopy()},
 			wantWorkloadNames: []string{
 				"job-test-job-prev",
-				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-3"),
+				GenerateWorkloadNameWithExtra(testJobName, types.UID(testJobName), testGVK, "7-scale-up-probe-prev-uid-3"),
 			},
 		},
 		"update workload to match job (one existing workload)": {
