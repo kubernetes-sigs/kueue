@@ -1040,7 +1040,7 @@ func updateAssignmentForTAS(
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
-				schdcache.WithWorkload(wl.Obj),
+				schdcache.WithWorkloadInfo(wl),
 			)
 			revertPods()
 			revertUsage()
@@ -1055,7 +1055,7 @@ func updateAssignmentForTAS(
 				ctx,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkload(wl.Obj),
+				schdcache.WithWorkloadInfo(wl),
 			)
 		}
 		assignment.UpdateForTASResult(log, cq, wl, tasResult)
