@@ -590,7 +590,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(log logr.Logger, fl
 
 	for _, groupKey := range groupsOrder {
 		trs := groupedTASRequests[groupKey]
-		if workload.HasUnhealthyNodes(opts.workload) {
+		// Without an admission there is nothing to replace; take the fresh-placement path.
+		if workload.HasUnhealthyNodes(opts.workload) && opts.workload.Status.Admission != nil {
 			for _, tr := range trs {
 				// In case of looking for Node replacement, TopologyRequest has only
 				// PodSets with the Node to replace, so we match PodSetAssignment
