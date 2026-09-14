@@ -1205,6 +1205,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if reason != "" {
 		return nil, nil, reason
 	}
+	// buildPodRequirements only knows the PodSet, so the caller's question is carried
+	// over rather than overwritten.
+	podRequirements.SimulateEmpty = simulateEmpty
 	requirements.podRequirements = podRequirements
 	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.UID != "" {
 		requirements.matchKey = &podSetMatchKey{
@@ -1225,6 +1228,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if reason != "" {
 			return nil, nil, reason
 		}
+		leaderPodRequirements.SimulateEmpty = simulateEmpty
 		// The scheduler-library filters with the Pod template alone, so the merged
 		// PodSetUpdates have to be written onto it. The workers' template has the
 		// same gap, left alone here because fixing it changes today's filtering.

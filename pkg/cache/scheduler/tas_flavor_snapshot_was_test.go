@@ -145,3 +145,47 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 		t.Error("FindTopologyAssignmentsForFlavor() found a fit after the victim was restored, want none")
 	}
 }
+
+// The leader is checked against the same cluster as the workers, so asking what would
+// fit if every Workload were preempted must not leave the leader judged against the
+// Pods that are still running.
+func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
+
+	unconstrained := true
+	groupName := "group"
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	podSet := func(name string, count int32) TASPodSetRequests {
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+				// Both PodSets want the host port the victim is holding.
+				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "c",
+						Ports: []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+					}},
+				}},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+	requests := FlavorTASRequests{podSet("workers", 1), podSet("leader", 1)}
+
+	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests).Failure() == nil {
+		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
+	}
+	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithSimulateEmpty(true)).Failure(); failure != nil {
+		t.Errorf("FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", failure)
+	}
+}
