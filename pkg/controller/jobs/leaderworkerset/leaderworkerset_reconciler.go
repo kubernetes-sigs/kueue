@@ -537,7 +537,6 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 	queueName := jobframework.QueueNameForObject(lws)
 
 	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
-		changed := false
 		// TODO(#13968): Candidate for removal once LeaderWorkerSets admitted before #4932
 		// are gone, no earlier than 0.21. The webhook stamps the queue name on the pod
 		// templates, so it is only missing here on those, which #4932 did not migrate.
@@ -545,9 +544,9 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 		if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) &&
 			pod.Labels[controllerconstants.QueueLabel] != string(queueName) {
 			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
-			changed = true
+			return true
 		}
-		return changed
+		return false
 	}
 
 	// We should wait for GroupIndexLabelKey.
@@ -582,6 +581,7 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 			pod.Annotations[podconstants.RoleHashAnnotation] = workerPodSetName
 		}
 	}
+
 	return true
 }
 
