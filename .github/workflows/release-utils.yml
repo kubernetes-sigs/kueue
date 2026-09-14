@@ -44,6 +44,7 @@ jobs:
             ".github/actions/publish-release/action.yml"
             ".github/actions/report-result/action.yml"
             "hack/releasing/authorize_release_actor.py"
+            "hack/releasing/authorize_release_actor_test.py"
             "hack/releasing/log_to_issue.py"
             "hack/releasing/requirements.txt"
           )
