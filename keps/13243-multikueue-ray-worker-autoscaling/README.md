@@ -156,6 +156,14 @@ temporarily.
   autoscaler can trigger another scale-up and replacement slice. Each retry is
   separated by the allocation timeout, but the cycle can repeat without making
   progress. This behavior can be revisited if it becomes an issue.
+- **A user with write access to the manager Ray object can temporarily
+  under-report worker usage.** If the user lowers the
+  `raycluster-podset-replica-sizes` annotation, the manager treats it as a normal
+  scale-down and releases quota even though the worker may still use the larger
+  allocation. The next reverse sync restores the worker's actual count, but the
+  under-accounting persists until the corrected larger workload slice is
+  admitted. Alpha does not protect this controller-owned annotation from manual
+  edits; hardening can be revisited before or during Beta.
 - **Disabling autoscaling can delete running worker pods.** Changing
   `enableInTreeAutoscaling` while a RayCluster is running is unsupported by
   KubeRay, but KubeRay does not enforce immutability. The manager spec stays at its
