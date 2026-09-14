@@ -4189,7 +4189,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 			*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "6").
 				Obj(),
-		).ResourceGroup().
+		).
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
@@ -4527,7 +4527,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 			*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "6").
 				Obj(),
-		).ResourceGroup().
+		).
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).

@@ -3399,6 +3399,17 @@ func TestClusterQueueReadiness(t *testing.T) {
 			wantReason:       "Stopped",
 			wantMessage:      "Can't admit new workloads: is stopped.",
 		},
+		"empty resource group flavors": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("queue1").
+					ResourceGroup().
+					Obj(),
+			},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "EmptyResourceGroup",
+			wantMessage:      "Can't admit new workloads: has at least one resource group with no flavors.",
+		},
 	}
 
 	for name, tc := range cases {

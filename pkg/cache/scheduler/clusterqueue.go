@@ -258,6 +258,7 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 	status := active
 	if c.isStopped ||
 		len(c.missingFlavors) > 0 ||
+		c.hasResourceGroupWithNoFlavors() ||
 		len(c.missingAdmissionChecks) > 0 ||
 		len(c.inactiveAdmissionChecks) > 0 ||
 		c.isTASViolated() ||
@@ -313,13 +314,22 @@ func (c *clusterQueue) isTASInitialized() bool {
 	return true
 }
 
+func (c *clusterQueue) hasResourceGroupWithNoFlavors() bool {
+	for i := range c.ResourceGroups {
+		if len(c.ResourceGroups[i].Flavors) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *clusterQueue) inactiveReason() (string, string) {
 	switch c.Status {
 	case terminating:
 		return kueue.ClusterQueueActiveReasonTerminating, "Can't admit new workloads; clusterQueue is terminating"
 	case pending:
-		reasons := make([]string, 0, 3)
-		messages := make([]string, 0, 3)
+		reasons := make([]string, 0, 4)
+		messages := make([]string, 0, 4)
 		if c.isStopped {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonStopped)
 			messages = append(messages, "is stopped")
@@ -327,6 +337,10 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		if len(c.missingFlavors) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonFlavorNotFound)
 			messages = append(messages, fmt.Sprintf("references missing ResourceFlavor(s): %v", stringsutils.Join(c.missingFlavors, ",")))
+		}
+		if c.hasResourceGroupWithNoFlavors() {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonEmptyResourceGroup)
+			messages = append(messages, "has at least one resource group with no flavors")
 		}
 		if len(c.missingAdmissionChecks) > 0 {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonAdmissionCheckNotFound)
