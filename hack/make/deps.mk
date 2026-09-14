@@ -23,7 +23,6 @@ ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' 
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
 KUBECTL_VERSION ?= v$(E2E_K8S_FULL_VERSION)
-KUBECTL_DOWNLOAD_RETRIES ?= 3
 KUBECTL_DOWNLOAD_TIMEOUT ?= 300
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
 HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v4)
@@ -126,10 +125,10 @@ kubectl: ## Download kubectl locally if necessary.
 	@command -v curl >/dev/null || { echo "curl is required to download kubectl" >&2; exit 1; }
 	@{ command -v sha256sum >/dev/null || command -v shasum >/dev/null; } || { echo "sha256sum or shasum is required to verify kubectl" >&2; exit 1; }
 	@tmp_dir=$$(mktemp -d); \
-	trap 'rm -rf "$$tmp_dir"' EXIT; \
+	trap 'rm -r "$$tmp_dir"' EXIT; \
 	kubectl_url="https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$$($(GO_CMD) env GOOS)/$$($(GO_CMD) env GOARCH)/kubectl"; \
-	curl -fsSL --retry "$(KUBECTL_DOWNLOAD_RETRIES)" --retry-delay 2 --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl" "$$kubectl_url"; \
-	curl -fsSL --retry "$(KUBECTL_DOWNLOAD_RETRIES)" --retry-delay 2 --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl.sha256" "$$kubectl_url.sha256"; \
+	$(NETWORK_RETRY) curl -fsSL --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl" "$$kubectl_url"; \
+	$(NETWORK_RETRY) curl -fsSL --connect-timeout 10 --max-time "$(KUBECTL_DOWNLOAD_TIMEOUT)" -o "$$tmp_dir/kubectl.sha256" "$$kubectl_url.sha256"; \
 	if command -v sha256sum >/dev/null; then \
 		(cd "$$tmp_dir" && echo "$$(cat kubectl.sha256)  kubectl" | sha256sum --check -); \
 	else \
