@@ -1483,6 +1483,41 @@ func TestEquivalentToWorkload(t *testing.T) {
 				Obj(),
 			wantErr: true,
 		},
+		"workload and job have matching WaitForPodsReady annotations": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			job: (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+				UID(testJobUID).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 300}`).
+				Obj()),
+			wl: baseWl.Clone().Name("owned-matching-wfpr").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 300}`).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		"workload and job have different WaitForPodsReady timeoutSeconds annotations; workload is not equivalent": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			job: (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+				UID(testJobUID).
+				Obj()),
+			wl: baseWl.Clone().Name("owned-diff-wfpr").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 300}`).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"workload and job have different WaitForPodsReady recoveryTimeoutSeconds annotations; workload is not equivalent": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			job: (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+				UID(testJobUID).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 300, "recoveryTimeoutSeconds": 10}`).
+				Obj()),
+			wl: baseWl.Clone().Name("owned-diff-wfpr").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 300, "recoveryTimeoutSeconds": 0}`).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

@@ -391,6 +391,24 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"zero waitForPodsReady.maxTimeoutOnWorkload": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					MaxTimeoutOnWorkload: &metav1.Duration{
+						Duration: 0,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.maxTimeoutOnWorkload",
+				},
+			},
+		},
 		"valid waitForPodsReady": {
 			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
 			cfg: &configapi.Configuration{
@@ -519,6 +537,25 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
 					Field: "featureGates[WaitForPodsReadyUnscheduledTimeout]",
+				},
+			},
+		},
+		"maxTimeoutOnWorkload and DisableWaitForPodsReady cannot be enabled together": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+				features.DisableWaitForPodsReady:       true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:              metav1.Duration{Duration: 5 * time.Minute},
+					MaxTimeoutOnWorkload: &metav1.Duration{Duration: time.Hour},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "featureGates[WorkloadLevelWaitForPodsReady]",
 				},
 			},
 		},
