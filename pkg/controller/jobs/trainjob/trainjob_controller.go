@@ -25,7 +25,6 @@ import (
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftrainerruntime "github.com/kubeflow/trainer/v2/pkg/runtime"
 	kftrainerruntimecore "github.com/kubeflow/trainer/v2/pkg/runtime/core"
-	kftrainerframework "github.com/kubeflow/trainer/v2/pkg/runtime/framework"
 	kftrainerjobset "github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset"
 	trainjobutil "github.com/kubeflow/trainer/v2/pkg/util/trainjob"
 	corev1 "k8s.io/api/core/v1"
@@ -166,18 +165,6 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 	// Get the jobsetSpecApply and apply the TrainJob object overrides for the trainer and initializer jobs
 	jobSetSpec, ok := kftrainerruntime.TemplateSpecApply[jobsetapplyapi.JobSetSpecApplyConfiguration](info)
 	if !ok {
-		return nil, err
-	}
-
-	jobSetPlugin, err := kftrainerjobset.New(ctx, c, nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	cbp, ok := jobSetPlugin.(kftrainerframework.ComponentBuilderPlugin)
-	if !ok {
-		return nil, errors.New("jobset plugin does not implement ComponentBuilderPlugin")
-	}
-	if err := cbp.SyncParallelCount(info); err != nil {
 		return nil, err
 	}
 

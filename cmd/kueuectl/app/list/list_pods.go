@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -276,9 +277,19 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 		return err
 	}
 
-	for _, pod := range infos {
-		if err = printer.PrintObj(pod.Object, tabWriter); err != nil {
+	if o.shouldPrintPodList() && len(infos) > 0 {
+		podList, err := podListFromInfos(infos)
+		if err != nil {
 			return err
+		}
+		if err = printer.PrintObj(podList, tabWriter); err != nil {
+			return err
+		}
+	} else {
+		for _, pod := range infos {
+			if err = printer.PrintObj(pod.Object, tabWriter); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -291,6 +302,28 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	}
 
 	return nil
+}
+
+func (o *PodOptions) shouldPrintPodList() bool {
+	outputFormat := ptr.Deref(o.PrintFlags.OutputFormat, "")
+	return outputFormat == "json" || outputFormat == "yaml"
+}
+
+func podListFromInfos(infos []*resource.Info) (*unstructured.UnstructuredList, error) {
+	podList := &unstructured.UnstructuredList{
+		Items: make([]unstructured.Unstructured, len(infos)),
+	}
+	podList.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("PodList"))
+
+	for i, info := range infos {
+		pod, ok := info.Object.(*unstructured.Unstructured)
+		if !ok {
+			return nil, fmt.Errorf("unexpected type %T", info.Object)
+		}
+		podList.Items[i] = *pod
+	}
+
+	return podList, nil
 }
 
 func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {

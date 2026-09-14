@@ -29,7 +29,7 @@ import (
 //
 // WorkloadPriorityClass is the Schema for the workloadPriorityClass API
 type WorkloadPriorityClassApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the WorkloadPriorityClass.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// value represents the integer value of this workloadPriorityClass. This is the actual priority that workloads

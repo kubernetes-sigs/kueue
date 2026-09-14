@@ -43,20 +43,23 @@ import (
 	"k8s.io/cli-runtime/pkg/resource"
 	restfake "k8s.io/client-go/rest/fake"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	"sigs.k8s.io/yaml"
 
 	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 type podTestCase struct {
-	name       string
-	job        runtime.Object
-	pods       []corev1.Pod
-	mapperGVKs []schema.GroupVersionKind
-	args       []string
-	wantOut    string
-	wantOutErr string
-	wantErr    error
+	name             string
+	job              runtime.Object
+	pods             []corev1.Pod
+	mapperGVKs       []schema.GroupVersionKind
+	args             []string
+	wantOut          string
+	wantPodListNames []string
+	podListFormat    string
+	wantOutErr       string
+	wantErr          error
 }
 
 func TestPodCmd(t *testing.T) {
@@ -105,6 +108,82 @@ func TestPodCmd(t *testing.T) {
 valid-pod-1   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 `,
+		}, {
+			name: "list pods of batch/job with json output",
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
+				*basePod.Clone().
+					Name("valid-pod-2").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "v1",
+					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
+				},
+			},
+			args:             []string{"--for", "job/test-job", "-o", "json"},
+			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
+			podListFormat:    "json",
+		}, {
+			name: "list pods of batch/job with yaml output",
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
+				*basePod.Clone().
+					Name("valid-pod-2").
+					Label(batchv1.JobNameLabel, "test-job").
+					Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "v1",
+					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
+				},
+			},
+			args:             []string{"--for", "job/test-job", "-o", "yaml"},
+			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
+			podListFormat:    "yaml",
 		}, {
 			name: "list pods with JSONPath containing wide",
 			job: &batchv1.Job{
@@ -649,7 +728,37 @@ valid-pod-1   1/1     Running   0          <unknown>
 			}
 
 			gotOut := out.String()
-			if diff := cmp.Diff(tc.wantOut, gotOut); diff != "" {
+			if tc.wantPodListNames != nil {
+				var podList corev1.PodList
+				var err error
+				switch tc.podListFormat {
+				case "json":
+					err = json.Unmarshal([]byte(gotOut), &podList)
+				case "yaml":
+					err = yaml.Unmarshal([]byte(gotOut), &podList)
+				default:
+					t.Fatalf("Unsupported PodList output format: %q", tc.podListFormat)
+				}
+				if err != nil {
+					t.Fatalf("Unexpected %s output: %v", tc.podListFormat, err)
+				}
+				if podList.APIVersion != "v1" {
+					t.Errorf("Unexpected apiVersion: %q", podList.APIVersion)
+				}
+				if podList.Kind != "PodList" {
+					t.Errorf("Unexpected kind: %q", podList.Kind)
+				}
+				if len(podList.Items) != len(tc.wantPodListNames) {
+					t.Errorf("Unexpected number of Pods: got %d, want %d", len(podList.Items), len(tc.wantPodListNames))
+				}
+				gotPodNames := make([]string, len(podList.Items))
+				for i := range podList.Items {
+					gotPodNames[i] = podList.Items[i].Name
+				}
+				if diff := cmp.Diff(tc.wantPodListNames, gotPodNames); diff != "" {
+					t.Errorf("Unexpected Pod names (-want/+got)\n%s", diff)
+				}
+			} else if diff := cmp.Diff(tc.wantOut, gotOut); diff != "" {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 

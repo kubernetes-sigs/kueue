@@ -66,7 +66,7 @@ type JobSet struct {
 }
 
 var _ framework.WatchExtensionPlugin = (*JobSet)(nil)
-var _ framework.PodNetworkPlugin = (*JobSet)(nil)
+var _ framework.PreComponentBuilderPlugin = (*JobSet)(nil)
 var _ framework.ComponentBuilderPlugin = (*JobSet)(nil)
 var _ framework.TrainJobStatusPlugin = (*JobSet)(nil)
 var _ framework.CustomValidationPlugin = (*JobSet)(nil)
@@ -270,7 +270,18 @@ func (j *JobSet) ReconcilerBuilders() []runtime.ReconcilerBuilder {
 	}
 }
 
-func (j *JobSet) IdentifyPodNetwork(info *runtime.Info, trainJob *trainer.TrainJob) error {
+// PreBuildSync consolidates the Info object with the JobSet template before any
+// component is materialized.
+func (j *JobSet) PreBuildSync(info *runtime.Info, trainJob *trainer.TrainJob) error {
+	if err := j.syncPodNetwork(info, trainJob); err != nil {
+		return err
+	}
+	return j.syncParallelCount(info)
+}
+
+// SyncPodNetwork identifies the Pod-to-Pod communication network endpoints for each Pod
+// and stores them in PodSets.Endpoints.
+func (j *JobSet) syncPodNetwork(info *runtime.Info, trainJob *trainer.TrainJob) error {
 	if info == nil || trainJob == nil {
 		return nil
 	}
@@ -299,7 +310,8 @@ func (j *JobSet) IdentifyPodNetwork(info *runtime.Info, trainJob *trainer.TrainJ
 	return nil
 }
 
-func (j *JobSet) SyncParallelCount(info *runtime.Info) error {
+// SyncParallelCount propagates PodSets.Count into template-level Parallelism/Completions.
+func (j *JobSet) syncParallelCount(info *runtime.Info) error {
 	if info == nil {
 		return nil
 	}

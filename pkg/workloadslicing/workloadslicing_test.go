@@ -537,8 +537,9 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 		"newer admitted variant does not hide the replacement slice": {
 			excludeVariants: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                true,
 			},
 			workload: origin.Obj(),
 			workloads: []*kueue.Workload{
@@ -550,21 +551,32 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 			},
 			wantName: "replacement",
 		},
-		"ungater lookup preserves variant selection": {
+		"scheduling feature gate disabled preserves variant selection": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.ConcurrentAdmission:                true,
 			},
 			workload:  origin.Obj(),
 			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
 			wantName:  "variant",
 		},
-
+		"ungater lookup preserves variant selection with the scheduling gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                true,
+			},
+			workload:  origin.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			wantName:  "variant",
+		},
 		"concurrent admission disabled preserves variant selection": {
 			excludeVariants: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          false,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                false,
 			},
 			workload:  origin.Obj(),
 			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
@@ -942,6 +954,14 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		return nil
 	}
 
+	assertStatusConditionApply := func(t *testing.T, subResourceName string, applyConf runtime.ApplyConfiguration, wantWorkloadName string, activeConditionType, activeConditionReason string) error {
+		wl := &kueue.Workload{}
+		if err := utiltesting.DecodeApplyConfiguration(applyConf, wl); err != nil {
+			t.Fatalf("Failed decoding the apply configuration: %v", err)
+		}
+		return assertStatusConditionPatch(t, subResourceName, wl, wantWorkloadName, activeConditionType, activeConditionReason)
+	}
+
 	tests := map[string]struct {
 		args args
 		want want
@@ -1199,8 +1219,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
 						},
 					}).
 					Build(),
@@ -1234,7 +1254,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(_ context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							return errors.New("test-patch-failure")
 						},
 					}).
@@ -1315,7 +1335,9 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(now).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
@@ -1478,8 +1500,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
 						},
 					}).
 					Build(),

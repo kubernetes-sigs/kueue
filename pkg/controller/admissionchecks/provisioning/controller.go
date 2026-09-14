@@ -64,7 +64,9 @@ const (
 	objNameHashLength = 5
 	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
 	objNameMaxPrefixLength = 252 - objNameHashLength
-	podTemplatesPrefix     = "ppt"
+	// attempt is int32; reserve enough digits so prefix+attempt stays within 253.
+	provisioningRequestAttemptMaxDigits = 10
+	podTemplatesPrefix                  = "ppt"
 )
 
 var (
@@ -917,13 +919,18 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func limitObjectName(fullName string) string {
-	if len(fullName) <= objNameMaxPrefixLength {
+	return limitObjectNameWithReservedSuffix(fullName, 0)
+}
+
+func limitObjectNameWithReservedSuffix(fullName string, reservedSuffixLen int) string {
+	maxPrefixLen := objNameMaxPrefixLength - reservedSuffixLen
+	if len(fullName) <= maxPrefixLen {
 		return fullName
 	}
 	h := sha1.New()
 	h.Write([]byte(fullName))
 	hashBytes := hex.EncodeToString(h.Sum(nil))
-	return fmt.Sprintf("%s-%s", fullName[:objNameMaxPrefixLength], hashBytes[:objNameHashLength])
+	return fmt.Sprintf("%s-%s", fullName[:maxPrefixLen], hashBytes[:objNameHashLength])
 }
 
 type MergedPodSet struct {

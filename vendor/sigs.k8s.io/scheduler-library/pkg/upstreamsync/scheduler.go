@@ -15,7 +15,6 @@
 package upstreamsync
 
 import (
-	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -50,12 +49,24 @@ This component would be used in PG scheduling cycle, pod-by-pod scheduling cycle
 In PG scheduling cycle, the caller would additionally run the placement feasible extensions etc.
 In pod-by-pod scheduling cycle, the caller would additionally run post filter extensions.
 
-Extracted from kubernetes/kubernetes/pkg/upstreamsync/scheduler/schedule_one.go and schedule_one_podgroup.go
+Extracted from kubernetes/kubernetes/pkg/scheduler/schedule_one.go and schedule_one_podgroup.go
+
+The upstream doc comments are kept verbatim so that each copy can be diffed against its origin.
+Every intentional deviation is marked with the "UPSTREAM-DIFF:" prefix, either on the declaration
+or on the exact line that differs. See pkg/upstreamsync/doc.go and CONTRIBUTING.md.
 
 */
 
 type ScheduleResult = scheduler.ScheduleResult
 
+// Scheduler holds the state a single scheduling attempt needs.
+//
+// UPSTREAM-DIFF: replaces scheduler.Scheduler, keeping only the fields the scheduling algorithm
+// reads. The library has no scheduler cache (the snapshot is mutated directly), no scheduling
+// queue and no scheduler-level extenders (they are taken from the framework), so those fields are
+// absent. currentCycle, nextStartNodeIndex and numNodesToFind are supplied by the caller instead of
+// being owned and advanced by a long-running scheduler, because each simulation drives its own
+// sequence of scheduling cycles.
 type Scheduler struct {
 	nodeInfoSnapshot   *cache.Snapshot
 	currentCycle       int64
@@ -63,6 +74,13 @@ type Scheduler struct {
 	numNodesToFind     int32
 }
 
+// NewScheduler creates a Scheduler operating on the given snapshot.
+// numNodesToFind caps how many feasible nodes a scheduling attempt looks for; pass math.MaxInt32
+// to consider all of them.
+//
+// UPSTREAM-DIFF: upstream derives numNodesToFind per attempt from PercentageOfNodesToScore
+// (see Scheduler.numFeasibleNodesToFind), which is not copied here. Simulations need a
+// deterministic, caller-controlled bound instead of a sampling heuristic.
 func NewScheduler(nodeInfoSnapshot *cache.Snapshot,
 	currentCycle int64,
 	nextStartNodeIndex int,
@@ -75,12 +93,22 @@ func NewScheduler(nodeInfoSnapshot *cache.Snapshot,
 	}
 }
 
+// PendingPod is the pod being scheduled together with the state of its scheduling cycle.
+//
+// UPSTREAM-DIFF: replaces framework.QueuedPodInfo, which additionally carries queueing metadata
+// (attempt counters, timestamps, unschedulable plugins) that only a scheduling queue produces.
+// The CycleState is carried here instead of being passed as a separate argument, as upstream does.
 type PendingPod struct {
 	*framework.PodInfo
 	PodSignature fwk.PodSignature
 	CycleState   fwk.CycleState
 }
 
+// AlgorithmResult is the outcome of a single pod scheduling attempt.
+//
+// UPSTREAM-DIFF: replaces the unexported algorithmResult from schedule_one_podgroup.go. The
+// scheduling duration, the pod scheduling context and the permit status are dropped: the library
+// records no scheduling metrics and runs no Permit plugins (see SchedulePod).
 type AlgorithmResult struct {
 	ScheduleResult ScheduleResult
 	Pod            *v1.Pod
@@ -88,6 +116,19 @@ type AlgorithmResult struct {
 	CycleState     fwk.CycleState
 }
 
+// SchedulePod runs a scheduling algorithm for individual pod from a pod group.
+// It returns the algorithm result and, if successful or the preemption is required, the permit status together with the revert function.
+//
+// UPSTREAM-DIFF: adapted from Scheduler.podGroupPodSchedulingAlgorithm. Differences:
+//   - no pod group: the caller supplies the CycleState in the PendingPod instead of it being
+//     derived from the pod group cycle state, and there is no podSchedulingContext.
+//   - schedulePod is called directly rather than through schedulingAlgorithm, so no PostFilter
+//     plugins run and no nomination happens. Preemption is not an implicit part of a scheduling
+//     attempt in the library; it is requested explicitly via ClusterSnapshot.PreemptPods.
+//     The upstream errors are mapped to a Status here, which schedulingAlgorithm does upstream.
+//   - Permit plugins are not run, since nothing waits on them in an in-memory simulation.
+//   - no scheduling duration or nominatingInfo in the result, as the library records no
+//     scheduling metrics and has no scheduling queue to nominate to.
 func (sched *Scheduler) SchedulePod(ctx context.Context, schedFwk framework.Framework, podInfo *PendingPod) (AlgorithmResult, func()) {
 	pod := podInfo.Pod
 	state := podInfo.CycleState
@@ -133,6 +174,9 @@ func (sched *Scheduler) SchedulePod(ctx context.Context, schedFwk framework.Fram
 }
 
 // assumeAndReserve assumes and reserves the pod in scheduler's memory.
+//
+// UPSTREAM-DIFF: identical to Scheduler.assumeAndReserve, except that it takes and returns
+// *framework.PodInfo instead of *framework.QueuedPodInfo (see PendingPod).
 func (sched *Scheduler) assumeAndReserve(
 	ctx context.Context,
 	state fwk.CycleState,
@@ -184,6 +228,11 @@ func (sched *Scheduler) assumeAndReserve(
 // unreserveAndForget unreserves and forgets the pod from scheduler's memory.
 // This function shouldn't be called during binding cycle with a state, where IsPodGroupSchedulingCycle is set to true,
 // but this shouldn't happen, because such pods with such state cannot reach binding.
+//
+// UPSTREAM-DIFF: upstream branches on state.IsPodGroupSchedulingCycle() and forgets the pod either
+// from the snapshot or from the scheduler cache. The library always forgets from the snapshot,
+// because it has no scheduler cache to bind through. Restoring the pod's nomination is dropped
+// as well, since there is no scheduling queue holding nominated pods.
 func (sched *Scheduler) unreserveAndForget(
 	ctx context.Context,
 	state fwk.CycleState,
@@ -199,6 +248,10 @@ func (sched *Scheduler) unreserveAndForget(
 
 // assume signals to the cache that a pod is already in the cache, so that binding can be asynchronous.
 // When called during pod group scheduling cycle, pod is assumed in the snapshot instead.
+//
+// UPSTREAM-DIFF: the library always takes the pod group branch and assumes into the snapshot,
+// since nothing here ever binds a pod through the scheduler cache. Removing the pod from the
+// nominator is dropped, as there is no scheduling queue.
 func (sched *Scheduler) assume(logger klog.Logger, state fwk.CycleState, assumedPodInfo *framework.PodInfo, host string) error {
 	// Optimistically assume that the binding will succeed and send it to apiserver
 	// in the background.
@@ -227,6 +280,10 @@ func (sched *Scheduler) assume(logger klog.Logger, state fwk.CycleState, assumed
 // schedulePod tries to schedule the given pod to one of the nodes in the node list.
 // If it succeeds, it will return the name of the node.
 // If it fails, it will return a FitError with reasons.
+//
+// UPSTREAM-DIFF: the CycleState comes from podInfo instead of a separate argument, the extenders
+// come from the framework instead of sched.Extenders, and the current cycle is the currentCycle
+// field instead of Scheduler.CurrentCycle(). The body is otherwise unchanged.
 func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework, podInfo *PendingPod) (result ScheduleResult, err error) {
 	pod := podInfo.Pod
 	trace := utiltrace.New("Scheduling", utiltrace.Field{Key: "namespace", Value: pod.Namespace}, utiltrace.Field{Key: "name", Value: pod.Name})
@@ -268,8 +325,8 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 		return result, err
 	}
 
-	sortedPrioritizedNodes := newSortedNodeScores(priorityList)
-	node := sortedPrioritizedNodes.Pop()
+	sortedPrioritizedNodes := framework.NewSortedScoredNodes(priorityList)
+	node := sortedPrioritizedNodes.Pop().Name
 	trace.Step("Prioritizing done")
 
 	if utilfeature.DefaultFeatureGate.Enabled(features.OpportunisticBatching) {
@@ -283,12 +340,23 @@ func (sched *Scheduler) schedulePod(ctx context.Context, fwk framework.Framework
 	}, err
 }
 
+// FindAllNodesThatFitPod returns every node in the placement that fits the pod, together with the
+// diagnosis explaining why the remaining ones were rejected.
+//
+// UPSTREAM-DIFF: library-only. Upstream never needs the complete set of feasible nodes, as it
+// stops as soon as it has enough candidates to score. Feasibility checks (see
+// ClusterSnapshot.CanSchedulePod) do need it.
 func (sched *Scheduler) FindAllNodesThatFitPod(ctx context.Context, schedFramework framework.Framework, podInfo *PendingPod) ([]fwk.NodeInfo, framework.Diagnosis, string, error) {
 	return sched.findNodesThatFitPod(ctx, schedFramework, podInfo, true)
 }
 
 // Filters the nodes to find the ones that fit the pod based on the framework
 // filter plugins and filter extenders.
+//
+// UPSTREAM-DIFF: takes the additional findAll flag (see FindAllNodesThatFitPod). When it is set,
+// the nominated node shortcut is skipped, because returning early with the nominated node alone
+// would hide the other feasible nodes the caller asked for. The CycleState comes from podInfo and
+// the extenders come from the framework instead of sched.Extenders.
 func (sched *Scheduler) findNodesThatFitPod(ctx context.Context, schedFramework framework.Framework, podInfo *PendingPod, findAll bool) ([]fwk.NodeInfo, framework.Diagnosis, string, error) {
 	state := podInfo.CycleState
 	logger := klog.FromContext(ctx)
@@ -328,6 +396,7 @@ func (sched *Scheduler) findNodesThatFitPod(ctx context.Context, schedFramework 
 	// "NominatedNodeName" can potentially be set in a previous scheduling cycle as a result of preemption.
 	// This node is likely the only candidate that will fit the pod, and hence we try it first before iterating over all nodes.
 	// We take the same tack for hinted nodes from the batch module.
+	// UPSTREAM-DIFF: guarded with !findAll, as the shortcut would hide the other feasible nodes.
 	if !findAll && (len(pod.Status.NominatedNodeName) > 0 || len(nodeHint) > 0) {
 		feasibleNodes, err := sched.evaluateNominatedNode(ctx, pod, schedFramework, state, nodeHint, diagnosis)
 		if err != nil {
@@ -382,6 +451,11 @@ func (sched *Scheduler) findNodesThatFitPod(ctx context.Context, schedFramework 
 	return feasibleNodesAfterExtender, diagnosis, nodeHint, nil
 }
 
+// evaluateNominatedNode checks whether the pod fits the node it was nominated to (or hinted at).
+//
+// UPSTREAM-DIFF: identical to Scheduler.evaluateNominatedNode, except that the extenders come from
+// the framework and findNodesThatPassFilters is called with findAll=false, which does not matter
+// as there is only one node to check anyway.
 func (sched *Scheduler) evaluateNominatedNode(ctx context.Context, pod *v1.Pod, schedFramework framework.Framework, state fwk.CycleState, nodeHint string, diagnosis framework.Diagnosis) ([]fwk.NodeInfo, error) {
 	// In the future we could potentially use the hint if the nominated node failed.
 	// https://github.com/kubernetes/kubernetes/issues/135163
@@ -416,6 +490,9 @@ func (sched *Scheduler) evaluateNominatedNode(ctx context.Context, pod *v1.Pod, 
 }
 
 // hasScoring checks if scoring nodes is configured.
+//
+// UPSTREAM-DIFF: a plain function taking the framework, instead of a Scheduler method, because the
+// extenders are read from the framework rather than from sched.Extenders.
 func hasScoring(fwk framework.Framework) bool {
 	if fwk.HasScorePlugins() {
 		return true
@@ -429,6 +506,9 @@ func hasScoring(fwk framework.Framework) bool {
 }
 
 // hasExtenderFilters checks if any extenders filter nodes.
+//
+// UPSTREAM-DIFF: a plain function taking the framework, instead of a Scheduler method, because the
+// extenders are read from the framework rather than from sched.Extenders.
 func hasExtenderFilters(fwk framework.Framework) bool {
 	for _, extender := range fwk.Extenders() {
 		if extender.IsFilter() {
@@ -439,6 +519,11 @@ func hasExtenderFilters(fwk framework.Framework) bool {
 }
 
 // findNodesThatPassFilters finds the nodes that fit the filter plugins.
+//
+// UPSTREAM-DIFF: takes the additional findAll flag, which makes it evaluate every node instead of
+// stopping early. Upstream computes the bound from PercentageOfNodesToScore via
+// Scheduler.numFeasibleNodesToFind; the library uses the caller-provided sched.numNodesToFind
+// (see NewScheduler). The body below is otherwise unchanged.
 func (sched *Scheduler) findNodesThatPassFilters(
 	ctx context.Context,
 	schedFramework framework.Framework,
@@ -448,6 +533,9 @@ func (sched *Scheduler) findNodesThatPassFilters(
 	nodes []fwk.NodeInfo,
 	findAll bool) ([]fwk.NodeInfo, error) {
 	numAllNodes := len(nodes)
+	// UPSTREAM-DIFF: upstream always samples via sched.numFeasibleNodesToFind(
+	// schedFramework.PercentageOfNodesToScore(), int32(numAllNodes)). Here the bound is either all
+	// the nodes (findAll) or the one the caller passed to NewScheduler.
 	numNodesToFind := int32(numAllNodes)
 	if !findAll {
 		numNodesToFind = sched.numNodesToFind
@@ -528,6 +616,9 @@ func (sched *Scheduler) findNodesThatPassFilters(
 	return feasibleNodes, nil
 }
 
+// findNodesThatPassExtenders runs the filter extenders over the nodes that passed the filter plugins.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
 func findNodesThatPassExtenders(ctx context.Context, extenders []fwk.Extender, pod *v1.Pod, feasibleNodes []fwk.NodeInfo, statuses *framework.NodeToStatus) ([]fwk.NodeInfo, error) {
 	logger := klog.FromContext(ctx)
 
@@ -579,6 +670,8 @@ func findNodesThatPassExtenders(ctx context.Context, extenders []fwk.Extender, p
 // The scores from each plugin are added together to make the score for that node, then
 // any extenders are run as well.
 // All scores are finally combined (added) to get the total weighted scores of all nodes
+//
+// UPSTREAM-DIFF: none, copied verbatim.
 func prioritizeNodes(
 	ctx context.Context,
 	extenders []fwk.Extender,
@@ -657,6 +750,7 @@ func prioritizeNodes(
 
 					// MaxExtenderPriority may diverge from the max priority used in the scheduler and defined by MaxNodeScore,
 					// therefore we need to scale the score returned by extenders to the score range used by the scheduler.
+					// UPSTREAM-DIFF: uses fwk.MaxScore, while upstream still uses the deprecated fwk.MaxNodeScore alias.
 					finalscore := score * weight * (fwk.MaxScore / extenderv1.MaxExtenderPriority)
 
 					if allNodeExtendersScores[nodename] == nil {
@@ -690,48 +784,4 @@ func prioritizeNodes(
 		}
 	}
 	return nodesScores, nil
-}
-
-type sortedNodeScores struct {
-	nodes nodeScoreHeap
-}
-
-func newSortedNodeScores(nodeScoreList []fwk.NodePluginScores) *sortedNodeScores {
-	var h nodeScoreHeap = nodeScoreList
-	heap.Init(&h)
-	return &sortedNodeScores{nodes: h}
-}
-
-func (s *sortedNodeScores) Pop() string {
-	ent := heap.Pop(&s.nodes).(fwk.NodePluginScores)
-	return ent.Name
-}
-
-func (s *sortedNodeScores) Len() int {
-	return s.nodes.Len()
-}
-
-// nodeScoreHeap is a heap of fwk.NodePluginScores.
-type nodeScoreHeap []fwk.NodePluginScores
-
-// nodeScoreHeap implements heap.Interface.
-var _ heap.Interface = &nodeScoreHeap{}
-
-func (h nodeScoreHeap) Len() int { return len(h) }
-func (h nodeScoreHeap) Less(i, j int) bool {
-	return (h[i].TotalScore > h[j].TotalScore ||
-		(h[i].TotalScore == h[j].TotalScore && h[i].Randomizer > h[j].Randomizer))
-}
-func (h nodeScoreHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-
-func (h *nodeScoreHeap) Push(x interface{}) {
-	*h = append(*h, x.(fwk.NodePluginScores))
-}
-
-func (h *nodeScoreHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[0 : n-1]
-	return x
 }

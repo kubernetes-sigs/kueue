@@ -81,8 +81,8 @@ func ExecuteCommandInRayClusterHead(
 			headPod.Spec.Containers[0].Name,
 			command,
 		)
-		g.Expect(err).NotTo(gomega.HaveOccurred(), string(stderr))
-	}, Timeout, Interval).Should(gomega.Succeed())
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 // GetRayClusterWorkerPods returns the worker Pods associated with the RayCluster
