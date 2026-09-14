@@ -367,7 +367,7 @@ spec:
       trigger: "InsufficientTopology"
       candidateSelectors:
         - priorityComparison: "LowerOrEqual"
-          relationRequirement: "AnyClusterQueue"
+          scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
               comparison: "Lower"
@@ -396,12 +396,12 @@ spec:
       trigger: "InsufficientTopology"
       candidateSelectors:
         - priorityComparison: "Lower"
-          relationRequirement: "AnyClusterQueue"
+          scope: "AnyClusterQueue"
     - name: hero-reclaim-quota
       trigger: "InsufficientQuota"
       candidateSelectors:
         - priorityComparison: "Lower"
-          relationRequirement: "AnyClusterQueue"
+          scope: "AnyClusterQueue"
 ```
 
 And then to make sure that the hero job is never preempted, one may:
@@ -425,7 +425,7 @@ Requested functionalities from the community can be satisfied with the following
        - name: preempt-small-resource-workloads
          trigger: "InsufficientQuota"
          candidateSelectors:
-           - relationRequirement: "SameClusterQueue"
+           - scope: "SameClusterQueue"
              priorityComparison: "Lower"
              numericLabels:
                - key: "requested-gpus"
@@ -441,7 +441,7 @@ Requested functionalities from the community can be satisfied with the following
        - name: preempt-same-topology-level-workloads
          trigger: "InsufficientTopology"
          candidateSelectors:
-           - relationRequirement: "SameParentCohort"
+           - scope: "SameParentCohort"
              priorityComparison: "LowerOrEqual"
              workloadSelector:
                matchLabels:
@@ -457,7 +457,7 @@ Requested functionalities from the community can be satisfied with the following
        - name: preempt-same-cq-low-priority
          trigger: "InsufficientQuota"
          candidateSelectors:
-           - relationRequirement: "SameClusterQueue"
+           - scope: "SameClusterQueue"
              candidateWorkloadPrioritySelector:
                matchLabels:
                  kueue.x-k8s.io/priority-class: "batch-low"
@@ -472,7 +472,7 @@ Requested functionalities from the community can be satisfied with the following
        - name: reclaim-cohort-quota-from-low-priority
          trigger: "QuotaReclaimRequired"
          candidateSelectors:
-           - relationRequirement: "SameParentCohort"
+           - scope: "SameParentCohort"
              quota: "BorrowingCapacityFromPreemptor"
              candidateWorkloadPrioritySelector:
                matchLabels:
@@ -488,7 +488,7 @@ Requested functionalities from the community can be satisfied with the following
        - name: preempt-only-after-min-exec-time
          trigger: "InsufficientQuota"
          candidateSelectors:
-           - relationRequirement: "SameClusterQueue"
+           - scope: "SameClusterQueue"
              priorityComparison: "Lower"
              minExecutionDuration: "15m"
    ```
@@ -501,7 +501,7 @@ Requested functionalities from the community can be satisfied with the following
        - name: preempt-recent-workloads-only
          trigger: "InsufficientQuota"
          candidateSelectors:
-           - relationRequirement: "SameClusterQueue"
+           - scope: "SameClusterQueue"
              priorityComparison: "Lower"
              maxTimeFromCreationDuration: "1h"
    ```
@@ -693,10 +693,10 @@ const (
 
 // PreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
 type PreemptionCandidateSelector struct {
-  // RelationRequirement specifies the queue or cohort relation boundary to the preemptor workload.
+  // Scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
   //
   // +kubebuilder:validation:Required
-  RelationRequirement PreemptionQueueScope `json:"relationRequirement"`
+  Scope PreemptionQueueScope `json:"scope"`
 
   // NumericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
   // Multiple numeric labels are joined using AND-rule (all have to be satisfied).
@@ -1070,7 +1070,7 @@ Implementation of the following candidate selector fields and constraints to hav
 
 - `NumericLabels` (`NumericLabelConstraint`)
 - `PriorityComparison` (`NumericComparison`)
-- `RelationRequirement` (`PreemptionQueueScope`)
+- `Scope` (`PreemptionQueueScope`)
 
 Expose the implementation under feature gate "ConfigurablePreemptions", integration should not change in any way the existing preemption logic.
 
@@ -1302,7 +1302,7 @@ spec:
       trigger: "InsufficientTopology"
       candidateSelectors:
         - priorityComparison: "LowerOrEqual"
-          relationRequirement: "AnyClusterQueue"
+          scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
               comparison: "Lower"
@@ -1321,12 +1321,12 @@ spec:
       trigger: "InsufficientTopology"
       candidateSelectors:
         - priorityComparison: "Lower"
-          relationRequirement: "AnyClusterQueue"
+          scope: "AnyClusterQueue"
     - name: hero-reclaim-quota
       trigger: "InsufficientQuota"
       candidateSelectors:
         - priorityComparison: "Lower"
-          relationRequirement: "AnyClusterQueue"
+          scope: "AnyClusterQueue"
   ordering:
     - orderingField: "Priority"
       direction: "Ascending"
@@ -1538,7 +1538,7 @@ spec:
     - name: preempt-only-after-min-exec-time
       trigger: "InsufficientQuota"
       candidateSelectors:
-        - relationRequirement: "SameClusterQueue"
+        - scope: "SameClusterQueue"
           priorityComparison: "Lower"
           minExecutionDuration: "15m"
 ```
@@ -1551,7 +1551,7 @@ spec:
     - name: preempt-recent-workloads-only
       trigger: "InsufficientQuota"
       candidateSelectors:
-        - relationRequirement: "SameClusterQueue"
+        - scope: "SameClusterQueue"
           priorityComparison: "Lower"
           maxTimeFromCreationDuration: "1h"
 ```
@@ -1593,7 +1593,7 @@ spec:
     - name: preempt-same-cq-low-priority
       trigger: "InsufficientQuota"
       candidateSelectors:
-        - relationRequirement: "SameClusterQueue"
+        - scope: "SameClusterQueue"
           candidateWorkloadPrioritySelector:
             matchLabels:
               kueue.x-k8s.io/priority-class: "batch-low"
@@ -1607,7 +1607,7 @@ spec:
     - name: reclaim-cohort-quota-from-low-priority
       trigger: "QuotaReclaimRequired"
       candidateSelectors:
-        - relationRequirement: "SameParentCohort"
+        - scope: "SameParentCohort"
           quota: "BorrowingCapacityFromPreemptor"
           candidateWorkloadPrioritySelector:
             matchLabels:
@@ -1647,7 +1647,7 @@ type PreemptionCandidateSelector struct {
   // ... baseline candidate selector fields ...
 
   // Quota specifies quota-based preemption constraints (e.g., borrowing capacity or fair sharing share).
-  // Cannot be set if RelationRequirement is SameLocalQueue or SameClusterQueue.
+  // Cannot be set if Scope is SameLocalQueue or SameClusterQueue.
   // Accepts all if not set.
   //
   // +optional
@@ -1836,7 +1836,7 @@ spec:
       minTriggerRequiredDuration: "30s"
       candidateSelectors:
         - priorityComparison: "LowerOrEqual"
-          relationRequirement: "AnyClusterQueue"
+          scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
               comparison: "Lower"
