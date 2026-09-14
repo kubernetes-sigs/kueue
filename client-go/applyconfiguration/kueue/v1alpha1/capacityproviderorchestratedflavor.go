@@ -29,6 +29,7 @@ import (
 // The container allows the mapping to be extended in a future API version.
 type CapacityProviderOrchestratedFlavorApplyConfiguration struct {
 	// name identifies the ResourceFlavor managed by this provider.
+	//
 	Name *kueuev1alpha1.ResourceFlavorReference `json:"name,omitempty"`
 }
 

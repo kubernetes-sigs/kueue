@@ -36,6 +36,7 @@ type WorkloadStatusApplyConfiguration struct {
 	// - Finished: the associated workload finished running (failed or succeeded).
 	// - PodsReady: at least `.spec.podSets[*].count` Pods are ready or have
 	// succeeded.
+	//
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// admission holds the parameters of the admission of the workload by a
 	// ClusterQueue. admission can be set back to null, but its fields cannot be
@@ -43,6 +44,7 @@ type WorkloadStatusApplyConfiguration struct {
 	Admission *AdmissionApplyConfiguration `json:"admission,omitempty"`
 	// requeueState holds the re-queue state
 	// when a workload meets Eviction with PodsReadyTimeout reason.
+	//
 	RequeueState *RequeueStateApplyConfiguration `json:"requeueState,omitempty"`
 	// reclaimablePods keeps track of the number pods within a podset for which
 	// the resource reservation is no longer needed.
@@ -53,16 +55,20 @@ type WorkloadStatusApplyConfiguration struct {
 	// requested by a non-admitted workload when it was considered for admission.
 	// If admission is non-null, resourceRequests will be empty because
 	// admission.resourceUsage contains the detailed information.
+	//
 	ResourceRequests []PodSetRequestApplyConfiguration `json:"resourceRequests,omitempty"`
 	// accumulatedPastExexcutionTimeSeconds holds the total time, in seconds, the workload spent
 	// in Admitted state, in the previous `Admit` - `Evict` cycles.
+	//
 	AccumulatedPastExexcutionTimeSeconds *int32 `json:"accumulatedPastExexcutionTimeSeconds,omitempty"`
 	// schedulingStats tracks scheduling statistics
+	//
 	SchedulingStats *SchedulingStatsApplyConfiguration `json:"schedulingStats,omitempty"`
 	// nominatedClusterNames specifies the list of cluster names that have been nominated for scheduling.
 	// This field is mutually exclusive with the `.status.clusterName` field, and is reset when
 	// `status.clusterName` is set.
 	// This field is optional.
+	//
 	NominatedClusterNames []string `json:"nominatedClusterNames,omitempty"`
 	// clusterName is the name of the cluster where the workload is currently assigned.
 	//
@@ -76,6 +82,7 @@ type WorkloadStatusApplyConfiguration struct {
 	// when Topology-Aware Scheduling is used. This field should not be set by the users.
 	// It indicates Kueue's scheduler is searching for replacements of the failed nodes.
 	// Requires enabling the TASFailedNodeReplacement feature gate.
+	//
 	UnhealthyNodes []UnhealthyNodeApplyConfiguration `json:"unhealthyNodes,omitempty"`
 }
 

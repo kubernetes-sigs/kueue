@@ -29,6 +29,7 @@ type TopologyLevelApplyConfiguration struct {
 	// Examples:
 	// - cloud.provider.com/topology-block
 	// - cloud.provider.com/topology-rack
+	//
 	NodeLabel *string `json:"nodeLabel,omitempty"`
 }
 
