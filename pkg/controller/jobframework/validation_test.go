@@ -26,11 +26,13 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -401,6 +403,17 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name-new").Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"Changing the waitForPodsReady annotation on an unsuspended Job is rejected at admission time": {
+			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").Suspend(false).Obj(),
+			newJob:       utiltestingjob.MakeJob("test-job", "ns1").Suspend(false).SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 10}`).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/wait-for-pods-ready]",
+				},
+			},
+		},
 	}
 
 	for tcName, tc := range testCases {
@@ -574,6 +587,94 @@ func TestValidateJobOnCreate(t *testing.T) {
 
 			gotErr := jobframework.ValidateJobOnCreate(mj, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
+	maxTimeout := &metav1.Duration{Duration: configapi.DefaultMaxTimeoutOnWorkload}
+	annotationPath := field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation)
+
+	testCases := map[string]struct {
+		annotation string
+		wantErr    field.ErrorList
+	}{
+		"valid timeout only": {
+			annotation: `{"timeoutSeconds": 10}`,
+		},
+		"valid timeout and recoveryTimeout": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 20}`,
+		},
+		"only recoveryTimeout without timeout is rejected": {
+			annotation: `{"recoveryTimeoutSeconds": 20}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be greater than 0",
+				},
+			},
+		},
+		"zero timeout is rejected": {
+			annotation: `{"timeoutSeconds": 0}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be greater than 0",
+				},
+			},
+		},
+		"timeout exceeding MaxTimeoutOnWorkload is rejected": {
+			annotation: `{"timeoutSeconds": 7201}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"recoveryTimeout exceeding MaxTimeoutOnWorkload is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 7201}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"timeoutSeconds set to string is rejected at admission time": {
+			annotation: `{"timeoutSeconds": "foo"}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "must be a valid JSON object: json: cannot unmarshal string into Go struct field .timeoutSeconds of type int64",
+				},
+			},
+		},
+	}
+
+	for tcName, tc := range testCases {
+		t.Run(tcName, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			})
+			job := utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, tc.annotation).
+				Obj()
+
+			mockctrl := gomock.NewController(t)
+			mj := mocks.NewMockGenericJob(mockctrl)
+			mj.EXPECT().Object().Return(job).AnyTimes()
+			mj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+
+			gotErr := jobframework.ValidateJobOnCreate(mj, maxTimeout)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
