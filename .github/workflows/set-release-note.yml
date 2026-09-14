@@ -22,12 +22,33 @@ jobs:
     permissions:
       contents: read
     outputs:
-      error_message: ${{ steps.auth.outputs.error_message }}
+      error_message: ${{ steps.auth.outputs.error_message || steps.validate-actions.outputs.error_message }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Validate Automation Actions
+        id: validate-actions
+        run: |
+          REQUIRED_ITEMS=(
+            ".github/actions/authorize-release-actor/action.yml"
+            "hack/releasing/authorize_release_actor.py"
+            "hack/releasing/requirements.txt"
+            "hack/releasing/set_release_note.py"
+            "hack/releasing/set_release_note_test.py"
+          )
+          MISSING=()
+          for item in "${REQUIRED_ITEMS[@]}"; do
+            if [ ! -f "$item" ]; then
+              MISSING+=("$item")
+            fi
+          done
+          if [ ${#MISSING[@]} -ne 0 ]; then
+            echo "error_message=❌ Missing required automation actions/scripts after checkout: ${MISSING[*]}" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
       - name: Verify actor authorization
         id: auth
