@@ -34,7 +34,7 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 	cfg := &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
-				SchedulerName: "default-scheduler",
+				SchedulerName: corev1.DefaultSchedulerName,
 				// List of plugins available in the Kubernetes scheduler by default:
 				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
@@ -134,6 +134,8 @@ func (c *wasChecker) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
+	// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
+	dummyPod.Spec.SchedulerName = corev1.DefaultSchedulerName
 	placement, err := c.snap.MakePlacement(candidateNodeNames)
 	if err != nil {
 		return nil, err
