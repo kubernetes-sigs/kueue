@@ -416,6 +416,76 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			},
 			wantFeasible: []string{"gpu-node"},
 		},
+		// A pre-provisioned claim that is already allocated needs no second device:
+		// buildAllocatedState already counts the one it holds.
+		"an already allocated named claim is not allocated again": {
+			objects: []runtime.Object{
+				gpuSlice, gpuDeviceClass,
+				&resourceapi.ResourceClaim{
+					ObjectMeta: metav1.ObjectMeta{Name: "held-claim", Namespace: "default"},
+					Status: resourceapi.ResourceClaimStatus{
+						Allocation: &resourceapi.AllocationResult{
+							Devices: resourceapi.DeviceAllocationResult{
+								Results: []resourceapi.DeviceRequestAllocationResult{
+									{Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-0"},
+									{Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-1"},
+								},
+							},
+						},
+					},
+				},
+			},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimName: new("held-claim")}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantFeasible: []string{"gpu-node"},
+		},
+		// The allocation says where it lives, so the Pod cannot go elsewhere.
+		"a node outside the allocation's node selector is excluded": {
+			objects: []runtime.Object{
+				gpuSlice, gpuDeviceClass,
+				&resourceapi.ResourceClaim{
+					ObjectMeta: metav1.ObjectMeta{Name: "pinned-claim", Namespace: "default"},
+					Status: resourceapi.ResourceClaimStatus{
+						Allocation: &resourceapi.AllocationResult{
+							Devices: resourceapi.DeviceAllocationResult{
+								Results: []resourceapi.DeviceRequestAllocationResult{
+									{Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-0"},
+								},
+							},
+							NodeSelector: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+									MatchExpressions: []corev1.NodeSelectorRequirement{{
+										Key:      corev1.LabelHostname,
+										Operator: corev1.NodeSelectorOpIn,
+										Values:   []string{"somewhere-else"},
+									}},
+								}},
+							},
+						},
+					},
+				},
+			},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimName: new("pinned-claim")}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantFeasible: nil,
+			wantDRANoFit: 1,
+		},
 		"DRA pod with all devices allocated filters out all nodes": {
 			objects: []runtime.Object{
 				gpuSlice, gpuDeviceClass, gpuClaimTemplate,

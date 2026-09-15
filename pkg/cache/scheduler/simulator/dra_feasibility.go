@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
 	"k8s.io/dynamic-resource-allocation/structured"
 	"k8s.io/kubernetes/pkg/features"
@@ -104,11 +105,11 @@ func (c *DRAChecker) FindFeasibleNodes(
 
 	// The claims belong to the Workload rather than the cluster, so unlike the
 	// allocator they are resolved on every call. They are read by name, not listed.
-	claims, err := buildSyntheticClaims(ctx, c.cl, requirements.PodTemplate.Namespace, requirements.PodTemplate)
+	claims, allocatedOn, err := buildSyntheticClaims(ctx, c.cl, requirements.PodTemplate.Namespace, requirements.PodTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("building synthetic DRA claims: %w", err)
 	}
-	if len(claims) == 0 {
+	if len(claims) == 0 && len(allocatedOn) == 0 {
 		return feasible, nil
 	}
 
@@ -117,7 +118,7 @@ func (c *DRAChecker) FindFeasibleNodes(
 		return nil, err
 	}
 
-	return c.filterByDevices(ctx, feasible, allocator, claims, stats)
+	return c.filterByDevices(ctx, feasible, allocator, claims, allocatedOn, stats)
 }
 
 func (c *DRAChecker) buildAllocator(ctx context.Context) (structured.Allocator, error) {
@@ -152,6 +153,7 @@ func (c *DRAChecker) filterByDevices(
 	feasible []MatchedCandidate,
 	allocator structured.Allocator,
 	claims []*resourceapi.ResourceClaim,
+	allocatedOn []*nodeaffinity.NodeSelector,
 	stats *NodeExclusionStats,
 ) ([]MatchedCandidate, error) {
 	logger := log.FromContext(ctx)
@@ -162,6 +164,17 @@ func (c *DRAChecker) filterByDevices(
 			// A candidate always carries its node, so this is a programming error
 			// rather than a placement outcome. Guessing would admit an unchecked node.
 			return nil, errors.New("candidate has no node, cannot evaluate DRA claims")
+		}
+
+		// A claim that is already allocated is not requested again, but the Pod can
+		// still only run where that allocation is available.
+		if !nodeMatchesAll(node, allocatedOn) {
+			stats.DRANoFit++
+			continue
+		}
+		if len(claims) == 0 {
+			draFeasible = append(draFeasible, candidate)
+			continue
 		}
 
 		results, err := allocator.Allocate(ctx, node, claims)
@@ -187,6 +200,16 @@ func (c *DRAChecker) filterByDevices(
 	return draFeasible, nil
 }
 
+// nodeMatchesAll reports whether the node satisfies every selector.
+func nodeMatchesAll(node *corev1.Node, selectors []*nodeaffinity.NodeSelector) bool {
+	for _, selector := range selectors {
+		if !selector.Match(node) {
+			return false
+		}
+	}
+	return true
+}
+
 // draFeatures reads the Kubernetes DRA gates, not the Kueue ones: these decide which
 // devices the allocator picks, and Kueue must pick what kube-scheduler would.
 func draFeatures() structured.Features {
@@ -205,12 +228,20 @@ func hasDRAClaims(podTemplate *corev1.PodTemplateSpec) bool {
 	return len(podTemplate.Spec.ResourceClaims) > 0
 }
 
-func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace string, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, error) {
+func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace string, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, []*nodeaffinity.NodeSelector, error) {
 	var claims []*resourceapi.ResourceClaim
+	var allocatedOn []*nodeaffinity.NodeSelector
 	for _, prc := range podTemplate.Spec.ResourceClaims {
-		spec, err := resolveClaimSpec(ctx, cl, namespace, prc)
+		spec, nodeSelector, err := resolveClaimSpec(ctx, cl, namespace, prc)
 		if err != nil {
-			return nil, fmt.Errorf("resolving claim %q: %w", prc.Name, err)
+			return nil, nil, fmt.Errorf("resolving claim %q: %w", prc.Name, err)
+		}
+		if nodeSelector != nil {
+			compiled, err := nodeaffinity.NewNodeSelector(nodeSelector)
+			if err != nil {
+				return nil, nil, fmt.Errorf("compiling the node selector of claim %q: %w", prc.Name, err)
+			}
+			allocatedOn = append(allocatedOn, compiled)
 		}
 		if spec == nil {
 			continue
@@ -223,27 +254,32 @@ func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace strin
 			Spec: *spec,
 		})
 	}
-	return claims, nil
+	return claims, allocatedOn, nil
 }
 
-// resolveClaimSpec returns a nil spec and no error when the PodResourceClaim names
-// neither a claim nor a template. The API allows that, so the caller skips it.
-func resolveClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourceapi.ResourceClaimSpec, error) {
+// resolveClaimSpec returns the spec to allocate for a PodResourceClaim. A claim that is
+// already allocated needs no allocation, only the node selector saying where it lives.
+func resolveClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourceapi.ResourceClaimSpec, *corev1.NodeSelector, error) {
 	switch {
 	case prc.ResourceClaimTemplateName != nil:
 		var tmpl resourceapi.ResourceClaimTemplate
 		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *prc.ResourceClaimTemplateName}, &tmpl); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return &tmpl.Spec.Spec, nil
+		return &tmpl.Spec.Spec, nil, nil
 	case prc.ResourceClaimName != nil:
 		var claim resourceapi.ResourceClaim
 		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *prc.ResourceClaimName}, &claim); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return &claim.Spec, nil
+		if claim.Status.Allocation != nil {
+			// Already satisfied. Asking for it again would consume a second device
+			// while buildAllocatedState still counts the first as taken.
+			return nil, claim.Status.Allocation.NodeSelector, nil
+		}
+		return &claim.Spec, nil, nil
 	default:
-		return nil, nil
+		return nil, nil, nil
 	}
 }
 

@@ -2489,6 +2489,33 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		// The check only runs when TAS builds a simulator snapshot and every leaf is a
+		// node, so the gate is not useful without them.
+		"KueueDRADeviceFeasibility requires the gates that make the per-node check run": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRADeviceFeasibility):                   true,
+				string(features.SchedulerLibraryIntegration):                 false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRADeviceFeasibility is enabled, but depends on features that are disabled: [SchedulerLibraryIntegration TASNodeFeasibilityForAllLevels TopologyAwareScheduling]",
+				},
+			},
+		},
 		"TASNodeFeasibilityForAllLevels requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
