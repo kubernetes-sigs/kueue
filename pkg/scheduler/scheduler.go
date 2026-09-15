@@ -1185,6 +1185,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(log, newWorkload, e.Obj, admission, consideredStr)
+			if e.assignment.ZeroCountFlavorFallback != "" && !workload.HasQuotaReservation(e.Obj) {
+				s.recorder.Eventf(newWorkload, nil, corev1.EventTypeWarning, "ZeroCountFlavorFallback", "ZeroCountFlavorFallback", api.TruncateEventMessage(e.assignment.ZeroCountFlavorFallback))
+			}
 
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
