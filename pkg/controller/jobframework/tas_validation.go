@@ -125,10 +125,18 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 
 func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	if val, ok := replicaMetadata.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]; ok {
-		if _, err := strconv.ParseBool(val); err != nil {
+		unconstrained, err := strconv.ParseBool(val)
+		if err != nil {
 			return field.ErrorList{
 				field.Invalid(
 					annotationsPath.Key(kueue.PodSetUnconstrainedTopologyAnnotation), val, "must be a boolean value",
+				),
+			}
+		}
+		if !unconstrained {
+			return field.ErrorList{
+				field.Invalid(
+					annotationsPath.Key(kueue.PodSetUnconstrainedTopologyAnnotation), val, "must be true",
 				),
 			}
 		}

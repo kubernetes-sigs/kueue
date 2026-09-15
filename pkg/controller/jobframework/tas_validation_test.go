@@ -91,6 +91,12 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			},
 			wantErrNum: 1, // size < 1
 		},
+		"invalid: unconstrained topology is false": {
+			annotations: map[string]string{
+				kueue.PodSetUnconstrainedTopologyAnnotation: "false",
+			},
+			wantErrNum: 1,
+		},
 		"invalid: size does not divide parent": {
 			featureGates: map[featuregate.Feature]bool{features.TASMultiLayerTopology: true},
 			annotations: map[string]string{
