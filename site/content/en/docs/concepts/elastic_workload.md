@@ -67,7 +67,7 @@ metadata:
 ```
 
 An optional `kueue.x-k8s.io/elastic-job-scale-up-strategy` annotation selects how scale-up is admitted: `"atomic"` (default when unset) or `"partial"`.
-The admission webhook rejects the annotation unless `kueue.x-k8s.io/elastic-job` is `"true"`, the `ElasticJobsViaWorkloadSlices` feature gate is enabled, and the value is exactly `"atomic"` or `"partial"`.
+The admission webhook validates this annotation only when the `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` feature gate is enabled. When that gate is off, the annotation is allowed and ignored. When the gate is on, the webhook rejects the annotation unless `kueue.x-k8s.io/elastic-job` is `"true"`, the `ElasticJobsViaWorkloadSlices` feature gate is enabled, and the value is exactly `"atomic"` or `"partial"`.
 
 ## Limitations
 

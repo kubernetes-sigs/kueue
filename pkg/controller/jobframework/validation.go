@@ -148,24 +148,25 @@ func ValidateElasticJobAnnotation(obj client.Object, gvk schema.GroupVersionKind
 	return allErrs
 }
 
-// validateElasticJobScaleUpStrategyAnnotation rejects kueue.x-k8s.io/elastic-job-scale-up-strategy
-// unless ElasticJobsViaWorkloadSlices is enabled, the job is opted into elastic-job, and the
-// value is "atomic" or "partial". "partial" also requires
-// ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp. Missing annotation is valid (defaults
-// to atomic).
+// validateElasticJobScaleUpStrategyAnnotation validates kueue.x-k8s.io/elastic-job-scale-up-strategy
+// only when ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp is enabled. When that gate is
+// off, the annotation is allowed and ignored (any value; elastic-job is not required;
+// ElasticJobsViaWorkloadSlices may be off). When the gate is on, ElasticJobsViaWorkloadSlices
+// must be enabled, the job must be opted into elastic-job, and the value must be "atomic" or
+// "partial". Missing annotation is valid (defaults to atomic).
 func validateElasticJobScaleUpStrategyAnnotation(obj client.Object) field.ErrorList {
 	annotations := obj.GetAnnotations()
 	strategy, found := annotations[kueueconstants.ElasticJobScaleUpStrategyAnnotationKey]
 	if !found {
 		return nil
 	}
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) {
+		return nil
+	}
 
 	var allErrs field.ErrorList
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlices feature gate"))
-	} else if strategy == kueueconstants.ElasticJobScaleUpStrategyPartial &&
-		!features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) {
-		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp feature gate"))
 	}
 	if annotations[workloadslicing.EnabledAnnotationKey] != workloadslicing.EnabledAnnotationValue {
 		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath,

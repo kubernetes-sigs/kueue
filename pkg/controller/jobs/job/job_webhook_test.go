@@ -640,14 +640,12 @@ func TestValidateCreate(t *testing.T) {
 			},
 		},
 		{
-			name: "elastic job scale-up strategy partial is rejected when partial replica scale-up gate is disabled",
+			name: "elastic job scale-up strategy is ignored when partial replica scale-up gate is disabled",
 			job: testingutil.MakeJob("job", "default").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
 				Obj(),
-			wantValidationErrs: field.ErrorList{
-				field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp feature gate"),
-			},
+			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
@@ -668,14 +666,12 @@ func TestValidateCreate(t *testing.T) {
 			},
 		},
 		{
-			name: "elastic job scale-up strategy with feature gate disabled is rejected",
+			name: "elastic job scale-up strategy is ignored when ElasticJobsViaWorkloadSlices is disabled",
 			job: testingutil.MakeJob("job", "default").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
 				Obj(),
-			wantValidationErrs: field.ErrorList{
-				field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlices feature gate"),
-			},
+			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: false,
 			},
@@ -693,7 +689,20 @@ func TestValidateCreate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+		},
+		{
+			name: "elastic job scale-up strategy with invalid value is ignored when partial replica scale-up gate is disabled",
+			job: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, "Partial").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
 	}
@@ -1150,7 +1159,7 @@ func TestValidateUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "update adding scale-up strategy partial is rejected when partial replica scale-up gate is disabled",
+			name: "update adding scale-up strategy is ignored when partial replica scale-up gate is disabled",
 			oldJob: testingutil.MakeJob("job", "default").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -1158,9 +1167,7 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
 				Obj(),
-			wantValidationErrs: field.ErrorList{
-				field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp feature gate"),
-			},
+			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
@@ -1183,7 +1190,7 @@ func TestValidateUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "update adding scale-up strategy with feature gate disabled is rejected",
+			name: "update adding scale-up strategy is ignored when ElasticJobsViaWorkloadSlices is disabled",
 			oldJob: testingutil.MakeJob("job", "default").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
@@ -1191,9 +1198,7 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
 				Obj(),
-			wantValidationErrs: field.ErrorList{
-				field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlices feature gate"),
-			},
+			wantValidationErrs: nil,
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: false,
 			},
@@ -1214,7 +1219,23 @@ func TestValidateUpdate(t *testing.T) {
 				}),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+		},
+		{
+			name: "update adding invalid scale-up strategy is ignored when partial replica scale-up gate is disabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, "Partial").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 		},
 	}
