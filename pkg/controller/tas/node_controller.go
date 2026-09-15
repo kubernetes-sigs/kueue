@@ -466,18 +466,57 @@ func (r *nodeReconciler) checkPodsOnNode(
 	hasTASAssignment bool,
 	nodeSelectorAssignedPods []*corev1.Pod,
 ) (workloadHealthCheck, error) {
+	log := ctrl.LoggerFrom(ctx)
 	podsToTerminate, hasProgressingPods, err := r.getPodsToTerminate(ctx, wl, nodeName, nodeSelectorAssignedPods)
 	if err != nil {
 		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to get pods to terminate for node %s: %w", nodeName, err)
 	}
 
+	// Reporting the workload healthy leaves the topology assignment pointing at this node and
+	// lets handleHealthyNode clear the node from Status.UnhealthyNodes. Doing so while pods
+	// pinned here are being terminated is the shape of the ungate/terminate loop, so record the
+	// inputs behind the decision - they identify which branch is responsible.
+	logHealthyWhileTerminating := func(reason string) {
+		if len(podsToTerminate) == 0 {
+			return
+		}
+		log.V(2).Info("Reporting workload healthy while terminating pods pinned to this node; topology assignment will not be recomputed",
+			"reason", reason,
+			"node", nodeName,
+			"workload", klog.KObj(wl),
+			"podsToTerminate", len(podsToTerminate),
+			"hasTASAssignment", hasTASAssignment,
+			"hasUntoleratedTaints", hasUntoleratedTaints,
+			"hasProgressingPods", hasProgressingPods)
+	}
+
 	if !hasTASAssignment {
 		// This node is not part of the workload's topology assignment. If pods are assigned
 		// here (e.g., late pods with old node selectors), they are stray and must be terminated.
+		logHealthyWhileTerminating("node is not in the topology assignment")
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
+	// A pod pinned here by the topology assignment can never schedule while the node carries
+	// an untolerated taint, and reporting the workload healthy would clear the node from
+	// Status.UnhealthyNodes and let the ungater pin the next pod to it again. Stay unhealthy
+	// once the node is recorded too: the ungater then holds replacements gated, which empties
+	// podsToTerminate and would otherwise send us down the healthy branch below.
+	if alreadyRecorded := workload.HasUnhealthyNode(wl, nodeName); hasUntoleratedTaints && (len(podsToTerminate) > 0 || alreadyRecorded) {
+		// Only on the transition: this branch is re-entered on every reconcile for as long as
+		// the taint lasts, once per workload assigned to the node.
+		if !alreadyRecorded {
+			log.V(2).Info("Recording node as unhealthy; pods pinned to it by the topology assignment cannot tolerate its taints",
+				"node", nodeName,
+				"workload", klog.KObj(wl),
+				"podsToTerminate", len(podsToTerminate),
+				"hasProgressingPods", hasProgressingPods)
+		}
+		return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
+	}
+
 	if hasProgressingPods && (!hasUntoleratedTaints || features.Enabled(features.TASReplaceNodeOnPodTermination)) {
+		logHealthyWhileTerminating("pods of this workload are still progressing on the node")
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
