@@ -2853,21 +2853,3 @@ func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
 		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
 	}
 }
-
-func lwsComponent(index, className string, priority int32) *kueue.Workload {
-	return utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, index), testNS).
-		JobUID(testLWS).
-		OwnerReference(gvk, testLWS, testLWS).
-		Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-		Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
-		Annotation(constants.JobOwnerNameAnnotation, testLWS).
-		Annotation(constants.ComponentWorkloadIndexAnnotation, index).
-		Finalizers(kueue.ResourceInUseFinalizerName).
-		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-			RestartPolicy("").
-			Image(utiltestingjobs.TestDefaultContainerImage).
-			Obj()).
-		WorkloadPriorityClassRef(className).
-		Priority(priority).
-		Obj()
-}
