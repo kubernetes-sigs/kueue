@@ -57,7 +57,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	if ginkgo.Label("feature:jobset", "feature:trainjob").MatchesLabelFilter(labelFilter) {
 		util.WaitForJobSetAvailability(ctx, k8sClient)
 	}
-	if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
+	if ginkgo.Label("feature:leaderworkerset", "feature:disaggregatedset").MatchesLabelFilter(labelFilter) {
 		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {

@@ -67,5 +67,7 @@ resources:
 - trainjob_viewer_role.yaml
 - leaderworkerset_editor_role.yaml
 - leaderworkerset_viewer_role.yaml
+- disaggregatedset_editor_role.yaml
+- disaggregatedset_viewer_role.yaml
 - sparkapplication_editor_role.yaml
 - sparkapplication_viewer_role.yaml

@@ -68,6 +68,26 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-disaggregatedset-x-k8s-io-v1-disaggregatedset
+  failurePolicy: Fail
+  name: mdisaggregatedset.kb.io
+  rules:
+  - apiGroups:
+    - disaggregatedset.x-k8s.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - disaggregatedsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kubeflow-org-v1-jaxjob
   failurePolicy: Fail
   name: mjaxjob.kb.io
@@ -491,6 +511,26 @@ webhooks:
     - UPDATE
     resources:
     - deployments
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-disaggregatedset-x-k8s-io-v1-disaggregatedset
+  failurePolicy: Fail
+  name: vdisaggregatedset.kb.io
+  rules:
+  - apiGroups:
+    - disaggregatedset.x-k8s.io
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - disaggregatedsets
   sideEffects: None
 - admissionReviewVersions:
   - v1
