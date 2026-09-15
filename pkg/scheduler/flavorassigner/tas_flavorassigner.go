@@ -57,14 +57,9 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 
 			var previousAssignment *kueue.TopologyAssignment
 
-			// Only unconstrained topology is supported with elastic workload slices.
 			if workload.IsElasticWorkload(wl.Obj) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Required != nil {
 					a.psError(psAssignment, ErrElasticRequiredTopologyNotSupported)
-					continue
-				}
-				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Preferred != nil {
-					a.psError(psAssignment, ErrElasticPreferredTopologyNotSupported)
 					continue
 				}
 				previousAssignment = getPreviousTopologyAssignment(a.replaceWorkloadSlice, podSet.Name)
