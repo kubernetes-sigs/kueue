@@ -52,13 +52,15 @@ const (
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:      SetupIndexes,
-		NewJob:            newJob,
-		NewReconciler:     NewReconciler,
-		SetupWebhook:      SetupRayJobWebhook,
-		JobType:           &rayv1.RayJob{},
-		AddToScheme:       rayv1.AddToScheme,
-		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy),
+		SetupIndexes:  SetupIndexes,
+		NewJob:        newJob,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupRayJobWebhook,
+		JobType:       &rayv1.RayJob{},
+		AddToScheme:   rayv1.AddToScheme,
+		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+			ray.WithElasticReplicaSync(elasticRuntimeSync()),
+		),
 	})
 }
 
@@ -198,7 +200,7 @@ func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 			"expectedCount", expected,
 			"gotCount", len(podSetsInfo),
 		)
-		return false
+		return raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
 	}
 
 	// RayCluster pod sets come first, the optional submitter pod set is last.
@@ -212,7 +214,7 @@ func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 		changed = podset.RestorePodSpec(&submitterPod.ObjectMeta, &submitterPod.Spec, info) || changed
 	}
 
-	return changed
+	return raycluster.ClearRuntimeWorkerStateAnnotations(j.Object()) || changed
 }
 func (j *RayJob) IsOnHold() bool {
 	return j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusValidationFailed

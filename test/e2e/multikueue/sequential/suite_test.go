@@ -83,7 +83,13 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = ginkgo.GinkgoT().Context()
 
-	worker1KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	var additionalFrameworks []string
+	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
+		additionalFrameworks = []string{"ray.io/raycluster", "ray.io/rayjob"}
+	}
+	multiKueueRules := util.MultiKueueRulesForManager(ctx, k8sManagerClient, additionalFrameworks...)
+
+	worker1KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, multiKueueRules)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
 	ginkgo.DeferCleanup(func() {
@@ -93,7 +99,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	worker2KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	worker2KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, multiKueueRules)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
 	ginkgo.DeferCleanup(func() {
@@ -107,6 +113,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	util.WaitForKueueAvailability(ctx, k8sManagerClient)
 	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
+		util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
+	}
 
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in all the clusters",
