@@ -55,7 +55,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot", "hostnameLeafTASFlavors"),
+	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot", "hostnameLeafTASFlavors", "simulatedPreemptions"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -1306,7 +1306,7 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 			workloadsAsBuilt := slices.Sorted(maps.Keys(cqSnapshot.Workloads))
 			var revert func()
 			if tc.removalSimulationWorkload != "" {
-				revert = snapshot.SimulateWorkloadRemoval([]*workload.Info{cqSnapshot.Workloads[tc.removalSimulationWorkload]})
+				revert = snapshot.SimulateWorkloadRemoval(ctx, []*workload.Info{cqSnapshot.Workloads[tc.removalSimulationWorkload]})
 			} else {
 				revert = snapshot.SimulateWorkloadUsageRemoval([]*workload.Info{cqSnapshot.Workloads[tc.usageRemovalSimulationWorkload]})
 			}
@@ -1746,7 +1746,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot", "simulatedPreemptions"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1755,10 +1755,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			for _, name := range tc.remove {
-				snap.RemoveWorkload(wlInfos[name])
+				snap.RemoveWorkload(ctx, wlInfos[name])
 			}
 			for _, name := range tc.add {
-				snap.AddWorkload(wlInfos[name])
+				snap.AddWorkload(ctx, wlInfos[name])
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
@@ -2245,7 +2245,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot", "simulatedPreemptions"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2254,10 +2254,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			for _, name := range tc.remove {
-				snap.RemoveWorkload(wlInfos[name])
+				snap.RemoveWorkload(ctx, wlInfos[name])
 			}
 			for _, name := range tc.add {
-				snap.AddWorkload(wlInfos[name])
+				snap.AddWorkload(ctx, wlInfos[name])
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)

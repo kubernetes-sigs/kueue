@@ -59,22 +59,57 @@ type Snapshot struct {
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
 	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
+
+	simulatedPreemptions map[workload.Reference]func() error
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
 // updates resource usage.
-func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
+func (s *Snapshot) RemoveWorkload(ctx context.Context, wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	s.removeUsage(cq, wl.Usage())
+	s.simulatePodRemoval(ctx, wl)
 }
 
 // AddWorkload adds a workload to its corresponding ClusterQueue and
 // updates resource usage.
-func (s *Snapshot) AddWorkload(wl *workload.Info) {
+func (s *Snapshot) AddWorkload(ctx context.Context, wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	s.AddUsage(cq, wl.Usage())
+	s.revertSimulatedPodRemoval(ctx, wl)
+}
+
+func (s *Snapshot) simulatePodRemoval(ctx context.Context, wl *workload.Info) {
+	if s.SimulatorSnapshot == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+		return
+	}
+	revert, err := s.SimulatorSnapshot.PreemptWorkload(ctx, client.ObjectKeyFromObject(wl.Obj))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Info("Could not remove a Workload from the scheduling simulator",
+			"workload", klog.KObj(wl.Obj), "error", err)
+		return
+	}
+	if s.simulatedPreemptions == nil {
+		s.simulatedPreemptions = make(map[workload.Reference]func() error)
+	}
+	s.simulatedPreemptions[workload.Key(wl.Obj)] = revert
+	s.ForgetSimulatedFeasibility()
+}
+
+func (s *Snapshot) revertSimulatedPodRemoval(ctx context.Context, wl *workload.Info) {
+	key := workload.Key(wl.Obj)
+	revert, ok := s.simulatedPreemptions[key]
+	if !ok {
+		return
+	}
+	delete(s.simulatedPreemptions, key)
+	if err := revert(); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Info("Could not restore a Workload in the scheduling simulator",
+			"workload", klog.KObj(wl.Obj), "error", err)
+	}
+	s.ForgetSimulatedFeasibility()
 }
 
 // AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
@@ -134,13 +169,13 @@ func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func
 // SimulateWorkloadRemoval modifies the snapshot by removing the list
 // of workloads from workloads' respective ClusterQueues. It returns a
 // function which can be used to restore these workloads.
-func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+func (s *Snapshot) SimulateWorkloadRemoval(ctx context.Context, workloads []*workload.Info) func() {
 	for _, w := range workloads {
-		s.RemoveWorkload(w)
+		s.RemoveWorkload(ctx, w)
 	}
 	return func() {
 		for _, w := range workloads {
-			s.AddWorkload(w)
+			s.AddWorkload(ctx, w)
 		}
 	}
 }
