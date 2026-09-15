@@ -1,6 +1,17 @@
 version: 2
 updates:
 
+  # Maintain Python dependencies and hashes for release scripts.
+  - package-ecosystem: "pip"
+    directory: "/hack/releasing"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+      - "release-note-none"
+      - "dependencies"
+      - "area/dependency"
+
   # Maintain dependencies for go.
   - package-ecosystem: "gomod"
     directories:
