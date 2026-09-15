@@ -944,6 +944,11 @@ func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSli
 	return w
 }
 
+func (w *ResourceSliceWrapper) NodeName(name string) *ResourceSliceWrapper {
+	w.Spec.NodeName = &name
+	return w
+}
+
 func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
 	return &w.ResourceSlice
 }

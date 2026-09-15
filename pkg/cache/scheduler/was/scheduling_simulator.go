@@ -53,9 +53,23 @@ import (
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
 
+// WASOption configures the WAS simulator.
+type WASOption func(*wasSimulator)
+
+// WithDRA enables DRA device feasibility checking using the structured allocator.
+// The client should be the controller-runtime cached client (mgr.GetClient()).
+func WithDRA(cl client.Client) WASOption {
+	return func(s *wasSimulator) {
+		s.draEnabled = true
+		s.cl = cl
+	}
+}
+
 type wasSimulator struct {
 	newSnapshot snapshotFactory
 	pods        podTracker
+	draEnabled  bool
+	cl          client.Client
 }
 
 type wasSimulatorSnapshot struct {
@@ -128,7 +142,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	}
 }
 
-func newWASSimulator(ctx context.Context, client kubernetes.Interface) (*wasSimulator, error) {
+func newWASSimulator(ctx context.Context, client kubernetes.Interface, opts ...WASOption) (*wasSimulator, error) {
 	cfg := newWASSchedulerConfig()
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
@@ -154,16 +168,20 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (*wasSimu
 		return schedLibSnapshot.New(snap, profiles), nil
 	}
 
-	return &wasSimulator{
+	s := &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
 			pods:         make(podsByKey),
 			workloadPods: make(podsByWorkload),
 		},
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
-func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulator, error) {
+func NewWASSimulator(ctx context.Context, restConfig *rest.Config, opts ...WASOption) (*wasSimulator, error) {
 	if restConfig != nil {
 		// TODO(#13534): when DRA plugins are added, use a real client here
 		// instead of the fake so the informer factory is populated.
@@ -171,7 +189,7 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulato
 			return nil, err
 		}
 	}
-	return newWASSimulator(ctx, fake.NewSimpleClientset())
+	return newWASSimulator(ctx, fake.NewSimpleClientset(), opts...)
 }
 
 func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
@@ -186,6 +204,9 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simu
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
 		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, podsByWorkload), nodes)
+	}
+	if s.draEnabled {
+		return simulator.NewDRAChecker(snapshot, s.cl), nil
 	}
 	return snapshot, nil
 }
