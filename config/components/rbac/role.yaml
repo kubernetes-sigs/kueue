@@ -205,7 +205,13 @@ rules:
   - kubeflow.org
   resources:
   - jaxjobs
+  - mpijobs
+  - paddlejobs
+  - pytorchjobs
+  - tfjobs
+  - xgboostjobs
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -236,21 +242,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - kubeflow.org
-  resources:
-  - mpijobs
-  - paddlejobs
-  - pytorchjobs
-  - tfjobs
-  - xgboostjobs
-  verbs:
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - kueue.x-k8s.io
   resources:
@@ -421,6 +412,7 @@ rules:
   resources:
   - trainjobs
   verbs:
+  - delete
   - get
   - list
   - patch
