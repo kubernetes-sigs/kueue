@@ -320,7 +320,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		var targets []*Target
 		candidatesGenerator.Reset()
 		for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
-			preemptionCtx.snapshot.RemoveWorkload(candidate)
+			preemptionCtx.snapshot.RemoveWorkload(preemptionCtx.ctx, candidate)
 			targets = append(targets, &Target{
 				WorkloadInfo: candidate,
 				Reason:       reason,
@@ -328,11 +328,11 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 			})
 			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
 				targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
-				restoreSnapshot(preemptionCtx.snapshot, targets)
+				restoreSnapshot(preemptionCtx.ctx, preemptionCtx.snapshot, targets)
 				return targets
 			}
 		}
-		restoreSnapshot(preemptionCtx.snapshot, targets)
+		restoreSnapshot(preemptionCtx.ctx, preemptionCtx.snapshot, targets)
 	}
 	return nil
 }
@@ -340,21 +340,21 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 func fillBackWorkloads(preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
-		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
+		preemptionCtx.snapshot.AddWorkload(preemptionCtx.ctx, targets[i].WorkloadInfo)
 		if workloadFits(preemptionCtx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
 		} else {
-			preemptionCtx.snapshot.RemoveWorkload(targets[i].WorkloadInfo)
+			preemptionCtx.snapshot.RemoveWorkload(preemptionCtx.ctx, targets[i].WorkloadInfo)
 		}
 	}
 	return targets
 }
 
-func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
+func restoreSnapshot(ctx context.Context, snapshot *schdcache.Snapshot, targets []*Target) {
 	for _, t := range targets {
-		snapshot.AddWorkload(t.WorkloadInfo)
+		snapshot.AddWorkload(ctx, t.WorkloadInfo)
 	}
 }
 
@@ -397,7 +397,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
-			preemptionCtx.snapshot.RemoveWorkload(candWl)
+			preemptionCtx.snapshot.RemoveWorkload(preemptionCtx.ctx, candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
 				Reason:       kueue.InClusterQueueReason,
@@ -411,7 +411,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
-			preemptionCtx.snapshot.RemoveWorkload(candWl)
+			preemptionCtx.snapshot.RemoveWorkload(preemptionCtx.ctx, candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
 				Reason:       kueue.InCohortReclamationReason,
@@ -447,7 +447,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				preemptionCtx.snapshot.RemoveWorkload(candWl)
+				preemptionCtx.snapshot.RemoveWorkload(preemptionCtx.ctx, candWl)
 				targets = append(targets, &Target{
 					WorkloadInfo: candWl,
 					Reason:       kueue.InCohortFairSharingReason,
@@ -515,7 +515,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			preemptionCtx.snapshot.RemoveWorkload(candWl)
+			preemptionCtx.snapshot.RemoveWorkload(preemptionCtx.ctx, candWl)
 			targets = append(targets, &Target{
 				WorkloadInfo: candWl,
 				Reason:       kueue.InCohortFairSharingReason,
@@ -588,11 +588,11 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 				"targets", logging.GetObjectReferences(targets))
 		}
-		restoreSnapshot(preemptionCtx.snapshot, targets)
+		restoreSnapshot(preemptionCtx.ctx, preemptionCtx.snapshot, targets)
 		return nil
 	}
 	targets = fillBackWorkloads(preemptionCtx, targets, true)
-	restoreSnapshot(preemptionCtx.snapshot, targets)
+	restoreSnapshot(preemptionCtx.ctx, preemptionCtx.snapshot, targets)
 
 	if logV := preemptionCtx.log.V(6); logV.Enabled() {
 		logV.Info("Fair sharing strategies succeeded",
