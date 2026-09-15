@@ -3,6 +3,7 @@ kep-number: 2941
 authors:
   - "@alaypatel07"
   - "@sohankunkerkar"
+  - "@thc1006"
 status: implementable
 creation-date: 2025-05-02
 reviewers:
@@ -17,16 +18,20 @@ see-also:
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5004-dra-extended-resource"
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4815-dra-partitionable-devices"
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5075-dra-consumable-capacity"
+  - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4816-dra-prioritized-list"
 replaces:
   - "https://github.com/kubernetes-sigs/kueue/pull/3071"
 
-# The target maturity stage in the current dev cycle for this KEP.
+# KEP-2941 is an umbrella whose feature gates graduate independently, so this
+# stage and the milestones below describe the KEP as a whole rather than any one
+# gate. Each gate's own maturity is recorded in Graduation Criteria;
+# KueueDRAIntegrationPrioritizedList is Alpha in v0.20 while the KEP is at beta.
 stage: beta
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.19"
+latest-milestone: "v0.20"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
@@ -41,6 +46,7 @@ feature-gates:
   - name: KueueDRAIntegrationExtendedResource
   - name: KueueDRAIntegrationPartitionableDevices
   - name: KueueDRAIntegrationConsumableCapacity
+  - name: KueueDRAIntegrationPrioritizedList
   - name: KueueDRARejectWorkloadsWhenDRADisabled
 disable-supported: true
 
