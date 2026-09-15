@@ -55,6 +55,12 @@
     lockToDefault: false
     preRelease: Deprecated
     version: "0.20"
+- name: DeploymentParentSuspension
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false

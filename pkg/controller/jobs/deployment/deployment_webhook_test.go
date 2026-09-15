@@ -139,6 +139,24 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "new-test").
 				Obj(),
 		},
+		"deployment preserves pause on update when paused-by-kueue annotation present": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				SetAnnotation(constants.PausedByKueueAnnotation, "true").
+				Paused(true).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateSpecManagedByKueue().
+				PodTemplateSpecQueue("test-queue").
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("test-queue").
+				SetAnnotation(constants.PausedByKueueAnnotation, "true").
+				Paused(true).
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
 		"deployment without queue with pod template spec queue and priority class": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").
 				PodTemplateSpecQueue("test-queue").
