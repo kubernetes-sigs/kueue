@@ -17,8 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"slices"
 	"strings"
 	"testing"
@@ -31,9 +34,11 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -2292,4 +2297,234 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// nodeDerefSimulatorSnapshot reads the node off every candidate the way the WAS
+// simulator does, so a leaf with no node of its own fails loudly here.
+type nodeDerefSimulatorSnapshot struct {
+	simulator.SimulatorSnapshot
+	// scoreEach is multiplied by the call number, so a second pass that is not undone
+	// leaves a different score behind rather than rewriting the same one.
+	scoreEach int64
+	calls     int64
+}
+
+func (s *nodeDerefSimulatorSnapshot) FindFeasibleNodes(
+	_ context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	_ *simulator.PodRequirements,
+	_ *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	s.calls++
+	var feasible []simulator.MatchedCandidate
+	for candidate := range candidates {
+		matched, ok := candidate.(simulator.MatchedCandidate)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast candidate %T", candidate)
+		}
+		if candidate.GetNode() == nil {
+			return nil, errors.New("candidate has no node; the simulator must not be asked about it")
+		}
+		matched.SetAffinityScore(s.scoreEach * s.calls)
+		feasible = append(feasible, matched)
+	}
+	return feasible, nil
+}
+
+// A leaf spanning several nodes has no node of its own, so the leader check must not
+// reach the simulator. The WAS simulator reads the node without a nil check.
+func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, false)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("5"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
+	}
+	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil,
+		&nodeDerefSimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot()})
+
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	podSet := func(name string, count int32, spec corev1.PodSpec) TASPodSetRequests {
+		groupName := "group"
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+				Template: corev1.PodTemplateSpec{Spec: spec},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
+		podSet("workers", 2, corev1.PodSpec{}),
+		podSet("leader", 1, corev1.PodSpec{NodeSelector: map[string]string{"accelerator": "true"}}),
+	})
+	if failure := result.Failure(); failure != nil {
+		t.Errorf("FindTopologyAssignmentsForFlavor() = %q, want a fit; the leader check reached the simulator", failure.Reason)
+	}
+}
+
+// The leader check must leave the affinity scores the workers' pass produced alone,
+// or domains are ranked by the leader's preferences instead of the workers'.
+func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("5"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
+	}
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	podSet := func(name string, count int32) TASPodSetRequests {
+		groupName := "group"
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+
+	// The fake scores a candidate differently on each pass, so a leader pass that is
+	// not undone leaves a score the workers' pass never produced.
+	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil,
+		&nodeDerefSimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot(), scoreEach: 7})
+	snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
+		podSet("workers", 2), podSet("leader", 1),
+	})
+
+	for _, leaf := range snapshot.leaves {
+		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 14 {
+			t.Errorf("leaf %s affinity score = %d, want 14 (the workers' score, scored once and added once)", leaf.id, got)
+		}
+	}
+}
+
+// templateOnlySimulatorSnapshot filters nodes using only the Pod template, the way
+// the scheduler-library does, ignoring the separately compiled selector.
+type templateOnlySimulatorSnapshot struct {
+	simulator.SimulatorSnapshot
+}
+
+func (s *templateOnlySimulatorSnapshot) FindFeasibleNodes(
+	_ context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	_ *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	var feasible []simulator.MatchedCandidate
+	for candidate := range candidates {
+		matched, ok := candidate.(simulator.MatchedCandidate)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast candidate %T", candidate)
+		}
+		selector := labels.SelectorFromSet(requirements.PodTemplate.Spec.NodeSelector)
+		if selector.Matches(labels.Set(candidate.GetNode().Labels)) {
+			feasible = append(feasible, matched)
+		}
+	}
+	return feasible, nil
+}
+
+// A PodSetUpdate from a Ready AdmissionCheck has to reach the leader's Pod template,
+// since the scheduler-library filters nodes with the template rather than the compiled
+// filters. With the gate off nothing may change, including for the workers, whose
+// template carries the same gap and is corrected separately.
+func TestPodSetUpdatesReachTheTemplate(t *testing.T) {
+	for _, gateOn := range []bool{true, false} {
+		t.Run(fmt.Sprintf("gate=%t", gateOn), func(t *testing.T) {
+			testPodSetUpdatesReachTheTemplate(t, gateOn)
+		})
+	}
+}
+
+func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, gateOn)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	unconstrained := true
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("5"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(rackLabel, "r1").Label("pool", "b").Obj(),
+		rackNode.Clone().Name("n2").Label(rackLabel, "r2").Label("pool", "a").Obj(),
+	}
+	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil,
+		&templateOnlySimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot()})
+
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	// Both PodSets are steered to pool "a" by an AdmissionCheck, not by their own
+	// templates. Only n2 is in that pool, and it is in the second rack, so picking the
+	// first rack means the update never reached the template.
+	podSet := func(name string, count int32) TASPodSetRequests {
+		groupName := "group"
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+			},
+			PodSetUpdates:     []*kueue.PodSetUpdate{{Name: kueue.PodSetReference(name), NodeSelector: map[string]string{"pool": "a"}}},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
+		podSet("workers", 1), podSet("leader", 1),
+	})
+	if failure := result.Failure(); failure != nil {
+		t.Fatalf("FindTopologyAssignmentsForFlavor() = %q, want a fit", failure.Reason)
+	}
+	// With the gate off the workers' unmerged template accepts either rack, which is
+	// what Kueue does today.
+	wantRack := "r1"
+	if gateOn {
+		wantRack = "r2"
+	}
+	for name, psResult := range result {
+		for _, domain := range psResult.TopologyAssignment.Domains {
+			if got := domain.Values[0]; got != wantRack {
+				t.Errorf("PodSet %s placed in %q, want %s", name, got, wantRack)
+			}
+		}
+	}
 }
