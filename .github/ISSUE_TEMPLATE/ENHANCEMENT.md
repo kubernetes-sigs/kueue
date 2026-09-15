@@ -11,6 +11,8 @@ labels: kind/feature
 
 **Why is this needed**:
 
+**Do you plan to contribute a fix?**:
+
 **Completion requirements**:
 
 This enhancement requires the following artifacts:
