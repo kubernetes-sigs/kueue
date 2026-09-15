@@ -794,6 +794,9 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
 
+	// The probe needs the earlier PodSets' full requests. Quota usage may only
+	// contain replacement deltas, including negative values for shrinking PodSets.
+	assignedRequests := make(resources.FlavorResourceQuantities)
 	for _, podSets := range groupedRequests.InOrder {
 		requests := resources.NewRequests()
 		psIDs := make([]int, len(podSets))
@@ -843,11 +846,11 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, resName, assignment.Usage.Quota.Assigned)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, resName, assignment.Usage.Quota.Assigned, assignedRequests)
 			if probeRequests != nil && len(flavors) == 0 && !status.IsError() {
 				// The probe is a preference, not an admission barrier for zero-count PodSets.
 				probeReason := status.Message()
-				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, resName, assignment.Usage.Quota.Assigned)
+				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, resName, assignment.Usage.Quota.Assigned, assignedRequests)
 				if len(flavors) > 0 && !status.IsError() {
 					podSetNames := make([]kueue.PodSetReference, len(podSets))
 					for i, ps := range podSets {
@@ -883,6 +886,12 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			podSet.podSetAssignment.FlavorAssignmentAttempts = finalConsidered
 
 			assignment.append(podSet.podSet.Requests, podSet.podSetAssignment)
+			if podSet.podSet.Requests != nil {
+				for resName, flavor := range podSet.podSetAssignment.Flavors {
+					fr := resources.FlavorResource{Flavor: flavor.Name, Resource: resName}
+					assignedRequests[fr] = assignedRequests[fr].AddInt64(podSet.podSet.Requests.ResourceValue(resName))
+				}
+			}
 			if podSet.podSetAssignment.Status.IsError() || (podSet.podSet.Requests != nil && podSet.podSet.Requests.Len() > 0 && len(podSet.podSetAssignment.Flavors) == 0) {
 				atLeastOnePodsAssignmentFailed = true
 			}
@@ -1110,6 +1119,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	probeRequests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
+	assignedRequests resources.FlavorResourceQuantities,
 ) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
@@ -1163,7 +1173,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			probeStatus := NewStatus()
 			probeRequests.ForEach(func(rName corev1.ResourceName, val int64) {
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
-				if s := a.fitsMaxCapacity(fr, resources.NewAmount(0), val); s != nil {
+				if s := a.fitsMaxCapacity(fr, assignedRequests[fr], val); s != nil {
 					probeStatus.reasons = append(probeStatus.reasons, s.reasons...)
 					probeStatus.noFitReason = s.noFitReason
 				}
