@@ -29,6 +29,12 @@
     - [Scale Down](#scale-down)
   - [Limitations and Incompatibilities](#limitations-and-incompatibilities)
     - [PartialAdmission](#partialadmission)
+  - [In-place Workload Resize (`ElasticJobsViaWorkloadResize`)](#in-place-workload-resize-elasticjobsviaworkloadresize)
+    - [Consumer: Spark on Kubernetes](#consumer-spark-on-kubernetes)
+      - [Workload discovery, authorization, and conflict handling](#workload-discovery-authorization-and-conflict-handling)
+  - [Long-term Direction: Slices vs. In-place Resize](#long-term-direction-slices-vs-in-place-resize)
+    - [Side-by-side comparison](#side-by-side-comparison)
+    - [Pros and cons](#pros-and-cons)
 - [Phases for MVP (alpha)](#phases-for-mvp-alpha)
   - [Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.](#phase-1---batchv1job-workloadslices-support-in-single-cluster-configuration)
     - [Scale Down](#scale-down-1)
@@ -60,7 +66,7 @@ While the initial focus is on batch/v1.Job and RayCluster, the long-term objecti
 ## Motivation
 
 Kueue currently lacks native support for resizing jobs. Any change in job size leads to the recreation of the associated Workload, resulting in job suspension and requeueing. 
-This disrupts execution and hinders usability for elastic workloads like RayCluster, which rely on in-place autoscaling. 
+This disrupts execution and hinders usability for elastic workloads that rely on in-place scaling, such as RayCluster (scaled by its controller) and Spark (which scales executors from within the running job via dynamic allocation). 
 
 To support such scenarios, Kueue must gracefully handle horizontal scale-up and scale-down operations without disrupting admitted jobs or re-acquiring quota.
 
@@ -358,6 +364,78 @@ annotations:
   kueue.x-k8s.io/job-min-parallelism: "1"
 ```
 
+### In-place Workload Resize (`ElasticJobsViaWorkloadResize`)
+
+In-place Workload resize gives a job framework the ability to change an admitted Workload's PodSet counts directly, instead of creating slice Workloads. It is a more flexible primitive: the job framework becomes the writer of the desired PodSet counts and the reader of the admitted counts on a single, stable Workload, and drives scaling by patching `spec.podSets[].count` in place. It is gated by the `ElasticJobsViaWorkloadResize` feature gate, reuses the same `kueue.x-k8s.io/elastic-job` opt-in annotation, and is **mutually exclusive per-Job** with `ElasticJobsViaWorkloadSlices`.
+
+```golang
+// owner: @zhengchenyu
+// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
+//
+// ElasticJobsViaWorkloadResize enables horizontal scaling of jobs by resizing an
+// admitted Workload's PodSet counts in place, instead of creating WorkloadSlices.
+ElasticJobsViaWorkloadResize featuregate.Feature = "ElasticJobsViaWorkloadResize"
+```
+
+Key properties (framework-agnostic):
+
+- **One Job maps to one stable Workload.** The Workload is created and admitted once; scaling is a patch to `spec.podSets[].count`, so no new Workloads are created on scale events.
+- **The job framework writes the target and reads admission.** The framework patches a PodSet `count` (the desired target) and reads the admitted count from `status.admission`. It can create at most `min(target, admitted)` pods, so it never produces excess pending pods.
+- **Works with partial admission.** Partial admission is a general Kueue capability (not specific to resize), and in-place resize integrates with it on scale-up: `minCount` is kept a fixed per-Job property, set once and never mutated per scale event, and the scheduler's `PodSetReducer` searches `[max(minCount, admitted+1), count]` for the maximum fit. The lower bound keeps the search space monotonic and guarantees growth past the currently-admitted count.
+
+#### Consumer: Spark on Kubernetes
+
+Spark on Kubernetes is the motivating consumer of this capability. The WorkloadSlices model assumes the entity reconciling the Workload is also the entity that creates and gates pods (the Kueue-integrated controller); this does not hold for Spark. The SparkApplication controller interacts with Kueue, but executor pods are created/deleted and scaled by the Spark driver (via dynamic allocation) from within the running job. Layering WorkloadSlices under this model is possible but problematic at scale:
+
+- The driver emits scale signals frequently (dynamic allocation reacts to task backlog continuously), producing a large number of slice Workloads; at the scale of tens of thousands of SparkApplications the pressure on etcd/apiserver is significant.
+- As a batch engine, Spark is greedy and will request as many executors as its backlog implies, producing excessive pending/gated pods.
+- Having the job framework directly reconcile slice lifecycles for a resource whose pods are owned by the driver makes the integration considerably more complex.
+
+In-place resize maps onto Spark cleanly: one SparkApplication maps to one Workload (with `driver` and `executor` PodSets); the driver patches the executor PodSet `count` from its dynamic-allocation target and reads the admitted count, capping executor pods at `min(target, admitted)`; and on scale-down the driver floors the patched count at the executors still occupying resources while idle ones await `executorIdleTimeout`.
+
+##### Workload discovery, authorization, and conflict handling
+
+Because the resizing entity is the in-job Spark driver rather than spark-operator, the KEP defines how the driver finds, is authorized for, and safely updates its Workload:
+
+- **Discovery.** The Kueue SparkApplication integration creates and admits the Workload before the driver starts, and labels it `kueue.x-k8s.io/job-uid=<SparkApplication UID>`. The driver resolves that UID from its own pod's controlling owner reference (under Spark Operator the driver pod's controller owner is the SparkApplication), then locates the single Workload via a label-scoped list+watch on that `job-uid`.
+- **Authorization (RBAC).** The driver runs under the Spark integration's ServiceAccount, which is granted `get`/`list`/`watch`/`patch` on `workloads.kueue.x-k8s.io` scoped to the application namespace. It has no permission to create or delete Workloads or to write Workload `status`.
+- **Ownership / single-writer per field.** The two sides write disjoint fields, so there is no write-write contention on the same field: Kueue is the sole writer of `status.admission` (the admitted count) and of the Workload lifecycle (create/finish/delete); the driver only writes `spec.podSets[executor].count`.
+- **Conflict handling.** Spec and status are distinct fields, so a driver `count` patch and a concurrent Kueue `status.admission` update do not clobber each other. If the driver's cached Workload is stale, the merge patch still only changes `count`; the driver refreshes its cache from the patch response and the watch stream, then reconciles again. Kueue re-evaluates admission on the observed `count`, so a transiently stale write self-corrects on the next cycle.
+
+### Long-term Direction: Slices vs. In-place Resize
+
+Kueue intentionally supports two elastic mechanisms during Alpha so we can validate each against the frameworks it fits best, without committing prematurely to a single model.
+
+#### Side-by-side comparison
+
+| Dimension | WorkloadSlices | In-place Resize |
+|---|---|---|
+| Workloads per job | One per scale-up (old slice aggregated/finished after the new one is admitted) | Exactly one, for the whole job lifetime |
+| How scaling is expressed | A new slice Workload representing the higher count | A patch to `spec.podSets[].count` on the existing Workload |
+| Who creates/gates pods | The Kueue-integrated job controller | The job's own runtime (e.g. the Spark driver) |
+| Pod admission control | Scheduling gates on new pods, removed on slice admission | Runtime reads `status.admission` and creates at most `admitted` pods |
+
+#### Pros and cons
+
+**WorkloadSlices**
+
+- Pros:
+  - Transparent to the job runtime: Kueue drives per-replica admission via scheduling gates, so frameworks whose controller already owns the pods (batch/Job, RayCluster) need no Kueue awareness inside the running job.
+- Cons:
+  - Produces a new Workload object per scale-up; for jobs that scale frequently (e.g. Spark dynamic allocation), pressure on etcd/apiserver is significant.
+  - The job side is not aware of how much quota has been admitted, so it keeps creating pods up to its own target; the pods beyond the admitted amount will be pending/gated.
+  - If a job framework does want to watch the Workload, it is harder to do so: the Workload is not stable — each scale-up creates a new slice Workload (with a different name) that replaces the old one, so there is no single long-lived Workload to track.
+
+**WorkloadResize**
+
+- Pros:
+  - Exposes the Workload itself as the scaling surface (in-place `spec.podSets[].count` mutation), which is flexible in two directions: a runtime that wants to drive its own Workload — such as the Spark driver — can do so directly and easily; and jobs that do not want to be Workload-aware are still supported.
+  - Exactly one stable Workload per job: the API-server/etcd footprint stays low even under frequent scaling, and because the Workload is long-lived with a stable name, a job framework that wants to watch workload can track it easily.
+- Cons:
+  - Making a runtime operate its Workload directly (read admission, patch the count) requires custom integration work; that customization has a cost.
+
+The two mechanisms share most of their implementation, so running them in parallel is low-cost. Before Beta/GA we will decide on convergence, with options being: (a) keep both, scoped to the framework families above; (b) unify behind a single elastic-job API surface with slices/resize as internal strategies.
+
 ## Phases for MVP (alpha)
 
 ### Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.
@@ -640,4 +718,4 @@ As a result, when `PodSchedulingGates` are used in a namespace with quota enforc
 
 - Require users to manage resizing manually by recreating jobs.
 - Defer support for elastic workloads to higher-level controllers (e.g., RayOperator), leaving Kueue unaware of scale operations.
-- [WorkloadResize Request](https://github.com/kubernetes-sigs/kueue/issues/5897) an exploration of an alternative approach to elastic jobs.  
+- [WorkloadResize Request](https://github.com/kubernetes-sigs/kueue/issues/5897): originally an exploration of an alternative approach to elastic jobs, now specified above as the in-place resize mechanism ([In-place Workload Resize](#in-place-workload-resize-elasticjobsviaworkloadresize)) for frameworks that scale themselves from within the running job.
