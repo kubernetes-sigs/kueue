@@ -42,13 +42,13 @@ func setFinishedCondition(w *kueue.Workload, now time.Time, reason string, messa
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
-func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
+func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock, opts ...patching.PatchStatusOption) error {
 	if IsFinished(wl) {
 		return nil
 	}
 	if err := patching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
 		return setFinishedCondition(wl, clock.Now(), reason, msg), nil
-	}); err != nil {
+	}, opts...); err != nil {
 		return err
 	}
 	return nil
