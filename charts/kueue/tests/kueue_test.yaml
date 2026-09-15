@@ -5,6 +5,9 @@ templates:
   - kueueviz/frontend-configmap.yaml
   - kueueviz/backend-ingress.yaml
   - kueueviz/frontend-ingress.yaml
+  - kueueviz/clusterrole.yaml
+  - kueueviz/cluster-role-binding.yaml
+  - kueueviz/serviceaccount.yaml
 tests:
   - it: should set the pod priorityClassName when provided for backend deployment
     template: kueueviz/backend-deployment.yaml
@@ -547,3 +550,166 @@ tests:
           count: 1
       - isKind:
           of: Ingress
+
+  - it: should not create a ServiceAccount by default
+    template: kueueviz/serviceaccount.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should create a ServiceAccount with the default name
+    template: kueueviz/serviceaccount.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            create: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-kueueviz
+  - it: should create a ServiceAccount with an explicit name
+    template: kueueviz/serviceaccount.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            create: true
+            name: foo
+    asserts:
+      - equal:
+          path: metadata.name
+          value: foo
+
+  - it: should omit backend serviceAccountName by default
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.serviceAccountName
+  - it: should set backend serviceAccountName if an explicit one is set
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            name: foo
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: foo
+  - it: should set backend serviceAccountName to the default if create is true
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            create: true
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-kueue-kueueviz
+  - it: should set backend serviceAccountName to the an explicit value if create is true
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            create: true
+            name: foo
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: foo
+
+  - it: should create ClusterRole by default
+    template: kueueviz/clusterrole.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+  - it: should not create ClusterRole if disabled
+    template: kueueviz/clusterrole.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          rbac:
+            create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  
+  - it: should create ClusterRoleBinding by default
+    template: kueueviz/cluster-role-binding.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+  - it: should not create ClusterRoleBinding if disabled
+    template: kueueviz/cluster-role-binding.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          rbac:
+            create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+
+  - it: should set ClusterRoleBinding service account to "default" by default
+    template: kueueviz/cluster-role-binding.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: default
+  - it: should set ClusterRoleBinding service account to an explicit name
+    template: kueueviz/cluster-role-binding.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            name: foo
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: foo
+  - it: should set backend serviceAccountName to the default if create is true
+    template: kueueviz/cluster-role-binding.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            create: true
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-kueue-kueueviz
+  - it: should set backend serviceAccountName to the an explicit value if create is true
+    template: kueueviz/cluster-role-binding.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          serviceAccount:
+            create: true
+            name: foo
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: foo
