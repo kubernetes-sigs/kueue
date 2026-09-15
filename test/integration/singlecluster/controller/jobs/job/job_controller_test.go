@@ -4086,6 +4086,102 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 		}
 	})
 
+	ginkgo.It("should ungate late Pods across elastic TAS replacements without exceeding admission", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+		// Pod events retain the origin slice name after the Job controller
+		// finishes that slice and admits a larger replacement.
+		testJob := testingjob.MakeJob("elastic-tas", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			Request(corev1.ResourceCPU, "100m").
+			Parallelism(1).
+			Completions(4).
+			Obj()
+		util.MustCreate(ctx, k8sClient, testJob)
+
+		origin := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &origin)
+		var survivorUID types.UID
+		for count := int32(1); count <= 3; count++ {
+			if count > 1 {
+				ginkgo.By(fmt.Sprintf("growing the Job to %d Pods", count))
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).To(gomega.Succeed())
+					testJob.Spec.Parallelism = new(count)
+					g.Expect(k8sClient.Update(ctx, testJob)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("waiting for admission before delivering the new Pod event")
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				var active *kueue.Workload
+				for i := range workloads.Items {
+					wl := &workloads.Items[i]
+					if !workloadfinish.IsFinished(wl) && workload.IsAdmittedByTAS(wl) {
+						g.Expect(active).To(gomega.BeNil(), "only one slice may be active")
+						active = wl
+					}
+				}
+				g.Expect(active).NotTo(gomega.BeNil())
+				g.Expect(active.Status.Admission.PodSetAssignments[0].Count).To(gomega.HaveValue(gomega.Equal(count)))
+				if count > 1 {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+					g.Expect(workloadfinish.IsFinished(&origin)).To(gomega.BeTrue())
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// envtest has no Kubernetes Job controller, so create its Pods explicitly.
+			pod := testingpod.MakePod(fmt.Sprintf("pod-%d", count-1), ns.Name).
+				Annotation(kueue.WorkloadAnnotation, origin.Name).
+				Annotation(kueue.WorkloadSliceNameAnnotation, origin.Name).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(int(count-1))).
+				TopologySchedulingGate().
+				Obj()
+			util.MustCreate(ctx, k8sClient, pod)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+				g.Expect(utilpod.HasGate(pod, kueue.TopologySchedulingGate)).To(gomega.BeFalse())
+				g.Expect(pod.Spec.NodeSelector[tasBlockLabel]).To(gomega.Equal("b1"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			if count == 1 {
+				survivorUID = pod.UID
+			}
+		}
+
+		ginkgo.By("keeping a surplus Pod gated while preserving the first Pod")
+		extra := testingpod.MakePod("surplus", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, origin.Name).
+			Annotation(kueue.WorkloadSliceNameAnnotation, origin.Name).
+			Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+			Label(batchv1.JobCompletionIndexAnnotation, "3").
+			TopologySchedulingGate().
+			Obj()
+		util.MustCreate(ctx, k8sClient, extra)
+		gomega.Consistently(func(g gomega.Gomega) {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			ungated := sets.New[string]()
+			for i := range pods.Items {
+				if !utilpod.HasGate(&pods.Items[i], kueue.TopologySchedulingGate) {
+					ungated.Insert(pods.Items[i].Name)
+				}
+			}
+			g.Expect(sets.List(ungated)).To(gomega.ConsistOf("pod-0", "pod-1", "pod-2"))
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(extra), extra)).To(gomega.Succeed())
+			g.Expect(utilpod.HasGate(extra, kueue.TopologySchedulingGate)).To(gomega.BeTrue())
+			first := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: "pod-0"}, first)).To(gomega.Succeed())
+			g.Expect(first.UID).To(gomega.Equal(survivorUID))
+			g.Expect(first.Spec.NodeSelector[tasBlockLabel]).To(gomega.Equal("b1"))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("should admit workload which fits in a required topology domain", func() {
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
