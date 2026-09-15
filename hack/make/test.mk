@@ -314,30 +314,68 @@ test-tas-e2e-baseline-helm: test-tas-e2e-baseline
 test-tas-e2e-extended-helm: E2E_USE_HELM=true
 test-tas-e2e-extended-helm: test-tas-e2e-extended
 
+# Aliases for TAS e2e tests
+.PHONY: test-e2e-tas-baseline
+test-e2e-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-e2e-tas-extended
+test-e2e-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-e2e-tas-extended-shard-0
+test-e2e-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-e2e-tas-extended-shard-1
+test-e2e-tas-extended-shard-1: test-tas-e2e-extended-shard-1
+
+.PHONY: test-e2e-tas-baseline-helm
+test-e2e-tas-baseline-helm: test-tas-e2e-baseline-helm
+
+.PHONY: test-e2e-tas-extended-helm
+test-e2e-tas-extended-helm: test-tas-e2e-extended-helm
+
 # WAS versions of TAS e2e tests
+.PHONY: test-e2e-was-tas-baseline
+test-e2e-was-tas-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-e2e-was-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-e2e-was-tas-extended
+test-e2e-was-tas-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-e2e-was-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-e2e-was-tas-extended-shard-0
+test-e2e-was-tas-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-e2e-was-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-e2e-was-tas-extended-shard-1
+test-e2e-was-tas-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-e2e-was-tas-extended-shard-1: test-tas-e2e-extended-shard-1
+
+.PHONY: test-e2e-was-tas-baseline-helm
+test-e2e-was-tas-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-e2e-was-tas-baseline-helm: test-tas-e2e-baseline-helm
+
+.PHONY: test-e2e-was-tas-extended-helm
+test-e2e-was-tas-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-e2e-was-tas-extended-helm: test-tas-e2e-extended-helm
+
+# Backwards compatibility aliases for CI/Prow
 .PHONY: test-tas-was-e2e-baseline
-test-tas-was-e2e-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-baseline: test-tas-e2e-baseline
+test-tas-was-e2e-baseline: test-e2e-was-tas-baseline
 
 .PHONY: test-tas-was-e2e-extended
-test-tas-was-e2e-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended: test-tas-e2e-extended
+test-tas-was-e2e-extended: test-e2e-was-tas-extended
 
 .PHONY: test-tas-was-e2e-extended-shard-0
-test-tas-was-e2e-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-shard-0: test-tas-e2e-extended-shard-0
+test-tas-was-e2e-extended-shard-0: test-e2e-was-tas-extended-shard-0
 
 .PHONY: test-tas-was-e2e-extended-shard-1
-test-tas-was-e2e-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-shard-1: test-tas-e2e-extended-shard-1
+test-tas-was-e2e-extended-shard-1: test-e2e-was-tas-extended-shard-1
 
 .PHONY: test-tas-was-e2e-baseline-helm
-test-tas-was-e2e-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-baseline-helm: test-tas-e2e-baseline-helm
+test-tas-was-e2e-baseline-helm: test-e2e-was-tas-baseline-helm
 
 .PHONY: test-tas-was-e2e-extended-helm
-test-tas-was-e2e-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-helm: test-tas-e2e-extended-helm
+test-tas-was-e2e-extended-helm: test-e2e-was-tas-extended-helm
 
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
@@ -466,7 +504,7 @@ run-test-tas-e2e-baseline-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/baseline" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi/baseline" \
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -481,7 +519,7 @@ run-test-tas-e2e-extended-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/extended" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi/extended" \
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -652,17 +690,21 @@ E2E_WAS_K8S_VERSION := $(E2E_K8S_VERSION)
 endif
 E2E_WAS_K8S_FULL_VERSION := $(or $(filter $(E2E_WAS_K8S_VERSION).%,$(E2E_K8S_VERSIONS)),$(E2E_WAS_K8S_VERSION).0)
 
-.PHONY: test-e2e-was
-test-e2e-was: setup-e2e-env run-test-e2e-was-$(E2E_WAS_K8S_FULL_VERSION) ## Run the WAS e2e test suite on a kind cluster of a released Kubernetes version (follows E2E_K8S_VERSION, defaults to 1.37).
+.PHONY: test-e2e-was-api
+test-e2e-was-api: setup-e2e-env run-test-e2e-was-api-$(E2E_WAS_K8S_FULL_VERSION) ## Run the WAS API e2e test suite on a kind cluster of a released Kubernetes version (follows E2E_K8S_VERSION, defaults to 1.37).
 
-run-test-e2e-was-%: K8S_VERSION = $(@:run-test-e2e-was-%=%)
-run-test-e2e-was-%:
-	@echo Running WAS e2e for k8s ${K8S_VERSION}
+# Backwards compatibility alias for CI/Prow
+.PHONY: test-e2e-was
+test-e2e-was: test-e2e-was-api
+
+run-test-e2e-was-api-%: K8S_VERSION = $(@:run-test-e2e-was-api-%=%)
+run-test-e2e-was-api-%:
+	@echo Running WAS API e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/was" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/wasapi" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		WAS_ENABLED=true \
