@@ -258,9 +258,8 @@ func withResourceFormatter(formatter *resources.ResourceFormatter) tasFlavorSnap
 // with no usage, and the assignment-algorithm scratch state is zeroed.
 func newTASFlavorSnapshot(
 	log logr.Logger,
-	topologyName kueue.TopologyReference,
+	flavor flavorInformation,
 	tree *topologyTree,
-	tolerations []corev1.Toleration,
 	simulatorSnapshot simulator.SimulatorSnapshot,
 	opts ...tasFlavorSnapshotOption,
 ) *TASFlavorSnapshot {
@@ -273,14 +272,14 @@ func newTASFlavorSnapshot(
 
 	snapshot := &TASFlavorSnapshot{
 		log:                  log,
-		topologyName:         topologyName,
+		topologyName:         flavor.TopologyName,
 		topologyTree:         tree,
 		domainStates:         make([]domainState, tree.domainCount),
 		domainTASUsage:       make(map[utiltas.TopologyDomainID]resources.Requests),
 		domainFreeCapacities: make(map[utiltas.TopologyDomainID]resources.Requests),
 		leafCapacities:       make([]leafCapacity, len(tree.leaves)),
 		leafCandidates:       make([]leafCandidate, len(tree.leaves)),
-		tolerations:          slices.Clone(tolerations),
+		tolerations:          slices.Clone(flavor.Tolerations),
 		simulatorSnapshot:    simulatorSnapshot,
 		resourceFormatter:    options.resourceFormatter,
 	}
