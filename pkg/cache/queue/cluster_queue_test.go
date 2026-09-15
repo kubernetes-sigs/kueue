@@ -79,6 +79,7 @@ func Test_PushOrUpdate(t *testing.T) {
 
 	cases := map[string]struct {
 		workload                  *utiltestingapi.WorkloadWrapper
+		updatedWorkload           *kueue.Workload
 		wantWorkload              *workload.Info
 		wantInAdmissibleWorkloads inadmissibleWorkloads
 	}{
@@ -164,6 +165,18 @@ func Test_PushOrUpdate(t *testing.T) {
 				}).
 				Obj()),
 		},
+		"requeue state changed: elapsed backoff moves workload from inadmissible to heap": {
+			workload: wlBase.Clone().
+				RequeueState(new(int32(1)), new(metav1.NewTime(minuteLater))),
+			updatedWorkload: wlBase.Clone().
+				ResourceVersion("1").
+				RequeueState(new(int32(1)), nil).
+				Obj(),
+			wantWorkload: workload.NewInfo(log, wlBase.Clone().
+				ResourceVersion("1").
+				RequeueState(new(int32(1)), nil).
+				Obj()),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -179,7 +192,10 @@ func Test_PushOrUpdate(t *testing.T) {
 			}
 
 			// Just used to validate the update operation.
-			updatedWl := tc.workload.Clone().ResourceVersion("1").Obj()
+			updatedWl := tc.updatedWorkload
+			if updatedWl == nil {
+				updatedWl = tc.workload.Clone().ResourceVersion("1").Obj()
+			}
 			cq.PushOrUpdate(workload.NewInfo(log, updatedWl))
 			newWl := cq.Pop()
 			if newWl != nil && cq.PendingTotal() != 1 {
@@ -247,33 +263,6 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	inadmissibleWorkloads, _ := cq.DumpInadmissible()
 	if len(inadmissibleWorkloads) != 0 {
 		t.Errorf("expected no inadmissible workloads while workload is inflight, got %v", inadmissibleWorkloads)
-	}
-}
-
-func TestPushOrUpdateRequeueStateChanged(t *testing.T) {
-	now := time.Now()
-	ctx, log := utiltesting.ContextWithLog(t)
-	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
-
-	wlWaiting := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
-		Creation(now).
-		RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(time.Hour)))).
-		Obj()
-	cq.PushOrUpdate(workload.NewInfo(log, wlWaiting))
-
-	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 1 {
-		t.Fatalf("got %d inadmissible workloads after first push, want 1", len(inadmissible))
-	}
-
-	wlElapsed := wlWaiting.DeepCopy()
-	wlElapsed.Status.RequeueState.RequeueAt = nil
-	cq.PushOrUpdate(workload.NewInfo(log, wlElapsed))
-
-	if active, _ := cq.Dump(); len(active) != 1 {
-		t.Errorf("got %d active workloads, want 1", len(active))
-	}
-	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 0 {
-		t.Errorf("got %d inadmissible workloads, want 0", len(inadmissible))
 	}
 }
 
