@@ -98,9 +98,7 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// worker cluster, making the worker the source of truth for worker replica
 	// counts. Optional; when nil the reverse (worker-to-manager) sync is disabled.
 	AutoscalingEnabled func(PtrT) bool
-	// IsSuspended reports whether the manager job is suspended. Runtime state
-	// must not be reflected after suspension because it may reintroduce state
-	// cleared while stopping the job.
+	// IsSuspended reports whether the manager job is suspended.
 	IsSuspended func(PtrT) bool
 }
 
