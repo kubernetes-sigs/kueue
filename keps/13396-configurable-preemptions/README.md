@@ -352,7 +352,7 @@ Each of the user stories mentioned in the motivation section can be fulfilled by
 
 #### Story 1 - Defragmentation
 
-A user can define a config with an `InsufficientTopology` trigger that will allow preemption of workloads blocking specific topologies when scheduling a workload from the associated ClusterQueue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantees asymmetry: if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
+A user can define a config with a `QuotaFeasibleButInsufficientTopology` trigger that will allow preemption of workloads blocking specific topologies when scheduling a workload from the associated ClusterQueue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantees asymmetry: if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
 
 - Only allow preemption of workloads with strictly lower priority.
 - Only allow preemption of workloads that require smaller topologies (e.g. using a custom numeric label).
@@ -364,7 +364,8 @@ An example config based on priority and number of TPUs can look like this:
 spec:
   rules:
     - name: defrag-smaller-tpu-workloads
-      trigger: "InsufficientTopology"
+      activationPolicy:
+        trigger: "QuotaFeasibleButInsufficientTopology"
       candidateSelectors:
         - priorityComparison: "LowerOrEqual"
           scope: "AnyClusterQueue"
@@ -389,18 +390,14 @@ Assumptions:
 - The hero job is a mission-critical job and should be scheduled as soon as possible,
 - The hero job should not be preemptible by any other workload.
 
-This can be achieved by a separate preemption config for the hero job. The config should be referenced by the hero job's ClusterQueue. The config will have two rules, allowing it to preempt any lower-priority workload across any ClusterQueue for either quota or topology reasons:
+This can be achieved by a separate preemption config for the hero job. The config should be referenced by the hero job's ClusterQueue. The config will have a single rule with the `Always` trigger, allowing it to unconditionally contribute any lower-priority workloads across any ClusterQueue as preemption candidates:
 
 ```yaml
 spec:
   rules:
-    - name: hero-reclaim-topology
-      trigger: "InsufficientTopology"
-      candidateSelectors:
-        - priorityComparison: "Lower"
-          scope: "AnyClusterQueue"
-    - name: hero-reclaim-quota
-      trigger: "InsufficientQuota"
+    - name: hero-preemption
+      activationPolicy:
+        trigger: "Always"
       candidateSelectors:
         - priorityComparison: "Lower"
           scope: "AnyClusterQueue"
@@ -425,7 +422,8 @@ Requested functionalities from the community can be satisfied with the following
    spec:
      rules:
        - name: preempt-small-resource-workloads
-         trigger: "InsufficientQuota"
+         activationPolicy:
+           trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
              priorityComparison: "Lower"
@@ -441,7 +439,8 @@ Requested functionalities from the community can be satisfied with the following
    spec:
      rules:
        - name: preempt-same-topology-level-workloads
-         trigger: "InsufficientTopology"
+         activationPolicy:
+           trigger: "QuotaFeasibleButInsufficientTopology"
          candidateSelectors:
            - scope: "SameParentCohort"
              priorityComparison: "LowerOrEqual"
@@ -457,7 +456,8 @@ Requested functionalities from the community can be satisfied with the following
    spec:
      rules:
        - name: preempt-same-cq-low-priority
-         trigger: "InsufficientQuota"
+         activationPolicy:
+           trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
              candidateWorkloadPrioritySelector:
@@ -472,7 +472,8 @@ Requested functionalities from the community can be satisfied with the following
    spec:
      rules:
        - name: reclaim-cohort-quota-from-low-priority
-         trigger: "QuotaReclaimRequired"
+         activationPolicy:
+           trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameParentCohort"
              quota: "BorrowingCapacityFromPreemptor"
@@ -488,7 +489,8 @@ Requested functionalities from the community can be satisfied with the following
    spec:
      rules:
        - name: preempt-only-after-min-exec-time
-         trigger: "InsufficientQuota"
+         activationPolicy:
+           trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
              priorityComparison: "Lower"
@@ -501,7 +503,8 @@ Requested functionalities from the community can be satisfied with the following
    spec:
      rules:
        - name: preempt-recent-workloads-only
-         trigger: "InsufficientQuota"
+         activationPolicy:
+           trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
              priorityComparison: "Lower"
@@ -588,23 +591,24 @@ type PreemptionConfigSpec struct {
   Rules []PreemptionRule `json:"rules,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=InsufficientQuota;QuotaReclaimRequired;InsufficientTopology
-type PreemptionRuleTrigger string
+// ActivationTrigger specifies when preemption rule should be treated as active.
+// +kubebuilder:validation:Enum=Always;InsufficientQuota;QuotaFeasibleButInsufficientTopology
+type ActivationTrigger string
 
 const (
-  // InsufficientQuota means that there was an attempt to admit the workload,
-  // but there was not enough unused quota in the ClusterQueue or its Cohort to accommodate the Workload.
-  InsufficientQuota PreemptionRuleTrigger = "InsufficientQuota"
+  // Always contributes matching candidates unconditionally.
+  Always ActivationTrigger = "Always"
 
-  // QuotaReclaimRequired means that there was an attempt to admit the workload
-  // and workload should be admissible according to nominal quota of the ClusterQueue,
-  // but it cannot as quota was borrowed. Thereby, quota will have to be reclaimed before this workload is scheduled.
-  QuotaReclaimRequired PreemptionRuleTrigger = "QuotaReclaimRequired"
+  // InsufficientQuota contributes matching candidates only if preempting baseline candidates
+  // does not yield sufficient quota to admit the preemptor workload.
+  InsufficientQuota ActivationTrigger = "InsufficientQuota"
 
-  // InsufficientTopology means that there was an attempt to admit the workload,
-  // quota was available, but no topology domain satisfied its requirements.
-  // Unlike quota-related conditions, this condition is only reset on admission, as it is checked only after quota is available for the workload.
-  InsufficientTopology PreemptionRuleTrigger = "InsufficientTopology"
+  // QuotaFeasibleButInsufficientTopology contributes matching candidates only if quota
+  // is feasible for the entire preemptor under at least one eligible flavor assignment
+  // (after preempting baseline candidates and any candidates from InsufficientQuota rules),
+  // but the workload cannot be admitted because no eligible flavor assignment satisfies
+  // its topology requirements.
+  QuotaFeasibleButInsufficientTopology ActivationTrigger = "QuotaFeasibleButInsufficientTopology"
 )
 
 // PreemptionRule defines a single rule under which preemptions can be triggered
@@ -624,11 +628,13 @@ type PreemptionRule struct {
   // +optional
   PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
 
-  // Trigger specifies the condition (InsufficientQuota, QuotaReclaimRequired, or InsufficientTopology)
-  // that must be observed on the preemptor workload for this rule to apply.
+
+  // activationPolicy determines when this rule contributes matching
+  // candidates to preemption evaluation.
   //
   // +kubebuilder:validation:Required
-  Trigger PreemptionRuleTrigger `json:"trigger"`
+  ActivationPolicy ActivationPolicy `json:"activationPolicy"`
+
 
   // CandidateSelectors specifies the selection rules for workloads that are candidates for preemption.
   // Candidates resulting from multiple selectors are summed into one set.
@@ -637,17 +643,39 @@ type PreemptionRule struct {
   // +optional
   CandidateSelectors []PreemptionCandidateSelector `json:"candidateSelectors,omitempty"`
 }
+
+
+// ActivationPolicy defines when a preemption rule contributes candidates.
+type ActivationPolicy struct {
+	// trigger specifies the prerequisite for contributing candidates.
+	//
+	// Possible values are:
+	// - Always: contributes matching candidates unconditionally.
+	// - InsufficientQuota: contributes matching candidates only if preempting baseline candidates
+	//   does not yield sufficient quota to admit the preemptor workload.
+	// - QuotaFeasibleButInsufficientTopology: contributes matching candidates only if quota
+	//   is feasible for the entire preemptor under at least one eligible flavor assignment
+	//   (after preempting baseline candidates and any candidates from InsufficientQuota rules),
+	//   but the workload cannot be admitted because no eligible flavor assignment satisfies
+	//   its topology requirements.
+	//
+	// Baseline candidates are the deduplicated union of:
+	// - candidates selected by the preemptor's ClusterQueue.spec.preemption policy;
+	// - candidates selected by applicable rules in the referenced PreemptionConfig
+	//   whose activationPolicy.trigger is Always.
+	//
+	// +kubebuilder:validation:Required
+	Trigger ActivationTrigger `json:"trigger"`
+}
+
 ```
+Rules extend the pool of preemption candidates incrementally in tiers based on their trigger value, evaluated in the following order:
 
-The trigger state and the first observation timestamp when a specific trigger occurred are maintained in-memory within the queue management and scheduling cache (rather than being patched as status conditions on the Workload API object). The in-memory trigger state is cleared upon successful admission of the workload, when the workload is deleted or evicted, or when the trigger condition is no longer true (for instance, when enough quota becomes freed to admit the workload directly without preemption).
+1. **Baseline**: rules with the `Always` trigger and classical/fair sharing preemption candidates.
+2. **`InsufficientQuota`**: rules evaluated only if baseline candidates cannot free sufficient quota to admit the preemptor.
+3. **`QuotaFeasibleButInsufficientTopology`**: rules evaluated only if quota is feasible after the previous tiers, but the workload cannot be placed due to unsatisfied topology requirements.
 
-The supported in-memory trigger types are:
-
-- `InsufficientQuota`: The ClusterQueue or Cohort does not have enough unused quota to admit the workload directly.
-- `QuotaReclaimRequired`: The workload cannot be scheduled because nominal quota was borrowed by cohort members; reclaiming this quota from borrowers is required.
-- `InsufficientTopology`: Quota is available, but no topology domain satisfies the workload's topology requirements (TAS).
-
-By maintaining triggers in-memory, the scheduler avoids etcd write amplification, eliminates informer watch propagation latency between scheduling cycles, and prevents duplicate API patch conflicts, while providing the foundation to support deferred duration-based rules (`MinTriggerRequiredDuration`) in future iterations.
+After evaluating each tier, the scheduler simulates whether the preemptor workload can be scheduled with the accumulated candidate pool. If scheduling succeeds, evaluation stops and preemption proceeds using the minimal candidate set. Otherwise, the pool is expanded with candidates from the next trigger tier.
 
 > [!NOTE]
 > **Relationship with Dynamic Resource Allocation (DRA)**:
@@ -809,143 +837,13 @@ In the initial iteration, candidate workloads are evaluated and ordered using th
 4. Workloads admitted more recently first (protecting long-running workloads, matching classical Kueue).
 5. Workload UID as tie-breaker for deterministic sorting.
 
-Configurable candidate ordering via an `Ordering` field is deferred to [Future Work Ideas](#future-work-ideas).
+Configurable candidate ordering via an `Ordering` field is deferred to [Future Work](#future-work-ideas).
 
-### Preemption evaluation flow in scheduler
+### Integration
 
-The preemption evaluation flow integrates trigger condition tracking, upper-bound feasibility checks, ordered candidate evaluation (until quota and topology conditions are satisfied), and reverse-order victim backfilling across scheduling cycles:
+To minimize modifications to existing scheduling and preemption logic in the initial iteration, candidates from configurable preemptions will be added to the existing candidate selection process as a separate source of candidates. Then candidates will be deduplicated by UID and ordered using existing logic.
 
-```mermaid
-flowchart TD
-    subgraph Cycle1 ["1. Initial Cycle: Nomination & In-Memory Trigger Tracking"]
-        A["Queue Heads Retrieved<br/>(queues.Heads)"] --> B["Nominate Workloads<br/>(nominate)"]
-        B --> C["Order Entries into Iterator"]
-        C --> D["Process Entry<br/>(processEntry)"]
-        D --> E{"Workload Fits Directly?"}
-        E -->|Yes| F["Admit Workload<br/>(admit)"]
-        E -->|No| G["Record Trigger State & Observation Timestamp<br/>in Queue Memory Cache<br/>(InsufficientQuota / QuotaReclaimRequired / InsufficientTopology)"]
-        G --> H["Requeue Workload<br/>(Immediate requeue to active heap)"]
-    end
-
-    subgraph CycleN ["2. Subsequent Cycles: Preemption Evaluation in getInitialAssignments"]
-        H -.->|Next Scheduling Cycle| I["Consider Workload in Subsequent Cycle<br/>(nominate -> getInitialAssignments)"]
-        I --> J["Evaluate In-Memory Triggers<br/>(PreemptionEvaluator)"]
-        J --> K{"Is Any Trigger Satisfied?<br/>(Matching trigger observed in memory)"}
-        K -->|No| L["Preemption Bypassed<br/>(No matching trigger)"]
-        K -->|Yes| M["Upper-Bound Feasibility Check<br/>(CandidatesQuotaAndTopologyUpperLimit)"]
-        M --> N{"Preemptor Fits if ALL<br/>Candidates Preempted?"}
-        N -->|No| O["Preemption Infeasible<br/>(Preemptor cannot fit even with all candidates)"]
-        N -->|Yes| P["Merge Candidate Outputs<br/>(Classical spec.preemption + PreemptionConfig)<br/>& Deduplicate"]
-        P --> P2["Order Candidates<br/>(Sort per default preemption ordering)"]
-
-        P2 --> Q["Candidate Selection Loop"]
-        Q --> R["Take Next Candidate in Order"]
-        R --> S["Add Candidate to Preemption Targets<br/>& Update Simulated Resources"]
-        S --> T{"Preemptor Quota &<br/>Topology Needs Satisfied?"}
-        T -->|No| U{"More Candidates?"}
-        U -->|Yes| R
-        U -->|No| V["Preemption Incomplete<br/>(Cannot satisfy requirements)"]
-
-        T -->|Yes| W["Victim Backfilling<br/>(Test selected targets in REVERSED order)"]
-        W --> X["For each victim in reverse order:<br/>Can preemptor fit WITHOUT preempting this victim?"]
-        X --> Y{"Preemptor Still Fits?"}
-        Y -->|Yes| Z["Remove victim from preemption targets<br/>(Backfill / preserve workload)"]
-        Y -->|No| AA["Retain victim in preemption targets"]
-        Z --> AB{"More victims to test?"}
-        AA --> AB
-        AB -->|Yes| X
-        AB -->|No| AC["Final Preemption Targets Determined"]
-    end
-
-    subgraph Execution ["3. Preemption Execution in processEntry"]
-        AC --> AD["Process Entry<br/>(processEntry in Preempt mode)"]
-        AD --> AE{"Targets Overlapping or<br/>Workload No Longer Fits?"}
-        AE -->|Yes| AF["Mark Skipped / Requeue"]
-        AE -->|No| AG["Issue Preemptions<br/>(issuePreemptions)"]
-        AG --> AH["Requeue Preemptor<br/>(Wait for victims to terminate)"]
-    end
-
-    subgraph Admission ["4. Admitting Cycle: Workload Admission in Subsequent Cycle"]
-        AH -.->|Victims terminate & capacity freed| AI["Re-evaluate Preemptor in Next Cycle<br/>(nominate -> processEntry)"]
-        AI --> AJ{"Preemptor Fits Directly?"}
-        AJ -->|Yes| AK["Admit Preemptor Workload<br/>(admit)"]
-        AJ -->|No| AL["Requeue / Re-evaluate Preemption"]
-    end
-
-    style Cycle1 fill:#f8f9fa,stroke:#6c757d,stroke-width:2px
-    style CycleN fill:#eef6fc,stroke:#0d6efd,stroke-width:2px
-    style Execution fill:#fff3cd,stroke:#ffc107,stroke-width:2px
-    style Admission fill:#e8f5e9,stroke:#198754,stroke-width:2px
-    style E fill:#fff3cd,stroke:#ffc107
-    style K fill:#fff3cd,stroke:#ffc107
-    style N fill:#fff3cd,stroke:#ffc107
-    style T fill:#fff3cd,stroke:#ffc107
-    style U fill:#fff3cd,stroke:#ffc107
-    style Y fill:#fff3cd,stroke:#ffc107
-    style AB fill:#fff3cd,stroke:#ffc107
-    style AE fill:#fff3cd,stroke:#ffc107
-    style AJ fill:#fff3cd,stroke:#ffc107
-    style AK fill:#d1e7dd,stroke:#0f5132,stroke-width:2px
-    style F fill:#d1e7dd,stroke:#0f5132,stroke-width:2px
-```
-
-#### Step-by-Step Breakdown
-
-1. **Nomination & In-Memory Trigger Tracking (Cycle 1)**:
-   - In `nominate()`, initial resource flavor requirements are calculated for all active queue heads.
-   - In `processEntry()`, each entry is processed:
-     - If the workload fits directly, it proceeds to admission (`admit()`).
-     - If the workload cannot fit directly (e.g. requires preemption or lacks resources/topology), `processEntry()` detects the active triggers (`InsufficientQuota`, `QuotaReclaimRequired`, or `InsufficientTopology`) and records their initial observation in memory within the queue manager / scheduler cache.
-     - The workload is requeued immediately to the active heap (`immediate = true`), allowing it to be evaluated for preemption on the very next scheduling pass without waiting for API patches or watch delivery.
-
-2. **Trigger & Preemption Evaluation (`PreemptionEvaluator`)**:
-   - In subsequent scheduling cycles (immediately on the next tick), `getInitialAssignments()` queries `PreemptionEvaluator` to check whether the active trigger condition matches any applicable preemption rule.
-   - If no trigger is satisfied, preemption is bypassed for this cycle, allowing the workload to continue waiting or be requeued.
-   - If triggers are satisfied but no preemption candidates exist in the cluster (e.g. all running workloads have higher priority), the workload is moved to `inadmissibleWorkloads` to prevent infinite busy-looping.
-
-3. **Upper-Bound Feasibility Check (`CandidatesQuotaAndTopologyUpperLimit`)**:
-   - If an applicable trigger is met, the scheduler performs an upper-bound check using `CandidatesQuotaAndTopologyUpperLimit` by simulating the removal of all matching candidate workloads.
-   - If the preemptor cannot fit even when all candidates are preempted, the evaluation terminates early.
-
-4. **Candidate Gathering & Strategy Merging (Alpha)**:
-   - In Alpha, candidates are gathered by evaluating both preemption mechanisms:
-     - **Classical Preemption**: Evaluates candidates according to `cq.Spec.Preemption` policies (e.g. workloads borrowing from the preemptor's ClusterQueue, or lower-priority workloads in the same CQ or cohort).
-     - **Configurable Preemption**: Evaluates candidates matching the rules and candidate selectors of the `PreemptionConfig` referenced by the `kueue.x-k8s.io/preemption-config` annotation (subject to matching triggers).
-   - The candidate outputs of both strategies are **merged and deduplicated** into a single candidate set ($C_{\text{merged}} = C_{\text{classical}} \cup C_{\text{config}}$).
-   - This provides maximum flexibility while changing existing logic as little as possible: users can run both strategies concurrently, or fully stop candidates from either mechanism (e.g., setting `reclaimWithinCohort: Never` and `withinClusterQueue: Never` disables classical candidates, while omitting the annotation disables configurable preemption candidates).
-
-5. **Ordered Candidate Iteration (Quota & Topology Satisfaction)**:
-   - Candidates in the merged set are sorted based on the default preemption ordering rules (reusing classical preemption and fair sharing ordering logic).
-   - The scheduler iterates through candidate workloads in order, adding victims until the preemptor's resource quota and topology domain requirements are fully satisfied.
-
-6. **Reverse-Order Victim Backfilling**:
-   - Once a viable candidate set `[V_1, V_2, ..., V_k]` is assembled, the scheduler attempts backfilling by checking victims in reverse order, from `V_k` down to `V_1`.
-   - For each victim, the scheduler evaluates whether the preemptor can still fit without evicting that victim. If the preemptor still fits, the victim is removed from the preemption target list, minimizing unnecessary workload disruptions.
-
-7. **Execution (`issuePreemptions`)**:
-   - In `processEntry()`, after checking for target overlap with earlier cycle decisions, `issuePreemptions()` issues evictions for the final victim set and requeues the preemptor workload, setting status conditions indicating preemption is pending.
-
-8. **Admission in Follow-up Cycle (`admit`)**:
-   - Preemption is asynchronous: the preemptor cannot be admitted immediately while victim pods are terminating.
-   - Once all evicted victim workloads complete termination and release their quota and topology allocations, the preemptor is evaluated in a subsequent scheduling cycle. In this cycle, the preemptor fits directly within available capacity and proceeds to admission (`admit()`).
-
-`CandidatesQuotaAndTopologyUpperLimit` by design is just an approximation to allow for short-circuiting when the preemptor obviously will not be admitted anyway. It will just use the initial state of the `PreemptionEvaluator` and does not attempt to simulate changes in DRS or borrowing during iteration over candidates. However, the returned values should always be greater than or equal to what can be preempted at this moment, so it is reasonable to avoid heavy simulation if the result is smaller than the requested amount.
-
-### Candidate Gathering, Merging, and Ordering
-
-To minimize modifications to existing scheduling and preemption logic in the initial iteration, candidate evaluation follows the established Kueue preemption pipeline:
-
-1. **Two Separate Candidate Sets**:
-   - The scheduler runs classical preemption evaluation to collect eligible candidates according to `ClusterQueue.spec.preemption` into a set ($C_{\text{classical}}$).
-   - In parallel, the scheduler evaluates the rules and selectors of the referenced `PreemptionConfig` to collect eligible candidates into a separate set ($C_{\text{config}}$).
-2. **Merging and Deduplication**:
-   - The two candidate sets are merged into a single slice and deduplicated by Workload UID ($C_{\text{merged}} = C_{\text{classical}} \cup C_{\text{config}}$).
-3. **Ordering Reusing Classical Logic**:
-   - The combined slice is ordered using the established default preemption ordering rules (reusing [`pkg/scheduler/preemption/common/ordering.go`](../../pkg/scheduler/preemption/common/ordering.go#L34-L41): evicted first, other CQs in cohort, fair sharing usage, priority, admission timestamp, UID tiebreaker).
-4. **Sequential Iteration**:
-   - The scheduler iterates through the ordered merged slice sequentially, accumulating victims until the preemptor's resource quota and topology domain requirements are fully satisfied.
-
-This two-set merge approach changes the existing preemption and scheduling codebase as little as possible during Alpha. More advanced candidate data structures—specifically organizing candidates into **Per-Selector, Per-ClusterQueue Priority Queues** and using dynamic multi-queue iteration—are deferred to [Future Work Ideas](#per-selector-per-clusterqueue-priority-queues-and-dynamic-multi-queue-iteration).
+This approach changes the existing preemption and scheduling codebase as little as possible during Alpha. More advanced candidate data structures—specifically organizing candidates into **Per-Selector, Per-ClusterQueue Priority Queues**—are deferred to [Future Work](#per-selector-per-clusterqueue-priority-queues-and-dynamic-multi-queue-iteration).
 
 ### Observability
 
@@ -986,19 +884,16 @@ The test plan is focused on `PreemptionConfig` (`PreemptionLimit` is deferred to
 
 #### Unit tests
 
-1. Trigger tracking — trigger states and observation timestamps are correctly recorded in memory when a workload cannot be admitted for a particular reason, preserved across requeues, and cleared upon admission or when resources become available.
-2. Preemption Evaluator:
+1. Preemption Evaluator:
    - Uses only rules that are applicable according to the trigger.
    - Orders candidates according to default preemption ordering rules (reusing classical preemption and fair sharing ordering logic).
    - Collects candidates from multiple rules and deduplicates.
-   - Updates DRS and borrowing information dynamically — filtering out candidates that
-     should no longer be selected according to DRS/Borrowing selectors.
    - Tests for each candidate selector.
-3. New preemptions are only considered when the feature gate is enabled.
+2. New preemptions are only considered when the feature gate is enabled.
 
 The majority of the code will be in the `scheduler/preemption` package; a new subpackage with configurable preemptions will be created there.
 
-Small parts of the implementation like in-memory trigger tracking or integration with the scheduler itself will be done in other packages and accompanied with appropriate unit tests.
+Small parts of the implementation like integration with the scheduler itself will be done in other packages and accompanied with appropriate unit tests.
 
 #### Integration tests
 
@@ -1139,14 +1034,6 @@ Why should this KEP _not_ be implemented?
    - `ClusterQueue.spec.preemption` has declarative defaulting (`+kubebuilder:default={}`). Setting it to `null` or altering declarative defaulting in a mutating webhook is a breaking change for existing clients and manifests.
    - If a formal field `spec.preemptionConfigName` were added in Alpha with merged behavior alongside `spec.preemption`, changing it to mutually exclusive in Beta would be a breaking change to the field's semantics.
    - Using an annotation (`kueue.x-k8s.io/preemption-config`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
-
-6. Persisting trigger conditions directly on the Workload API object via status condition patches (`Workload.Status.Conditions`).
-   Ruled out because:
-   - **Informer Watch Latency & Desync**: Writing a condition to etcd via `PatchAdmissionStatus()` and waiting for the informer watch event to update the scheduler's local cache introduces significant latency (tens of milliseconds) compared to the sub-millisecond scheduling cycle. If a workload is requeued immediately for evaluation in the next cycle, the scheduler pops the stale, unpatched object from cache, leading to scheduling failures, high latency, or race conditions.
-   - **Duplicate API Patches & Conflicts**: Because informer watch delivery is asynchronous, re-queuing the workload immediately while the watch event is in flight causes the scheduler to re-evaluate the workload repeatedly against stale cache state, generating duplicate status patch requests and triggering API server conflict errors (`409 Conflict`).
-   - **Inadmissible Trapping vs. Infinite Busy-Loops**: If workloads requiring preemption were marked inadmissible after setting the condition, they would become stuck in `inadmissibleWorkloads` indefinitely because informer condition updates only update inadmissible workloads in place without re-queuing them to the active heap (unless an unrelated cluster event triggers `QueueInadmissibleWorkloads`). Conversely, keeping them in the active queue without conditions causes infinite busy-loops when preemption candidates do not exist in the cluster.
-   - **etcd Churn & Scalability**: Updating status conditions in etcd on every unadmitted scheduling pass creates severe write amplification and API server pressure, particularly in busy clusters with high workload arrival rates and short scheduling intervals.
-   - **Conclusion**: Maintaining triggers and observation timestamps in-memory within the queue management and scheduler cache eliminates informer watch latency, avoids etcd write churn and duplicate API patches, and allows immediate requeuing to the active heap (while laying the groundwork for timer-based requeuing for deferred `MinTriggerRequiredDuration` rules in future iterations).
 
 ## Future Work Ideas
 
@@ -1301,7 +1188,8 @@ In future work, users would be able to configure explicit candidate ordering in 
 spec:
   rules:
     - name: defrag-smaller-tpu-workloads
-      trigger: "InsufficientTopology"
+      activationPolicy:
+        trigger: "QuotaFeasibleButInsufficientTopology"
       candidateSelectors:
         - priorityComparison: "LowerOrEqual"
           scope: "AnyClusterQueue"
@@ -1319,13 +1207,9 @@ spec:
 ```yaml
 spec:
   rules:
-    - name: hero-reclaim-topology
-      trigger: "InsufficientTopology"
-      candidateSelectors:
-        - priorityComparison: "Lower"
-          scope: "AnyClusterQueue"
-    - name: hero-reclaim-quota
-      trigger: "InsufficientQuota"
+    - name: hero-preemption
+      activationPolicy:
+        trigger: "Always"
       candidateSelectors:
         - priorityComparison: "Lower"
           scope: "AnyClusterQueue"
@@ -1540,7 +1424,8 @@ type PreemptionCandidateSelector struct {
 spec:
   rules:
     - name: preempt-only-after-min-exec-time
-      trigger: "InsufficientQuota"
+      activationPolicy:
+        trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "SameClusterQueue"
           priorityComparison: "Lower"
@@ -1553,7 +1438,8 @@ spec:
 spec:
   rules:
     - name: preempt-recent-workloads-only
-      trigger: "InsufficientQuota"
+      activationPolicy:
+        trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "SameClusterQueue"
           priorityComparison: "Lower"
@@ -1595,7 +1481,8 @@ type PreemptionCandidateSelector struct {
 spec:
   rules:
     - name: preempt-same-cq-low-priority
-      trigger: "InsufficientQuota"
+      activationPolicy:
+        trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "SameClusterQueue"
           candidateWorkloadPrioritySelector:
@@ -1609,7 +1496,8 @@ spec:
 spec:
   rules:
     - name: reclaim-cohort-quota-from-low-priority
-      trigger: "QuotaReclaimRequired"
+      activationPolicy:
+        trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "SameParentCohort"
           quota: "BorrowingCapacityFromPreemptor"
@@ -1632,7 +1520,7 @@ type QuotaConstraint string
 
 const (
   // BorrowingCapacityFromPreemptor restricts preemption candidates to workloads
-  // that consume quota borrowed from the preemptor's ClusterQueue.
+  // in other ClusterQueues within the cohort that are currently borrowing capacity from the preemptor's ClusterQueue.
   BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
 
   // DRSLessThanOrEqualToFinalShare restricts preemption candidates to workloads in ClusterQueues
@@ -1787,25 +1675,18 @@ spec:
 
 ### Minimum Trigger Duration (MinTriggerRequiredDuration)
 
-In many production environments, administrators want to avoid premature or "flapping" preemptions caused by transient quota shortages or temporary topology fragmentation that might resolve naturally within a short window (e.g., as short jobs complete or as autoscaling nodes join). By requiring that a trigger condition (such as `InsufficientTopology`, `InsufficientQuota`, or `QuotaReclaimRequired`) persists for a minimum duration before evaluating candidate preemptions, clusters can grant a grace window for normal placement or natural workload completions before resorting to disruptive evictions.
+In many production environments, administrators want to avoid premature or "flapping" preemptions caused by transient quota shortages or temporary topology fragmentation that might resolve naturally within a short window (e.g., as short jobs complete or as autoscaling nodes join). By requiring that a trigger condition (such as `QuotaFeasibleButInsufficientTopology` or `InsufficientQuota`) persists for a minimum duration before evaluating candidate preemptions, clusters can grant a grace window for normal placement or natural workload completions before resorting to disruptive evictions.
 
-In the initial Alpha release, preemption evaluation triggers immediately upon observing the trigger condition in memory without timer-based requeueing, keeping the execution flow synchronous with scheduling passes and avoiding timer management complexity. In future iterations, `PreemptionRule` will be extended with `minTriggerRequiredDuration`.
+In the initial Alpha release, preemption evaluation triggers immediately upon observing the trigger condition without timer-based requeueing, keeping the execution flow synchronous with scheduling passes and avoiding timer management complexity. In future iterations, `ActivationPolicy` will be extended with `minTriggerRequiredDuration`.
 
 #### Proposed API for Minimum Trigger Duration
 
 ```go
-type PreemptionRule struct {
-  // Name of the preemption rule.
-  Name string `json:"name"`
+type ActivationPolicy struct {
 
-  // PreemptorSelector specifies an optional label selector to limit which preemptor workloads can activate this rule.
-  //
-  // +optional
-  PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
-
-  // Trigger specifies the condition (InsufficientQuota, QuotaReclaimRequired, or InsufficientTopology)
+  // Trigger specifies the condition (InsufficientQuota, Always, or QuotaFeasibleButInsufficientTopology)
   // that must be observed on the preemptor workload for this rule to apply.
-  Trigger PreemptionRuleTrigger `json:"trigger"`
+  Trigger ActivationTrigger `json:"trigger"`
 
   // MinTriggerRequiredDuration specifies how long the trigger condition must be observed before
   // preempting workloads specified by candidateSelectors. 0s indicates that preemptions can be started immediately.
@@ -1814,9 +1695,6 @@ type PreemptionRule struct {
   // +optional
   // +kubebuilder:default="0s"
   MinTriggerRequiredDuration metav1.Duration `json:"minTriggerRequiredDuration,omitempty"`
-
-  // CandidateSelectors specifies the selection rules for workloads that are candidates for preemption.
-  CandidateSelectors []PreemptionCandidateSelector `json:"candidateSelectors,omitempty"`
 }
 ```
 
@@ -1836,8 +1714,9 @@ Delay defragmentation preemption by 30 seconds to give running workloads time to
 spec:
   rules:
     - name: defrag-smaller-tpu-workloads
-      trigger: "InsufficientTopology"
-      minTriggerRequiredDuration: "30s"
+      activationPolicy:
+        trigger: "QuotaFeasibleButInsufficientTopology"
+        minTriggerRequiredDuration: "30s"
       candidateSelectors:
         - priorityComparison: "LowerOrEqual"
           scope: "AnyClusterQueue"
@@ -1846,6 +1725,14 @@ spec:
               comparison: "Lower"
               fallbackValue: 0
 ```
+
+Alternative - Persisting trigger conditions directly on the Workload API object via status condition patches (`Workload.Status.Conditions`).
+   Ruled out because:
+   - **Informer Watch Latency & Desync**: Writing a condition to etcd via `PatchAdmissionStatus()` and waiting for the informer watch event to update the scheduler's local cache introduces significant latency (tens of milliseconds) compared to the sub-millisecond scheduling cycle. If a workload is requeued immediately for evaluation in the next cycle, the scheduler pops the stale, unpatched object from cache, leading to scheduling failures, high latency, or race conditions.
+   - **Duplicate API Patches & Conflicts**: Because informer watch delivery is asynchronous, re-queuing the workload immediately while the watch event is in flight causes the scheduler to re-evaluate the workload repeatedly against stale cache state, generating duplicate status patch requests and triggering API server conflict errors (`409 Conflict`).
+   - **Inadmissible Trapping vs. Infinite Busy-Loops**: If workloads requiring preemption were marked inadmissible after setting the condition, they would become stuck in `inadmissibleWorkloads` indefinitely because informer condition updates only update inadmissible workloads in place without re-queuing them to the active heap (unless an unrelated cluster event triggers `QueueInadmissibleWorkloads`). Conversely, keeping them in the active queue without conditions causes infinite busy-loops when preemption candidates do not exist in the cluster.
+   - **etcd Churn & Scalability**: Updating status conditions in etcd on every unadmitted scheduling pass creates severe write amplification and API server pressure, particularly in busy clusters with high workload arrival rates and short scheduling intervals.
+   - **Conclusion**: Maintaining triggers and observation timestamps in-memory within the queue management and scheduler cache eliminates informer watch latency, avoids etcd write churn and duplicate API patches, and allows immediate requeuing to the active heap (while laying the groundwork for timer-based requeuing for deferred `MinTriggerRequiredDuration` rules in future iterations).
 
 ### Per-Node DRA Device Feasibility Trigger (InsufficientDRADevices)
 
@@ -1869,7 +1756,7 @@ const (
   // InsufficientDRADevices indicates that aggregate quota is available, but per-node
   // DRA device feasibility constraints cannot be satisfied without preempting workloads
   // holding the required device instances.
-  InsufficientDRADevices PreemptionRuleTrigger = "InsufficientDRADevices"
+  InsufficientDRADevices ActivationTrigger = "InsufficientDRADevices"
 )
 ```
 
