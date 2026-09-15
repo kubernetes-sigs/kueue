@@ -440,7 +440,6 @@ files:
     removeComments: true
     excludes:
       - kustomization.yaml
-      - frontend-configmap.yaml
     continueOnError: true
     operations:
       - type: UPDATE
@@ -506,6 +505,10 @@ files:
       - type: DELETE
         key: .spec.template.spec.containers.[].securityContext
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: UPDATE
+        key: .data
+        value: '{"env.js": "window.env = {\n  VITE_WEBSOCKET_URL: \"{{ $backendUrl }}\",\n  REACT_APP_WEBSOCKET_URL: \"{{ $backendUrl }}\"\n};\n"}'
+        onFileCondition: '.kind == "ConfigMap"'
     postOperations:
       - type: INSERT_TEXT
         key: .spec
@@ -694,6 +697,17 @@ files:
               verbs: ["create"]
           {{- end }}
         onFileCondition: '.kind == "ClusterRole"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- $scheme := ternary "wss" "ws" $hasTls }}
+          {{- $backendUrl := printf "%s://%s" $scheme .Values.kueueViz.backend.ingress.host }}
+        onFileCondition: '.kind == "ConfigMap"'
       - type: INSERT_TEXT
         position: START
         value: |
