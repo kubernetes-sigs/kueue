@@ -678,6 +678,125 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 			})
 		})
+
+		ginkgo.It("Should dispatch a job only to a worker supporting its framework", func() {
+			setWorkerClusterQueueStopPolicy := func(k8sClient client.Client, cq *kueue.ClusterQueue, stopPolicy kueue.StopPolicy) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCQ)).To(gomega.Succeed())
+					updatedCQ.Spec.StopPolicy = new(stopPolicy)
+					g.Expect(k8sClient.Update(ctx, updatedCQ)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			statefulSetWorker := utiltestingapi.MakeMultiKueueClusterWithGeneratedName("statefulset-worker-").
+				KubeConfig(kueue.SecretLocationType, "multikueue1").
+				Obj()
+			statefulSetWorker.Spec.SupportedFrameworks = []string{workloadstatefulset.FrameworkName}
+			util.MustCreate(ctx, k8sManagerClient, statefulSetWorker)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, statefulSetWorker, true)
+			})
+
+			jobWorker := utiltestingapi.MakeMultiKueueClusterWithGeneratedName("job-worker-").
+				KubeConfig(kueue.SecretLocationType, "multikueue2").
+				Obj()
+			jobWorker.Spec.SupportedFrameworks = []string{workloadjob.FrameworkName}
+			util.MustCreate(ctx, k8sManagerClient, jobWorker)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, jobWorker, true)
+			})
+
+			frameworkConfig := utiltestingapi.MakeMultiKueueConfigWithGeneratedName("framework-config-").
+				Clusters(statefulSetWorker.Name, jobWorker.Name).
+				Obj()
+			util.MustCreate(ctx, k8sManagerClient, frameworkConfig)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, frameworkConfig, true)
+			})
+
+			frameworkAC := utiltestingapi.MakeAdmissionCheck("").
+				GeneratedName("framework-ac-").
+				ControllerName(kueue.MultiKueueControllerName).
+				Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", frameworkConfig.Name).
+				Obj()
+			util.MustCreate(ctx, k8sManagerClient, frameworkAC)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, frameworkAC, true)
+			})
+			util.ExpectAdmissionChecksToBeActive(ctx, k8sManagerClient, frameworkAC)
+
+			ginkgo.By("Using the framework-specific workers for the manager ClusterQueue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					updatedCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(managerCq), updatedCQ)).To(gomega.Succeed())
+					updatedCQ.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+						AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{Name: kueue.AdmissionCheckReference(frameworkAC.Name)}},
+					}
+					g.Expect(k8sManagerClient.Update(ctx, updatedCQ)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectClusterQueuesToBeActive(ctx, k8sManagerClient, managerCq)
+			})
+
+			ginkgo.By("Holding both worker ClusterQueues so dispatched Workloads remain observable", func() {
+				setWorkerClusterQueueStopPolicy(k8sWorker1Client, worker1Cq, kueue.Hold)
+				setWorkerClusterQueueStopPolicy(k8sWorker2Client, worker2Cq, kueue.Hold)
+
+				for _, worker := range []struct {
+					client client.Client
+					cq     *kueue.ClusterQueue
+				}{
+					{client: k8sWorker1Client, cq: worker1Cq},
+					{client: k8sWorker2Client, cq: worker2Cq},
+				} {
+					gomega.Eventually(func(g gomega.Gomega) {
+						updatedCQ := &kueue.ClusterQueue{}
+						g.Expect(worker.client.Get(ctx, client.ObjectKeyFromObject(worker.cq), updatedCQ)).To(gomega.Succeed())
+						g.Expect(updatedCQ.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.ClusterQueueActive))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}
+			})
+
+			job := testingjob.MakeJob("framework-job", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				TerminationGracePeriod(1).
+				RequestAndLimit(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceMemory, "100M").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+			util.MustCreate(ctx, k8sManagerClient, job)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, job, true)
+			})
+
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: job.Namespace}
+			ginkgo.By("Checking that only the compatible worker receives the Workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerWorkload := &kueue.Workload{}
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).To(utiltesting.BeNotFoundError())
+				}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Releasing the compatible worker ClusterQueue", func() {
+				setWorkerClusterQueueStopPolicy(k8sWorker2Client, worker2Cq, kueue.None)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sWorker2Client, worker2Cq)
+			})
+
+			admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlKey, frameworkAC.Name)
+			gomega.Expect(admittedWorker).To(gomega.Equal(jobWorker.Name))
+
+			ginkgo.By("Checking the Job exists on the compatible worker", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(job), &batchv1.Job{})).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("Preemption with a multikueue admission check", func() {
