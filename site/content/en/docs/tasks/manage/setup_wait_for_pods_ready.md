@@ -49,6 +49,7 @@ install a release version and customize the default `waitForPodsReady` configura
         backoffLimitCount: 5
         backoffBaseSeconds: 60
         backoffMaxSeconds: 3600
+        backoffLimitTimeout: 24h
 ```
 
 {{% alert title="Note" color="primary" %}}
@@ -95,6 +96,7 @@ The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional
 - `backoffLimitCount`
 - `backoffBaseSeconds`
 - `backoffMaxSeconds`
+- `backoffLimitTimeout`
 
 The `timestamp` field defines which timestamp Kueue uses to order the Workloads in the queue:
 
@@ -116,6 +118,16 @@ backoff time by setting the `backoffMaxSeconds` (defaulting to 3600). Using the 
 evicted workload is re-queued after approximately `60, 120, 240, ..., 3600, ..., 3600` seconds.
 Even if the backoff time reaches the `backoffMaxSeconds`, Kueue will continue to re-queue an evicted Workload with the `backoffMaxSeconds`
 until the number of re-queue reaches the `backoffLimitCount`.
+
+You can also limit the time a Workload spends being re-queued by setting `backoffLimitTimeout`.
+Kueue records the time of the first eviction with the `PodsReadyTimeout` reason in `.status.requeueState.firstEvictedAt`.
+When the Workload exceeds the PodsReady timeout again after `backoffLimitTimeout` has elapsed since that time,
+Kueue [deactivates the Workload](/docs/concepts/workload/#active) instead of re-queuing it.
+The measurement is reset when the Workload reaches `PodsReady=True`, so the limit bounds the time spent
+cycling through evictions rather than the total time the Workload spends in the queue.
+`backoffLimitCount` and `backoffLimitTimeout` are independent; whichever limit is reached first deactivates the Workload.
+If you don't specify any value for `backoffLimitTimeout`, the re-queuing time is not limited.
+When specified, `backoffLimitTimeout` must be greater than `0s`.
 
 ## Example
 

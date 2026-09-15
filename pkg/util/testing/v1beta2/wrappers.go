@@ -384,6 +384,14 @@ func (w *WorkloadWrapper) RequeueState(count *int32, requeueAt *metav1.Time) *Wo
 	return w
 }
 
+func (w *WorkloadWrapper) RequeueStateFirstEvictedAt(t *metav1.Time) *WorkloadWrapper {
+	if w.Status.RequeueState == nil {
+		w.Status.RequeueState = &kueue.RequeueState{}
+	}
+	w.Status.RequeueState.FirstEvictedAt = t
+	return w
+}
+
 func (w *WorkloadWrapper) ResourceVersion(v string) *WorkloadWrapper {
 	w.SetResourceVersion(v)
 	return w
