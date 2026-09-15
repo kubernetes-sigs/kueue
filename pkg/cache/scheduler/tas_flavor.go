@@ -204,7 +204,15 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, simulatorSnapshot, withResourceFormatter(c.resourceFormatter))
+	snapshot := newTASFlavorSnapshot(
+		log,
+		c.flavor.TopologyName,
+		tree,
+		c.flavor.Tolerations,
+		simulatorSnapshot,
+		withResourceFormatter(c.resourceFormatter),
+		withFlavorNodeLabels(c.flavor.NodeLabels),
+	)
 	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
@@ -236,7 +244,11 @@ func (c *TASFlavorCache) cachedOrBuiltTree() (*topologyTree, bool) {
 	}
 	// snapshot already holds c.RLock. Do not use c.NodeLabels here: a recursive
 	// RLock can deadlock if a writer is waiting between the two acquisitions.
-	nodes, generation := c.nodesCache.find(c.flavor.NodeLabels, c.topology.Levels)
+	nodeLabels := c.flavor.NodeLabels
+	if features.Enabled(features.SchedulerLibraryIntegration) && len(c.topology.Levels) > 0 && utiltas.IsLowestLevelHostname(c.topology.Levels) {
+		nodeLabels = nil
+	}
+	nodes, generation := c.nodesCache.find(nodeLabels, c.topology.Levels)
 	tree := newTopologyTree(c.topology.Levels, nodes, generation)
 	if !cacheTree {
 		return tree, false
