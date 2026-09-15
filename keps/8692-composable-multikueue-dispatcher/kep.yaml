@@ -1,0 +1,19 @@
+title: Composable MultiKueue Dispatcher
+kep-number: 8692
+authors:
+  - "@amy"
+status: provisional
+creation-date: 2026-04-25
+reviewers: []
+approvers: []
+
+stage: alpha
+
+latest-milestone: "v0.x"
+
+milestone:
+  alpha: "v0.x"
+  beta: "v0.x+1"
+
+feature-gates:
+  - name: ComposableDispatcher
