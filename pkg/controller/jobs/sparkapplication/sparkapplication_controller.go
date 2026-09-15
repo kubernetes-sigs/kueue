@@ -280,7 +280,14 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 		}
 
 		if role == sparkcommon.SparkRoleExecutor {
-			j.Spec.Executor.Instances = new(podSetInfo.Count)
+			// An unset spec.executor.instances is counted as 0 executors, while the
+			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
+			// otherwise the API server rejects the patch that suspends the job.
+			if podSetInfo.Count == 0 {
+				j.Spec.Executor.Instances = nil
+			} else {
+				j.Spec.Executor.Instances = new(podSetInfo.Count)
+			}
 		}
 
 		return changed

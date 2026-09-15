@@ -441,6 +441,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	nodeSelector := map[string]string{"disktype": "ssd"}
 	schedulingGate := corev1.PodSchedulingGate{Name: "test-scheduling-gate-1"}
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns")
+	sparkAppWithoutExecutorInstances := testSparkApp.Clone().
+		DriverTemplate(emptyDriverPodTemplateSpec.DeepCopy()).
+		ExecutorTemplate(emptyExecutorPodTemplateSpec.DeepCopy()).
+		Obj()
+	sparkAppWithoutExecutorInstances.Spec.Executor.Instances = nil
 
 	cases := map[string]struct {
 		sparkApp     *sparkappv1beta2.SparkApplication
@@ -589,6 +594,15 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				ExecutorInstances(3).
 				Obj(),
 			wantChanged: true,
+		},
+		"should keep executor instances unset when the executor PodSet count is 0": {
+			sparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: "driver"},
+				{Name: "executor", Count: 0},
+			},
+			wantSparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
+			wantChanged:  false,
 		},
 		"should not modify the SparkApplication  if the wrong number of PodSet infos is provided": {
 			sparkApp: testSparkApp.DeepCopy(),
