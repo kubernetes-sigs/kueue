@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -2207,6 +2208,12 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	}
 
 	podRequirements.PodTemplate = podSet.Template.DeepCopy()
+	// The scheduler-library filters with the template alone, so the flavor's
+	// tolerations have to reach it as well as the compiled list above. Merge skips
+	// duplicates, so the leader's later podset.Merge over this template does not add
+	// them a second time.
+	podRequirements.PodTemplate.Spec.Tolerations = utiltolerations.Merge(
+		podRequirements.PodTemplate.Spec.Tolerations, s.tolerations)
 	return podRequirements, ""
 }
 

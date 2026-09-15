@@ -36,40 +36,56 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
-const wasRackLabel = "cloud.provider.com/topology-rack"
+const (
+	wasRackLabel   = "cloud.provider.com/topology-rack"
+	taintedNodeKey = "example.com/drain"
+)
 
-// wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
-// is taken by victimKey, using the scheduler-library simulator rather than a stand-in.
+// wasSnapshotWithVictim builds a TAS snapshot whose single host port is already taken
+// by victimKey.
 func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SimulatorSnapshot) {
 	t.Helper()
-	ctx, log := utiltesting.ContextWithLog(t)
-
-	nodes := []*corev1.Node{
-		node.MakeNode("n1").
-			Label(corev1.LabelHostname, "n1").
-			Label(wasRackLabel, "r1").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("4"),
-				corev1.ResourcePods: resource.MustParse("10"),
-			}).Ready().Obj(),
-	}
-	sim, err := was.NewWASSimulator(ctx, nil)
-	if err != nil {
-		t.Fatalf("NewWASSimulator() error = %v", err)
-	}
-	sim.TrackPod(ctx, testingpod.MakePod("victim-pod", victimKey.Namespace).
+	return wasSnapshot(t, wasNode().Obj(), nil, testingpod.MakePod("victim-pod", victimKey.Namespace).
 		UID("victim-pod").
 		Annotation(kueue.WorkloadAnnotation, victimKey.Name).
 		NodeName("n1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj())
+}
+
+// wasNode is the one node these tests place on.
+func wasNode() *node.NodeWrapper {
+	return node.MakeNode("n1").
+		Label(corev1.LabelHostname, "n1").
+		Label(wasRackLabel, "r1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("4"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+}
+
+// wasSnapshot builds a TAS snapshot over one node, driving the real scheduler-library
+// simulator rather than a stand-in. The tolerations are the ResourceFlavor's.
+func wasSnapshot(t *testing.T, n *corev1.Node, tolerations []corev1.Toleration, tracked ...*corev1.Pod) (*TASFlavorSnapshot, simulator.SimulatorSnapshot) {
+	t.Helper()
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	nodes := []*corev1.Node{n}
+	sim, err := was.NewWASSimulator(ctx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulator() error = %v", err)
+	}
+	for _, pod := range tracked {
+		sim.TrackPod(ctx, pod)
+	}
 	simSnapshot, err := sim.Snapshot(ctx, nodes)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	tree := newTopologyTree([]string{wasRackLabel, corev1.LabelHostname}, nodes, 0)
-	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, simSnapshot), simSnapshot
+	flavor := flavorInformation{TopologyName: "tas-topology", Tolerations: tolerations}
+	return newTASFlavorSnapshot(log, flavor, tree, simSnapshot), simSnapshot
 }
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
@@ -187,5 +203,78 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 	}
 	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithSimulateEmpty(true)).Failure(); failure != nil {
 		t.Errorf("FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", failure)
+	}
+}
+
+// A ResourceFlavor's tolerations have to reach the Pod template, because that is what
+// the scheduler-library filters with. Leaving them on the compiled list alone makes TAS
+// reject a node the flavor is meant to unlock. Neither PodSet template carries the
+// toleration, so both depend on the flavor propagating it.
+func TestFlavorTolerationsReachTheTemplate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	unconstrained := true
+	groupName := "group"
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	podSet := func(name string, count int32, tolerations []corev1.Toleration) TASPodSetRequests {
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers:  []corev1.Container{{Name: "c"}},
+					Tolerations: tolerations,
+				}},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+	tolerateTheTaint := []corev1.Toleration{{
+		Key:      taintedNodeKey,
+		Operator: corev1.TolerationOpExists,
+		Effect:   corev1.TaintEffectNoSchedule,
+	}}
+
+	cases := map[string]struct {
+		flavorTolerations []corev1.Toleration
+		// workerTolerations go on the workers' own template, so a case can leave the
+		// leader as the only PodSet relying on the flavor.
+		workerTolerations []corev1.Toleration
+		wantFit           bool
+	}{
+		"both PodSets rely on the flavor": {
+			flavorTolerations: tolerateTheTaint,
+			wantFit:           true,
+		},
+		"only the leader relies on the flavor": {
+			flavorTolerations: tolerateTheTaint,
+			workerTolerations: tolerateTheTaint,
+			wantFit:           true,
+		},
+		"nothing tolerates the node's taint": {},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			taintedNode := wasNode().Taints(corev1.Taint{Key: taintedNodeKey, Effect: corev1.TaintEffectNoSchedule}).Obj()
+			snapshot, _ := wasSnapshot(t, taintedNode, tc.flavorTolerations)
+			// The leader is the PodSet with the smaller count.
+			failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
+				podSet("workers", 2, tc.workerTolerations),
+				podSet("leader", 1, nil),
+			}).Failure()
+			if tc.wantFit && failure != nil {
+				t.Errorf("FindTopologyAssignmentsForFlavor() = %v, want a fit on the tolerated node", failure)
+			}
+			if !tc.wantFit && failure == nil {
+				t.Error("FindTopologyAssignmentsForFlavor() found a fit, want none while the taint is untolerated")
+			}
+		})
 	}
 }
