@@ -57,6 +57,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -143,6 +144,15 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	var nodes corev1.NodeList
 	if err := r.client.List(ctx, &nodes, client.MatchingFields{indexer.NodeHostnameKey: req.Name}); err != nil {
 		return ctrl.Result{}, err
+	}
+	if len(nodes.Items) > 1 {
+		// The label is not guaranteed to be unique. Picking one of the Nodes would
+		// apply its readiness and its Pods to the workloads assigned to the other,
+		// and no retry can disambiguate them, so skip the hostname. Adding or
+		// removing a Node triggers another reconcile once the conflict is resolved.
+		log.Error(nil, "Multiple Nodes share the hostname, skipping the reconcile",
+			"nodes", utilslices.Map(nodes.Items, func(n *corev1.Node) string { return n.Name }))
+		return ctrl.Result{}, nil
 	}
 	nodeExists := len(nodes.Items) > 0
 

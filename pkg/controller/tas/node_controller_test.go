@@ -193,6 +193,12 @@ func TestNodeFailureReconciler(t *testing.T) {
 	nodeWithDifferentName := testingnode.MakeNode(nodeObjectName).Label(corev1.LabelHostname, nodeName)
 	podOnNodeWithDifferentName := basePod.DeepCopy()
 	podOnNodeWithDifferentName.Spec.NodeName = nodeObjectName
+	// kubernetes.io/hostname is not guaranteed to be unique, so two Nodes can
+	// carry the value a TopologyAssignment refers to.
+	duplicateNodeNotReady := "duplicate-node-a"
+	duplicateNodeReady := "duplicate-node-b"
+	podOnDuplicateReadyNode := basePod.DeepCopy()
+	podOnDuplicateReadyNode.Spec.NodeName = duplicateNodeReady
 
 	tests := map[string]struct {
 		initObjs           []client.Object
@@ -268,6 +274,25 @@ func TestNodeFailureReconciler(t *testing.T) {
 					LastTransitionTime: now}).Obj(),
 				baseWorkload.DeepCopy(),
 				podOnNodeWithDifferentName.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+		},
+		"Two Nodes share the hostname label, delay passed - neither Node is evaluated": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+			initObjs: []client.Object{
+				testingnode.MakeNode(duplicateNodeNotReady).Label(corev1.LabelHostname, nodeName).
+					StatusConditions(corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						LastTransitionTime: earlierTime}).Obj(),
+				testingnode.MakeNode(duplicateNodeReady).Label(corev1.LabelHostname, nodeName).
+					StatusConditions(corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				podOnDuplicateReadyNode.DeepCopy(),
 			},
 			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes: nil,
