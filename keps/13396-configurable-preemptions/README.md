@@ -62,11 +62,6 @@
     - [Examples with Time-Based Candidate Selectors](#examples-with-time-based-candidate-selectors)
       - [Story 1 - Minimal Execution Duration Before Preemption](#story-1---minimal-execution-duration-before-preemption)
       - [Story 2 - SLA Protection Based on Workload Creation Time](#story-2---sla-protection-based-on-workload-creation-time)
-  - [Workload Priority Class Selectors](#workload-priority-class-selectors)
-    - [Proposed API for Workload Priority Class Selectors](#proposed-api-for-workload-priority-class-selectors)
-    - [Examples with Workload Priority Class Selectors](#examples-with-workload-priority-class-selectors)
-      - [Story 1 - Priority Threshold for Within-ClusterQueue Preemptions](#story-1---priority-threshold-for-within-clusterqueue-preemptions)
-      - [Story 2 - Priority Threshold for Reclaim Within Cohort](#story-2---priority-threshold-for-reclaim-within-cohort)
   - [Quota-Based Candidate Selectors (QuotaConstraint)](#quota-based-candidate-selectors-quotaconstraint)
     - [Proposed API for Quota-Based Candidate Selectors](#proposed-api-for-quota-based-candidate-selectors)
   - [PreemptionLimit (Rate-Limiting Guardrails)](#preemptionlimit-rate-limiting-guardrails)
@@ -102,7 +97,7 @@ updates.
 
 This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` deferred to future work).
 This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
-With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, priority class selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical preemption and fair sharing. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical preemption and fair sharing. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
 
 ## Motivation
 
@@ -413,7 +408,7 @@ Thanks to the elevated preemption privileges, the hero job will be able to preem
 
 #### Story 3 - Business driven preemption rules
 
-Requested functionalities from the community can be satisfied with the following configurations (with workload priority class selectors in stories 3 & 4 and time-based duration selectors in stories 5 & 6 deferred to [Future Work Ideas](#future-work-ideas)):
+Requested functionalities from the community can be satisfied with the following configurations (with time-based duration selectors in stories 5 & 6 deferred to [Future Work Ideas](#future-work-ideas)):
 
 1. **Resource requests/limits based preemption (filtering by resource size):**
    Protect large, long-running batch workloads from preemption by ensuring only "small" workloads (e.g. workloads requesting at most 8 GPUs or 32 CPU cores) are eligible as preemption candidates using custom numeric labels with `maxValue`:
@@ -433,7 +428,7 @@ Requested functionalities from the community can be satisfied with the following
    ```
 
 2. **Advanced topology comparison (matching podset required levels):**
-   Ensure preemption only targets workloads that match or fall within specific topology domains or required podset levels (e.g., only preempt workloads constrained to the same `rack` domain) using `workloadSelector` or numeric label relations:
+   Ensure preemption only targets workloads that match or fall within specific topology domains or required podset levels (e.g., only preempt workloads constrained to the same `rack` domain) using `labelSelector` or numeric label relations:
 
    ```yaml
    spec:
@@ -444,13 +439,13 @@ Requested functionalities from the community can be satisfied with the following
          candidateSelectors:
            - scope: "SameParentCohort"
              priorityComparison: "LowerOrEqual"
-             workloadSelector:
+             labelSelector:
                matchLabels:
                  kueue.x-k8s.io/topology-level: "rack"
    ```
 
-3. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):** _(Deferred to [Future Work Ideas](#workload-priority-class-selectors))_
-   Restricted preemption within the same ClusterQueue targeting only candidates matching a specific priority class:
+3. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):**
+   Restricted preemption within the same ClusterQueue targeting only candidates matching a specific priority class using `labelSelector`:
 
    ```yaml
    spec:
@@ -460,13 +455,13 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
-             candidateWorkloadPrioritySelector:
+             labelSelector:
                matchLabels:
                  kueue.x-k8s.io/priority-class: "batch-low"
    ```
 
-4. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):** _(Deferred to [Future Work Ideas](#workload-priority-class-selectors))_
-   Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class:
+4. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):**
+   Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `labelSelector`:
 
    ```yaml
    spec:
@@ -477,7 +472,7 @@ Requested functionalities from the community can be satisfied with the following
          candidateSelectors:
            - scope: "SameParentCohort"
              quota: "BorrowingCapacityFromPreemptor"
-             candidateWorkloadPrioritySelector:
+             labelSelector:
                matchLabels:
                  kueue.x-k8s.io/priority-class: "batch-low"
    ```
@@ -647,25 +642,25 @@ type PreemptionRule struct {
 
 // ActivationPolicy defines when a preemption rule contributes candidates.
 type ActivationPolicy struct {
-	// trigger specifies the prerequisite for contributing candidates.
-	//
-	// Possible values are:
-	// - Always: contributes matching candidates unconditionally.
-	// - InsufficientQuota: contributes matching candidates only if preempting baseline candidates
-	//   does not yield sufficient quota to admit the preemptor workload.
-	// - QuotaFeasibleButInsufficientTopology: contributes matching candidates only if quota
-	//   is feasible for the entire preemptor under at least one eligible flavor assignment
-	//   (after preempting baseline candidates and any candidates from InsufficientQuota rules),
-	//   but the workload cannot be admitted because no eligible flavor assignment satisfies
-	//   its topology requirements.
-	//
-	// Baseline candidates are the deduplicated union of:
-	// - candidates selected by the preemptor's ClusterQueue.spec.preemption policy;
-	// - candidates selected by applicable rules in the referenced PreemptionConfig
-	//   whose activationPolicy.trigger is Always.
-	//
-	// +kubebuilder:validation:Required
-	Trigger ActivationTrigger `json:"trigger"`
+  // trigger specifies the prerequisite for contributing candidates.
+  //
+  // Possible values are:
+  // - Always: contributes matching candidates unconditionally.
+  // - InsufficientQuota: contributes matching candidates only if preempting baseline candidates
+  //   does not yield sufficient quota to admit the preemptor workload.
+  // - QuotaFeasibleButInsufficientTopology: contributes matching candidates only if quota
+  //   is feasible for the entire preemptor under at least one eligible flavor assignment
+  //   (after preempting baseline candidates and any candidates from InsufficientQuota rules),
+  //   but the workload cannot be admitted because no eligible flavor assignment satisfies
+  //   its topology requirements.
+  //
+  // Baseline candidates are the deduplicated union of:
+  // - candidates selected by the preemptor's ClusterQueue.spec.preemption policy;
+  // - candidates selected by applicable rules in the referenced PreemptionConfig
+  //   whose activationPolicy.trigger is Always.
+  //
+  // +kubebuilder:validation:Required
+  Trigger ActivationTrigger `json:"trigger"`
 }
 
 ```
@@ -742,11 +737,11 @@ type PreemptionCandidateSelector struct {
   // +optional
   ClusterQueueSelector *metav1.LabelSelector `json:"clusterQueueSelector,omitempty"`
 
-  // WorkloadSelector defines label selector constraints on candidate Workloads.
+  // labelSelector defines label selector constraints on candidate Workloads.
   // Accepts all if not set.
   //
   // +optional
-  WorkloadSelector *metav1.LabelSelector `json:"workloadSelector,omitempty"`
+  LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
 
   // PriorityComparison defines how the candidate's priority compares to the preemptor's priority.
   // For example "Lower" means that only workloads with lower
@@ -977,7 +972,7 @@ Create performance test suite for preemptions to validate current implementation
 
 **Step 3.** Reimplement existing classical and fair sharing rules using the new API to achieve full feature parity, enforce mutual exclusivity between strategies, introduce a formal API field on `ClusterQueueSpec` for Beta, and retire the Alpha annotation.
 
-**Step 4.** Implement additional candidate selectors (time-based execution and creation duration selectors, workload priority class selectors) and minimum trigger duration (`minTriggerRequiredDuration`).
+**Step 4.** Implement additional candidate selectors (time-based execution and creation duration selectors) and minimum trigger duration (`minTriggerRequiredDuration`).
 
 **Step 5.** Implement configurable candidate ordering (`ordering:` comparator chains, per-selector, per-CQ priority queues, and dynamic multi-queue candidate iteration).
 
@@ -1444,66 +1439,6 @@ spec:
         - scope: "SameClusterQueue"
           priorityComparison: "Lower"
           maxTimeFromCreationDuration: "1h"
-```
-
-### Workload Priority Class Selectors
-
-Selecting preemption candidates based on workload priority class label selectors allows targeting specific priority classes (e.g. preempting only `batch-low` workloads within the same ClusterQueue or when reclaiming borrowed cohort capacity). While these use cases are well-identified, configuring priority-class label selectors is deferred to future work. Preemptor workloads are qualified at the rule level via `preemptorSelector`.
-
-Relevant use cases include:
-
-1. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):**
-   Restricted preemption within the same ClusterQueue targeting only candidates matching a specific priority class.
-2. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):**
-   Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class.
-
-#### Proposed API for Workload Priority Class Selectors
-
-In a future iteration, `PreemptionCandidateSelector` will be extended with the following label selector field:
-
-```go
-type PreemptionCandidateSelector struct {
-  // ... baseline candidate selector fields ...
-
-  // CandidateWorkloadPrioritySelector defines label selector constraints on candidate WorkloadPriorityClasses.
-  // Matches all workload priority classes if not set.
-  //
-  // +optional
-  CandidateWorkloadPrioritySelector *metav1.LabelSelector `json:"candidateWorkloadPrioritySelector,omitempty"`
-}
-```
-
-#### Examples with Workload Priority Class Selectors
-
-##### Story 1 - Priority Threshold for Within-ClusterQueue Preemptions
-
-```yaml
-spec:
-  rules:
-    - name: preempt-same-cq-low-priority
-      activationPolicy:
-        trigger: "InsufficientQuota"
-      candidateSelectors:
-        - scope: "SameClusterQueue"
-          candidateWorkloadPrioritySelector:
-            matchLabels:
-              kueue.x-k8s.io/priority-class: "batch-low"
-```
-
-##### Story 2 - Priority Threshold for Reclaim Within Cohort
-
-```yaml
-spec:
-  rules:
-    - name: reclaim-cohort-quota-from-low-priority
-      activationPolicy:
-        trigger: "InsufficientQuota"
-      candidateSelectors:
-        - scope: "SameParentCohort"
-          quota: "BorrowingCapacityFromPreemptor"
-          candidateWorkloadPrioritySelector:
-            matchLabels:
-              kueue.x-k8s.io/priority-class: "batch-low"
 ```
 
 ### Quota-Based Candidate Selectors (QuotaConstraint)
