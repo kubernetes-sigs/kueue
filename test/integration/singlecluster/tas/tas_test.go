@@ -8809,12 +8809,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			}
 		})
 
-		ginkgo.It("should place scaled-up workload in same topology domain as original", func() {
+		ginkgo.It("should grow an elastic workload to exactly fill topology capacity", func() {
 			var wl1 *kueue.Workload
 
 			ginkgo.By("create initial workload with 2 pods using unconstrained topology", func() {
 				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(constants.ElasticJobAnnotation, "true").
 					Obj()
 				wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					Request(corev1.ResourceCPU, "1").
@@ -8858,13 +8859,16 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			var wl2 *kueue.Workload
-			ginkgo.By("create a replacement workload slice with more pods", func() {
+			// The three nodes have 24 CPUs total. Counting the old two-Pod slice
+			// twice would incorrectly reject a replacement that exactly fits.
+			ginkgo.By("create a replacement workload slice requesting all 24 CPUs", func() {
 				wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(constants.ElasticJobAnnotation, "true").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(wl1))).
 					Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
 					Obj()
-				wl2.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+				wl2.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 24).
 					Request(corev1.ResourceCPU, "1").
 					UnconstrainedTopologyRequest().
 					Image("image").
@@ -8886,6 +8890,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					newAssignment := wl2.Status.Admission.PodSetAssignments[0].TopologyAssignment
 					g.Expect(newAssignment.Slices).ShouldNot(gomega.BeEmpty())
 					g.Expect(originalAssignment.Slices).ShouldNot(gomega.BeEmpty())
+					g.Expect(assignedPodCount(newAssignment)).To(gomega.Equal(int32(24)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
