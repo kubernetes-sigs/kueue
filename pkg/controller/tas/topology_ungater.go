@@ -26,6 +26,8 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -197,7 +199,22 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		log.V(5).Info("workload not found")
 		return reconcile.Result{}, nil
 	}
-	if !r.expectationsStore.Satisfied(log, req.NamespacedName) {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workloadslicing.IsElasticWorkload(wl) {
+		// Pod events carry the origin slice name, whose admission can be stale.
+		owner := metav1.GetControllerOf(wl)
+		if owner == nil {
+			return reconcile.Result{}, nil
+		}
+		job := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: owner.Name}}
+		active, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, job, schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
+		if err != nil || active == nil {
+			return reconcile.Result{}, err
+		}
+		wl = active
+	}
+	// Pod observations use the origin name throughout an elastic slice chain.
+	expectationKey := types.NamespacedName{Namespace: wl.Namespace, Name: workloadslicing.SliceName(wl)}
+	if !r.expectationsStore.Satisfied(log, expectationKey) {
 		log.V(3).Info("There are pending ungate operations")
 		return reconcile.Result{}, errPendingUngateOps
 	}
@@ -303,7 +320,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	log.V(2).Info("identified pods to ungate", "count", len(allToUngate))
 	podsToUngateUIDs := utilslices.Map(allToUngate, func(p *podWithUngateInfo) types.UID { return p.pod.UID })
-	r.expectationsStore.ExpectUIDs(log, req.NamespacedName, podsToUngateUIDs)
+	r.expectationsStore.ExpectUIDs(log, expectationKey, podsToUngateUIDs)
 
 	err := parallelize.Until(ctx, len(allToUngate), func(i int) error {
 		podWithUngateInfo := &allToUngate[i]
@@ -321,12 +338,12 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		})
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
-			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
+			r.expectationsStore.ObservedUID(log, expectationKey, podWithUngateInfo.pod.UID)
 			log.Error(e, "failed ungating pod", "pod", klog.KObj(podWithUngateInfo.pod))
 		}
 		if !ungated {
 			// We don't expect an event in this case.
-			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
+			r.expectationsStore.ObservedUID(log, expectationKey, podWithUngateInfo.pod.UID)
 		} else {
 			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod), r.customLabels, r.roleTracker)
 		}
