@@ -26,6 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -166,6 +167,34 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("verifying equivalent blocked workloads are bulk-moved to inadmissible")
 			util.ExpectPendingWorkloadsMetric(cq, 0, 10)
 			util.ExpectPendingSchedulingHashesMetric(cq, 0, 1)
+		})
+
+		ginkgo.It("Should not group workload-slice replacements into a shared equivalence class", func() {
+			// A workload-slice replacement is evaluated against the (unmodeled) state of
+			// the slice it replaces, so identical shapes can have different real outcomes.
+			// Replacements must therefore never share a bulk-move equivalence class, unlike
+			// the identical-shape case above which reports exactly one known hash.
+			cq = utiltestingapi.MakeClusterQueue("elastic-repl-cq").
+				QueueingStrategy(kueue.BestEffortFIFO).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+
+			queue := utiltestingapi.MakeLocalQueue("elastic-repl-queue", ns.Name).ClusterQueue("elastic-repl-cq").Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+
+			ginkgo.By("creating identical no-fit workloads, each replacing a different workload slice")
+			for i := range 10 {
+				util.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(fmt.Sprintf("repl-nofit-%d", i), ns.Name).
+					Queue(kueue.LocalQueueName(queue.Name)).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, fmt.Sprintf("%s/replaced-slice-%d", ns.Name, i)).
+					Request(corev1.ResourceCPU, "10").Obj())
+			}
+
+			ginkgo.By("verifying all replacements are inadmissible but none are counted toward a known equivalence class")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 10)
+			util.ExpectPendingSchedulingHashesMetric(cq, 0, 0)
 		})
 	})
 })
