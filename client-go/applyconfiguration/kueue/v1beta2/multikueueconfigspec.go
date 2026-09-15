@@ -30,7 +30,6 @@ type MultiKueueConfigSpecApplyConfiguration struct {
 	// clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
 	// The order of the list is significant: the Incremental dispatcher nominates clusters
 	// following this order, so the most preferred clusters should be listed first.
-	//
 	Clusters []string `json:"clusters,omitempty"`
 	// quotaManagement specifies the management of ClusterQueue quotas
 	// in the manager cluster.

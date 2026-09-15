@@ -24,7 +24,6 @@ package v1beta1
 // TopologySpec defines the desired state of Topology
 type TopologySpecApplyConfiguration struct {
 	// levels define the levels of topology.
-	//
 	Levels []TopologyLevelApplyConfiguration `json:"levels,omitempty"`
 }
 

@@ -26,14 +26,11 @@ import (
 // with apply.
 type WorkloadSchedulingStatsEvictionApplyConfiguration struct {
 	// reason specifies the programmatic identifier for the eviction cause.
-	//
 	Reason *string `json:"reason,omitempty"`
 	// underlyingCause specifies a finer-grained explanation that complements the eviction reason.
 	// This may be an empty string.
-	//
 	UnderlyingCause *kueuev1beta1.EvictionUnderlyingCause `json:"underlyingCause,omitempty"`
 	// count tracks the number of evictions for this reason and detailed reason.
-	//
 	Count *int32 `json:"count,omitempty"`
 }
 

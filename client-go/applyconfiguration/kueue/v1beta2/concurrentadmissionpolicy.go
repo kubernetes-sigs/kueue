@@ -28,7 +28,6 @@ type ConcurrentAdmissionPolicyApplyConfiguration struct {
 	// favorable flavors keep trying to get admitted and if they succeed, the Workload migrates to the new flavor.
 	// The Variants that pursue less favorable flavors are deactivated.
 	// Flavor preferences are expressed through the order of flavors in the ClusterQueue.
-	//
 	Migration *ConcurrentAdmissionMigrationApplyConfiguration `json:"migration,omitempty"`
 }
 

@@ -26,10 +26,8 @@ import (
 // with apply.
 type CapacityDistributionSubtreeRootRefApplyConfiguration struct {
 	// kind indicates the kind of the quota node, i.e. ClusterQueue or Cohort.
-	//
 	Kind *kueuev1alpha1.SubtreeRootRefKind `json:"kind,omitempty"`
 	// name indicates the name of the quota node, i.e. ClusterQueue or Cohort.
-	//
 	Name *string `json:"name,omitempty"`
 }
 

@@ -43,7 +43,6 @@ type LocalQueueFlavorStatusApplyConfiguration struct {
 	//
 	// This is a beta field and requires enabling the TopologyAwareScheduling
 	// feature gate.
-	//
 	Topology *TopologyInfoApplyConfiguration `json:"topology,omitempty"`
 }
 

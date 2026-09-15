@@ -24,11 +24,9 @@ type TopologyDomainAssignmentApplyConfiguration struct {
 	// values is an ordered list of node selector values describing a topology
 	// domain. The values correspond to the consecutive topology levels, from
 	// the highest to the lowest.
-	//
 	Values []string `json:"values,omitempty"`
 	// count indicates the number of Pods to be scheduled in the topology
 	// domain indicated by the values field.
-	//
 	Count *int32 `json:"count,omitempty"`
 }
 
