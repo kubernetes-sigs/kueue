@@ -221,8 +221,14 @@ func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace strin
 	return claims, nil
 }
 
-// resolveClaimSpec returns a nil spec and no error when the PodResourceClaim names
-// neither a claim nor a template. The API allows that, so the caller skips it.
+// resolveClaimSpec returns the spec to allocate for a PodResourceClaim, or nil when the
+// PodResourceClaim names neither a claim nor a template, which the API allows.
+//
+// A direct ResourceClaim reference is rejected rather than resolved: the workload
+// controller marks such Workloads inadmissible before they reach scheduling, which
+// KueueDRAIntegration guarantees by being a dependency of this check. Failing here
+// rather than skipping the claim keeps a broken guarantee loud instead of silently
+// reporting every node as feasible.
 func resolveClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourceapi.ResourceClaimSpec, error) {
 	switch {
 	case prc.ResourceClaimTemplateName != nil:
@@ -232,11 +238,7 @@ func resolveClaimSpec(ctx context.Context, cl client.Client, namespace string, p
 		}
 		return &tmpl.Spec.Spec, nil
 	case prc.ResourceClaimName != nil:
-		var claim resourceapi.ResourceClaim
-		if err := cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: *prc.ResourceClaimName}, &claim); err != nil {
-			return nil, err
-		}
-		return &claim.Spec, nil
+		return nil, errors.New("a direct ResourceClaim reference is not supported")
 	default:
 		return nil, nil
 	}
