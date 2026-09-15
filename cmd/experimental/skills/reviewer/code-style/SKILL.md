@@ -1,6 +1,6 @@
 ---
 name: code-style
-description: Review a diff for naming precision, convention drift, reinvented helpers, log-verbosity mistakes, misaligned test names, and typos.
+description: Review a diff for naming precision, convention drift, reinvented helpers, log-verbosity mistakes, misaligned test names, typos, and error checking that relies on string comparison instead of structured errors.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
@@ -25,6 +25,7 @@ rule below.
 | [wrong-log-verbosity](./wrong-log-verbosity/SKILL.md) | per-reconcile-cycle log lines emitted at `V(2)` |
 | [misaligned-test-names](./misaligned-test-names/SKILL.md) | test function names that do not reflect the function or behavior under test |
 | [code-style-typos](./code-style-typos/SKILL.md) | typos in identifiers, strings, or any text introduced by the diff |
+| [structured-errors](./structured-errors/SKILL.md) | error checking done via string comparison on `err.Error()` instead of structured/typed errors |
 
 @./imprecise-names/SKILL.md
 @./convention-drift/SKILL.md
@@ -32,6 +33,7 @@ rule below.
 @./wrong-log-verbosity/SKILL.md
 @./misaligned-test-names/SKILL.md
 @./code-style-typos/SKILL.md
+@./structured-errors/SKILL.md
 
 ## What not to include
 
