@@ -1545,7 +1545,6 @@ func TestNormalizeActiveSlices(t *testing.T) {
 		).Obj(), now)
 	}
 
-
 	type want struct {
 		survivor     string
 		keptAdmitted string

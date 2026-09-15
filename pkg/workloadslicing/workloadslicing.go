@@ -151,16 +151,21 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, na
 	return latestAdmittedWl, nil
 }
 
-func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
+// sortOldestFirst returns a sorted clone of workloads, oldest first, breaking
+// same-second ties by UID for stable ordering.
+func sortOldestFirst(workloads []kueue.Workload) []kueue.Workload {
 	workloads = slices.Clone(workloads)
-
-	// Sort oldest-first; break same-second ties by UID for stable ordering.
 	slices.SortFunc(workloads, func(a, b kueue.Workload) int {
 		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.UID, b.UID)
 	})
+	return workloads
+}
+
+func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
+	workloads = sortOldestFirst(workloads)
 
 	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(workloads, func(w kueue.Workload) bool {
@@ -221,18 +226,16 @@ func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject
 // finished slice still remembers them.
 func FindMostRecentlyGrantedWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
 	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
+	// Also match owner UID, not just name, so a finished workload from a
+	// deleted, same-named job isn't mistaken for this job's history.
+	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), client.MatchingFields{
+		indexer.OwnerReferenceIndexKey(jobObjectGVK): jobObject.GetName(),
+		indexer.OwnerReferenceUID:                    string(jobObject.GetUID()),
+	}); err != nil {
 		return nil, err
 	}
 
-	workloads := slices.Clone(list.Items)
-	slices.SortFunc(workloads, func(a, b kueue.Workload) int {
-		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.UID, b.UID)
-	})
-
+	workloads := sortOldestFirst(list.Items)
 	for i := range slices.Backward(workloads) {
 		if workloads[i].Status.Admission != nil {
 			return &workloads[i], nil
