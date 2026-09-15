@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -54,18 +55,38 @@ const (
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
+//
+// The admission controller merges both the class's overhead and its scheduling constraints into the Pod,
+// so both are resolved here, before the flavor is chosen from this template.
+func handleRuntimeClass(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
+	log := ctrl.LoggerFrom(ctx)
+	// A template copied from a Pod that already exists carries what the admission
+	// controller merged into it at creation, so resolving the class again would only
+	// make it diverge from the Pod that is already there.
+	resolveScheduling := !OwnedByPods(wl)
 	var errs []error
 	for i := range wl.Spec.PodSets {
-		podSpec := &wl.Spec.PodSets[i].Template.Spec
-		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
-			var runtimeClass nodev1.RuntimeClass
-			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
-				continue
-			}
-			if runtimeClass.Overhead != nil {
-				podSpec.Overhead = runtimeClass.Overhead.PodFixed
+		ps := &wl.Spec.PodSets[i]
+		podSpec := &ps.Template.Spec
+		if podSpec.RuntimeClassName == nil {
+			continue
+		}
+		var runtimeClass nodev1.RuntimeClass
+		if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
+			errs = append(errs, fmt.Errorf("in podSet %s: %w", ps.Name, err))
+			continue
+		}
+		if runtimeClass.Overhead != nil && len(podSpec.Overhead) == 0 {
+			podSpec.Overhead = runtimeClass.Overhead.PodFixed
+		}
+		// Merge, not overwrite: podset.Merge keeps the PodSet's own values and reports a
+		// conflicting nodeSelector key, matching what the admission controller does.
+		if resolveScheduling && runtimeClass.Scheduling != nil {
+			if err := podset.Merge(log, &ps.Template.ObjectMeta, podSpec, podset.PodSetInfo{
+				NodeSelector: runtimeClass.Scheduling.NodeSelector,
+				Tolerations:  runtimeClass.Scheduling.Tolerations,
+			}); err != nil {
+				errs = append(errs, fmt.Errorf("in podSet %s: %w", ps.Name, err))
 			}
 		}
 	}
@@ -137,14 +158,14 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 	}
 }
 
-// AdjustResources adjusts the resource requests of a workload based on:
-// - PodOverhead
+// AdjustResources adjusts the podSets of a workload based on:
+// - RuntimeClass (pod overhead and scheduling constraints)
 // - LimitRanges
 // - Limits
 func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
 	log := ctrl.LoggerFrom(ctx)
-	for _, err := range handlePodOverhead(ctx, cl, wl) {
-		log.Error(err, "Failures adjusting requests for pod overhead")
+	for _, err := range handleRuntimeClass(ctx, cl, wl) {
+		log.Error(err, "Failures adjusting the podSets for their RuntimeClass")
 	}
 	// Copy limits into missing requests before applying the LimitRange
 	// defaults, mirroring the API server, where requests default from limits
