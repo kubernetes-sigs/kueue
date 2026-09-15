@@ -162,6 +162,29 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"zero-count PodSet preserves transformed per-pod requests": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 0).
+					Request("example.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/gpu",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"quota.example.com/gpu": resource.MustParse("3")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: kueue.DefaultPodSetName,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"quota.example.com/gpu": 0,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"quota.example.com/gpu": 6,
+					}),
+					Count: 0,
+				}},
+			},
+		},
 		"negative request floored to zero in total requests": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
