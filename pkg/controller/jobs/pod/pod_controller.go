@@ -812,6 +812,11 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 		}
 		podSet.TopologyRequest = topologyRequest
 	}
+	if features.Enabled(features.TASTopologySpreading) {
+		if v, ok := p.Annotations[kueue.PodSetTopologySpreadingAnnotation]; ok {
+			podSet.Template.Annotations = map[string]string{kueue.PodSetTopologySpreadingAnnotation: v}
+		}
+	}
 	return podSet, nil
 }
 
