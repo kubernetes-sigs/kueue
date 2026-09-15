@@ -346,15 +346,23 @@ configuration will have no effect until the gate is enabled.
 
 ### Workload labels and annotations
 
-Upon creation, all labels and annotations specified
-in the custom label config will be copied to the Workload
+Upon creation, the labels and annotations specified
+in the custom label config are copied to the Workload
 from its corresponding GenericJob.
 These will be added alongside the labels specified in
 `LabelKeysToCopy`.
 
+Workload control metadata is the exception, meaning the keys a controller writes
+on a Workload to decide what it may act on later. Those keys are never copied
+from the source Job or Pod, whatever the configuration asks for. A custom metric
+may still name one, and then observes the value only where the responsible
+controller wrote it on the Workload directly.
+
 Similar to copied labels, component jobs of a ComposableJob
 (e.g. PodGroup) must match label and annotation values
-marked as sources for custom metric labels.
+marked as sources for custom metric labels. That check runs on what is left
+after the non-inheritable keys are removed, so a group whose members disagree
+only on one of those still yields a Workload.
 
 ### Affected Metrics
 
@@ -543,6 +551,7 @@ committing the changes necessary to implement this enhancement.
 
 - 2026-02-13: Initial KEP draft.
 - 2026-07-02: Added source kind specification parameter to label definition (incompatible with previous alpha feature proposal). Expanded support to include Workload labels.
+- 2026-08-14: Recorded that Workload control metadata is never copied from the source object, and that the ComposableJob consistency check runs after those keys are removed.
 
 ## Drawbacks
 
