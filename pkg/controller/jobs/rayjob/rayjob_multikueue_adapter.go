@@ -50,6 +50,7 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayJob, rayv1.RayJob] {
 		AutoscalingEnabled: func(j *rayv1.RayJob) bool {
 			return j.Spec.RayClusterSpec != nil && ptr.Deref(j.Spec.RayClusterSpec.EnableInTreeAutoscaling, false)
 		},
+		IsSuspended: func(j *rayv1.RayJob) bool { return j.Spec.Suspend },
 		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayJob]{
 			Fetch: fetchChildWorkerState,
 			Apply: raycluster.SetRuntimeWorkerStateAnnotations,

@@ -62,6 +62,7 @@ func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCl
 		},
 		WorkloadNameExtraPart: func(rc *rayv1.RayCluster) string { return GetWorkloadNameExtraPart(rc) },
 		AutoscalingEnabled:    func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.EnableInTreeAutoscaling, false) },
+		IsSuspended:           func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.Suspend, false) },
 	}
 }
 

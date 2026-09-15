@@ -98,6 +98,10 @@ type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// worker cluster, making the worker the source of truth for worker replica
 	// counts. Optional; when nil the reverse (worker-to-manager) sync is disabled.
 	AutoscalingEnabled func(PtrT) bool
+	// IsSuspended reports whether the manager job is suspended. Runtime state
+	// must not be reflected after suspension because it may reintroduce state
+	// cleared while stopping the job.
+	IsSuspended func(PtrT) bool
 }
 
 // FetchResult is the worker-side runtime state observed by RuntimeReplicaSync.Fetch.
@@ -127,8 +131,8 @@ type Option[PtrT objAsPtr[T], T any] func(*adapter[PtrT, T])
 // for job types that support it (see ElasticReplicaSync). An incomplete wiring
 // panics here so the mistake fails at startup, not at reconcile time.
 func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT, T]) Option[PtrT, T] {
-	if e.AutoscalingEnabled != nil && e.Runtime == nil {
-		panic("ElasticReplicaSync: Runtime is required when AutoscalingEnabled is set")
+	if e.AutoscalingEnabled != nil && (e.Runtime == nil || e.IsSuspended == nil) {
+		panic("ElasticReplicaSync: Runtime and IsSuspended are required when AutoscalingEnabled is set")
 	}
 	if e.Runtime != nil && (e.Runtime.Fetch == nil || e.Runtime.Apply == nil) {
 		panic("ElasticReplicaSync: Runtime requires Fetch and Apply")
@@ -226,6 +230,9 @@ func (a *adapter[PtrT, T]) SyncJob(
 			return false, err
 		}
 		if a.workerOwnsReplicas(localJob) {
+			if a.elastic.IsSuspended(localJob) {
+				return false, nil
+			}
 			changed, err := a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil {
 				return false, err
