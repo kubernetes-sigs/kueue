@@ -41,8 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 )
 
-// classReadCount is counted through the interceptor, for the cases that pin how
-// often the reconcile looks the class up.
+// classReadCount counts the WorkloadPriorityClass reads made through the interceptor.
 type classReadCount struct {
 	reads atomic.Int32
 }
@@ -58,8 +57,8 @@ func countingClassReads(s *classReadCount) interceptor.Funcs {
 	}
 }
 
-// refusingUpdateOf refuses writes to one Workload by name and lets the rest
-// through, so a case can watch what one component's failure costs the others.
+// refusingUpdateOf fails every update of the named Workload with a conflict and
+// passes the rest.
 func refusingUpdateOf(name string) func(*classReadCount) interceptor.Funcs {
 	return func(*classReadCount) interceptor.Funcs {
 		return interceptor.Funcs{
@@ -78,7 +77,7 @@ type wantComponent struct {
 	priority  int32
 }
 
-func TestReconcilerResolvesPriorityClassOnce(t *testing.T) {
+func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
 	comp0 := GetWorkloadName(testLWS, testLWS, "0")
@@ -319,8 +318,8 @@ func TestReconcilerResolvesPriorityClassOnce(t *testing.T) {
 				utiltestingapi.MakeWorkloadPriorityClass("old-wpc").PriorityValue(1000).Obj(),
 				utiltestingapi.MakeWorkloadPriorityClass("new-wpc").PriorityValue(5000).Obj(),
 			},
-			// Neither carries the queue name yet, so both go through the queue
-			// write first, and only one of them fails there.
+			// Neither workload has the queue name yet, so both are updated first
+			// and only one of those updates fails.
 			components: []*kueue.Workload{
 				utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
 					JobUID(testLWS).

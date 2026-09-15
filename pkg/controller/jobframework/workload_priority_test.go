@@ -59,8 +59,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		// The owner's kueue.x-k8s.io/priority-class label, "high" when unset and
-		// left off entirely when empty. Ignored when job is set.
+		// ownerClass is the owner's kueue.x-k8s.io/priority-class label: "high"
+		// when nil, unset when empty. Ignored when job is set.
 		ownerClass       *string
 		class            *kueue.WorkloadPriorityClass
 		workloads        []*kueue.Workload
@@ -297,9 +297,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// Same-name workloads are repaired before the name-changing ones, so a failure
-		// among them leaves a name mismatch behind for the next call to find. The
-		// values disagreeing would say so too, but the order keeps the cheaper signal.
+		// Same-name workloads are written first, so a failed write leaves a class
+		// name mismatch that makes the next call resolve again.
 		"keeps a retry marker when a write fails": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -328,9 +327,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// A repair under a matching name has nothing of its own to bring a later
-		// call back, so the transition waits: the name it has not changed yet is
-		// what the next call finds.
+		// A same-name repair that keeps failing blocks the transition behind it;
+		// the mismatched name keeps the next call coming back.
 		"a same-class write that keeps failing holds the transition back": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -345,10 +343,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// spec.priority is mutable, so two workloads under one name disagreeing is
-		// not on its own an unfinished write. WorkloadPriorityClassReconciler lists
-		// by class name and holds the value that settles it; this helper is not
-		// asked, and does not read the class to guess.
+		// spec.priority is mutable, so two workloads on one class disagreeing is
+		// not an unfinished write. WorkloadPriorityClassReconciler settles the
+		// value; this helper neither reads the class nor writes.
 		"leaves values under a name that already matches the class": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
 			workloads: []*kueue.Workload{
@@ -365,10 +362,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			wantWorkloadWrites: new(0),
 		},
 
-		// Without the label every workload with no reference reads as naming the
-		// same class, and the name that would be resolved is the empty one. Writing
-		// on the strength of that takes back a value this helper was never given,
-		// and can leave a Pod PriorityClass reference behind where there was none.
+		// Without the label, workloads with no reference would all match the empty
+		// class name. Writing them would overwrite values this helper never resolved.
 		"leaves an owner with no priority class alone": {
 			ownerClass: new(""),
 			class:      utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
@@ -386,8 +381,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			wantWorkloadWrites: new(0),
 		},
 
-		// A repair that fails leaves its own class name still matching, which is
-		// the only thing that brings the next call back to finish the transition.
+		// The transitioning workload keeps its mismatched name after the failed
+		// call, so the next call resolves again and finishes both writes.
 		"a failed repair leaves the marker for the next call": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -527,9 +522,8 @@ func countingWrites(s *priorityStats) interceptor.Funcs {
 	}
 }
 
-// countingReadsAndWrites counts both, for the cases asserting that a set was
-// neither resolved for nor written to. An empty class name resolves through a
-// PriorityClass list rather than a class read, so that shape counts too.
+// countingReadsAndWrites counts class reads, including the PriorityClass list
+// an empty class name resolves through, and workload writes.
 func countingReadsAndWrites(s *priorityStats) interceptor.Funcs {
 	return interceptor.Funcs{
 		Get: countingClassReads(s).Get,
@@ -543,8 +537,8 @@ func countingReadsAndWrites(s *priorityStats) interceptor.Funcs {
 	}
 }
 
-// refusingFirstWriteTo refuses the first write to one workload and lets every
-// later one through, so a case can watch what a failed repair leaves behind.
+// refusingFirstWriteTo fails the first write to the named workload and passes
+// the later ones.
 func refusingFirstWriteTo(name string) func(*priorityStats) interceptor.Funcs {
 	return func(*priorityStats) interceptor.Funcs {
 		refused := false
@@ -560,8 +554,7 @@ func refusingFirstWriteTo(name string) func(*priorityStats) interceptor.Funcs {
 	}
 }
 
-// refusingEveryWriteTo never lets one workload's write land, for the cases that
-// watch what a repair that cannot finish holds back.
+// refusingEveryWriteTo fails every write to the named workload.
 func refusingEveryWriteTo(name string) func(*priorityStats) interceptor.Funcs {
 	return func(*priorityStats) interceptor.Funcs {
 		return interceptor.Funcs{
@@ -672,9 +665,8 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 	}
 }
 
-// ApplyWorkloadPriority writes only the targets ClassifyWorkloadsForPriorityUpdate
-// picked, so a workload the classifier left out keeps what it carries even when
-// the resolved value differs.
+// TestApplyWorkloadPriority checks that a workload the classifier leaves out is
+// not written, whatever the resolved value is.
 func TestApplyWorkloadPriority(t *testing.T) {
 	cases := map[string]struct {
 		ownerClass   string
