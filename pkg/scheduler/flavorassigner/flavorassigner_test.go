@@ -224,7 +224,7 @@ func TestAssignFlavors(t *testing.T) {
 		preemptWorkloadSlice       *workload.Info
 		featureGates               map[featuregate.Feature]bool
 		infoOptions                []workload.InfoOption
-		lastAssignment             *workload.AssignmentClusterQueueState
+		flavorScanState            *workload.FlavorScanState
 		topologies                 []*kueue.Topology
 	}{
 		"single flavor, fits": {
@@ -2030,8 +2030,8 @@ func TestAssignFlavors(t *testing.T) {
 					*utiltestingapi.MakeFlavorQuotas("three").Resource("example.com/gpu", "4").Obj(),
 				).Obj(),
 			counts: []int32{0},
-			lastAssignment: &workload.AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{{"example.com/gpu": 1}},
+			flavorScanState: &workload.FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{{"example.com/gpu": 1}},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -3895,7 +3895,7 @@ func TestAssignFlavors(t *testing.T) {
 						ReclaimablePods: tc.wlReclaimablePods,
 					},
 				}, tc.infoOptions...)
-				wlInfo.LastAssignment = tc.lastAssignment
+				wlInfo.FlavorScanState = tc.flavorScanState
 
 				cache := schdcache.New(utiltesting.NewFakeClient())
 				if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
