@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -31,6 +32,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -78,19 +80,6 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		}
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
-			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
-				BlockAdmission:  new(true),
-				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
-				RecoveryTimeout: nil,
-				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          new(configapi.EvictionTimestamp),
-					BackoffBaseSeconds: new(int32(10)),
-					BackoffLimitCount:  new(int32(1)),
-				},
-			}
-		})
-
 		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
@@ -131,72 +120,214 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
 	})
-
-	ginkgo.It("should evict and requeue workload when pods readiness timeout is surpassed", func() {
-		ginkgo.By("creating a suspended job so its pods never report Ready", func() {
-			job = testingjob.MakeJob("job-timeout", ns.Name).
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				TerminationGracePeriod(1).
-				Request(corev1.ResourceCPU, "2").
-				Parallelism(1).
-				Obj()
-			util.MustCreate(ctx, k8sClient, job)
-		})
-
-		wlKey = types.NamespacedName{
-			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
-			Namespace: ns.Name,
-		}
-
-		ginkgo.By("waiting for the workload to be created and verifying it is not admitted", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.Admission).To(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("waiting for the workload to be evicted", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
-				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
-				g.Expect(wl.Status.SchedulingStats.Evictions).To(
-					gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
-						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
-						UnderlyingCause: kueue.WorkloadWaitForStart,
-						Count:           1,
-					}}),
-				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("verifying that the metric is updated", func() {
-			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
-				{"kueue_evicted_workloads_once_total", cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "1"},
+	ginkgo.When("cluster-wide timeout is used", func() {
+		ginkgo.BeforeAll(func() {
+			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+				cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
+					BlockAdmission:  new(true),
+					Timeout:         metav1.Duration{Duration: util.TinyTimeout},
+					RecoveryTimeout: nil,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp:          new(configapi.EvictionTimestamp),
+						BackoffBaseSeconds: new(int32(10)),
+						BackoffLimitCount:  new(int32(1)),
+					},
+				}
 			})
 		})
+		ginkgo.It("should evict and requeue workload when pods readiness timeout is surpassed", func() {
+			ginkgo.By("creating a suspended job so its pods never report Ready", func() {
+				job = testingjob.MakeJob("job-timeout", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
+					Request(corev1.ResourceCPU, "2").
+					Parallelism(1).
+					Obj()
+				util.MustCreate(ctx, k8sClient, job)
+			})
 
-		ginkgo.By("verifying that the job is suspended", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
-				g.Expect(ptr.Deref(job.Spec.Suspend, false)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			wlKey = types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("waiting for the workload to be created and verifying it is not admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Admission).To(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the workload to be evicted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
+					g.Expect(wl.Status.SchedulingStats.Evictions).To(
+						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
+							Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+							UnderlyingCause: kueue.WorkloadWaitForStart,
+							Count:           1,
+						}}),
+					)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the metric is updated", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+					{"kueue_evicted_workloads_once_total", cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "1"},
+				})
+			})
+
+			ginkgo.By("verifying that the job is suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(job.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the workload is requeued", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
+					g.Expect(*wl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the workload is deactivated after the second eviction", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
+	})
+	ginkgo.When("workload-level timeout is prioritized and cluster-wide block admission and requeuing strategy are used", func() {
+		var (
+			job2   *batchv1.Job
+			wl2    kueue.Workload
+			wlKey2 types.NamespacedName
+		)
 
-		ginkgo.By("verifying that the workload is requeued", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
-				g.Expect(*wl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.BeforeAll(func() {
+			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+				if cfg.FeatureGates == nil {
+					cfg.FeatureGates = make(map[string]bool)
+				}
+				cfg.FeatureGates["WorkloadLevelWaitForPodsReady"] = true
+				cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
+					BlockAdmission: new(true),
+					Timeout:        metav1.Duration{Duration: 10 * time.Minute},
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp:          new(configapi.EvictionTimestamp),
+						BackoffBaseSeconds: new(int32(10)),
+						BackoffLimitCount:  new(int32(1)),
+					},
+				}
+			})
 		})
+		ginkgo.It("should evict and requeue workload when pods readiness timeout is surpassed", func() {
+			ginkgo.By("creating a job whose pods run but never report Ready", func() {
+				job = testingjob.MakeJob("job-timeout", ns.Name).
+					SetAnnotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 10}`).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Containers(neverReadyContainer(util.GetAgnHostImage())).
+					TerminationGracePeriod(1).
+					Parallelism(1).
+					Obj()
+				util.MustCreate(ctx, k8sClient, job)
+			})
 
-		ginkgo.By("verifying that the workload is deactivated after the second eviction", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-				g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			wlKey = types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("verifying the workload has the WaitForPodsReady annotation set", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(wl.Annotations).To(gomega.HaveKey(controllerconsts.WaitForPodsReadyAnnotation))
+					g.Expect(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation]).To(gomega.Equal(`{"timeoutSeconds": 10}`))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("creating another Job that is blocked by the not ready job", func() {
+				job2 = testingjob.MakeJob("job-blocked", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					TerminationGracePeriod(1).
+					Parallelism(1).
+					Obj()
+				util.MustCreate(ctx, k8sClient, job2)
+			})
+			wlKey2 = types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID),
+				Namespace: ns.Name,
+			}
+
+			ginkgo.By("verifying the second job is blocked by the first one", func() {
+				// Wait for the job reconciler to create the workload first.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey2, &wl2)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				// Then assert it stays unadmitted while job1 is NotReady.
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey2, &wl2)).Should(gomega.Succeed())
+					g.Expect(wl2.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
+					g.Expect(wl2.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadAdmitted, kueue.WorkloadAdmittedReasonNoReservation))
+				}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the first workload to be evicted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
+					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
+					g.Expect(wl.Status.SchedulingStats.Evictions).To(
+						gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
+							Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+							UnderlyingCause: kueue.WorkloadWaitForStart,
+							Count:           1,
+						}}),
+					)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the metric is updated", func() {
+				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+					{"kueue_evicted_workloads_once_total", cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "1"},
+				})
+			})
+
+			ginkgo.By("verifying that the first job is suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(job.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying the second job is unblocked after the first one is deactivated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey2, &wl2)).Should(gomega.Succeed())
+					g.Expect(wl2.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadPodsReady, kueue.WorkloadStarted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the first workload is requeued", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
+					g.Expect(*wl.Status.RequeueState.Count).To(gomega.Equal(int32(1)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying that the first workload is deactivated after the second eviction", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+					g.Expect(ptr.Deref(wl.Spec.Active, true)).Should(gomega.BeFalse())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 })
@@ -511,3 +642,24 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 		})
 	})
 })
+
+// neverReadyContainer returns a container that runs indefinitely (sleep 3600)
+// but whose readiness probe always fails because /tmp/ready is never created.
+func neverReadyContainer(image string) corev1.Container {
+	return corev1.Container{
+		Name:    "main",
+		Image:   image,
+		Command: []string{"sh", "-c"},
+		Args:    []string{"sleep 3600"},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				Exec: &corev1.ExecAction{Command: []string{"cat", "/tmp/ready"}},
+			},
+		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("500m"),
+			},
+		},
+	}
+}

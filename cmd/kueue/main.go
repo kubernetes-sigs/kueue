@@ -241,6 +241,10 @@ func main() {
 	}
 	metrics.Register()
 
+	if features.Enabled(features.WorkloadLevelWaitForPodsReady) && features.Enabled(features.DisableWaitForPodsReady) {
+		setupLog.Info("WorkloadLevelWaitForPodsReady feature gate is enabled but DisableWaitForPodsReady is also enabled; per-workload timeout overrides will have no effect")
+	}
+
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()

@@ -23,6 +23,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -72,6 +73,7 @@ type JobWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupWebhook configures the webhook for batchJob.
@@ -84,6 +86,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &batchv1.Job{}
 	if options.NoopWebhook {
@@ -138,7 +141,7 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj *batchv1.Job) (admi
 
 func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -208,12 +211,12 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1
 
 func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob, w.maxTimeoutOnWorkload)...)
 	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
 		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
 	}
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
-	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, newJob)

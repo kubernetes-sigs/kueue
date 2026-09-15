@@ -110,6 +110,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		RecoveryTimeout: &metav1.Duration{
 			Duration: 30 * time.Minute,
 		},
+		MaxTimeoutOnWorkload: &metav1.Duration{
+			Duration: DefaultMaxTimeoutOnWorkload,
+		},
 		RequeuingStrategy: &RequeuingStrategy{
 			Timestamp:          new(EvictionTimestamp),
 			BackoffBaseSeconds: new(int32(DefaultRequeuingBackoffBaseSeconds)),
@@ -412,6 +415,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RecoveryTimeout: &metav1.Duration{
 						Duration: 30 * time.Minute,
 					},
+					MaxTimeoutOnWorkload: &metav1.Duration{
+						Duration: DefaultMaxTimeoutOnWorkload,
+					},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(EvictionTimestamp),
 						BackoffBaseSeconds: new(int32(DefaultRequeuingBackoffBaseSeconds)),
@@ -444,6 +450,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Timeout:         customTimeout,
 					BlockAdmission:  new(false),
 					RecoveryTimeout: &customTimeout,
+					MaxTimeoutOnWorkload: &metav1.Duration{
+						Duration: DefaultMaxTimeoutOnWorkload,
+					},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(EvictionTimestamp),
 						BackoffBaseSeconds: new(int32(DefaultRequeuingBackoffBaseSeconds)),
@@ -466,6 +475,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout: podsReadyTimeoutOverwrite,
+					MaxTimeoutOnWorkload: &metav1.Duration{
+						Duration: 1 * time.Hour,
+					},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
 						BackoffBaseSeconds: new(int32(63)),
@@ -484,6 +496,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Timeout:            podsReadyTimeoutOverwrite,
 					RecoveryTimeout:    &metav1.Duration{Duration: time.Minute},
 					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
+					MaxTimeoutOnWorkload: &metav1.Duration{
+						Duration: 1 * time.Hour,
+					},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
 						BackoffBaseSeconds: new(int32(63)),
@@ -517,6 +532,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Timeout:         customTimeout,
 					BlockAdmission:  new(false),
 					RecoveryTimeout: &metav1.Duration{Duration: 0},
+					MaxTimeoutOnWorkload: &metav1.Duration{
+						Duration: DefaultMaxTimeoutOnWorkload,
+					},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(EvictionTimestamp),
 						BackoffBaseSeconds: new(int32(DefaultRequeuingBackoffBaseSeconds)),
