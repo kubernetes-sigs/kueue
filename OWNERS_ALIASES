@@ -29,6 +29,8 @@ aliases:
     - amy
     - kannon92
     - pbundyra
+  scheduler-approvers:
+    - amy
   hugo-approvers:
     - mbobrovskyi
   infra-approvers:
