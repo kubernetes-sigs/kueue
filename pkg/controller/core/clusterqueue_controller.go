@@ -527,6 +527,8 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
 
+// updateCqStatusIfChanged recomputes the ClusterQueue status from the queue manager and the cache,
+// and writes it to the API server only when it differs from the current status.
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	ctx context.Context,
 	cq *kueue.ClusterQueue,
@@ -574,7 +576,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	} else {
 		cq.Status.FairSharing = nil
 	}
-	if !equality.Semantic.DeepEqual(cq.Status, oldStatus) {
+	if !equality.Semantic.DeepEqual(&cq.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cq)
 	}
 	return nil
