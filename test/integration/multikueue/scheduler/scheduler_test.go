@@ -358,6 +358,91 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		})
 	})
 
+	ginkgo.It("should deactivate the remote workload through the spec (Active=false) when preempted on the manager", func() {
+		lowJob := testingjob.MakeJob("low-job", managerNs.Name).
+			WorkloadPriorityClass(managerLowWPC.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			RequestAndLimit(corev1.ResourceCPU, "2").
+			RequestAndLimit(corev1.ResourceMemory, "1G").
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob)
+
+		lowWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: managerNs.Name}
+		managerLowWl := &kueue.Workload{}
+		workerLowWl := &kueue.Workload{}
+
+		ginkgo.By("Checking that the low-priority workload is admitted on worker1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(managerLowWl)).To(gomega.BeTrue())
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, workerLowWl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(workerLowWl)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Marking the worker job as running so the manager holds the quota reservation", func() {
+			createdJob := batchv1.Job{}
+			startTime := metav1.NewTime(time.Now().Truncate(time.Second))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
+				createdJob.Status.StartTime = &startTime
+				createdJob.Status.Active = 1
+				createdJob.Status.Ready = ptr.To[int32](1)
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// Wait for the running status to sync back to the manager job, so the
+			// manager holds the quota reservation during eviction instead of
+			// releasing it immediately (which would delete the remote right away).
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(1)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		highJob := testingjob.MakeJob("high-job", managerNs.Name).
+			WorkloadPriorityClass(managerHighWPC.Name).
+			Queue(kueue.LocalQueueName(managerLq.Name)).
+			RequestAndLimit(corev1.ResourceCPU, "2").
+			RequestAndLimit(corev1.ResourceMemory, "1G").
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
+
+		ginkgo.By("Checking that the manager evicts the low-priority workload and propagates the eviction through the remote spec (Active=false)", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
+				g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
+				// The manager only touches the remote spec; it must not write the remote status.
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, workerLowWl)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(workerLowWl.Spec.Active, true)).To(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking that the worker reconciles the deactivation and suspends the worker job", func() {
+			createdJob := batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Draining the worker job and checking the remote workload is eventually removed", func() {
+			createdJob := batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
+				createdJob.Status.Active = 0
+				createdJob.Status.Ready = ptr.To[int32](0)
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &batchv1.Job{})).To(testing.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("should preempt a running low-priority workload when a high-priority workload is admitted (other workers)", func() {
 		lowJob := testingjob.MakeJob("low-job", managerNs.Name).
 			WorkloadPriorityClass(managerLowWPC.Name).
