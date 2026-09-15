@@ -78,13 +78,13 @@ type wantComponent struct {
 }
 
 func TestReconcilerWorkloadPriorityClass(t *testing.T) {
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
 	comp0 := GetWorkloadName(testLWS, testLWS, "0")
 	comp1 := GetWorkloadName(testLWS, testLWS, "1")
 	comp5 := GetWorkloadName(testLWS, testLWS, "5")
 
 	cases := map[string]struct {
+		featureGates    map[featuregate.Feature]bool
 		leaderWorkerSet *leaderworkersetv1.LeaderWorkerSet
 		classes         []*kueue.WorkloadPriorityClass
 		components      []*kueue.Workload
@@ -97,6 +97,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 		wantAbsent     []string
 	}{
 		"one read serves a set whose components all move to the class": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("new-wpc").Replicas(2).UID(testLWS).Obj(),
 			classes: []*kueue.WorkloadPriorityClass{
@@ -146,6 +147,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 			},
 		},
 		"one read serves a set whose components are all created": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("new-wpc").Replicas(2).UID(testLWS).Obj(),
 			classes: []*kueue.WorkloadPriorityClass{
@@ -160,6 +162,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 			},
 		},
 		"one read serves a set that is part created and part updated": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("new-wpc").Replicas(2).UID(testLWS).Obj(),
 			classes: []*kueue.WorkloadPriorityClass{
@@ -193,6 +196,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 			},
 		},
 		"a component already naming the class keeps the value it has": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("high").Replicas(2).UID(testLWS).Obj(),
 			classes: []*kueue.WorkloadPriorityClass{
@@ -225,6 +229,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 			},
 		},
 		"a sibling transitioning does not move a component already on the class": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("high").Replicas(2).UID(testLWS).Obj(),
 			classes: []*kueue.WorkloadPriorityClass{
@@ -272,6 +277,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 			},
 		},
 		"a surplus component is deleted even though the class is missing": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("missing-wpc").Replicas(2).UID(testLWS).Obj(),
 			components: []*kueue.Workload{
@@ -312,6 +318,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 			wantAbsent: []string{comp5},
 		},
 		"one component's failed write does not hold back the others": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				Queue("lws-queue").WorkloadPriorityClass("new-wpc").Replicas(2).UID(testLWS).Obj(),
 			classes: []*kueue.WorkloadPriorityClass{
@@ -362,6 +369,7 @@ func TestReconcilerWorkloadPriorityClass(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			stats := &classReadCount{}
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)

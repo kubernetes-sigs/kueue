@@ -1294,9 +1294,10 @@ func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventR
 }
 
 // applyResolvedPriority writes priorityClassRef and priority to every workload
-// whose priority differs, sameClassName first. The writes are serial and stop
-// at the first error, so a failed repair leaves a class name that still
-// mismatches and makes the next reconcile resolve again.
+// whose priority differs, sameClassName first, skipping a quota-reserved
+// workload whose class transition the API would refuse. The writes are serial
+// and stop at the first error, so a failed repair leaves a class name that
+// still mismatches and makes the next reconcile resolve again.
 func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
 	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
