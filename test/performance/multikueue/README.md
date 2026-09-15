@@ -14,6 +14,28 @@ This boundary deliberately excludes Kubernetes Job and Pod execution. It
 measures MultiKueue dispatch and admission rather than kube-controller-manager
 or container runtime performance.
 
+## Sharing the scheduler test framework
+
+This runner and `scheduler/minimalkueue` use the same core controller and
+scheduler setup in `test/performance/framework/controllers`. The scheduler
+benchmark also uses that setup for its TAS controllers. Each caller retains its
+client settings, configuration defaulting, and lifecycle management.
+
+This is the first step toward reusing `minimalkueue` as the controller process
+for MultiKueue tests. The next steps are:
+
+1. Add a MultiKueue manager mode and configurable client limits and controller
+   concurrency to `minimalkueue`.
+2. Start one controller process per cluster, with readiness checks, unexpected
+   exit reporting, and bounded cleanup. This would allow separate manager and
+   worker profiles.
+3. Recalibrate after changing the process model. Keep the MultiKueue cluster
+   connections, Job-backed workload generation, and admission recorder separate
+   from the scheduler test's simulated workload execution.
+
+The current benchmark continues to run its controllers in process; the shared
+setup preserves each harness's existing configuration and measurement boundary.
+
 ## Run the baseline
 
 ```bash
@@ -29,7 +51,7 @@ One generator avoids overflowing the freshly started API server's small watch
 buffers with parallel creates. Check that generation remains substantially
 shorter than total admission time when calibrating on the CI worker, so the
 generator does not become the throughput bottleneck. `creationWorkers` is part
-of the scenario and must match the range spec.
+of the scenario checked against the configuration.
 
 The summary is written to
 `artifacts/run-performance-multikueue/summary.yaml`.
@@ -41,9 +63,19 @@ make run-performance-multikueue MULTIKUEUE_PERFORMANCE_ARGS="--workloads=12 --cr
 ```
 
 The scenario is configured in
-[`configs/baseline.yaml`](configs/baseline.yaml). Command-line overrides are
-intended for smoke tests; committed baseline changes should be made in the
-configuration file.
+[`configs/baseline/configuration.yaml`](configs/baseline/configuration.yaml).
+It contains only setup and generation settings. The baseline creates one
+ClusterQueue and one LocalQueue per cluster, with quota for the full batch.
+Queue layout and workload creation intervals are not configurable yet.
+Command-line overrides are intended for smoke tests; committed baseline changes
+should be made in the configuration file.
+
+[`configs/baseline/expectations.yaml`](configs/baseline/expectations.yaml)
+contains only performance bounds. The checker reads the configuration separately
+and compares it with the scenario recorded in the report before applying those
+bounds. A smoke-test override therefore cannot be checked against the baseline
+configuration accidentally. Both files are decoded strictly: setup fields are
+rejected in expectations, and assertion fields are rejected in configuration.
 
 `remoteClientQPS` and `remoteClientBurst` must both be positive and explicitly
 configured. The baseline sets them to 1,000 each. The runner passes these values
@@ -55,9 +87,11 @@ different limits fails the scenario check.
 runner's per-Workload observation state and watch handover buffer bounded while
 retaining room for a 10k-scale scenario.
 
-The runner uses the production defaults for MultiKueue garbage collection,
-worker-loss detection, and remote-event batching. These values are recorded in
-the summary so a comparison cannot silently mix controller configurations.
+Client limits, Workload reconcile concurrency, garbage collection, worker-loss
+detection, and remote-event batching are explicit configuration values. The
+baseline pins the values used for calibration, so changing production defaults
+does not silently change the benchmark. The configuration currently supports
+only the all-at-once dispatcher.
 
 Controller logs are written to `runner.log` next to the summary, at error level
 by default. Pass `--zap-log-level=debug` (or `info`) through
@@ -74,14 +108,14 @@ make test-performance-multikueue-runner
 
 The entrypoint intended for a dedicated periodic job runs those unit tests,
 executes the full baseline, checks the result against
-[`configs/baseline/rangespec.yaml`](configs/baseline/rangespec.yaml), and
+[`configs/baseline/expectations.yaml`](configs/baseline/expectations.yaml), and
 retries once in the same way as the scheduler performance tests:
 
 ```bash
 make test-performance-multikueue
 ```
 
-The committed ranges are initial guardrails for large regressions. They must be
+The committed expectations are initial guardrails for large regressions. They must be
 recalibrated from at least five runs on the dedicated CI worker before TestGrid
 alerting is enabled.
 
@@ -122,8 +156,8 @@ worker. No CPU or memory capacity claim follows from these results.
 
 ## What bounds the measurement
 
-The manager's local client uses Kueue's default QPS and burst (currently 1,000
-each) with a single shared token bucket, matching the production entrypoint.
+The manager's local client uses the configured QPS and burst (1,000 each in the
+baseline) with a single shared token bucket, matching the production entrypoint.
 The generator has its own client so its requests do not consume that bucket.
 
 Worker-client QPS and burst form one shared budget per worker cluster across
@@ -138,17 +172,17 @@ CPU work, lock contention, or traffic outside the binding limiter can regress
 without reducing observed throughput. Compare results only at identical
 scenario settings and on stable CI capacity.
 
-The runner retains production garbage collection, worker-loss, and event-batch
-defaults. Garbage collection can add traffic during sufficiently long runs.
+The baseline pins the production garbage collection, worker-loss, and event-batch
+values used for calibration. Garbage collection can add traffic during sufficiently long runs.
 Worker-loss detection is not exercised: its 15-minute timeout exceeds the
 baseline's 10-minute safety bound. Failure and recovery scenarios are deferred.
 
 ## Reconcile concurrency
 
-The runner sets `groupKindConcurrency` to match the MultiKueue e2e configuration,
-including `Workload.kueue.x-k8s.io: 10`. Without that setting, controller-runtime
+The runner takes Workload reconcile concurrency from the configuration. The
+baseline sets it to 10, matching the MultiKueue e2e configuration. Without that setting, controller-runtime
 would run only one reconcile at a time. `workloadConcurrency` is recorded in the
-summary and matched exactly by the checker.
+summary and matched against the configuration by the checker.
 
 ## Reading the summary
 
@@ -158,7 +192,7 @@ describe a workload's position in the drain queue rather than the cost of
 dispatching it. They are still useful as a distribution shape and as a
 same-scale comparison between revisions, but they must not be read as
 per-workload service time, and they are only comparable across runs with an
-identical `workloadCount`. In particular, `maxAdmissionP95Ms` in the range spec
+identical `workloadCount`. In particular, `maxAdmissionP95Ms` in the expectations file
 tracks throughput rather than adding an independent signal; it is kept looser
 than the throughput floor so that throughput stays the binding guard.
 
@@ -186,7 +220,7 @@ from the last resource version it saw and counts the gap in `watchGaps`. A
 resumed watch replays what it missed, but those transitions are then timestamped
 on arrival rather than when they happened. A gap can inflate latencies and
 total/drain times, and can lower measured throughput when it delays the final
-admission observation. The range spec tolerates one gap only while bounded
+admission observation. The expectations file tolerates one gap only while bounded
 latency and throughput remain in range; total and drain timings are
 observational. More than one gap fails. A watch error ends the run instead: it
 usually means the resource version to resume from has expired, which no retry

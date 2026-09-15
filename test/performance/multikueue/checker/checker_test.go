@@ -23,27 +23,28 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/yaml"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
 	"sigs.k8s.io/kueue/test/performance/multikueue/report"
 )
 
 var (
-	summaryFile = flag.String("summary", "", "the MultiKueue benchmark summary")
-	rangeFile   = flag.String("range", "", "the expected performance range")
+	summaryFile      = flag.String("summary", "", "the MultiKueue benchmark summary")
+	configFile       = flag.String("config", "", "the configuration used by the benchmark")
+	expectationsFile = flag.String("expectations", "", "the expected performance bounds")
 )
 
-// rangeSpec is the committed expectation a run is compared against. It embeds the runner's own
-// Scenario so that a new dimension of the benchmark cannot be added without the range spec
-// gaining the field too, and so the exact-match comparison stays exhaustive.
-type rangeSpec struct {
-	report.Scenario          `json:",inline"`
+// expectations contains only performance assertions. The separately loaded configuration
+// drives the runner and identifies the scenario these bounds apply to.
+type expectations struct {
 	MinThroughputPerSecond   float64 `json:"minThroughputPerSecond"`
 	MaxAdmissionP95Ms        int64   `json:"maxAdmissionP95Ms"`
 	MaxQuotaReservationP95Ms int64   `json:"maxQuotaReservationP95Ms"`
@@ -53,11 +54,11 @@ type rangeSpec struct {
 }
 
 func TestPerformance(t *testing.T) {
-	if *summaryFile == "" && *rangeFile == "" {
-		t.Skip("summary and range flags are only supplied by the performance target")
+	if *summaryFile == "" && *configFile == "" && *expectationsFile == "" {
+		t.Skip("summary, config and expectations flags are only supplied by the performance target")
 	}
-	if *summaryFile == "" || *rangeFile == "" {
-		t.Fatal("both --summary and --range are required")
+	if *summaryFile == "" || *configFile == "" || *expectationsFile == "" {
+		t.Fatal("--summary, --config and --expectations are required")
 	}
 
 	summaryBytes, err := os.ReadFile(*summaryFile)
@@ -69,16 +70,20 @@ func TestPerformance(t *testing.T) {
 		t.Fatalf("Decode summary: %v", err)
 	}
 
-	rangeBytes, err := os.ReadFile(*rangeFile)
+	cfg, err := configuration.Load(*configFile)
 	if err != nil {
-		t.Fatalf("Read range: %v", err)
+		t.Fatalf("Read configuration: %v", err)
 	}
-	expected, err := decodeRangeSpec(rangeBytes)
+	expectationsBytes, err := os.ReadFile(*expectationsFile)
 	if err != nil {
-		t.Fatalf("Decode range: %v", err)
+		t.Fatalf("Read expectations: %v", err)
+	}
+	expected, err := decodeExpectations(expectationsBytes)
+	if err != nil {
+		t.Fatalf("Decode expectations: %v", err)
 	}
 
-	for _, failure := range checkSummary(summary, expected) {
+	for _, failure := range checkSummary(summary, cfg.Scenario(), expected) {
 		t.Error(failure)
 	}
 }
@@ -105,13 +110,13 @@ func decodeBenchmarkSummary(data []byte) (report.Summary, error) {
 	return summary, nil
 }
 
-func decodeRangeSpec(data []byte) (rangeSpec, error) {
-	var expected rangeSpec
+func decodeExpectations(data []byte) (expectations, error) {
+	var expected expectations
 	if err := yaml.UnmarshalStrict(data, &expected); err != nil {
-		return rangeSpec{}, err
+		return expectations{}, err
 	}
 	if err := expected.validate(); err != nil {
-		return rangeSpec{}, err
+		return expectations{}, err
 	}
 	return expected, nil
 }
@@ -134,36 +139,8 @@ func validateSummary(s report.Summary) error {
 	}
 }
 
-func (r rangeSpec) validate() error {
+func (r expectations) validate() error {
 	switch {
-	case r.WorkloadCount <= 0:
-		return errors.New("workloadCount must be positive")
-	case r.WorkerClusters <= 0:
-		return errors.New("workerClusters must be positive")
-	case r.CreationWorkers <= 0:
-		return errors.New("creationWorkers must be positive")
-	case r.CPURequest == "":
-		return errors.New("cpuRequest must not be empty")
-	case r.Dispatcher == "":
-		return errors.New("dispatcher must not be empty")
-	case r.WorkloadConcurrency <= 0:
-		return errors.New("workloadConcurrency must be positive")
-	case !validPositiveDuration(r.GCInterval):
-		return errors.New("gcInterval must be a positive duration")
-	case !validPositiveDuration(r.WorkerLostTimeout):
-		return errors.New("workerLostTimeout must be a positive duration")
-	case !validPositiveDuration(r.EventsBatchPeriod):
-		return errors.New("eventsBatchPeriod must be a positive duration")
-	case r.LocalClientQPS <= 0:
-		return errors.New("localClientQPS must be positive")
-	case r.LocalClientBurst <= 0:
-		return errors.New("localClientBurst must be positive")
-	case r.RemoteClientRateLimitScope != report.PerWorkerCluster:
-		return errors.New("remoteClientRateLimitScope must be worker-cluster")
-	case r.RemoteClientQPS <= 0:
-		return errors.New("remoteClientQPS must be positive")
-	case r.RemoteClientBurst <= 0:
-		return errors.New("remoteClientBurst must be positive")
 	case r.MinThroughputPerSecond <= 0:
 		return errors.New("minThroughputPerSecond must be positive")
 	case r.MaxAdmissionP95Ms <= 0:
@@ -177,14 +154,9 @@ func (r rangeSpec) validate() error {
 	}
 }
 
-func validPositiveDuration(value string) bool {
-	duration, err := time.ParseDuration(value)
-	return err == nil && duration > 0
-}
-
-func checkSummary(summary report.Summary, expected rangeSpec) []string {
+func checkSummary(summary report.Summary, expectedScenario report.Scenario, expected expectations) []string {
 	var failures []string
-	got, want := summary.Scenario, expected.Scenario
+	got, want := summary.Scenario, expectedScenario
 	if diff := cmp.Diff(want, got); diff != "" {
 		failures = append(failures, "scenario mismatch (-want,+got):\n"+diff)
 	}
@@ -221,18 +193,18 @@ func checkSummary(summary report.Summary, expected rangeSpec) []string {
 		"admission":         summary.Latencies.AdmissionMs.Count,
 		"quota reservation": summary.Latencies.QuotaReservationMs.Count,
 	} {
-		if count != expected.WorkloadCount {
+		if count != expectedScenario.WorkloadCount {
 			failures = append(failures, fmt.Sprintf(
 				"%s sample count = %d, want %d",
 				metric,
 				count,
-				expected.WorkloadCount,
+				expectedScenario.WorkloadCount,
 			))
 		}
 	}
 
 	assigned := 0
-	for i := range expected.WorkerClusters {
+	for i := range expectedScenario.WorkerClusters {
 		name := fmt.Sprintf("worker-%d", i+1)
 		count, found := summary.WorkerDistribution[name]
 		if !found {
@@ -244,106 +216,97 @@ func checkSummary(summary report.Summary, expected rangeSpec) []string {
 		}
 		assigned += count
 	}
-	if assigned != expected.WorkloadCount {
+	if assigned != expectedScenario.WorkloadCount {
 		failures = append(failures, fmt.Sprintf(
 			"worker assignments = %d, want %d",
 			assigned,
-			expected.WorkloadCount,
+			expectedScenario.WorkloadCount,
 		))
 	}
 	return failures
 }
 
 func TestCheckSummary(t *testing.T) {
-	validScenario := report.Scenario{
-		RemoteClientRateLimitScope: report.PerWorkerCluster,
+	expectedScenario := report.Scenario{
+		RemoteClientRateLimitScope: "worker-cluster",
 		WorkloadCount:              100,
 		WorkerClusters:             3,
 		CreationWorkers:            20,
 		CPURequest:                 "1m",
-		Dispatcher:                 "all-at-once",
+		Dispatcher:                 "kueue.x-k8s.io/multikueue-dispatcher-all-at-once",
 		WorkloadConcurrency:        10,
-		GCInterval:                 "1m",
-		WorkerLostTimeout:          "15m",
+		GCInterval:                 "1m0s",
+		WorkerLostTimeout:          "15m0s",
 		EventsBatchPeriod:          "1s",
 		LocalClientQPS:             300,
 		LocalClientBurst:           500,
 		RemoteClientQPS:            5,
 		RemoteClientBurst:          10,
 	}
-	validSummary := report.Summary{
-		Scenario:            validScenario,
-		ThroughputPerSecond: 1.28,
-		WorkerDistribution: map[string]int{
-			"worker-1": 60,
-			"worker-2": 25,
-			"worker-3": 15,
-		},
-	}
-	validSummary.Latencies.AdmissionMs = report.Durations{Count: 100, P95Ms: 90_000}
-	validSummary.Latencies.QuotaReservationMs = report.Durations{Count: 100, P95Ms: 300}
-
-	validRange := rangeSpec{
-		Scenario:                 validScenario,
+	expected := expectations{
 		MinThroughputPerSecond:   0.8,
 		MaxAdmissionP95Ms:        150_000,
 		MaxQuotaReservationP95Ms: 500,
 		MaxWatchGaps:             1,
 	}
-
 	testCases := map[string]struct {
 		summary report.Summary
 		want    string
 	}{
-		"valid": {summary: validSummary},
+		"valid": {summary: makeSummary().Obj()},
 		"throughput regression": {
-			summary: withThroughput(validSummary, 0.7),
+			summary: makeSummary().Throughput(0.7).Obj(),
 			want:    "throughput",
 		},
 		"admission regression": {
-			summary: withAdmissionP95(validSummary, 160_000),
+			summary: makeSummary().AdmissionP95(160_000).Obj(),
 			want:    "admission P95",
 		},
 		"quota reservation regression": {
-			summary: withQuotaReservationP95(validSummary, 600),
+			summary: makeSummary().QuotaReservationP95(600).Obj(),
 			want:    "quota reservation P95",
 		},
 		"incomplete samples": {
-			summary: withAdmissionSamples(validSummary, 99),
+			summary: makeSummary().AdmissionSamples(99).Obj(),
 			want:    "sample count",
 		},
 		"idle worker": {
-			summary: withWorkerAssignment(validSummary, "worker-3", 0),
+			summary: makeSummary().WorkerAssignment("worker-3", 0).Obj(),
 			want:    "did not admit",
 		},
-		"scenario mismatch": {
-			summary: withCreationWorkers(validSummary, 10),
+		"generator concurrency mismatch": {
+			summary: makeSummary().CreationWorkers(10).Obj(),
 			want:    "CreationWorkers",
 		},
+		"local rate limit mismatch": {
+			summary: makeSummary().LocalClientQPS(1000).Obj(),
+			want:    "LocalClientQPS",
+		},
 		"remote rate limit mismatch": {
-			summary: withRemoteClientQPS(validSummary, 300),
+			summary: makeSummary().RemoteClientQPS(300).Obj(),
 			want:    "RemoteClientQPS",
 		},
 		"reconcile concurrency mismatch": {
-			summary: withWorkloadConcurrency(validSummary, 1),
+			summary: makeSummary().WorkloadConcurrency(1).Obj(),
 			want:    "WorkloadConcurrency",
 		},
-		"one watch gap is tolerated": {
-			summary: withWatchGaps(validSummary, 1),
+		"batch period mismatch": {
+			summary: makeSummary().EventsBatchPeriod("3s").Obj(),
+			want:    "EventsBatchPeriod",
 		},
+		"one watch gap is tolerated": {summary: makeSummary().WatchGaps(1).Obj()},
 		"reject summary from before shared worker budget": {
-			summary: withRemoteClientRateLimitScope(validSummary, ""),
+			summary: makeSummary().RemoteClientRateLimitScope("").Obj(),
 			want:    "RemoteClientRateLimitScope",
 		},
 		"repeated watch gaps": {
-			summary: withWatchGaps(validSummary, 2),
+			summary: makeSummary().WatchGaps(2).Obj(),
 			want:    "re-established its workload watch",
 		},
 	}
-
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			failures := checkSummary(tc.summary, validRange)
+			failures := checkSummary(tc.summary, expectedScenario, expected)
 			if tc.want == "" && len(failures) != 0 {
 				t.Fatalf("checkSummary() failures = %v, want none", failures)
 			}
@@ -351,6 +314,38 @@ func TestCheckSummary(t *testing.T) {
 				t.Fatalf("checkSummary() failures = %v, want one containing %q", failures, tc.want)
 			}
 		})
+	}
+}
+
+// The checker must compare against the configuration selected for this run rather than
+// accepting a report that happens to meet the same performance thresholds.
+func TestCheckSummaryWithConfigurationOverride(t *testing.T) {
+	cfg := configuration.Config{
+		WorkloadCount:       100,
+		WorkerClusters:      3,
+		CreationWorkers:     20,
+		CPURequest:          "1m",
+		Dispatcher:          configapi.MultiKueueDispatcherModeAllAtOnce,
+		WorkloadConcurrency: 10,
+		GCInterval:          metav1.Duration{Duration: time.Minute},
+		WorkerLostTimeout:   metav1.Duration{Duration: 15 * time.Minute},
+		EventsBatchPeriod:   metav1.Duration{Duration: time.Second},
+		LocalClientQPS:      300,
+		LocalClientBurst:    500,
+		RemoteClientQPS:     731.5,
+		RemoteClientBurst:   10,
+		Timeout:             metav1.Duration{Duration: 10 * time.Minute},
+	}
+	expected := expectations{
+		MinThroughputPerSecond:   0.8,
+		MaxAdmissionP95Ms:        150_000,
+		MaxQuotaReservationP95Ms: 500,
+		MaxWatchGaps:             1,
+	}
+	summary := makeSummary().RemoteClientQPS(5).Obj()
+	failures := checkSummary(summary, cfg.Scenario(), expected)
+	if len(failures) != 1 || !strings.Contains(failures[0], "RemoteClientQPS") {
+		t.Fatalf("checkSummary() failures = %v, want only remote QPS mismatch", failures)
 	}
 }
 
@@ -437,113 +432,142 @@ workerDistribution:
 	}
 }
 
-func TestCommittedRangeSpec(t *testing.T) {
-	data, err := os.ReadFile(committedRangePath())
+func TestCommittedExpectations(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "configs", "baseline", "expectations.yaml"))
 	if err != nil {
-		t.Fatalf("Read committed range: %v", err)
+		t.Fatalf("Read committed expectations: %v", err)
 	}
-	if _, err := decodeRangeSpec(data); err != nil {
-		t.Fatalf("Decode committed range: %v", err)
+	if _, err := decodeExpectations(data); err != nil {
+		t.Fatalf("Decode committed expectations: %v", err)
 	}
 }
 
-func TestDecodeRangeSpecRejectsInvalidInput(t *testing.T) {
-	data, err := os.ReadFile(committedRangePath())
-	if err != nil {
-		t.Fatalf("Read committed range: %v", err)
-	}
-
+func TestDecodeExpectationsRejectsInvalidInput(t *testing.T) {
+	const valid = `minThroughputPerSecond: 75
+maxAdmissionP95Ms: 15000
+maxQuotaReservationP95Ms: 1000
+maxWatchGaps: 1
+`
 	testCases := map[string]struct {
-		rangeData string
-		wantErr   string
+		data    string
+		wantErr string
 	}{
 		"missing threshold": {
-			rangeData: rewriteRangeField(t, string(data), "minThroughputPerSecond", ""),
-			wantErr:   "minThroughputPerSecond must be positive",
+			data:    "maxAdmissionP95Ms: 15000\nmaxQuotaReservationP95Ms: 1000\nmaxWatchGaps: 1\n",
+			wantErr: "minThroughputPerSecond must be positive",
 		},
 		"zero threshold": {
-			rangeData: rewriteRangeField(t, string(data), "minThroughputPerSecond", "minThroughputPerSecond: 0\n"),
-			wantErr:   "minThroughputPerSecond must be positive",
+			data:    "minThroughputPerSecond: 0\nmaxAdmissionP95Ms: 15000\nmaxQuotaReservationP95Ms: 1000\nmaxWatchGaps: 1\n",
+			wantErr: "minThroughputPerSecond must be positive",
 		},
-		"unknown field": {
-			rangeData: string(data) + "\nunknown: true\n",
-			wantErr:   `unknown field "unknown"`,
+		"configuration is not expectations": {
+			data:    valid + "workloadCount: 1000\n",
+			wantErr: `unknown field "workloadCount"`,
 		},
+		"controller configuration is not expectations": {
+			data:    valid + "localClientQPS: 1000\n",
+			wantErr: `unknown field "localClientQPS"`,
+		},
+		"unknown field": {data: valid + "unknown: true\n", wantErr: `unknown field "unknown"`},
 	}
-
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			_, err := decodeRangeSpec([]byte(tc.rangeData))
+			_, err := decodeExpectations([]byte(tc.data))
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("decodeRangeSpec() error = %v, want one containing %q", err, tc.wantErr)
+				t.Fatalf("decodeExpectations() error = %v, want one containing %q", err, tc.wantErr)
 			}
 		})
 	}
 }
 
-func committedRangePath() string {
-	return filepath.Join("..", "configs", "baseline", "rangespec.yaml")
+type summaryWrapper struct{ summary report.Summary }
+
+func makeSummary() summaryWrapper {
+	return summaryWrapper{summary: report.Summary{
+		Scenario: report.Scenario{
+			RemoteClientRateLimitScope: "worker-cluster",
+			WorkloadCount:              100,
+			WorkerClusters:             3,
+			CreationWorkers:            20,
+			CPURequest:                 "1m",
+			Dispatcher:                 "kueue.x-k8s.io/multikueue-dispatcher-all-at-once",
+			WorkloadConcurrency:        10,
+			GCInterval:                 "1m0s",
+			WorkerLostTimeout:          "15m0s",
+			EventsBatchPeriod:          "1s",
+			LocalClientQPS:             300,
+			LocalClientBurst:           500,
+			RemoteClientQPS:            5,
+			RemoteClientBurst:          10,
+		},
+		ThroughputPerSecond: 1.28,
+		WorkerDistribution:  map[string]int{"worker-1": 60, "worker-2": 25, "worker-3": 15},
+		Latencies: report.Latencies{
+			AdmissionMs:        report.Durations{Count: 100, P95Ms: 90_000},
+			QuotaReservationMs: report.Durations{Count: 100, P95Ms: 300},
+		},
+	}}
 }
 
-// rewriteRangeField replaces the line defining a top-level range field, or drops it when
-// replacement is empty. It keys on the field name rather than its committed value so that
-// recalibrating a threshold cannot silently turn a mutation into a no-op.
-func rewriteRangeField(t *testing.T, data, field, replacement string) string {
-	t.Helper()
-	line := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(field) + `:.*\n`)
-	if !line.MatchString(data) {
-		t.Fatalf("Field %q not found in committed range", field)
-	}
-	return line.ReplaceAllString(data, replacement)
+func (w summaryWrapper) Obj() report.Summary { return w.summary }
+
+func (w summaryWrapper) Throughput(value float64) summaryWrapper {
+	w.summary.ThroughputPerSecond = value
+	return w
 }
 
-func withThroughput(summary report.Summary, value float64) report.Summary {
-	summary.ThroughputPerSecond = value
-	return summary
+func (w summaryWrapper) AdmissionP95(value int64) summaryWrapper {
+	w.summary.Latencies.AdmissionMs.P95Ms = value
+	return w
 }
 
-func withAdmissionP95(summary report.Summary, value int64) report.Summary {
-	summary.Latencies.AdmissionMs.P95Ms = value
-	return summary
+func (w summaryWrapper) QuotaReservationP95(value int64) summaryWrapper {
+	w.summary.Latencies.QuotaReservationMs.P95Ms = value
+	return w
 }
 
-func withQuotaReservationP95(summary report.Summary, value int64) report.Summary {
-	summary.Latencies.QuotaReservationMs.P95Ms = value
-	return summary
+func (w summaryWrapper) AdmissionSamples(value int) summaryWrapper {
+	w.summary.Latencies.AdmissionMs.Count = value
+	return w
 }
 
-func withAdmissionSamples(summary report.Summary, value int) report.Summary {
-	summary.Latencies.AdmissionMs.Count = value
-	return summary
+func (w summaryWrapper) CreationWorkers(value int) summaryWrapper {
+	w.summary.Scenario.CreationWorkers = value
+	return w
 }
 
-func withCreationWorkers(summary report.Summary, value int) report.Summary {
-	summary.Scenario.CreationWorkers = value
-	return summary
+func (w summaryWrapper) LocalClientQPS(value float32) summaryWrapper {
+	w.summary.Scenario.LocalClientQPS = value
+	return w
 }
 
-func withRemoteClientQPS(summary report.Summary, value float32) report.Summary {
-	summary.Scenario.RemoteClientQPS = value
-	return summary
+func (w summaryWrapper) RemoteClientQPS(value float32) summaryWrapper {
+	w.summary.Scenario.RemoteClientQPS = value
+	return w
 }
 
-func withWorkloadConcurrency(summary report.Summary, value int) report.Summary {
-	summary.Scenario.WorkloadConcurrency = value
-	return summary
+func (w summaryWrapper) WorkloadConcurrency(value int) summaryWrapper {
+	w.summary.Scenario.WorkloadConcurrency = value
+	return w
 }
 
-func withWatchGaps(summary report.Summary, value int) report.Summary {
-	summary.WatchGaps = value
-	return summary
+func (w summaryWrapper) EventsBatchPeriod(value string) summaryWrapper {
+	w.summary.Scenario.EventsBatchPeriod = value
+	return w
 }
 
-func withWorkerAssignment(summary report.Summary, worker string, count int) report.Summary {
-	summary.WorkerDistribution = maps.Clone(summary.WorkerDistribution)
-	summary.WorkerDistribution[worker] = count
-	return summary
+func (w summaryWrapper) WatchGaps(value int) summaryWrapper {
+	w.summary.WatchGaps = value
+	return w
 }
 
-func withRemoteClientRateLimitScope(summary report.Summary, scope string) report.Summary {
-	summary.Scenario.RemoteClientRateLimitScope = scope
-	return summary
+func (w summaryWrapper) RemoteClientRateLimitScope(value string) summaryWrapper {
+	w.summary.Scenario.RemoteClientRateLimitScope = value
+	return w
+}
+
+func (w summaryWrapper) WorkerAssignment(worker string, count int) summaryWrapper {
+	w.summary.WorkerDistribution = maps.Clone(w.summary.WorkerDistribution)
+	w.summary.WorkerDistribution[worker] = count
+	return w
 }

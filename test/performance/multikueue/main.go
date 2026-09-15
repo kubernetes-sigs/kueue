@@ -31,12 +31,14 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/yaml"
+
+	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
 )
 
 var (
 	configPath = flag.String(
 		"config",
-		"test/performance/multikueue/configs/baseline.yaml",
+		"test/performance/multikueue/configs/baseline/configuration.yaml",
 		"benchmark configuration file",
 	)
 	crdsPath = flag.String(
@@ -76,7 +78,7 @@ func main() {
 }
 
 func run() error {
-	cfg, err := loadConfig(*configPath)
+	cfg, err := configuration.Load(*configPath)
 	if err != nil {
 		return err
 	}
@@ -89,7 +91,7 @@ func run() error {
 	if *creationWorkersOverride > 0 {
 		cfg.CreationWorkers = *creationWorkersOverride
 	}
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return err
 	}
 
@@ -120,7 +122,7 @@ func run() error {
 	for i := range cfg.WorkerClusters {
 		name := workerName(i)
 		fmt.Printf("Starting %s control plane\n", name)
-		worker, err := startBenchmarkCluster(clusterCtx, name, *crdsPath, setupCoreControllers, failClusters)
+		worker, err := startBenchmarkCluster(clusterCtx, name, *crdsPath, cfg, setupCoreControllers, failClusters)
 		if err != nil {
 			return preferUnexpectedManagerError(err, workers...)
 		}
@@ -139,6 +141,7 @@ func run() error {
 		clusterCtx,
 		"manager",
 		*crdsPath,
+		cfg,
 		setupManagerControllers(configNamespaceName, cfg),
 		failClusters,
 	)

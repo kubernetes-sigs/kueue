@@ -739,8 +739,8 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 
 ##@ MultiKueue Performance Testing
 
-MULTIKUEUE_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline.yaml
-MULTIKUEUE_PERFORMANCE_RANGE ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/rangespec.yaml
+MULTIKUEUE_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/configuration.yaml
+MULTIKUEUE_PERFORMANCE_EXPECTATIONS ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/expectations.yaml
 
 # The runner lives under ./test/, which 'make test' excludes, so its unit tests need their own
 # target to run anywhere.
@@ -764,7 +764,8 @@ test-performance-multikueue-once: test-performance-multikueue-runner run-perform
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-performance-multikueue.xml -- \
 		$(GOFLAGS) $(GO_TEST_FLAGS) ./test/performance/multikueue/checker \
 		--summary=$(ARTIFACTS)/run-performance-multikueue/summary.yaml \
-		--range=$(MULTIKUEUE_PERFORMANCE_RANGE)
+		--config=$(MULTIKUEUE_PERFORMANCE_CONFIG) \
+		--expectations=$(MULTIKUEUE_PERFORMANCE_EXPECTATIONS)
 
 .PHONY: test-performance-multikueue
 test-performance-multikueue:

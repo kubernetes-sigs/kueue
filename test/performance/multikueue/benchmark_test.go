@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
@@ -32,6 +33,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
+	"sigs.k8s.io/kueue/test/performance/multikueue/report"
 )
 
 func TestObservationCollectorUsesObservationTime(t *testing.T) {
@@ -90,45 +93,46 @@ func TestObservationCollectorSummarize(t *testing.T) {
 		t.Fatalf("observe() unexpected error: %v", err)
 	}
 
-	summary, err := collector.summarize(benchmarkConfig{
-		WorkloadCount:     1,
-		WorkerClusters:    3,
-		CreationWorkers:   1,
-		RemoteClientQPS:   731.5,
-		RemoteClientBurst: 997,
-		CPURequest:        "1m",
+	summary, err := collector.summarize(configuration.Config{
+		WorkloadCount:       1,
+		WorkerClusters:      3,
+		CreationWorkers:     1,
+		RemoteClientQPS:     731.5,
+		RemoteClientBurst:   997,
+		LocalClientQPS:      811.5,
+		LocalClientBurst:    991,
+		WorkloadConcurrency: 7,
+		GCInterval:          metav1.Duration{Duration: 2 * time.Minute},
+		WorkerLostTimeout:   metav1.Duration{Duration: 11 * time.Minute},
+		EventsBatchPeriod:   metav1.Duration{Duration: 2 * time.Second},
+		Dispatcher:          "kueue.x-k8s.io/multikueue-dispatcher-all-at-once",
+		CPURequest:          "1m",
 	}, time.Millisecond, 0)
 	if err != nil {
 		t.Fatalf("summarize() unexpected error: %v", err)
 	}
-	for _, worker := range []string{"worker-1", "worker-2", "worker-3"} {
-		if _, found := summary.WorkerDistribution[worker]; !found {
-			t.Errorf("WorkerDistribution is missing %q", worker)
-		}
+	wantScenario := report.Scenario{
+		RemoteClientRateLimitScope: "worker-cluster",
+		WorkloadCount:              1,
+		WorkerClusters:             3,
+		CreationWorkers:            1,
+		CPURequest:                 "1m",
+		Dispatcher:                 "kueue.x-k8s.io/multikueue-dispatcher-all-at-once",
+		WorkloadConcurrency:        7,
+		GCInterval:                 "2m0s",
+		WorkerLostTimeout:          "11m0s",
+		EventsBatchPeriod:          "2s",
+		LocalClientQPS:             811.5,
+		LocalClientBurst:           991,
+		RemoteClientQPS:            731.5,
+		RemoteClientBurst:          997,
 	}
-	if wantCluster := workerName(0); summary.WorkerDistribution[wantCluster] != 1 {
-		t.Errorf("WorkerDistribution[%q] = %d, want 1", wantCluster, summary.WorkerDistribution[wantCluster])
+	if diff := cmp.Diff(wantScenario, summary.Scenario); diff != "" {
+		t.Errorf("unexpected scenario (-want,+got):\n%s", diff)
 	}
-	if summary.Scenario.GCInterval != benchmarkGCInterval.String() {
-		t.Errorf("Scenario.GCInterval = %q, want %q", summary.Scenario.GCInterval, benchmarkGCInterval.String())
-	}
-	if summary.Scenario.WorkerLostTimeout != benchmarkWorkerLostTimeout.String() {
-		t.Errorf("Scenario.WorkerLostTimeout = %q, want %q", summary.Scenario.WorkerLostTimeout, benchmarkWorkerLostTimeout.String())
-	}
-	if summary.Scenario.EventsBatchPeriod != benchmarkEventsBatchPeriod.String() {
-		t.Errorf("Scenario.EventsBatchPeriod = %q, want %q", summary.Scenario.EventsBatchPeriod, benchmarkEventsBatchPeriod.String())
-	}
-	if summary.Scenario.RemoteClientQPS != 731.5 || summary.Scenario.RemoteClientBurst != 997 {
-		t.Errorf(
-			"Scenario remote rate limits = %v, %v, want %v, %v",
-			summary.Scenario.RemoteClientQPS,
-			summary.Scenario.RemoteClientBurst,
-			731.5,
-			997,
-		)
-	}
-	if summary.Scenario.WorkloadConcurrency != workloadConcurrency {
-		t.Errorf("Scenario.WorkloadConcurrency = %d, want %d", summary.Scenario.WorkloadConcurrency, workloadConcurrency)
+	wantDistribution := map[string]int{"worker-1": 1, "worker-2": 0, "worker-3": 0}
+	if diff := cmp.Diff(wantDistribution, summary.WorkerDistribution); diff != "" {
+		t.Errorf("unexpected worker distribution (-want,+got):\n%s", diff)
 	}
 }
 
@@ -250,7 +254,7 @@ func TestObservationCollectorRejectsUnusableCreationTime(t *testing.T) {
 }
 
 func TestSummarizeRejectsIncompleteTiming(t *testing.T) {
-	cfg := benchmarkConfig{WorkloadCount: 1, WorkerClusters: 1, CreationWorkers: 1, CPURequest: "1m"}
+	cfg := configuration.Config{WorkloadCount: 1, WorkerClusters: 1, CreationWorkers: 1, CPURequest: "1m"}
 
 	testCases := map[string]struct {
 		admissionChecks []kueue.AdmissionCheckState
@@ -344,7 +348,7 @@ func (c *blockingBenchmarkClient) stopWatch(ctx context.Context) {
 }
 
 func runBenchmarkForTest(ctx context.Context, c client.WithWatch, result chan<- error) {
-	_, err := runBenchmark(ctx, &benchmarkCluster{client: c}, benchmarkConfig{
+	_, err := runBenchmark(ctx, &benchmarkCluster{client: c}, configuration.Config{
 		WorkloadCount:   1,
 		WorkerClusters:  1,
 		CreationWorkers: 1,

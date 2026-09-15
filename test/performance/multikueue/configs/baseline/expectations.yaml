@@ -1,20 +1,7 @@
 # Provisional guardrails for the dedicated MultiKueue performance periodic.
 # Recalibrate from at least five runs on its CI worker before enabling alerts.
-workloadCount: 1000
-workerClusters: 3
-creationWorkers: 1
-cpuRequest: 1m
-dispatcher: kueue.x-k8s.io/multikueue-dispatcher-all-at-once
-workloadConcurrency: 10
-gcInterval: 1m0s
-workerLostTimeout: 15m0s
-eventsBatchPeriod: 1s
-localClientQPS: 1000
-localClientBurst: 1000
-# Configured by the runner, not inferred from client-go defaults.
-remoteClientRateLimitScope: worker-cluster
-remoteClientQPS: 1000
-remoteClientBurst: 1000
+# The checker verifies the reported scenario against configuration.yaml before
+# applying these bounds; this file does not configure the benchmark.
 # Local measurements and rationale are documented in the benchmark README.
 minThroughputPerSecond: 75
 # Admission latency includes a workload's position in the drain queue.

@@ -36,38 +36,16 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
-	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/scheduler"
-	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/test/performance/framework/controllers"
+	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
 )
-
-const (
-	apiQPS   = configapi.DefaultClientConnectionQPS
-	apiBurst = int(configapi.DefaultClientConnectionBurst)
-
-	benchmarkDispatcherName    = configapi.MultiKueueDispatcherModeAllAtOnce
-	benchmarkGCInterval        = configapi.DefaultMultiKueueGCInterval
-	benchmarkWorkerLostTimeout = configapi.DefaultMultiKueueWorkerLostTimeout
-	benchmarkEventsBatchPeriod = constants.UpdatesBatchPeriod
-)
-
-// workloadConcurrency matches the MultiKueue e2e configuration
-// (test/e2e/config/multikueue/baseline/controller_manager_config.yaml) and the documented MultiKueue
-// setup. It has to be set explicitly: controller-runtime resolves a controller's concurrency from the
-// manager's GroupKindConcurrency, and falls back to one reconcile at a time when the Workload kind is
-// absent from it.
-const workloadConcurrency = 10
 
 // benchmarkGroupKindConcurrency omits Job and Pod because no job framework reconciler runs here.
-func benchmarkGroupKindConcurrency() map[string]int {
+func benchmarkGroupKindConcurrency(workloadConcurrency int) map[string]int {
 	return map[string]int{
 		kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String():       workloadConcurrency,
 		kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind().String():     5,
@@ -99,7 +77,7 @@ type managerRun struct {
 	unexpected bool
 }
 
-func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup managerSetup, failClusters context.CancelCauseFunc) (*benchmarkCluster, error) {
+func startBenchmarkCluster(ctx context.Context, name, crdPath string, cfg configuration.Config, setup managerSetup, failClusters context.CancelCauseFunc) (*benchmarkCluster, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, context.Cause(ctx)
 	}
@@ -118,8 +96,8 @@ func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup mana
 	if err != nil {
 		return nil, fmt.Errorf("start %s control plane: %w", name, err)
 	}
-	restConfig.QPS = apiQPS
-	restConfig.Burst = apiBurst
+	restConfig.QPS = cfg.LocalClientQPS
+	restConfig.Burst = int(cfg.LocalClientBurst)
 
 	directClient, err := client.NewWithWatch(restConfig, client.Options{Scheme: scheme})
 	if err != nil {
@@ -128,7 +106,7 @@ func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup mana
 	}
 	// Production shares one token bucket across the manager's typed clients. Install it only
 	// after creating the direct benchmark client so workload generation has its own limiter.
-	restConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(apiQPS, apiBurst)
+	restConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(cfg.LocalClientQPS, int(cfg.LocalClientBurst))
 
 	mgr, err := ctrl.NewManager(restConfig, manager.Options{
 		Scheme: scheme,
@@ -137,7 +115,7 @@ func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup mana
 		},
 		Controller: crconfig.Controller{
 			SkipNameValidation:   new(true),
-			GroupKindConcurrency: benchmarkGroupKindConcurrency(),
+			GroupKindConcurrency: benchmarkGroupKindConcurrency(cfg.WorkloadConcurrency),
 		},
 	})
 	if err != nil {
@@ -198,52 +176,12 @@ func benchmarkScheme() (*runtime.Scheme, error) {
 }
 
 func setupCoreControllers(ctx context.Context, mgr manager.Manager) error {
-	if err := indexer.Setup(ctx, mgr.GetFieldIndexer()); err != nil {
-		return fmt.Errorf("setup core indexers: %w", err)
-	}
-
-	schedulerCache := schdcache.New(mgr.GetClient())
-	requeuer := qcache.NewRequeuer()
-	if err := mgr.Add(requeuer); err != nil {
-		return fmt.Errorf("add workload requeuer: %w", err)
-	}
-
-	preemptionExpectations := preemptexpectations.New()
-	queues := qcache.NewManager(
-		mgr.GetClient(),
-		schedulerCache,
-		requeuer,
-		qcache.WithPreemptionExpectations(preemptionExpectations),
-	)
-	go queues.CleanUpOnContext(ctx)
-	go schedulerCache.CleanUpOnContext(ctx)
-
 	configuration := &configapi.Configuration{}
 	mgr.GetScheme().Default(configuration)
-	if failedController, err := core.SetupControllers(
-		mgr,
-		queues,
-		schedulerCache,
-		configuration,
-		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
-	); err != nil {
-		return fmt.Errorf("setup core controller %s: %w", failedController, err)
-	}
-
-	sched := scheduler.New(
-		queues,
-		schedulerCache,
-		mgr.GetClient(),
-		mgr.GetEventRecorder(constants.AdmissionName),
-		scheduler.WithPreemptionExpectations(preemptionExpectations),
-	)
-	if err := mgr.Add(sched); err != nil {
-		return fmt.Errorf("add scheduler: %w", err)
-	}
-	return nil
+	return controllers.Setup(ctx, mgr, configuration, false)
 }
 
-func setupManagerControllers(configNamespace string, cfg benchmarkConfig) managerSetup {
+func setupManagerControllers(configNamespace string, cfg configuration.Config) managerSetup {
 	return func(ctx context.Context, mgr manager.Manager) error {
 		if !features.Enabled(features.MultiKueueReuseClientConnectionConfigForWorkers) {
 			return fmt.Errorf("benchmark requires the %s feature gate", features.MultiKueueReuseClientConnectionConfigForWorkers)
@@ -268,11 +206,11 @@ func setupManagerControllers(configNamespace string, cfg benchmarkConfig) manage
 		if err := multikueue.SetupControllers(
 			mgr,
 			configNamespace,
-			multikueue.WithGCInterval(benchmarkGCInterval),
-			multikueue.WithWorkerLostTimeout(benchmarkWorkerLostTimeout),
-			multikueue.WithEventsBatchPeriod(benchmarkEventsBatchPeriod),
+			multikueue.WithGCInterval(cfg.GCInterval.Duration),
+			multikueue.WithWorkerLostTimeout(cfg.WorkerLostTimeout.Duration),
+			multikueue.WithEventsBatchPeriod(cfg.EventsBatchPeriod.Duration),
 			multikueue.WithAdapters(adapters),
-			multikueue.WithDispatcherName(benchmarkDispatcherName),
+			multikueue.WithDispatcherName(cfg.Dispatcher),
 			multikueue.WithClientConnection(&configapi.ClientConnection{
 				QPS:   new(cfg.RemoteClientQPS),
 				Burst: new(cfg.RemoteClientBurst),

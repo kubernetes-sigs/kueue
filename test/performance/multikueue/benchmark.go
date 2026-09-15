@@ -41,6 +41,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/version"
+	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
 	"sigs.k8s.io/kueue/test/performance/multikueue/report"
 )
 
@@ -125,7 +126,7 @@ func (c *observationCollector) admittedCount() int {
 	return c.admitted
 }
 
-func (c *observationCollector) summarize(cfg benchmarkConfig, generationDuration time.Duration, watchGaps int) (report.Summary, error) {
+func (c *observationCollector) summarize(cfg configuration.Config, generationDuration time.Duration, watchGaps int) (report.Summary, error) {
 	if c.admittedCount() != cfg.WorkloadCount {
 		return report.Summary{}, fmt.Errorf("observed %d admitted workloads, want %d", c.admittedCount(), cfg.WorkloadCount)
 	}
@@ -173,22 +174,7 @@ func (c *observationCollector) summarize(cfg benchmarkConfig, generationDuration
 			GoVersion:  build.GoVersion,
 			Platform:   build.Platform,
 		},
-		Scenario: report.Scenario{
-			RemoteClientRateLimitScope: report.PerWorkerCluster,
-			WorkloadCount:              cfg.WorkloadCount,
-			WorkerClusters:             cfg.WorkerClusters,
-			CreationWorkers:            cfg.CreationWorkers,
-			CPURequest:                 cfg.CPURequest,
-			Dispatcher:                 benchmarkDispatcherName,
-			WorkloadConcurrency:        workloadConcurrency,
-			GCInterval:                 benchmarkGCInterval.String(),
-			WorkerLostTimeout:          benchmarkWorkerLostTimeout.String(),
-			EventsBatchPeriod:          benchmarkEventsBatchPeriod.String(),
-			LocalClientQPS:             apiQPS,
-			LocalClientBurst:           apiBurst,
-			RemoteClientQPS:            cfg.RemoteClientQPS,
-			RemoteClientBurst:          int(cfg.RemoteClientBurst),
-		},
+		Scenario: cfg.Scenario(),
 		Timing: report.Timing{
 			GenerationMs: generationDuration.Milliseconds(),
 			TotalMs:      totalDuration.Milliseconds(),
@@ -204,7 +190,7 @@ func (c *observationCollector) summarize(cfg benchmarkConfig, generationDuration
 	}, nil
 }
 
-func setupBenchmarkTopology(ctx context.Context, managerCluster *benchmarkCluster, workers []*benchmarkCluster, cfg benchmarkConfig) error {
+func setupBenchmarkTopology(ctx context.Context, managerCluster *benchmarkCluster, workers []*benchmarkCluster, cfg configuration.Config) error {
 	quota := resource.MustParse(cfg.CPURequest)
 	quota.Mul(int64(cfg.WorkloadCount))
 	quotaString := quota.String()
@@ -345,7 +331,7 @@ func waitForActive(ctx context.Context, c client.Client, key client.ObjectKey, o
 	})
 }
 
-func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg benchmarkConfig) (report.Summary, error) {
+func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg configuration.Config) (report.Summary, error) {
 	runCtx, cancelRun := context.WithCancel(ctx)
 	var runWG sync.WaitGroup
 	defer func() {
@@ -544,7 +530,7 @@ type generationResult struct {
 	err      error
 }
 
-func generateWorkloads(ctx context.Context, c client.Client, cfg benchmarkConfig, runID string) error {
+func generateWorkloads(ctx context.Context, c client.Client, cfg configuration.Config, runID string) error {
 	group, groupCtx := errgroup.WithContext(ctx)
 	var next atomic.Int64
 
@@ -571,7 +557,7 @@ func generateWorkloads(ctx context.Context, c client.Client, cfg benchmarkConfig
 // derive one. No job framework controller runs here, but the Job still has to exist: the MultiKueue
 // workload reconciler resolves the adapter that mirrors objects to the workers from the Workload's
 // owner.
-func createWorkload(ctx context.Context, c client.Client, cfg benchmarkConfig, runID string, index int) error {
+func createWorkload(ctx context.Context, c client.Client, cfg configuration.Config, runID string, index int) error {
 	name := fmt.Sprintf("workload-%06d", index)
 	job := testingjob.MakeJob(name, benchmarkNamespaceName).
 		Queue(localQueueName).

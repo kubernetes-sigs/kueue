@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"sigs.k8s.io/kueue/pkg/features"
+	configuration "sigs.k8s.io/kueue/test/performance/multikueue/config"
 )
 
 func TestBenchmarkEnvironmentDoesNotUseExistingCluster(t *testing.T) {
@@ -239,7 +240,7 @@ func TestStopErrors(t *testing.T) {
 
 func TestManagerControllersRequireWorkerClientConfiguration(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.MultiKueueReuseClientConnectionConfigForWorkers, false)
-	err := setupManagerControllers("kueue-system", benchmarkConfig{})(t.Context(), nil)
+	err := setupManagerControllers("kueue-system", configuration.Config{})(t.Context(), nil)
 	if err == nil || !strings.Contains(err.Error(), string(features.MultiKueueReuseClientConnectionConfigForWorkers)) {
 		t.Fatalf("setupManagerControllers() error = %v, want disabled worker-client configuration gate", err)
 	}
