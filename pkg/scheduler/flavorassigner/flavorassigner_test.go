@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
@@ -36,6 +37,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
@@ -6615,6 +6617,56 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			// distinguish them.
 			if got := recomputed.RepresentativeMode(); got != Preempt {
 				t.Errorf("recomputation RepresentativeMode() = %s, want %s", got, Preempt)
+			}
+		})
+	}
+}
+
+func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+	cases := map[string]struct {
+		otherUsage string
+		wantMode   FlavorAssignmentMode
+	}{
+		"replacement fits when only the old slice occupies the node":       {otherUsage: "0", wantMode: Fit},
+		"replacement does not fit when another workload occupies the node": {otherUsage: "1", wantMode: Preempt},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+			old := utiltestingapi.MakeWorkload("old", "default").
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Assignment(corev1.ResourceCPU, "flavor-1", "2").TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 2).Obj()).Obj()).Obj()).Obj(), time.Now()).
+				AdmittedAt(true, time.Now()).
+				Obj()
+			oldInfo := workload.NewInfo(log, old)
+			cq.AddUsage(oldInfo.Usage())
+			cq.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne(tc.otherUsage)})
+			before, err := cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := workload.NewInfo(
+				log,
+				utiltestingapi.MakeWorkload("new", "default").
+					Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					Obj(),
+			)
+			a := New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+			if got := a.RepresentativeMode(); got != tc.wantMode {
+				t.Errorf("mode=%s, want %s", got, tc.wantMode)
+			}
+			after, err := cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before != after {
+				t.Errorf("assignment changed shared snapshot capacity: before=%s after=%s", before, after)
 			}
 		})
 	}
