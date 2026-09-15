@@ -245,6 +245,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 	ginkgo.When("Workload with non-existent RuntimeClass defined", func() {
 		ginkgo.BeforeEach(func() {
+			runtimeClass = nil
 			util.MustCreate(ctx, k8sClient, onDemandFlavor)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").
@@ -258,12 +259,15 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			if runtimeClass != nil {
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+			}
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
-			ginkgo.By("Create and wait for workload admission", func() {
+		ginkgo.It("Should keep the workload inadmissible until the RuntimeClass exists", func() {
+			ginkgo.By("Create the workload and wait for the missing RuntimeClass condition", func() {
 				wl = utiltestingapi.MakeWorkload("one", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
@@ -274,11 +278,33 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeFalse())
+					requeued := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadRequeued)
+					g.Expect(requeued).ShouldNot(gomega.BeNil())
+					g.Expect(requeued.Status).Should(gomega.Equal(metav1.ConditionFalse))
+					g.Expect(requeued.Reason).Should(gomega.Equal("RuntimeClassNotFound"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify the workload is not admitted while adjustment cannot complete", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeFalse())
+				}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Create the RuntimeClass and wait for workload admission", func() {
+				runtimeClass = utiltesting.MakeRuntimeClass("kata", "bar-handler").PodOverhead(resources).Obj()
+				util.MustCreate(ctx, k8sClient, runtimeClass)
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check queue resource consumption", func() {
+			ginkgo.By("Check queue resource consumption includes RuntimeClass overhead", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
@@ -288,7 +314,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 							Resources: []kueue.ResourceUsage{{
 								Name:  corev1.ResourceCPU,
-								Total: resource.MustParse("1"),
+								Total: resource.MustParse("2"),
 							}},
 						}},
 					}, ignoreCqCondition, ignoreInClusterQueueStatus))

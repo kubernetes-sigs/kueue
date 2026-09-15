@@ -77,6 +77,7 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 		utiltestingapi.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	)
 	manager := NewManagerForUnitTests(kClient, nil)
+	reconcileCh := manager.WorkloadReconcileChannel()
 	q := utiltestingapi.MakeLocalQueue("foo", "earth").Obj()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	if err := manager.AddLocalQueue(ctx, q); err != nil {
@@ -84,8 +85,16 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 	qImpl := manager.localQueues[queue.Key(q)]
 	workloadNames := workloadNamesFromLQ(qImpl)
-	if diff := gocmp.Diff(sets.New[workload.Reference]("earth/a", "earth/c"), workloadNames); diff != "" {
+	if diff := gocmp.Diff(sets.New[workload.Reference](), workloadNames); diff != "" {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
+	}
+	reconcileNames := sets.New[string]()
+	for range 2 {
+		e := <-reconcileCh
+		reconcileNames.Insert(e.Object.Name)
+	}
+	if diff := gocmp.Diff(sets.New("a", "c"), reconcileNames); diff != "" {
+		t.Errorf("Unexpected workloads queued for reconciliation (-want,+got):\n%s", diff)
 	}
 	assignedWorkloads := manager.workloadAssignedQueues
 	expectedWorkloads := map[workload.Reference]queue.LocalQueueReference{
@@ -100,7 +109,7 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 }
 
-func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
+func TestAddLocalQueue_WorkloadReconcileChannelGuaranteedDelivery(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 
 	// Create an admissible workload that triggers dra.NeedsDRAReconcile via HasDRA().
@@ -119,9 +128,10 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	// Pre-fill the channel so the first send blocks until we drain it.
-	ch := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
-	ch <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
-	manager.SetDRAReconcileChannel(ch)
+	ch := manager.WorkloadReconcileChannel()
+	for range cap(ch) {
+		ch <- event.TypedGenericEvent[*kueue.Workload]{Object: wl}
+	}
 
 	done := make(chan error, 1)
 	go func() {
@@ -133,7 +143,7 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	select {
 	case <-ch:
 	case <-time.After(10 * time.Second):
-		t.Fatal("timed out waiting to drain draReconcileChannel")
+		t.Fatal("timed out waiting to drain workloadReconcileChannel")
 	}
 
 	// AddLocalQueue must complete after the channel is drained.
@@ -143,12 +153,12 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 			t.Fatalf("AddLocalQueue returned error: %v", err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("AddLocalQueue did not complete after draReconcileChannel was drained")
+		t.Fatal("AddLocalQueue did not complete after workloadReconcileChannel was drained")
 	}
 
 	// The workload event must have been delivered (guaranteed, not dropped).
-	if got := len(ch); got != 1 {
-		t.Fatalf("unexpected draReconcileChannel length: got %d, want 1", got)
+	if got := len(ch); got != cap(ch) {
+		t.Fatalf("unexpected workloadReconcileChannel length: got %d, want %d", got, cap(ch))
 	}
 }
 
@@ -172,6 +182,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	)
 	queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
 	manager := NewManagerForUnitTests(kClient, nil, queueOptions...)
+	reconcileCh := manager.WorkloadReconcileChannel()
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
@@ -179,6 +190,12 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	for _, q := range queues {
 		if err := manager.AddLocalQueue(ctx, q); err != nil {
 			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	for range 2 {
+		wl := (<-reconcileCh).Object
+		if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+			t.Fatalf("Failed adding reconciled workload %s: %v", wl.Name, err)
 		}
 	}
 
@@ -870,13 +887,17 @@ func TestDeleteLocalQueue(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("a", "").Queue("foo").Obj()
 
 	cl := utiltesting.NewFakeClient(wl)
-	manager := NewManagerForUnitTests(cl, nil)
+	manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+	reconcileCh := manager.WorkloadReconcileChannel()
 
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Could not create ClusterQueue: %v", err)
 	}
 	if err := manager.AddLocalQueue(ctx, q); err != nil {
 		t.Fatalf("Could not create LocalQueue: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(log, (<-reconcileCh).Object); err != nil {
+		t.Fatalf("Could not add reconciled workload: %v", err)
 	}
 
 	wantActiveWorkloads := map[kueue.ClusterQueueReference][]workload.Reference{
@@ -1224,9 +1245,10 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 		"a re-read at a new version recomputes the hash": {
 			mutate: func(wl *kueue.Workload) { wl.Spec.Priority = ptr.To[int32](1) },
 		},
-		"a LimitRange default that moves the effective requests recomputes the hash": {
+		"a LimitRange update is deferred to workload reconciliation": {
 			seed: utiltesting.MakeLimitRange("lr", "ns").WithType(corev1.LimitTypeContainer).
 				WithValue("DefaultRequest", corev1.ResourceMemory, "1Gi").Obj(),
+			wantReuse: true,
 		},
 	}
 	for name, tc := range cases {
@@ -1935,6 +1957,9 @@ func TestHeadsAsync(t *testing.T) {
 					if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 						t.Errorf("Failed adding queue: %s", err)
 					}
+					if err := mgr.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), &wl); err != nil {
+						t.Errorf("Failed to add reconciled workload: %v", err)
+					}
 				})
 			},
 			wantHeads: []Head{
@@ -2002,6 +2027,9 @@ func TestHeadsAsync(t *testing.T) {
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
+				if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
+					t.Errorf("Failed adding reconciled workload: %v", err)
+				}
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				wg.Go(func() {
@@ -2025,6 +2053,9 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
+				}
+				if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
+					t.Errorf("Failed adding reconciled workload: %v", err)
 				}
 
 				newWl = wl
@@ -2059,6 +2090,9 @@ func TestHeadsAsync(t *testing.T) {
 					if err := mgr.AddLocalQueue(ctx, &q); err != nil {
 						t.Errorf("Failed adding queue: %s", err)
 					}
+				}
+				if err := mgr.AddOrUpdateWorkload(log, &wl); err != nil {
+					t.Errorf("Failed adding reconciled workload: %v", err)
 				}
 
 				newWl = wl
@@ -2886,7 +2920,10 @@ func TestHeadsRespectLocalQueueWeightForPreexistingWorkloads(t *testing.T) {
 
 	cl := utiltesting.NewFakeClient(wlZero, wlNormal, lqNormal, lqZero, cq)
 	ctx, _ := utiltesting.ContextWithLog(t)
-	manager := NewManagerForUnitTests(cl, nil, WithAdmissionFairSharing(afsConfig))
+	manager := NewManagerForUnitTests(cl, nil,
+		WithAdmissionFairSharing(afsConfig),
+		WithPreemptionExpectations(preemptexpectations.New()))
+	reconcileCh := manager.WorkloadReconcileChannel()
 
 	// Register the LocalQueues (and seed usage) before the ClusterQueue, so the
 	// CQ adopts the pre-existing workloads and must seed the weights before push.
@@ -2902,6 +2939,12 @@ func TestHeadsRespectLocalQueueWeightForPreexistingWorkloads(t *testing.T) {
 	}
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding ClusterQueue: %v", err)
+	}
+	for range 2 {
+		wl := (<-reconcileCh).Object
+		if err := manager.AddOrUpdateWorkload(logr.FromContextOrDiscard(ctx), wl); err != nil {
+			t.Fatalf("Failed adding reconciled workload %s: %v", wl.Name, err)
+		}
 	}
 
 	got := popNamesFromCQ(manager.hm.ClusterQueue("cq"))

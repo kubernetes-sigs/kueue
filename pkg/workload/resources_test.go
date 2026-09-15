@@ -17,14 +17,19 @@ limitations under the License.
 package workload
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -38,14 +43,40 @@ func defaultResourceQuantity(name corev1.ResourceName, value int64) resource.Qua
 	return resources.NewResourceFormatter().ResourceQuantity(name, value)
 }
 
+type resourceAdjustmentErrorClient struct {
+	client.Client
+	runtimeClassGetErr error
+	limitRangeListErr  error
+}
+
+func (c *resourceAdjustmentErrorClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if _, isRuntimeClass := obj.(*nodev1.RuntimeClass); isRuntimeClass && key.Name == "runtime-d" && c.runtimeClassGetErr != nil {
+		return c.runtimeClassGetErr
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+func (c *resourceAdjustmentErrorClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if _, isLimitRangeList := list.(*corev1.LimitRangeList); isLimitRangeList && c.limitRangeListErr != nil {
+		return c.limitRangeListErr
+	}
+	return c.Client.List(ctx, list, opts...)
+}
+
 func TestAdjustResources(t *testing.T) {
+	errRuntimeClassGet := errors.New("runtime class get error")
+	errLimitRangeList := errors.New("limit range list error")
+
 	cases := map[string]struct {
-		runtimeClasses []nodev1.RuntimeClass
-		limitranges    []corev1.LimitRange
-		wl             *kueue.Workload
-		wantWl         *kueue.Workload
+		runtimeClasses    []nodev1.RuntimeClass
+		limitRanges       []corev1.LimitRange
+		limitRangeListErr error
+		wl                *kueue.Workload
+		wantWl            *kueue.Workload
+		wantErr           error
 	}{
 		"Handle runtimeClass with podOverHead": {
+			wantErr: errRuntimeClassGet,
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					PodOverhead(corev1.ResourceList{
@@ -117,6 +148,7 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 		"Handle runtimeClass without podOverHead": {
+			wantErr: errRuntimeClassGet,
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					RuntimeClass,
@@ -179,7 +211,7 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 		"Handle container limit range": {
-			limitranges: []corev1.LimitRange{
+			limitRanges: []corev1.LimitRange{
 				utiltesting.MakeLimitRange("foo", "").
 					WithType(corev1.LimitTypeContainer).
 					WithValue(
@@ -262,7 +294,7 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 		"Handle pod limit range": {
-			limitranges: []corev1.LimitRange{
+			limitRanges: []corev1.LimitRange{
 				utiltesting.MakeLimitRange("foo", "").
 					WithType(corev1.LimitTypePod).
 					WithValue(
@@ -301,7 +333,7 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 		"Handle pod-level resources with pod limit range": {
-			limitranges: []corev1.LimitRange{
+			limitRanges: []corev1.LimitRange{
 				utiltesting.MakeLimitRange("foo", "").
 					WithType(corev1.LimitTypePod).
 					WithValue(
@@ -349,7 +381,7 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 		"Handle empty container limit range": {
-			limitranges: []corev1.LimitRange{
+			limitRanges: []corev1.LimitRange{
 				utiltesting.MakeLimitRange("foo", "").
 					WithType(corev1.LimitTypeContainer).
 					LimitRange,
@@ -558,20 +590,56 @@ func TestAdjustResources(t *testing.T) {
 				).
 				Obj(),
 		},
+		"Return missing RuntimeClass error": {
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime-missing").Obj()).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime-missing").Obj()).
+				Obj(),
+			wantErr: ErrRuntimeClassNotFound,
+		},
+		"Return LimitRange list error": {
+			limitRangeListErr: errLimitRangeList,
+			wl:                utiltestingapi.MakeWorkload("foo", "").Obj(),
+			wantWl:            utiltestingapi.MakeWorkload("foo", "").Obj(),
+			wantErr:           errLimitRangeList,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cl := utiltesting.NewClientBuilder().WithLists(
+			baseClient := utiltesting.NewClientBuilder().WithLists(
 				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
-				&corev1.LimitRangeList{Items: tc.limitranges},
+				&corev1.LimitRangeList{Items: tc.limitRanges},
 			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
+			cl := &resourceAdjustmentErrorClient{
+				Client:             baseClient,
+				runtimeClassGetErr: errRuntimeClassGet,
+				limitRangeListErr:  tc.limitRangeListErr,
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			AdjustResources(ctx, cl, tc.wl)
+			err := AdjustResources(ctx, cl, tc.wl)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
 			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
 				t.Errorf("Unexpected resources after adjusting (-want,+got): %s", diff)
 			}
 		})
+	}
+}
+
+func TestSplitResourceAdjustmentError(t *testing.T) {
+	retryableErr := errors.New("retryable")
+	missingErr := fmt.Errorf("runtime class: %w", ErrRuntimeClassNotFound)
+
+	missing, retryable := SplitResourceAdjustmentError(errors.Join(missingErr, retryableErr))
+	if !errors.Is(missing, ErrRuntimeClassNotFound) {
+		t.Errorf("Missing RuntimeClass error not preserved: %v", missing)
+	}
+	if !errors.Is(retryable, retryableErr) {
+		t.Errorf("Retryable error not preserved: %v", retryable)
 	}
 }
 
