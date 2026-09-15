@@ -93,7 +93,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
-				SchedulerName: "default-scheduler",
+				SchedulerName: corev1.DefaultSchedulerName,
 				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
 					QueueSort: schedulerconfig.PluginSet{
@@ -248,6 +248,8 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
+	// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
+	dummyPod.Spec.SchedulerName = corev1.DefaultSchedulerName
 	cluster := s.wasSnapshot
 	if requirements.SimulateEmpty {
 		var err error
