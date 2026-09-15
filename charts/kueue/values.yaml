@@ -242,6 +242,23 @@ mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
 kueueViz:
+  ingress:
+    # -- Enable a single path-routed ingress serving the KueueViz dashboard and its
+    # backend on one host. While enabled, the per-component `backend.ingress` and
+    # `frontend.ingress` objects are not rendered.
+    enabled: false
+    # -- Path-routed ingress annotations. Do not set
+    # `nginx.ingress.kubernetes.io/rewrite-target` here: rewriting the path
+    # breaks routing of the backend prefixes.
+    annotations: {}
+    # -- Path-routed ingress class name
+    ingressClassName:
+    # -- Host serving both the dashboard and the backend
+    host: "kueueviz.local"
+    # -- If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set.
+    tlsEnabled: ~
+    # -- Path-routed ingress tls secret name
+    tlsSecretName: ""
   backend:
     # -- KueueViz backend nodeSelector
     nodeSelector: {}

@@ -721,7 +721,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         position: END
@@ -731,7 +731,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
         position: END
