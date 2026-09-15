@@ -82,6 +82,61 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"sync does not propagate ttl seconds after finished to remote jobset when clearing is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueJobSetClearingTTLSecondsAfterFinishedOnWorkerCluster: true,
+				features.WorkloadIdentifierAnnotations:                                  false,
+			},
+			managersJobSets: []jobsetapi.JobSet{
+				*baseJobSetManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersJobSets: []jobsetapi.JobSet{
+				*baseJobSetManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			wantWorkerJobSets: []jobsetapi.JobSet{
+				*baseJobSetBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
+		"sync propagates ttl seconds after finished to remote jobset when clearing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueJobSetClearingTTLSecondsAfterFinishedOnWorkerCluster: false,
+				features.WorkloadIdentifierAnnotations:                                  false,
+			},
+			managersJobSets: []jobsetapi.JobSet{
+				*baseJobSetManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "jobset1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersJobSets: []jobsetapi.JobSet{
+				*baseJobSetManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			wantWorkerJobSets: []jobsetapi.JobSet{
+				*baseJobSetBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 		"sync status from remote jobset": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobSets: []jobsetapi.JobSet{
