@@ -209,27 +209,6 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			wantFeasible: []string{"gpu-node"},
 			wantDRANoFit: 1,
 		},
-		"ResourceClaimName resolves existing claim": {
-			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaim},
-			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
-					ResourceClaims: []corev1.PodResourceClaim{
-						{
-							Name:              "gpu",
-							ResourceClaimName: new("existing-gpu-claim"),
-						},
-					},
-				},
-			},
-			candidates: []*testCandidate{
-				{node: gpuNode, id: "gpu-node"},
-				{node: cpuNode, id: "cpu-node"},
-			},
-			wantFeasible: []string{"gpu-node"},
-			wantDRANoFit: 1,
-		},
 		"missing ResourceClaimTemplate returns error": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass},
 			podTemplate: &corev1.PodTemplateSpec{
@@ -416,6 +395,9 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			},
 			wantFeasible: []string{"gpu-node"},
 		},
+		// A pre-provisioned claim that is already allocated needs no second device:
+		// buildAllocatedState already counts the one it holds.
+		// The allocation says where it lives, so the Pod cannot go elsewhere.
 		"DRA pod with all devices allocated filters out all nodes": {
 			objects: []runtime.Object{
 				gpuSlice, gpuDeviceClass, gpuClaimTemplate,
@@ -463,6 +445,25 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			},
 			wantFeasible: nil,
 			wantDRANoFit: 1,
+		},
+		"a direct ResourceClaim reference is refused rather than skipped": {
+			// KueueDRAIntegration rejects these Workloads before scheduling, so this
+			// path is unreachable. Failing loudly keeps a broken guarantee visible
+			// instead of reporting every node as feasible.
+			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaim},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimName: new("existing-gpu-claim")},
+					},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantErr: true,
 		},
 		"PodResourceClaim with neither name nor template is skipped": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass},
