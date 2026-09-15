@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -107,8 +108,15 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 		// topology: the pods' controller owner (RayCluster) differs from the
 		// slices' owner (RayService).
 		childCluster := &rayv1.RayCluster{
-			ObjectMeta: metav1.ObjectMeta{Name: service.Name + "-raycluster", Namespace: ns.Name},
-			Spec:       *service.Spec.RayClusterSpec.DeepCopy(),
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      service.Name + "-raycluster",
+				Namespace: ns.Name,
+				Labels: map[string]string{
+					rayutils.RayOriginatedFromCRNameLabelKey: service.Name,
+					rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
+				},
+			},
+			Spec: *service.Spec.RayClusterSpec.DeepCopy(),
 		}
 		childCluster.OwnerReferences = []metav1.OwnerReference{{
 			APIVersion:         rayv1.SchemeGroupVersion.String(),

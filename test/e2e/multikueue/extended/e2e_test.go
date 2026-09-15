@@ -982,7 +982,7 @@ app = HelloWorld.bind()`,
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdRayService := &rayv1.RayService{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-						g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
+						g.Expect(createdRayService.Spec.Suspend).To(gomega.BeFalse())
 						g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
