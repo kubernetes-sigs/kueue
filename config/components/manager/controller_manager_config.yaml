@@ -26,6 +26,10 @@ clientConnection:
 #waitForPodsReady:
 #  timeout: 5m
 #  recoveryTimeout: 3m
+#  # Requires the alpha WaitForPodsReadyUnscheduledTimeout feature gate.
+#  # Unset or 0s disables scheduling tracking, condition propagation, scheduling
+#  # resets and the scheduling deadline.
+#  unscheduledTimeout: 1m
 #  blockAdmission: false
 #  requeuingStrategy:
 #    timestamp: Eviction
