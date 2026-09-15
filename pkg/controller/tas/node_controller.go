@@ -134,16 +134,20 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Node")
 
-	var node corev1.Node
-	err := r.client.Get(ctx, req.NamespacedName, &node)
-	if client.IgnoreNotFound(err) != nil {
+	// req.Name is the node's kubernetes.io/hostname label value, which is what
+	// hostname-level TopologyAssignments and Pod nodeSelectors refer to. It can
+	// differ from the Node name, so the Node is looked up by the label.
+	var nodes corev1.NodeList
+	if err := r.client.List(ctx, &nodes, client.MatchingFields{indexer.NodeHostnameKey: req.Name}); err != nil {
 		return ctrl.Result{}, err
 	}
-	nodeExists := err == nil
+	nodeExists := len(nodes.Items) > 0
 
+	var node *corev1.Node
 	var readyCondition *corev1.NodeCondition
 	if nodeExists {
-		readyCondition = utiltas.GetNodeCondition(&node, corev1.NodeReady)
+		node = &nodes.Items[0]
+		readyCondition = utiltas.GetNodeCondition(node, corev1.NodeReady)
 	}
 
 	var timerExpired bool
@@ -194,7 +198,7 @@ func (r *nodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 	affectedWorkloads = affectedWorkloads.Union(latePodWorkloads)
 
-	return r.reconcileWorkloadsOnNode(ctx, req.Name, &node, affectedWorkloads, nodeSelectorPodsByWorkload)
+	return r.reconcileWorkloadsOnNode(ctx, req.Name, node, affectedWorkloads, nodeSelectorPodsByWorkload)
 }
 
 var _ reconcile.Reconciler = (*nodeReconciler)(nil)
@@ -280,7 +284,9 @@ func (r *nodeReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configur
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&corev1.Node{},
-			&handler.TypedEnqueueRequestForObject[*corev1.Node]{},
+			handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, node *corev1.Node) []reconcile.Request {
+				return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: utiltas.NodeHostname(node)}}}
+			}),
 			r,
 		)).
 		Watches(&corev1.Pod{}, podHandler).
@@ -378,12 +384,12 @@ func (r *nodeReconciler) getWorkloadStatus(
 		// If a pod arrives late (via nodeSelector) and its node is no longer part
 		// of the topology assignment, we must always check pods
 		// to catch and fail the stray pod.
-		return r.checkPodsOnNode(ctx, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
+		return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 	case !ready:
 		if !replaceOnPodTermination() {
 			return workloadHealthCheck{status: workloadUnhealthy}, nil
 		}
-		return r.checkPodsOnNode(ctx, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
+		return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 	case !features.Enabled(features.TASReplaceNodeOnNodeTaints):
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	case !hasSchedulingTaints(node.Spec.Taints):
@@ -399,10 +405,10 @@ func (r *nodeReconciler) getWorkloadStatus(
 			if !replaceOnPodTermination() {
 				return workloadHealthCheck{status: workloadUnhealthy}, nil
 			}
-			return r.checkPodsOnNode(ctx, nodeName, wl, true, hasTASAssignment, nodeSelectorAssignedPods)
+			return r.checkPodsOnNode(ctx, node.Name, wl, true, hasTASAssignment, nodeSelectorAssignedPods)
 		}
 		if len(temporarilyTolerated) > 0 {
-			return r.checkPodsOnNode(ctx, nodeName, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
+			return r.checkPodsOnNode(ctx, node.Name, wl, false, hasTASAssignment, nodeSelectorAssignedPods)
 		}
 		return workloadHealthCheck{status: workloadHealthy}, nil
 	}
@@ -816,9 +822,13 @@ func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q wor
 
 	// queue pods that are failed or being deleted
 	if len(pod.Spec.NodeName) > 0 && (!pod.DeletionTimestamp.IsZero() || utilpod.IsTerminated(pod)) {
+		hostname := pod.Spec.NodeSelector[corev1.LabelHostname]
+		if len(hostname) == 0 {
+			hostname = pod.Spec.NodeName
+		}
 		req := reconcile.Request{
 			NamespacedName: types.NamespacedName{
-				Name: pod.Spec.NodeName,
+				Name: hostname,
 			},
 		}
 		q.AddAfter(req, reconcileBatchPeriod)
