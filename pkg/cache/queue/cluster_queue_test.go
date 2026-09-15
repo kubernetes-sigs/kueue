@@ -250,6 +250,33 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	}
 }
 
+func TestPushOrUpdateRequeueStateChanged(t *testing.T) {
+	now := time.Now()
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	wlWaiting := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+		Creation(now).
+		RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(time.Hour)))).
+		Obj()
+	cq.PushOrUpdate(workload.NewInfo(log, wlWaiting))
+
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 1 {
+		t.Fatalf("got %d inadmissible workloads after first push, want 1", len(inadmissible))
+	}
+
+	wlElapsed := wlWaiting.DeepCopy()
+	wlElapsed.Status.RequeueState.RequeueAt = nil
+	cq.PushOrUpdate(workload.NewInfo(log, wlElapsed))
+
+	if active, _ := cq.Dump(); len(active) != 1 {
+		t.Errorf("got %d active workloads, want 1", len(active))
+	}
+	if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != 0 {
+		t.Errorf("got %d inadmissible workloads, want 0", len(inadmissible))
+	}
+}
+
 func TestPushOrUpdateGenerationChanged(t *testing.T) {
 	now := time.Now()
 
@@ -1390,7 +1417,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 	tests := map[string]struct {
 		reason           RequeueReason
-		lastAssignment   *workload.AssignmentClusterQueueState
+		flavorScanState  *workload.FlavorScanState
 		wantInadmissible bool
 		wantSticky       bool
 	}{
@@ -1413,8 +1440,8 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		},
 		"didn't fit and no pending flavors": {
 			reason: RequeueReasonGeneric,
-			lastAssignment: &workload.AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			flavorScanState: &workload.FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceMemory: -1,
 					},
@@ -1428,8 +1455,8 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		},
 		"didn't fit but pending flavors": {
 			reason: RequeueReasonGeneric,
-			lastAssignment: &workload.AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			flavorScanState: &workload.FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    -1,
 						corev1.ResourceMemory: 0,
@@ -1464,7 +1491,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			info := workload.NewInfo(log, wl)
-			info.LastAssignment = tc.lastAssignment
+			info.FlavorScanState = tc.flavorScanState
 			if ok := cq.RequeueIfNotPresent(ctx, info, tc.reason, ""); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}

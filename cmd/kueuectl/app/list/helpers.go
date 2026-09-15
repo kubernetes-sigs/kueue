@@ -18,13 +18,16 @@ package list
 
 import (
 	"errors"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/cli-runtime/pkg/printers"
 )
 
 const (
@@ -113,4 +116,49 @@ func decodeResourceTypeName(mapper meta.RESTMapper, s string) (gvk schema.GroupV
 	found = true
 
 	return
+}
+
+// pagedListPrinter prints the pages of a paginated list. Table output is
+// printed page by page. When an output format such as -o yaml or -o json is
+// set, the pages are merged and printed once as the last page arrives, so that
+// the output is a single valid document, as with kubectl.
+type pagedListPrinter struct {
+	merge  bool
+	merged runtime.Object
+}
+
+func newPagedListPrinter(merge bool) *pagedListPrinter {
+	return &pagedListPrinter{merge: merge}
+}
+
+func (p *pagedListPrinter) printPage(page runtime.Object, lastPage bool, printer printers.ResourcePrinterFunc, w io.Writer) error {
+	if !p.merge {
+		return printer(page, w)
+	}
+	if p.merged == nil {
+		p.merged = page
+	} else {
+		items, err := meta.ExtractList(p.merged)
+		if err != nil {
+			return err
+		}
+		pageItems, err := meta.ExtractList(page)
+		if err != nil {
+			return err
+		}
+		if err := meta.SetList(p.merged, append(items, pageItems...)); err != nil {
+			return err
+		}
+	}
+	if !lastPage {
+		return nil
+	}
+	// The pagination metadata of the first page is meaningless for the merged list.
+	listMeta, err := meta.ListAccessor(p.merged)
+	if err != nil {
+		return err
+	}
+	listMeta.SetContinue("")
+	listMeta.SetRemainingItemCount(nil)
+	return printer(p.merged, w)
 }

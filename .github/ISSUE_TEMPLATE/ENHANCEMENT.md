@@ -1,5 +1,6 @@
 ---
-name: Enhancement Request
+name: ✨ Enhancement Request
+title: "✨ "
 about: Suggest an enhancement to the Kueue project
 labels: kind/feature
 

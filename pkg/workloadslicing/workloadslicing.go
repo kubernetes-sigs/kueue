@@ -23,9 +23,11 @@ import (
 	"fmt"
 	"slices"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
@@ -101,6 +104,52 @@ func SliceName(wl *kueue.Workload) string {
 	return wl.Name
 }
 
+func FindActiveWorkload(ctx context.Context, c client.Client, key types.NamespacedName, excludeVariants bool) (*kueue.Workload, error) {
+	wl := &kueue.Workload{}
+	if err := c.Get(ctx, key, wl); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		wl = nil
+	}
+	// The slice index is only registered when elastic jobs are enabled.
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) ||
+		(wl != nil && !IsElasticWorkload(wl)) {
+		return wl, nil
+	}
+	if wl != nil {
+		if sliceName, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+			key.Name = sliceName
+		}
+	}
+	active, err := FindLatestAdmittedWorkloadForSlice(ctx, c, key.Namespace, key.Name, excludeVariants)
+	if err != nil || active != nil {
+		return active, err
+	}
+	return wl, nil
+}
+
+func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, namespace, sliceName string, excludeVariants bool) (*kueue.Workload, error) {
+	wls := &kueue.WorkloadList{}
+	if err := c.List(ctx, wls, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return nil, err
+	}
+	var latestAdmittedWl *kueue.Workload
+	for i := range wls.Items {
+		wl := &wls.Items[i]
+		if !workload.IsAdmitted(wl) || workloadfinish.IsFinished(wl) || workloadevict.IsEvicted(wl) ||
+			(excludeVariants && features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
+			continue
+		}
+		if latestAdmittedWl == nil || wl.CreationTimestamp.After(latestAdmittedWl.CreationTimestamp.Time) ||
+			(wl.CreationTimestamp.Equal(&latestAdmittedWl.CreationTimestamp) && cmp.Compare(wl.UID, latestAdmittedWl.UID) > 0) {
+			latestAdmittedWl = wl
+		}
+	}
+	return latestAdmittedWl, nil
+}
+
 func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 	workloads = slices.Clone(workloads)
 
@@ -129,27 +178,14 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	return sortAndFilterNotFinishedWorkloads(list.Items), nil
 }
 
-// FindLatestAdmittedWorkloadForSlice returns the admitted slice of the chain
-// identified by its first slice's name (sliceName), which every slice and pod of an
-// elastic job carries, or nil if none is admitted.
-func FindLatestAdmittedWorkloadForSlice(ctx context.Context, clnt client.Client, namespace, sliceName string) (*kueue.Workload, error) {
-	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
-		return nil, err
+// FindLatestAdmittedWorkload returns the latest admitted slice in wl's chain,
+// or nil if wl is nil or the chain has no admitted slice.
+// excludeVariants lets scheduling observation select only Parent slices.
+func FindLatestAdmittedWorkload(ctx context.Context, clnt client.Client, wl *kueue.Workload, excludeVariants bool) (*kueue.Workload, error) {
+	if wl == nil {
+		return nil, nil
 	}
-
-	workloads := sortAndFilterNotFinishedWorkloads(list.Items)
-	for i := range slices.Backward(workloads) {
-		wl := &workloads[i]
-		// Eviction is two writes: the condition is set before the reservation is
-		// released, so an evicted slice can still report itself admitted while its
-		// capacity is on the way out.
-		if workload.IsAdmitted(wl) && !workloadevict.IsEvicted(wl) {
-			return wl, nil
-		}
-	}
-	return nil, nil
+	return FindLatestAdmittedWorkloadForSlice(ctx, clnt, wl.Namespace, SliceName(wl), excludeVariants)
 }
 
 // FindLatestActiveWorkload returns the newest non-finished, non-evicted workload

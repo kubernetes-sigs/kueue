@@ -1,7 +1,7 @@
 ---
-name: New Release
+name: 📦 New Release
 about: Propose a new release
-title: Release v0.x.0
+title: 📦 Release v0.x.0
 assignees: mimowo, tenzen-y
 labels: area/release
 
@@ -12,6 +12,7 @@ labels: area/release
 Please do not remove items from the checklist
 -->
 - [ ] Verify that the changelog in this issue is up-to-date by running `/sync-release-notes` (or locally `./hack/releasing/sync-notes.sh $VERSION`).
+- [ ] (Optional) For major and minor releases, run ChatOps command `/create-release-candidate` on this issue to publish a pre-release build for community testing.
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
 - [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.

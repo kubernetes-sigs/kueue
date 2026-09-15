@@ -102,6 +102,7 @@ func TestLocalQueueCmd(t *testing.T) {
 	testCases := map[string]struct {
 		ns         string
 		objs       []runtime.Object
+		listPages  []runtime.Object
 		args       []string
 		wantOut    string
 		wantOutErr string
@@ -197,12 +198,49 @@ lq1    cq1            1                   1                    60m
 			args:       []string{"-A"},
 			wantOutErr: "No resources found\n",
 		},
+		"should print a single yaml document across pages": {
+			args: []string{"-o", "yaml"},
+			listPages: []runtime.Object{
+				&kueue.LocalQueueList{
+					ListMeta: metav1.ListMeta{Continue: "page2"},
+					Items:    []kueue.LocalQueue{{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: metav1.NamespaceDefault}}},
+				},
+				&kueue.LocalQueueList{
+					Items: []kueue.LocalQueue{{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: metav1.NamespaceDefault}}},
+				},
+			},
+			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2
+items:
+- metadata:
+    name: a
+    namespace: default
+  spec: {}
+  status:
+    admittedWorkloads: 0
+    pendingWorkloads: 0
+    reservingWorkloads: 0
+- metadata:
+    name: b
+    namespace: default
+  spec: {}
+  status:
+    admittedWorkloads: 0
+    pendingWorkloads: 0
+    reservingWorkloads: 0
+kind: LocalQueueList
+metadata: {}
+`,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(fake.NewSimpleClientset(tc.objs...))
+			clientset := fake.NewSimpleClientset(tc.objs...)
+			if len(tc.listPages) > 0 {
+				prependPagedListReactor(clientset, "localqueues", tc.listPages)
+			}
+			tcg := cmdtesting.NewTestClientGetter().WithKueueClientset(clientset)
 			if len(tc.ns) > 0 {
 				tcg.WithNamespace(tc.ns)
 			}

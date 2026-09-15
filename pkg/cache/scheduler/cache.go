@@ -618,6 +618,14 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		}
 	}
 
+	// The custom label value cache is keyed by Workload and shared by every
+	// ClusterQueue, so entries for the Workloads this ClusterQueue still holds
+	// would outlive it and never be reclaimed: once the ClusterQueue is gone,
+	// DeleteWorkload can no longer reach them.
+	for wlKey := range curCq.Workloads {
+		c.customLabels.Delete(config.SourceKindWorkload, string(wlKey))
+	}
+
 	parent := curCq.Parent()
 
 	c.hm.DeleteClusterQueue(cqName)
@@ -641,13 +649,21 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohortName := kueue.CohortReference(apiCohort.Name)
 	c.hm.AddCohort(cohortName)
 	cohort := c.hm.Cohort(cohortName)
+	wasCyclic := hierarchy.HasCycle(cohort)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
+	err := cohort.updateCohort(apiCohort, oldParent)
+	if err != nil {
+		if errors.Is(err, ErrCohortHasCycle) {
+			c.updateClusterQueues(ctrl.Log.WithName("cache"))
+		}
 		return err
 	}
 	c.handleParentUpdate(oldParent)
 	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+	if wasCyclic {
+		c.updateClusterQueues(ctrl.Log.WithName("cache"))
+	}
 
 	return nil
 }
@@ -659,7 +675,9 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	defer c.Unlock()
 
 	var parent *cohort
+	wasCyclic := false
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
+		wasCyclic = hierarchy.HasCycle(cohort)
 		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
 		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
 		if features.Enabled(features.MetricsForCohorts) {
@@ -682,6 +700,9 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	c.handleParentUpdate(parent)
+	if wasCyclic {
+		c.updateClusterQueues(ctrl.Log.WithName("cache"))
+	}
 }
 
 func (c *Cache) handleParentUpdate(cachedParent *cohort) {
@@ -906,7 +927,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
 	}
 
-	if c.fairSharingEnabled {
+	if c.fairSharingEnabled && (!cq.HasParent() || !hierarchy.HasCycle(cq.Parent())) {
 		drs := dominantResourceShare(cq, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
@@ -1124,6 +1145,25 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 	for _, cq := range c.hm.ClusterQueues() {
 		if _, found := cq.AdmissionChecks[ac]; found {
 			cqs = append(cqs, cq.Name)
+		}
+	}
+	return cqs
+}
+
+func (c *Cache) ClusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []kueue.ClusterQueueReference
+
+	for _, cq := range c.hm.ClusterQueues() {
+		if !cq.HasParent() {
+			continue
+		}
+		for ancestor := range cq.Parent().PathSelfToRoot() {
+			if ancestor.Name == cohortName {
+				cqs = append(cqs, cq.Name)
+				break
+			}
 		}
 	}
 	return cqs

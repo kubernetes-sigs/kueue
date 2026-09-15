@@ -103,6 +103,9 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	sliceSizeAnnotationErr := validateSliceSizeAnnotation(annotationsPath, replicaMetadata)
 	allErrs = append(allErrs, sliceSizeAnnotationErr...)
 
+	offsetAnnotationErr := validatePodIndexOffsetAnnotation(annotationsPath, replicaMetadata, podSetGroupNameFound)
+	allErrs = append(allErrs, offsetAnnotationErr...)
+
 	// validate slice annotations
 	if sliceRequiredFound && !sliceSizeFound {
 		allErrs = append(allErrs, field.Required(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("must be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
@@ -154,6 +157,28 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue,
 				"must be greater than or equal to 1",
 			),
+		}
+	}
+
+	return nil
+}
+
+func validatePodIndexOffsetAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSetGroupNameFound bool) field.ErrorList {
+	offsetValue, offsetFound := replicaMetadata.Annotations[kueue.PodIndexOffsetAnnotation]
+	if !offsetFound {
+		return nil
+	}
+
+	offsetPath := annotationsPath.Key(kueue.PodIndexOffsetAnnotation)
+	if podSetGroupNameFound {
+		return field.ErrorList{
+			field.Forbidden(offsetPath, fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetGroupName)),
+		}
+	}
+
+	if val, err := strconv.ParseInt(offsetValue, 10, 32); err != nil || val < 0 {
+		return field.ErrorList{
+			field.Invalid(offsetPath, offsetValue, "must be a non-negative integer"),
 		}
 	}
 

@@ -34,7 +34,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -74,18 +73,6 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "integrations",
-				},
-			},
-		},
-		"invalid quota release strategy": {
-			cfg: &configapi.Configuration{
-				Integrations:         defaultIntegrations,
-				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("InvalidStrategy")),
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeNotSupported,
-					Field: "quotaReleaseStrategy",
 				},
 			},
 		},
@@ -313,7 +300,99 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative waitForPodsReady.unscheduledTimeout": {
+			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: -1,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.unscheduledTimeout",
+				},
+			},
+		},
+		"waitForPodsReady.unscheduledTimeout exceeding timeout": {
+			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: 5*time.Minute + time.Second,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.unscheduledTimeout",
+				},
+			},
+		},
+		"waitForPodsReady.unscheduledTimeout equal to timeout": {
+			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: 5 * time.Minute,
+					},
+				},
+			},
+		},
+		"zero waitForPodsReady.unscheduledTimeout": {
+			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{},
+				},
+			},
+		},
+		"positive waitForPodsReady.unscheduledTimeout": {
+			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: time.Minute,
+					},
+				},
+			},
+		},
+		"waitForPodsReady.unscheduledTimeout with unspecified timeout": {
+			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: time.Minute,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "waitForPodsReady.timeout",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.unscheduledTimeout",
+				},
+			},
+		},
 		"valid waitForPodsReady": {
+			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
@@ -323,6 +402,9 @@ func TestValidate(t *testing.T) {
 					RecoveryTimeout: &metav1.Duration{
 						Duration: 3,
 					},
+					UnscheduledTimeout: &metav1.Duration{
+						Duration: 5,
+					},
 					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          new(configapi.CreationTimestamp),
@@ -330,6 +412,142 @@ func TestValidate(t *testing.T) {
 						BackoffBaseSeconds: new(int32(30)),
 						BackoffMaxSeconds:  new(int32(1800)),
 					},
+				},
+			},
+		},
+		"unscheduledTimeout unset with its feature gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.DisableWaitForPodsReady:            false,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+				},
+			},
+		},
+		"zero unscheduledTimeout requires its feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.DisableWaitForPodsReady:            false,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 0},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "waitForPodsReady.unscheduledTimeout",
+				},
+			},
+		},
+		"positive unscheduledTimeout requires its feature gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.DisableWaitForPodsReady:            false,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "waitForPodsReady.unscheduledTimeout",
+				},
+			},
+		},
+		"zero unscheduledTimeout requires its feature gate even when WaitForPodsReady is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.DisableWaitForPodsReady:            true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 0},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "waitForPodsReady.unscheduledTimeout",
+				},
+			},
+		},
+		"positive unscheduledTimeout requires its feature gate even when WaitForPodsReady is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.DisableWaitForPodsReady:            true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "waitForPodsReady.unscheduledTimeout",
+				},
+			},
+		},
+		"scheduling tracking and DisableWaitForPodsReady cannot be enabled together": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.DisableWaitForPodsReady:            true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "featureGates[WaitForPodsReadyUnscheduledTimeout]",
+				},
+			},
+		},
+		"incompatible readiness gates are rejected without waitForPodsReady configuration": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.DisableWaitForPodsReady:            true,
+			},
+			cfg: &configapi.Configuration{Integrations: defaultIntegrations},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "featureGates[WaitForPodsReadyUnscheduledTimeout]",
+				},
+			},
+		},
+		"incompatible readiness gates are rejected without unscheduledTimeout": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.DisableWaitForPodsReady:            true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{Timeout: metav1.Duration{Duration: 5 * time.Minute}},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "featureGates[WaitForPodsReadyUnscheduledTimeout]",
 				},
 			},
 		},
@@ -2140,6 +2358,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                             true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
 				string(features.TASFailedNodeReplacementFailFast):            false,
@@ -2148,6 +2367,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2194,6 +2414,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
 				string(features.ElasticJobsViaWorkloadSlices):                true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2203,6 +2424,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2224,6 +2446,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                             true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 true,
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
 				string(features.ElasticJobsViaWorkloadSlices):                false,
@@ -2234,6 +2457,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2245,6 +2469,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 true,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2254,12 +2479,36 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "TASHandleOverlappingFlavors is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
+		"TASNodeFeasibilityForAllLevels requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              true,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASNodeFeasibilityForAllLevels is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2273,6 +2522,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2281,6 +2531,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2293,6 +2544,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASFailedNodeReplacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    true,
@@ -2302,6 +2554,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2311,9 +2564,34 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"TASLeaderPodSetFeasibility requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASBalancedPlacement):                        false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASLeaderPodSetFeasibility is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
 		"TASBalancedPlacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2324,6 +2602,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2336,6 +2615,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2345,6 +2625,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2357,6 +2638,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASMultiLayerTopology requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2366,6 +2648,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       true,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2378,6 +2661,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASRespectNodeAffinityPreferred requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2388,6 +2672,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2400,7 +2685,9 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASGroupedPodSetSlicing requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TASGroupedPodSetSlicing):                     true,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2452,6 +2739,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2461,6 +2749,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2472,6 +2761,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASReplaceNodeOnPodTermination requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2481,6 +2771,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2501,6 +2792,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRespectNodeAffinityPreferred):  true,
 				string(features.TASHandleOverlappingFlavors):      true,
 				string(features.TASGroupedPodSetSlicing):          true,
+				string(features.TASLeaderPodSetFeasibility):       false,
 			},
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {

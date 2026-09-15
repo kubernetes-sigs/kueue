@@ -23,6 +23,8 @@ import (
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -235,6 +237,32 @@ func convertPatchStatusOptions(options []PatchStatusOption) *patchStatusOptions 
 	return opts
 }
 
+// applyWorkloadStatus applies the status carried by wlPatch with Server-Side Apply and refreshes
+// wl with the object returned by the API server. That response is decoded on top of wlPatch, so
+// that fields the API server leaves out keep the value the update function set.
+func applyWorkloadStatus(ctx context.Context, c client.Client, wlPatch, wl *kueue.Workload, owner client.FieldOwner) error {
+	request, err := json.Marshal(wlPatch)
+	if err != nil {
+		return fmt.Errorf("failed to marshal workload status: %w", err)
+	}
+	wlPatchContent := &unstructured.Unstructured{}
+	if err := json.Unmarshal(request, wlPatchContent); err != nil {
+		return fmt.Errorf("failed to unmarshal workload status: %w", err)
+	}
+	if err := c.Status().Apply(ctx, client.ApplyConfigurationFromUnstructured(wlPatchContent), owner, client.ForceOwnership); err != nil {
+		return err
+	}
+	response, err := json.Marshal(wlPatchContent.Object)
+	if err != nil {
+		return fmt.Errorf("failed to marshal applied workload: %w", err)
+	}
+	if err := json.Unmarshal(response, wlPatch); err != nil {
+		return fmt.Errorf("failed to decode applied workload: %w", err)
+	}
+	wlPatch.DeepCopyInto(wl)
+	return nil
+}
+
 // patchStatus updates the status of a workload.
 // If the WorkloadRequestUseMergePatch feature is enabled, it uses a Merge Patch with update function.
 // Otherwise, it runs the update function and, if updated, applies the SSA Patch status.
@@ -254,17 +282,13 @@ func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner
 		if err != nil {
 			return err
 		}
-	} else {
-		if updated, err := update(wlCopy); err != nil || !updated {
-			return err
-		}
-		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership) //nolint:staticcheck //SA1019: client.Apply is deprecated
-		if err != nil {
-			return err
-		}
+		wlCopy.DeepCopyInto(wl)
+		return nil
 	}
-	wlCopy.DeepCopyInto(wl)
-	return nil
+	if updated, err := update(wlCopy); err != nil || !updated {
+		return err
+	}
+	return applyWorkloadStatus(ctx, c, wlCopy, wl, owner)
 }
 
 func PatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, options ...PatchStatusOption) error {

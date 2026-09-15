@@ -12,7 +12,7 @@ You are an expert in Kueue's e2e testing infrastructure (`hack/testing/e2e-test.
 
 Stand up a single kind cluster with Kueue (and any required job-framework operators) deployed, ready for e2e tests or manual poking, and leave it running for fast iteration.
 
-This skill is for **single-cluster** suites: `test-e2e-baseline`, `test-e2e-extended`, `test-e2e-sequential-baseline`, `test-e2e-sequential-extended`, `test-tas-e2e-baseline`, `test-tas-e2e-extended`, `test-e2e-certmanager`, `test-e2e-dra`, `test-e2e-dra-counter`. If the user wants MultiKueue (manager + worker clusters), use the `kueue-e2e-cluster-multikueue` skill instead.
+This skill is for **single-cluster** suites: `test-e2e-baseline`, `test-e2e-extended`, `test-e2e-sequential-baseline`, `test-e2e-sequential-extended`, `test-tas-e2e-baseline`, `test-tas-e2e-extended`, `test-e2e-certmanager`, `test-e2e-dra-baseline`, `test-e2e-dra-counter`, `test-e2e-dra-capacity`. If the user wants MultiKueue (manager + worker clusters), use the `kueue-e2e-cluster-multikueue` skill instead.
 
 ## Step 1 - Confirm platform and build the Kueue image
 
@@ -32,16 +32,16 @@ Skip this step only if the user explicitly wants to use a released/staging image
 
 Map the user's request to a Makefile target:
 
-| Suite | Target |
-|---|---|
-| Baseline (default) | `test-e2e-baseline` |
-| Extended (job-framework integrations) | `test-e2e-extended` |
-| Sequential baseline | `test-e2e-sequential-baseline` |
-| Sequential extended | `test-e2e-sequential-extended` |
-| Topology-Aware Scheduling baseline | `test-tas-e2e-baseline` |
-| Topology-Aware Scheduling extended | `test-tas-e2e-extended` |
-| cert-manager | `test-e2e-certmanager` |
-| Dynamic Resource Allocation | `test-e2e-dra` / `test-e2e-dra-counter` |
+| Suite | Target                                                                     |
+|---|----------------------------------------------------------------------------|
+| Baseline (default) | `test-e2e-baseline`                                                        |
+| Extended (job-framework integrations) | `test-e2e-extended`                                                        |
+| Sequential baseline | `test-e2e-sequential-baseline`                                             |
+| Sequential extended | `test-e2e-sequential-extended`                                             |
+| Topology-Aware Scheduling baseline | `test-tas-e2e-baseline`                                                    |
+| Topology-Aware Scheduling extended | `test-tas-e2e-extended`                                                    |
+| cert-manager | `test-e2e-certmanager`                                                     |
+| Dynamic Resource Allocation | `test-e2e-dra-baseline` / `test-e2e-dra-counter` / `test-e2e-dra-capacity` |
 
 Default to `test-e2e-baseline` if the user has no preference — it is the fastest to bring up and covers the core scheduling flows.
 

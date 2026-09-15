@@ -697,6 +697,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
 					Obj(),
 			},
@@ -719,14 +720,8 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					ControllerReference(gvk, baseJobWrapper.GetName(), string(baseJobWrapper.GetUID())).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadFinished,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(now),
-						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
-						Message:            "The workload's owner no longer exists",
-					}).
 					Obj(),
 			},
 		},
@@ -5107,7 +5102,9 @@ func TestReconciler(t *testing.T) {
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(
-					interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+					interceptor.Funcs{
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)

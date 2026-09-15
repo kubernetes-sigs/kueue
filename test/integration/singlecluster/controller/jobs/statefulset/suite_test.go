@@ -92,16 +92,6 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		podReconciler, err := statefulset.NewPodReconciler(
-			ctx,
-			mgr.GetClient(),
-			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorder(constants.JobControllerName),
-			opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = podReconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}

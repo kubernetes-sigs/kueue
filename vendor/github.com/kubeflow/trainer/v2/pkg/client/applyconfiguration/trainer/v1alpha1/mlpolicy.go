@@ -32,7 +32,7 @@ type MLPolicyApplyConfiguration struct {
 	NumNodes *int32 `json:"numNodes,omitempty"`
 	// Configuration for the runtime-specific parameters, such as Torch, Flux, or MPI.
 	// Only one of its members may be specified.
-	MLPolicySourceApplyConfiguration `json:",inline"`
+	MLPolicySourceApplyConfiguration `json:""`
 }
 
 // MLPolicyApplyConfiguration constructs a declarative configuration of the MLPolicy type for use with

@@ -375,9 +375,15 @@ func (s *TASFlavorSnapshot) pruneDomainNodeBelowThreshold(d *domain, threshold i
 }
 
 func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int, leaderRequired bool) {
-	for _, d := range domains {
-		for _, c := range d.children {
-			s.pruneDomainNodeBelowThreshold(c, threshold, leaderRequired)
+	// An injected hostname level sits below the level slices are counted at, so
+	// its leaves carry no sliceCount and pruning would clear every one of them.
+	// The check is scoped to that case so topologies declaring hostname keep
+	// pruning exactly as before.
+	if !s.virtualHostname || level != s.usageLevelIdx() {
+		for _, d := range domains {
+			for _, c := range d.children {
+				s.pruneDomainNodeBelowThreshold(c, threshold, leaderRequired)
+			}
 		}
 	}
 	for _, d := range domains {

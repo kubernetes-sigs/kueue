@@ -122,7 +122,7 @@ make test-multikueue-e2e-sequential
 
 You can specify the Kubernetes version:
 ```shell
-E2E_K8S_FULL_VERSION=1.35.0 make test-e2e-baseline
+E2E_K8S_FULL_VERSION=1.37.0 make test-e2e-baseline
 ```
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
@@ -208,7 +208,7 @@ Other variables of note when scripting a direct invocation:
 
 | Variable | Purpose |
 |----------|---------|
-| `E2E_KIND_VERSION` | Kind node image to use, e.g. `kindest/node:v1.35.0` or a locally built image name |
+| `E2E_KIND_VERSION` | Kind node image to use, e.g. `kindest/node:v1.37.0` or a locally built image name |
 | `E2E_MODE` | Set to `dev` to reuse an existing cluster on re-runs and keep the cluster on exit |
 | `E2E_RUN_ONLY_ENV` | Set to `true` to stand up the cluster and deploy Kueue, then exit before running tests |
 | `KIND_CLUSTER_NAME` | Name of the kind cluster to create/reuse |
@@ -392,7 +392,7 @@ func TestValidateClusterQueue(t *testing.T) {
 You can click on the `debug test` to debug a specific test.
 
 For integration tests, an additional step is needed.  In settings.json, you need to add two variables inside `go.testEnvVars`:
-- Run `ENVTEST_K8S_VERSION=1.35 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
+- Run `export ENVTEST_K8S_VERSION=1.37 && make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` and assign the path to the `KUBEBUILDER_ASSETS` variable
 - Set `KUEUE_BIN` to the `bin` directory within your cloned Kueue repository
 ```json
 "go.testEnvVars": {
