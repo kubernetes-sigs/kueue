@@ -855,6 +855,22 @@ func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.Resourc
 	return cq
 }
 
+func SetFlavorResourceNominalQuota(cq *kueue.ClusterQueue, flavorName string, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
+	for rgi := range cq.Spec.ResourceGroups {
+		for fi := range cq.Spec.ResourceGroups[rgi].Flavors {
+			if string(cq.Spec.ResourceGroups[rgi].Flavors[fi].Name) == flavorName {
+				for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
+					if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
+						cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
+						return cq
+					}
+				}
+			}
+		}
+	}
+	return cq
+}
+
 func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
 	return func() string {
 		return strings.Join([]string{
