@@ -97,7 +97,7 @@ updates.
 
 This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` deferred to future work).
 This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
-With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical/fair sharing and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config-name`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical/fair sharing and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
 
 ## Motivation
 
@@ -295,7 +295,7 @@ Therefore, the integration is designed with a two-phase evolution:
      ```yaml
      metadata:
        annotations:
-         kueue.x-k8s.io/preemption-config: "<preemption-config-name>"
+         kueue.x-k8s.io/preemption-config-name: "<preemption-config-name>"
      ```
      This annotation will be retired when moving to Beta.
    - **Preserve `spec.preemption` defaulting**: `ClusterQueue.spec.preemption` remains fully intact, retaining its standard kubebuilder defaulting (`+kubebuilder:default={}`) and allowing any value as currently.
@@ -321,7 +321,7 @@ kind: ClusterQueue
 metadata:
   name: "cluster-queue-a"
   annotations:
-    kueue.x-k8s.io/preemption-config: "defrag-and-hero-preemption-config"
+    kueue.x-k8s.io/preemption-config-name: "defrag-and-hero-preemption-config"
 spec:
   # spec.preemption continues to be defaulted or explicitly configured as today.
   # If desired, classical/fair sharing preemption can be disabled by setting policies to Never.
@@ -495,7 +495,7 @@ There are many possible extensions of the proposed selectors in the rules. For n
 
 ### Constraints
 
-- **Backward Compatibility & Strategy Merging (Alpha):** `ClusterQueue.spec.preemption` remains fully backward-compatible, retaining its declarative kubebuilder defaulting (`+kubebuilder:default={}`). No new field is added to `ClusterQueueSpec` in Alpha; instead, `PreemptionConfig` is referenced via the `kueue.x-k8s.io/preemption-config` annotation. The scheduler merges candidate outputs from both classical/fair sharing preemption and `PreemptionConfig`. For Beta+, the two strategies will become mutually exclusive via a formal API field once `PreemptionConfig` provides full feature parity with classical/fair sharing preemption.
+- **Backward Compatibility & Strategy Merging (Alpha):** `ClusterQueue.spec.preemption` remains fully backward-compatible, retaining its declarative kubebuilder defaulting (`+kubebuilder:default={}`). No new field is added to `ClusterQueueSpec` in Alpha; instead, `PreemptionConfig` is referenced via the `kueue.x-k8s.io/preemption-config-name` annotation. The scheduler merges candidate outputs from both classical/fair sharing preemption and `PreemptionConfig`. For Beta+, the two strategies will become mutually exclusive via a formal API field once `PreemptionConfig` provides full feature parity with classical/fair sharing preemption.
 - **Deterministic Scheduling:** Candidate selection, victim evaluation, and tie-breaking must remain strictly deterministic across scheduling cycles (guaranteed by multi-key comparison chains and Workload UID tie-breaking).
 - **Non-mutating Evaluation:** Preemption evaluation operates strictly on cluster snapshot state and simulated usage without mutating workload specs or priorities during preemption simulation.
 - **Resource Scope:** `PreemptionConfig` is a cluster-scoped CRD subject to standard Kubernetes RBAC and controller-runtime caching mechanisms (`PreemptionLimit` is deferred to future work).
@@ -540,7 +540,7 @@ const (
   // PreemptionConfigNameAnnotation is the annotation key used on ClusterQueue to reference
   // a PreemptionConfig during Alpha.
   // This annotation will be removed in Beta.
-  PreemptionConfigNameAnnotation = "kueue.x-k8s.io/preemption-config"
+  PreemptionConfigNameAnnotation = "kueue.x-k8s.io/preemption-config-name"
 )
 
 // PreemptionConfigReference is the name of the PreemptionConfig.
@@ -891,7 +891,7 @@ Small parts of the implementation like integration with the scheduler itself wil
 #### Alpha
 
 - `PreemptionConfig` CRD is implemented with preemption rules.
-- `ClusterQueue` references `PreemptionConfig` via the `kueue.x-k8s.io/preemption-config` annotation, without introducing a new field to `ClusterQueueSpec`.
+- `ClusterQueue` references `PreemptionConfig` via the `kueue.x-k8s.io/preemption-config-name` annotation, without introducing a new field to `ClusterQueueSpec`.
 - `ClusterQueue.spec.preemption` declarative defaulting (`+kubebuilder:default={}`) is preserved intact.
 - Preemption evaluator merges candidate outputs from classical/fair sharing preemption (`spec.preemption`) and configurable preemption (`PreemptionConfig`), allowing users to combine or selectively stop candidates from either mechanism.
 - Workloads can be preempted according to rules defined in the preemption config.
@@ -938,7 +938,7 @@ Implementation of the foundations of PreemptionConfig:
 - candidate ordering reusing classical/fair sharing preemption ordering logic
 - triggers
 - candidate gathering from both strategies into two separate sets, merging, deduplication, and ordering
-- ClusterQueue integration via `kueue.x-k8s.io/preemption-config` annotation
+- ClusterQueue integration via `kueue.x-k8s.io/preemption-config-name` annotation
 - preemption evaluator support for merging candidate outputs from classical/fair sharing preemption (`spec.preemption`) and `PreemptionConfig`
 
 Implementation of the following candidate selector fields and constraints to have an MVP of defrag:
@@ -1011,7 +1011,7 @@ Why should this KEP _not_ be implemented?
    Ruled out because:
    - `ClusterQueue.spec.preemption` has declarative defaulting (`+kubebuilder:default={}`). Setting it to `null` or altering declarative defaulting in a mutating webhook is a breaking change for existing clients and manifests.
    - If a formal field `spec.preemptionConfigName` were added in Alpha with merged behavior alongside `spec.preemption`, changing it to mutually exclusive in Beta would be a breaking change to the field's semantics.
-   - Using an annotation (`kueue.x-k8s.io/preemption-config`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
+   - Using an annotation (`kueue.x-k8s.io/preemption-config-name`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
 
 ## Future Work Ideas
 
