@@ -1012,7 +1012,7 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 }
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
-// delay.
+// delay. The pass re-reads the live Workload when the delay elapses.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
@@ -1023,8 +1023,10 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
+		nsName := client.ObjectKeyFromObject(w)
+		// Callers pass the controller or scheduler lifetime, which also owns delayed reads.
 		m.clock.AfterFunc(delay, func() {
-			m.queueSecondPass(ctx, w, iteration)
+			m.queueSecondPass(ctx, nsName, iteration)
 		})
 		return true
 	} else if iteration > 0 {
@@ -1037,17 +1039,45 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	return false
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
+// queueSecondPass re-reads the live Workload by key and queues it for a second pass if it still needs one.
+func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, iteration int) {
 	m.Lock()
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
-	wInfo := workload.NewInfoFromClient(ctx, m.client, w, m.workloadInfoOptions...)
+	wlKey := workload.NewReference(nsName.Namespace, nsName.Name)
+	var w kueue.Workload
+	// Re-read the live object; the request-time snapshot may be healed or deleted.
+	if err := m.client.Get(ctx, nsName, &w); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.V(3).Info("Workload not found when queuing for second pass; dropping the request", "workload", wlKey)
+			m.secondPassQueue.deleteByKey(wlKey)
+			return
+		}
+		if ctx.Err() != nil {
+			m.secondPassQueue.deleteByKey(wlKey)
+			return
+		}
+		// Keep ownership of the pass: a transient read error retries after backoff.
+		log.Error(err, "Failed to re-read workload for second pass; will retry", "workload", wlKey)
+		m.retrySecondPassRead(ctx, nsName, iteration+1)
+		return
+	}
+	wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
-		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
+		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
 		m.Broadcast()
 	}
+}
+
+// retrySecondPassRead re-arms a delayed second pass after a transient re-read failure.
+func (m *Manager) retrySecondPassRead(ctx context.Context, nsName client.ObjectKey, iteration int) {
+	delay := m.secondPassQueue.nextDelay(iteration)
+	// Clock callbacks may not support registering a timer from inside a callback.
+	go m.clock.AfterFunc(delay, func() {
+		m.queueSecondPass(ctx, nsName, iteration)
+	})
 }
 
 func (m *Manager) resyncClusterQueueGaugeMetricsLocked(cq *ClusterQueue) {

@@ -4,6 +4,7 @@
 |---|---|
 | [kueue-go-lint](kueue-go-lint/SKILL.md) | "lint my Go changes", "run Go lint", final lint validation after modifying Kueue Go code |
 | [kueue-verify](kueue-verify/SKILL.md) | final validation before pushing changes or opening/updating a PR |
+| [kueue-pr-issue-workflow](kueue-pr-issue-workflow/SKILL.md) | "open a pull request", "open an issue", "what template, labels, or title should I use", PR/issue contribution workflow |
 | [kueue-who-preempted](kueue-who-preempted/SKILL.md) | "who preempted my workload", "why was my workload evicted", "what kicked out my job", preemption investigation |
 | [kueue-lineage](kueue-lineage/SKILL.md) | "what pods are running for my workload", "trace workload to pods", "show me the jobs for this workload", lineage/ownership questions |
 | [kueue-flake-debugger](kueue-flake-debugger/SKILL.md) | "debug a flake", "investigate test failure", "test timed out", "CI flake" |
@@ -24,6 +25,8 @@
 @kueue-go-lint/SKILL.md
 
 @kueue-verify/SKILL.md
+
+@kueue-pr-issue-workflow/SKILL.md
 
 @kueue-who-preempted/SKILL.md
 

@@ -50,7 +50,6 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -1112,12 +1111,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-			originSlice = nil
-			for i := range workloads.Items {
-				if !concurrentadmission.IsVariant(&workloads.Items[i]) {
-					originSlice = &workloads.Items[i]
-				}
-			}
+			originSlice = util.FindConcurrentAdmissionParent(workloads.Items)
 			g.Expect(originSlice).ShouldNot(gomega.BeNil())
 			g.Expect(workload.IsAdmitted(originSlice)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -1134,17 +1128,12 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-			activeSlice = nil
-			for i := range workloads.Items {
-				if !concurrentadmission.IsVariant(&workloads.Items[i]) && !workloadfinish.IsFinished(&workloads.Items[i]) {
-					activeSlice = &workloads.Items[i]
-				}
-			}
+			activeSlice = util.FindConcurrentAdmissionParent(util.FindNonFinishedWorkloads(workloads.Items))
 			g.Expect(activeSlice).ShouldNot(gomega.BeNil())
 			g.Expect(activeSlice.Name).ShouldNot(gomega.Equal(originSliceName))
 			g.Expect(workload.IsAdmitted(activeSlice)).Should(gomega.BeTrue())
-			g.Expect(workloads.Items).To(gomega.ContainElement(gomega.Satisfy(func(wl kueue.Workload) bool {
-				return concurrentadmission.IsVariant(&wl) && workload.IsAdmitted(&wl) && !workloadfinish.IsFinished(&wl)
+			g.Expect(util.FindConcurrentAdmissionVariants(workloads.Items)).To(gomega.ContainElement(gomega.Satisfy(func(wl kueue.Workload) bool {
+				return workload.IsAdmitted(&wl) && !workloadfinish.IsFinished(&wl)
 			})))
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(originSlice), originSlice)).To(gomega.Succeed())
 			g.Expect(workloadfinish.IsFinished(originSlice)).To(gomega.BeTrue())
@@ -1216,10 +1205,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		gomega.Consistently(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			for _, wl := range workloads.Items {
-				if concurrentadmission.IsVariant(&wl) {
-					g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil(), "variant %s", wl.Name)
-				}
+			for _, wl := range util.FindConcurrentAdmissionVariants(workloads.Items) {
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil(), "variant %s", wl.Name)
 			}
 		}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})

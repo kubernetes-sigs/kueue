@@ -210,8 +210,25 @@ func TestWorkloadEventHandlerSecondPassUsesControllerLifetime(t *testing.T) {
 			defer stop()
 			fakeClock := testingclock.NewFakeClock(time.Now())
 			lookups := 0
+			workloadReads := 0
 			eventFinished := false
 			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(lookupCtx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*kueue.Workload); !ok {
+						return cl.Get(lookupCtx, key, obj, opts...)
+					}
+					workloadReads++
+					if stopController {
+						if !errors.Is(lookupCtx.Err(), context.Canceled) {
+							t.Errorf("second-pass read did not observe controller shutdown: %v", lookupCtx.Err())
+						}
+						return context.Canceled
+					}
+					if lookupCtx.Err() != nil {
+						t.Errorf("event completion cancelled second-pass read: %v", lookupCtx.Err())
+					}
+					return cl.Get(lookupCtx, key, obj, opts...)
+				},
 				List: func(lookupCtx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 					if _, ok := list.(*corev1.LimitRangeList); !ok {
 						return cl.List(lookupCtx, list, opts...)
@@ -246,6 +263,9 @@ func TestWorkloadEventHandlerSecondPassUsesControllerLifetime(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).RequiredTopologyRequest(corev1.LabelHostname).Request(corev1.ResourceCPU, "1").Obj()).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "1").DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj()).Obj(), fakeClock.Now()).
 				AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady}).Obj()
+			if err := cl.Create(ctx, wl); err != nil {
+				t.Fatal(err)
+			}
 			r := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{})
 			h := &workloadEventHandler{r: r, ctx: controllerCtx}
 			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
@@ -262,8 +282,18 @@ func TestWorkloadEventHandlerSecondPassUsesControllerLifetime(t *testing.T) {
 				stop()
 			}
 			fakeClock.Step(time.Second)
-			if lookups != 1 {
-				t.Fatalf("second-pass resource lookups = %d, want 1", lookups)
+			if workloadReads != 1 {
+				t.Fatalf("second-pass workload reads = %d, want 1", workloadReads)
+			}
+			wantLookups := 1
+			if stopController {
+				wantLookups = 0
+			}
+			if lookups != wantLookups {
+				t.Fatalf("second-pass resource lookups = %d, want %d", lookups, wantLookups)
+			}
+			if stopController && fakeClock.Waiters() != 0 {
+				t.Fatal("controller shutdown scheduled a second-pass retry")
 			}
 		})
 	}
