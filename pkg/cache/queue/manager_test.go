@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2398,6 +2399,66 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestQueueSecondPassRefreshesMultipleNodeReplacementWorkload(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, true)
+
+	now := time.Now()
+	queuedWl := utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"x3"}}).
+							Obj()).
+						Obj(),
+				).
+				Obj(),
+			now,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).
+		AdmittedAt(true, now).
+		UnhealthyNodes("x3").
+		Obj()
+	latestWl := queuedWl.DeepCopy()
+	latestWl.Status.UnhealthyNodes = append(latestWl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: "x1"})
+	if !workload.HasTopologyAssignmentWithUnhealthyNode(queuedWl) {
+		t.Fatal("queued workload should have a topology assignment containing an unhealthy node")
+	}
+	if !workload.NeedsSecondPass(latestWl) {
+		t.Fatal("latest workload should need a second scheduling pass")
+	}
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(
+		utiltesting.NewFakeClient(latestWl),
+		nil,
+		WithClock(fakeClock),
+	)
+
+	manager.QueueSecondPassIfNeeded(ctx, queuedWl, 0)
+	fakeClock.Step(time.Second)
+
+	ready := manager.secondPassQueue.takeAllReady()
+	if len(ready) != 1 {
+		t.Fatalf("expected one ready workload, got %d", len(ready))
+	}
+	if diff := gocmp.Diff(latestWl.Status.UnhealthyNodes, ready[0].Obj.Status.UnhealthyNodes); diff != "" {
+		t.Errorf("unexpected unhealthy nodes (-want,+got):\n%s", diff)
 	}
 }
 
