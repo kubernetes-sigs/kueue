@@ -184,8 +184,17 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
+		var admittedWorkloads []*kueue.Workload
+		for _, cq := range c.hm.ClusterQueues() {
+			for _, wInfo := range cq.Workloads {
+				if wInfo.Obj != nil {
+					admittedWorkloads = append(admittedWorkloads, wInfo.Obj)
+				}
+			}
+		}
+
 		var err error
-		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
+		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes(), admittedWorkloads)
 		if err != nil {
 			return nil, err
 		}
