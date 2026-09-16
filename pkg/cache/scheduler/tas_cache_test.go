@@ -805,6 +805,106 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"grouped leader and workers; the leader and the workers need different nodes of the same rack": {
+			// The topology stops at the rack, so the assignment names the rack and the
+			// kube-scheduler picks the node inside it. The workers fit only on the GPU
+			// node and the leader only on the CPU node, and both are in rack r1.
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-gpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "gpu").
+					Label("pool", "gpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-cpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "cpu").
+					Label("pool", "cpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultTwoLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasRackLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					nodeSelector:    map[string]string{"pool": "cpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultTwoLevels,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasRackLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					nodeSelector:    map[string]string{"pool": "gpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultTwoLevels,
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"b1", "r1"}}},
+					},
+				},
+			},
+		},
+		"grouped leader and workers; with the hostname level each of them gets its own node": {
+			// The same group with the hostname level declared: the assignment names the
+			// nodes, the leader the CPU one and the workers the GPU one.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-gpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "gpu").
+					Label("pool", "gpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-cpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "cpu").
+					Label("pool", "cpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					nodeSelector:    map[string]string{"pool": "cpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"cpu"}}},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					nodeSelector:    map[string]string{"pool": "gpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"gpu"}}},
+					},
+				},
+			},
+		},
 		"grouped with leader and sliced workers; hostname level slicing with lower leader requirement": {
 			// Leader requests 1 CPU.
 			// Workers request 2 CPU, sliceSize 2, sliceRequiredTopology hostname.
