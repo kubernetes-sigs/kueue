@@ -4811,6 +4811,7 @@ var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacit
 
 		ginkgo.DeferCleanup(func() { gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed()) })
 
+		ginkgo.By("admitting the victim at its original size")
 		victim := testingjob.MakeJob("victim", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(kueue.LocalQueueName(lq.Name)).Parallelism(3).Completions(5).
@@ -4828,6 +4829,7 @@ var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacit
 
 		// envtest has no Job controller or kubelet. Materialize the real admitted
 		// template, then hold its Pods Running until the controller requests suspension.
+		ginkgo.By("holding the original workers running")
 		pods := make([]*corev1.Pod, 0, 3)
 		ginkgo.DeferCleanup(func() {
 			for _, p := range pods {
@@ -4867,6 +4869,7 @@ var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacit
 		replacement := util.ExpectNewWorkloadSlice(ctx, k8sClient, &origin)
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, replacement)
 
+		ginkgo.By("submitting a higher-priority Job that requires preemption")
 		urgent := testingjob.MakeJob("urgent", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).
 			WorkloadPriorityClass(priority.Name).Parallelism(2).Completions(2).
 			Request(corev1.ResourceCPU, "1").Request(corev1.ResourceMemory, "512Mi").Request("nvidia.com/gpu", "1").Limit("nvidia.com/gpu", "1").Obj()
@@ -4888,6 +4891,7 @@ var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacit
 			g.Expect(ptr.Deref(victim.Spec.Suspend, false)).To(gomega.BeTrue(),
 				"origin finished=%t, urgent admitted=%t, active Pods=%d", workloadfinish.IsFinished(&origin), workload.IsAdmitted(urgentWL), victim.Status.Active)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.By("retaining the reservation while the suspended Job still has active Pods")
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
 			g.Expect(workloadfinish.IsFinished(&origin)).To(gomega.BeFalse())
