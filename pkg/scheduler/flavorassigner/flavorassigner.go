@@ -904,6 +904,16 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 					assignment.updateMode(failure.PodSetName, NoFit)
 				} else {
 					assignment.UpdateForTASResult(log, a.cq, a.wl, result)
+					// Every PodSet just got a genuine, non-simulated TAS
+					// placement, but mode is Preempt here because ordinary
+					// ClusterQueue quota also demands it - not because of
+					// anything TAS-specific. This whole branch exists so a
+					// failed-node replacement never preempts an unrelated
+					// workload to get room; a successful placement doesn't
+					// change that. Force NoFit so processEntry doesn't run
+					// issuePreemptions on the back of a placement that only
+					// "fit" topologically while quota still says otherwise.
+					assignment.updateModeForTASRequests(tasRequests, NoFit)
 				}
 				// A result with neither a Failure nor an assignment for a
 				// PodSet is possible when there's simply no free capacity to
