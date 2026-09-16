@@ -415,6 +415,14 @@ const (
 	// when preempted pods begin terminating rather than waiting for the grace period.
 	FastQuotaReleaseInPodIntegration featuregate.Feature = "FastQuotaReleaseInPodIntegration"
 
+	// owner: @anguszzzz
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15148
+	// When enabled, the Pod integration finalizes a pod group without creating a
+	// Workload when every pod of the group is terminating and no Workload remains
+	// for the group (introduced in https://github.com/kubernetes-sigs/kueue/pull/15154).
+	FinalizeTerminatingPodGroups featuregate.Feature = "FinalizeTerminatingPodGroups"
+
 	// owner: @ShaanveerS
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7259
@@ -893,6 +901,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FastQuotaReleaseInPodIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	FinalizeTerminatingPodGroups: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	RejectUpdatesToCQWithInvalidOnFlavors: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
