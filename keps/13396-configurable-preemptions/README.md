@@ -347,7 +347,7 @@ Each of the user stories mentioned in the motivation section can be fulfilled by
 
 #### Story 1 - Defragmentation
 
-A user can define a config with a `QuotaFeasibleButInsufficientTopology` trigger that will allow preemption of workloads blocking specific topologies when scheduling a workload from the associated ClusterQueue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantees asymmetry: if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
+A user can define a config with a `QuotaFeasibleAndInsufficientTopology` trigger that will allow preemption of workloads blocking specific topologies when scheduling a workload from the associated ClusterQueue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantees asymmetry: if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
 
 - Only allow preemption of workloads with strictly lower priority.
 - Only allow preemption of workloads that require smaller topologies (e.g. using a custom numeric label).
@@ -360,18 +360,18 @@ spec:
   rules:
     - name: defrag-smaller-tpu-workloads
       activationPolicy:
-        trigger: "QuotaFeasibleButInsufficientTopology"
+        trigger: "QuotaFeasibleAndInsufficientTopology"
       candidateSelectors:
-        - priorityComparison: "LowerOrEqual"
+        - priorityComparison: "LessThanOrEqual"
           scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
-              comparison: "Lower"
+              comparison: "LessThan"
               fallbackValue: 0
 ```
 
 As it has an `AnyClusterQueue` relation, it can preempt workloads even if they are not related in any way to the preemptor ClusterQueue.
-In combination with a custom numeric label selector using strict `Lower`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops.
+In combination with a custom numeric label selector using strict `LessThan`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops.
 Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
 
 #### Story 2 - Hero job
@@ -394,7 +394,7 @@ spec:
       activationPolicy:
         trigger: "Always"
       candidateSelectors:
-        - priorityComparison: "Lower"
+        - priorityComparison: "LessThan"
           scope: "AnyClusterQueue"
 ```
 
@@ -421,7 +421,7 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
-             priorityComparison: "Lower"
+             priorityComparison: "LessThan"
              numericLabels:
                - key: "requested-gpus"
                  maxValue: 8
@@ -471,7 +471,7 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
-             priorityComparison: "Lower"
+             priorityComparison: "LessThan"
              minExecutionDuration: "15m"
    ```
 
@@ -485,7 +485,7 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "SameClusterQueue"
-             priorityComparison: "Lower"
+             priorityComparison: "LessThan"
              maxTimeFromCreationDuration: "1h"
    ```
 
@@ -537,14 +537,14 @@ As preemption configs will be modifiable only by cluster administrators, there a
 
 ```go
 const (
-  // PreemptionConfigAnnotation is the annotation key used on ClusterQueue to reference
+  // PreemptionConfigNameAnnotation is the annotation key used on ClusterQueue to reference
   // a PreemptionConfig during Alpha.
   // This annotation will be removed in Beta.
-  PreemptionConfigAnnotation = "kueue.x-k8s.io/preemption-config"
+  PreemptionConfigNameAnnotation = "kueue.x-k8s.io/preemption-config"
 )
 
 // PreemptionConfigReference is the name of the PreemptionConfig.
-// In Alpha, it is specified via the PreemptionConfigAnnotation on ClusterQueue.
+// In Alpha, it is specified via the PreemptionConfigNameAnnotation on ClusterQueue.
 // In Beta+, it will be introduced as a formal field on ClusterQueueSpec.
 //
 // Validation of a PreemptionConfig name is equivalent to that of object names:
@@ -570,7 +570,7 @@ type PreemptionConfigSpec struct {
 }
 
 // ActivationTrigger specifies when preemption rule should be treated as active.
-// +kubebuilder:validation:Enum=Always;InsufficientQuota;QuotaFeasibleButInsufficientTopology
+// +kubebuilder:validation:Enum=Always;InsufficientQuota;QuotaFeasibleAndInsufficientTopology
 type ActivationTrigger string
 
 const (
@@ -581,12 +581,12 @@ const (
   // does not yield sufficient quota to admit the preemptor workload.
   InsufficientQuota ActivationTrigger = "InsufficientQuota"
 
-  // QuotaFeasibleButInsufficientTopology contributes matching candidates only if quota
+  // QuotaFeasibleAndInsufficientTopology contributes matching candidates only if quota
   // is feasible for the entire preemptor under at least one eligible flavor assignment
   // (after preempting baseline candidates and any candidates from InsufficientQuota rules),
   // but the workload cannot be admitted because no eligible flavor assignment satisfies
   // its topology requirements.
-  QuotaFeasibleButInsufficientTopology ActivationTrigger = "QuotaFeasibleButInsufficientTopology"
+  QuotaFeasibleAndInsufficientTopology ActivationTrigger = "QuotaFeasibleAndInsufficientTopology"
 )
 
 // PreemptionRule defines a single rule under which preemptions can be triggered
@@ -631,7 +631,7 @@ type ActivationPolicy struct {
   // - Always: contributes matching candidates unconditionally.
   // - InsufficientQuota: contributes matching candidates only if preempting baseline candidates
   //   does not yield sufficient quota to admit the preemptor workload.
-  // - QuotaFeasibleButInsufficientTopology: contributes matching candidates only if quota
+  // - QuotaFeasibleAndInsufficientTopology: contributes matching candidates only if quota
   //   is feasible for the entire preemptor under at least one eligible flavor assignment
   //   (after preempting baseline candidates and any candidates from InsufficientQuota rules),
   //   but the workload cannot be admitted because no eligible flavor assignment satisfies
@@ -651,7 +651,7 @@ Rules extend the pool of preemption candidates incrementally in tiers based on t
 
 1. **Baseline**: rules with the `Always` trigger and classical/fair sharing preemption candidates.
 2. **`InsufficientQuota`**: rules evaluated only if baseline candidates cannot free sufficient quota to admit the preemptor.
-3. **`QuotaFeasibleButInsufficientTopology`**: rules evaluated only if quota is feasible after the previous tiers, but the workload cannot be placed due to unsatisfied topology requirements.
+3. **`QuotaFeasibleAndInsufficientTopology`**: rules evaluated only if quota is feasible after the previous tiers, but the workload cannot be placed due to unsatisfied topology requirements.
 
 After evaluating each tier, the scheduler simulates whether the preemptor workload can be scheduled with the accumulated candidate pool. If scheduling succeeds, evaluation stops and preemption proceeds using the minimal candidate set. Otherwise, the pool is expanded with candidates from the next trigger tier.
 
@@ -727,7 +727,7 @@ type PreemptionCandidateSelector struct {
   LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
 
   // PriorityComparison defines how the candidate's priority compares to the preemptor's priority.
-  // For example "Lower" means that only workloads with lower
+  // For example "LessThan" means that only workloads with lower
   // priority will be allowed as preemption candidates.
   // The comparison is made using effective priority (accounting for priority boost if enabled).
   // If nil, no relative priority check is enforced.
@@ -743,7 +743,7 @@ type PreemptionCandidateSelector struct {
 // required topology domain size, such as the "number of TPUs".
 // If a user has a label "number-of-tpus" that describes the number of TPUs required in a single cube,
 // it can be used to create a rule that selects only workloads requiring smaller cube slices
-// by defining comparison: "Lower". Such a configuration would allow preemption of "smaller" workloads,
+// by defining comparison: "LessThan". Such a configuration would allow preemption of "smaller" workloads,
 // to achieve better cluster utilization and decrease fragmentation.
 // Please note that those labels are not copied out of the box from job-like objects.
 // You should remember to append the designated labels to the list of labels
@@ -780,25 +780,25 @@ type NumericLabelConstraint struct {
 
 // NumericComparison defines how a specified numeric property (e.g., effective priority) of the candidate compares to the same property of the preemptor.
 // Possible values are:
-// - "Lower": permits preemption if candidate field value < preemptor field value
-// - "Greater": permits preemption if candidate field value > preemptor field value
-// - "LowerOrEqual": permits preemption if candidate field value <= preemptor field value
-// - "GreaterOrEqual": permits preemption if candidate field value >= preemptor field value
-// +kubebuilder:validation:Enum=Lower;Greater;LowerOrEqual;GreaterOrEqual
+// - "LessThan": permits preemption if candidate field value < preemptor field value
+// - "GreaterThan": permits preemption if candidate field value > preemptor field value
+// - "LessThanOrEqual": permits preemption if candidate field value <= preemptor field value
+// - "GreaterThanOrEqual": permits preemption if candidate field value >= preemptor field value
+// +kubebuilder:validation:Enum=LessThan;GreaterThan;LessThanOrEqual;GreaterThanOrEqual
 type NumericComparison string
 
 const (
-  // Lower permits preemption if candidate field value < preemptor field value
-  Lower NumericComparison = "Lower"
-  // Greater permits preemption if candidate field value > preemptor field value
-  Greater NumericComparison = "Greater"
-  // LowerOrEqual permits preemption if candidate field value <= preemptor field value
-  LowerOrEqual NumericComparison = "LowerOrEqual"
-  // GreaterOrEqual permits preemption if candidate field value >= preemptor field value
-  GreaterOrEqual NumericComparison = "GreaterOrEqual"
+  // LessThan permits preemption if candidate field value < preemptor field value
+  LessThan NumericComparison = "LessThan"
+  // GreaterThan permits preemption if candidate field value > preemptor field value
+  GreaterThan NumericComparison = "GreaterThan"
+  // LessThanOrEqual permits preemption if candidate field value <= preemptor field value
+  LessThanOrEqual NumericComparison = "LessThanOrEqual"
+  // GreaterThanOrEqual permits preemption if candidate field value >= preemptor field value
+  GreaterThanOrEqual NumericComparison = "GreaterThanOrEqual"
 )
 
-// Kueue uses full, descriptive identifiers ("Lower", "Greater", "LowerOrEqual", "GreaterOrEqual").
+// Kueue uses full, descriptive identifiers ("LessThan", "GreaterThan", "LessThanOrEqual", "GreaterThanOrEqual").
 // This maintains consistency with equality comparisons, enhances YAML readability, and provides
 // clear, intuitive semantics for cluster administrators.
 
@@ -806,7 +806,7 @@ const (
 
 #### Default Candidate Ordering
 
-In the initial iteration, candidate workloads are evaluated and ordered using the default ordering rules for classical preemption and fair sharing (reusing the logic from [`pkg/scheduler/preemption/common/ordering.go`](../../pkg/scheduler/preemption/common/ordering.go#L34-L41)):
+In the initial iteration, candidate workloads are evaluated and ordered using the default ordering rules for classical preemption and fair sharing (reusing the logic from [`pkg/scheduler/preemption/common/ordering.go`](https://github.com/kubernetes-sigs/kueue/blob/24f6f99135979076a8d56ca7fc407990b98c66af/pkg/scheduler/preemption/common/ordering.go#L34-L41)):
 
 0. Workloads already marked for preemption/eviction first (`isEvicted`).
 1. Workloads from other ClusterQueues in the cohort before the ones in the same ClusterQueue as the preemptor.
@@ -1175,13 +1175,13 @@ spec:
   rules:
     - name: defrag-smaller-tpu-workloads
       activationPolicy:
-        trigger: "QuotaFeasibleButInsufficientTopology"
+        trigger: "QuotaFeasibleAndInsufficientTopology"
       candidateSelectors:
-        - priorityComparison: "LowerOrEqual"
+        - priorityComparison: "LessThanOrEqual"
           scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
-              comparison: "Lower"
+              comparison: "LessThan"
               fallbackValue: 0
   ordering:
     - orderingField: "Priority"
@@ -1197,7 +1197,7 @@ spec:
       activationPolicy:
         trigger: "Always"
       candidateSelectors:
-        - priorityComparison: "Lower"
+        - priorityComparison: "LessThan"
           scope: "AnyClusterQueue"
   ordering:
     - orderingField: "Priority"
@@ -1414,7 +1414,7 @@ spec:
         trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "SameClusterQueue"
-          priorityComparison: "Lower"
+          priorityComparison: "LessThan"
           minExecutionDuration: "15m"
 ```
 
@@ -1428,7 +1428,7 @@ spec:
         trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "SameClusterQueue"
-          priorityComparison: "Lower"
+          priorityComparison: "LessThan"
           maxTimeFromCreationDuration: "1h"
 ```
 
@@ -1601,7 +1601,7 @@ spec:
 
 ### Minimum Trigger Duration (MinTriggerRequiredDuration)
 
-In many production environments, administrators want to avoid premature or "flapping" preemptions caused by transient quota shortages or temporary topology fragmentation that might resolve naturally within a short window (e.g., as short jobs complete or as autoscaling nodes join). By requiring that a trigger condition (such as `QuotaFeasibleButInsufficientTopology` or `InsufficientQuota`) persists for a minimum duration before evaluating candidate preemptions, clusters can grant a grace window for normal placement or natural workload completions before resorting to disruptive evictions.
+In many production environments, administrators want to avoid premature or "flapping" preemptions caused by transient quota shortages or temporary topology fragmentation that might resolve naturally within a short window (e.g., as short jobs complete or as autoscaling nodes join). By requiring that a trigger condition (such as `QuotaFeasibleAndInsufficientTopology` or `InsufficientQuota`) persists for a minimum duration before evaluating candidate preemptions, clusters can grant a grace window for normal placement or natural workload completions before resorting to disruptive evictions.
 
 In the initial Alpha release, preemption evaluation triggers immediately upon observing the trigger condition without timer-based requeueing, keeping the execution flow synchronous with scheduling passes and avoiding timer management complexity. In future iterations, `ActivationPolicy` will be extended with `minTriggerRequiredDuration`.
 
@@ -1610,7 +1610,7 @@ In the initial Alpha release, preemption evaluation triggers immediately upon ob
 ```go
 type ActivationPolicy struct {
 
-  // Trigger specifies the condition (InsufficientQuota, Always, or QuotaFeasibleButInsufficientTopology)
+  // trigger specifies the condition (InsufficientQuota, Always, or QuotaFeasibleAndInsufficientTopology)
   // that must be observed on the preemptor workload for this rule to apply.
   Trigger ActivationTrigger `json:"trigger"`
 
@@ -1641,14 +1641,14 @@ spec:
   rules:
     - name: defrag-smaller-tpu-workloads
       activationPolicy:
-        trigger: "QuotaFeasibleButInsufficientTopology"
+        trigger: "QuotaFeasibleAndInsufficientTopology"
         minTriggerRequiredDuration: "30s"
       candidateSelectors:
-        - priorityComparison: "LowerOrEqual"
+        - priorityComparison: "LessThanOrEqual"
           scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
-              comparison: "Lower"
+              comparison: "LessThan"
               fallbackValue: 0
 ```
 
