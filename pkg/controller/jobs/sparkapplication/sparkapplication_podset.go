@@ -309,6 +309,12 @@ func addNodeSelectors(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error
 		pod.Spec.NodeSelector = make(map[string]string)
 	}
 
+	// The SparkApplication-level node selector applies to both the driver and the
+	// executor pods, and is mutually exclusive with the podSpec-level one. It has to
+	// be recorded in the PodSet template because RunWithPodSetsInfo flattens it into
+	// the podSpec-level selectors and clears spec.nodeSelector, leaving the Workload
+	// as the only place RestorePodSetsInfo can read the original selector back from.
+	maps.Copy(pod.Spec.NodeSelector, app.Spec.NodeSelector)
 	maps.Copy(pod.Spec.NodeSelector, nodeSelector)
 
 	return nil
