@@ -177,6 +177,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName), 3).
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						SubGroupCount(new(int32(3))).
 						Obj(),
 				}
 			},
@@ -231,6 +232,7 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						SubGroupCount(new(int32(3))).
 						Obj(),
 				}
 			},
@@ -335,6 +337,7 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						SubGroupCount(new(int32(3))).
 						Obj(),
 					*utiltestingapi.MakePodSet("submitter", 1).
 						PodSpec(*getSubmitterTemplate(rayJob).Spec.DeepCopy()).
@@ -397,6 +400,7 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						SubGroupCount(new(int32(3))).
 						Obj(),
 					*utiltestingapi.MakePodSet("submitter", 1).
 						PodSpec(*rayJob.Spec.SubmitterPodTemplate.Spec.DeepCopy()).
