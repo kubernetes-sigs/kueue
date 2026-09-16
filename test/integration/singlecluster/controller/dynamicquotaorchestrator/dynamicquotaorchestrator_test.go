@@ -1162,8 +1162,8 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		util.MustCreate(ctx, k8sClient, cq2)
 
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("leftover-a").
-			DiscoveryProvider("leftover-cp-a", nil).
-			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "leftover-cq-x").
+			DiscoveryProvider(cpA.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, cq1.Name).
 			Obj()
 		util.MustCreate(ctx, k8sClient, dqo)
 
@@ -1178,7 +1178,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		)
 
 		gomega.Eventually(func(g gomega.Gomega) {
-			expectClusterQueueOwnedBy(g, cqXKey, "leftover-a", wantQuotaA)
+			expectClusterQueueOwnedBy(g, cqXKey, dqo.Name, wantQuotaA)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Retargeting A to Y and leaving X's orchestratorRef", func() {
@@ -1189,14 +1189,14 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				g.Expect(k8sClient.Update(ctx, latestA)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a", wantQuotaA)
-				expectClusterQueueOwnedBy(g, cqXKey, "leftover-a", wantQuotaA)
+				expectClusterQueueOwnedBy(g, cqYKey, dqo.Name, wantQuotaA)
+				expectClusterQueueOwnedBy(g, cqXKey, dqo.Name, wantQuotaA)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		childDQO = utiltestingalpha.MakeDynamicQuotaOrchestrator("leftover-b").
-			DiscoveryProvider("leftover-cp-b", nil).
-			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "leftover-cq-x").
+			DiscoveryProvider(cpB.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, cq1.Name).
 			Obj()
 		util.MustCreate(ctx, k8sClient, childDQO)
 		dqoBKey := types.NamespacedName{Name: childDQO.Name}
@@ -1224,7 +1224,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 				))
-				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b", wantQuotaB)
+				expectClusterQueueOwnedBy(g, cqXKey, childDQO.Name, wantQuotaB)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1237,8 +1237,8 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 				))
-				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a", wantQuotaA)
-				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b", wantQuotaB)
+				expectClusterQueueOwnedBy(g, cqYKey, dqo.Name, wantQuotaA)
+				expectClusterQueueOwnedBy(g, cqXKey, childDQO.Name, wantQuotaB)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
