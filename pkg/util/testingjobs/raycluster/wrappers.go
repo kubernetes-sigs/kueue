@@ -242,6 +242,16 @@ func (j *ClusterWrapper) SchedulingGate(name string) *ClusterWrapper {
 	return j
 }
 
+func (j *ClusterWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *ClusterWrapper {
+	j.Spec.AutoscalerOptions = value
+	return j
+}
+
+func (j *ClusterWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *ClusterWrapper {
+	j.Spec.HistoryServerOptions = value
+	return j
+}
+
 func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
 	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
 	return j
@@ -253,11 +263,6 @@ func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxRepl
 	wgs.Replicas = new(replicas)
 	wgs.MinReplicas = new(minReplicas)
 	wgs.MaxReplicas = new(maxReplicas)
-	return j
-}
-
-func (j *ClusterWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *ClusterWrapper {
-	j.Spec.HistoryServerOptions = value
 	return j
 }
 
