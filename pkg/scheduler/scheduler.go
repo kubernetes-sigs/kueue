@@ -465,7 +465,12 @@ func (s *Scheduler) processEntry(
 		if psName, missing := e.assignment.MissingTopologyAssignment(log, &e.Info, cq); missing {
 			log.Error(nil, "PodSet requires a topology assignment but none was computed; refusing to admit or preempt for it", "podSet", psName)
 			e.requeueReason = qcache.RequeueReasonNoFit
-			e.quotaReservedReason = fmt.Sprintf("no topology assignment computed for PodSet %q", psName)
+			// quotaReservedReason ends up as a Condition.Reason (see
+			// requeueAndUpdate below), which the API server rejects if it
+			// isn't a bare identifier - no spaces or quotes. The detail
+			// belongs in inadmissibleMsg, which is free text.
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed
+			e.inadmissibleMsg = fmt.Sprintf("no topology assignment computed for PodSet %q", psName)
 			return
 		}
 	}
