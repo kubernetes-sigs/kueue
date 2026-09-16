@@ -828,7 +828,19 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				// PodSets with the Node to replace, so we match PodSetAssignment
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
-					continue
+					// A PodSet that needs a node replacement should already have
+					// an existing TopologyAssignment to replace a domain in - if
+					// it doesn't, the workload's state is inconsistent with what
+					// this path expects. Report it as a failure for this PodSet
+					// rather than silently omitting it from result: leaving it
+					// out isn't the same as failing it, since callers only learn
+					// about a PodSet by checking Failure() or the FailureReason
+					// on an entry that exists, so a PodSet that never gets an
+					// entry looks like nothing was wrong with it.
+					result[tr.PodSet.Name] = tasPodSetAssignmentResult{
+						FailureReason: fmt.Sprintf("no existing TopologyAssignment found for PodSet %q needing node replacement", tr.PodSet.Name),
+					}
+					return result
 				}
 				if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wlObj) {
 					// The pod cannot relocate and the Workload cannot outlive it; keep
