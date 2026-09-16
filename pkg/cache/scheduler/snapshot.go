@@ -145,6 +145,33 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	}
 }
 
+// WorkloadReplacement describes a workload removal. Reduced is the workload
+// retained after partial preemption; nil means full eviction.
+type WorkloadReplacement struct {
+	Full    *workload.Info
+	Reduced *workload.Info
+}
+
+// SimulateWorkloadReplacement temporarily removes each full workload from the
+// snapshot. For partial preemption, it replaces the full workload with Reduced.
+// It returns a function that restores the original workloads and usage.
+func (s *Snapshot) SimulateWorkloadReplacement(replacements []WorkloadReplacement) func() {
+	for _, replacement := range replacements {
+		s.RemoveWorkload(replacement.Full)
+		if replacement.Reduced != nil {
+			s.AddWorkload(replacement.Reduced)
+		}
+	}
+	return func() {
+		for _, replacement := range slices.Backward(replacements) {
+			if replacement.Reduced != nil {
+				s.RemoveWorkload(replacement.Reduced)
+			}
+			s.AddWorkload(replacement.Full)
+		}
+	}
+}
+
 // ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
 // use it after changing what the scheduling simulator reports.
 func (s *Snapshot) ForgetSimulatedFeasibility() {

@@ -1867,6 +1867,15 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		}
 	}
 
+	// Propagate the partial-preemption settings so the scheduler can make the
+	// decision from the Workload without reading the owning Job.
+	if job.Object().GetAnnotations()[constants.PartialPreemptionAnnotation] == "true" {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.PartialPreemptionAnnotation, "true")
+	}
+	if maxReclaimedCount := job.Object().GetAnnotations()[constants.PartialPreemptionMaxReclaimedCountAnnotation]; maxReclaimedCount != "" {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.PartialPreemptionMaxReclaimedCountAnnotation, maxReclaimedCount)
+	}
+
 	wl.Spec.PodSets = clearUnusableMinCounts(wl.Spec.PodSets, wl)
 
 	if !workloadSliceEnabled {

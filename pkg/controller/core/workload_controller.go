@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -809,6 +810,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	if workload.HasQuotaReservation(&wl) {
+		if updated, err := r.reconcilePartialPreemption(ctx, &wl); updated || err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -1474,7 +1479,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
-		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
+		(features.Enabled(features.ElasticJobsViaWorkloadSlices) ||
+			(features.Enabled(features.PartialPreemption) && workload.HasReclaimTargetCount(e.ObjectNew))) &&
+			workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1536,6 +1543,49 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 		(status == workload.StatusFinished && prevStatus != workload.StatusFinished) {
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
 	}
+}
+
+// reconcilePartialPreemption converges admission usage after the job runtime
+// reaches a partial-preemption target, then clears the completed request.
+func (r *WorkloadReconciler) reconcilePartialPreemption(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !features.Enabled(features.PartialPreemption) || len(workload.ReclaimTargetCounts(wl)) == 0 {
+		return false, nil
+	}
+
+	updated := false
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		counts := workload.ExtractPodSetCountsFromWorkload(wl)
+		changed := false
+		for i := range wl.Status.Admission.PodSetAssignments {
+			psa := &wl.Status.Admission.PodSetAssignments[i]
+			specCount, found := counts[psa.Name]
+			if !found || psa.ReclaimTargetCount == nil || specCount > *psa.ReclaimTargetCount {
+				continue
+			}
+
+			if admittedCount := ptr.Deref(psa.Count, specCount); admittedCount > specCount {
+				psa.ResourceUsage = scaleResourceUsage(psa.ResourceUsage, admittedCount, specCount)
+				psa.Count = new(specCount)
+			}
+			psa.ReclaimTargetCount = nil
+			changed = true
+		}
+		updated = changed
+		return changed, nil
+	})
+	return updated, err
+}
+
+// scaleResourceUsage scales aggregate PodSet usage from one replica count to another.
+func scaleResourceUsage(usage corev1.ResourceList, from, to int32) corev1.ResourceList {
+	if usage == nil || from == to || from <= 0 {
+		return usage
+	}
+	scaled := make(corev1.ResourceList, len(usage))
+	for name, quantity := range usage {
+		scaled[name] = *apiresource.NewMilliQuantity(quantity.MilliValue()*int64(to)/int64(from), quantity.Format)
+	}
+	return scaled
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {

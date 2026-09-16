@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -3256,6 +3257,118 @@ func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
 			// The subtraction must not materialize an entry for an untracked queue.
 			if _, found := qManager.AfsUsageLedger.Get("ns/lq2"); found {
 				t.Error("the update created a ledger entry for a LocalQueue that had none")
+			}
+		})
+	}
+}
+
+func TestReconcilePartialPreemption(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+	features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, true)
+	now := time.Now().Truncate(time.Second)
+
+	makeWorkload := func(specCount, admittedCount int32, targetCount *int32) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("partial", "default").
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			PodSets(*utiltestingapi.MakePodSet("executor", int(specCount)).
+				Request(corev1.ResourceCPU, "1").
+				SetMinimumCount(1).
+				Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("executor").
+					Assignment(corev1.ResourceCPU, "default", fmt.Sprintf("%d", admittedCount)).
+					Count(admittedCount).
+					Obj()).
+				Obj(), now).
+			Obj()
+		wl.Status.Admission.PodSetAssignments[0].ReclaimTargetCount = targetCount
+		return wl
+	}
+
+	cases := map[string]struct {
+		specCount     int32
+		admittedCount int32
+		targetCount   *int32
+		wantCount     int32
+		wantTarget    *int32
+		wantUsage     string
+		wantUpdated   bool
+	}{
+		"scale-down converges admission and clears target": {
+			specCount:     2,
+			admittedCount: 5,
+			targetCount:   ptr.To[int32](2),
+			wantCount:     2,
+			wantUsage:     "2",
+			wantUpdated:   true,
+		},
+		"already converged target is repaired": {
+			specCount:     2,
+			admittedCount: 2,
+			targetCount:   ptr.To[int32](2),
+			wantCount:     2,
+			wantUsage:     "2",
+			wantUpdated:   true,
+		},
+		"target remains until desired count reaches it": {
+			specCount:     3,
+			admittedCount: 5,
+			targetCount:   ptr.To[int32](2),
+			wantCount:     5,
+			wantTarget:    ptr.To[int32](2),
+			wantUsage:     "5",
+			wantUpdated:   false,
+		},
+		"spec below target clears it": {
+			specCount:     1,
+			admittedCount: 1,
+			targetCount:   ptr.To[int32](2),
+			wantCount:     1,
+			wantUsage:     "1",
+			wantUpdated:   true,
+		},
+		"nothing to update": {
+			specCount:     3,
+			admittedCount: 3,
+			wantCount:     3,
+			wantUsage:     "3",
+			wantUpdated:   false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := makeWorkload(tc.specCount, tc.admittedCount, tc.targetCount)
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(wl).
+				WithStatusSubresource(&kueue.Workload{}).
+				Build()
+			reconciler := &WorkloadReconciler{
+				client: cl,
+				clock:  testingclock.NewFakeClock(now),
+			}
+			ctx, _ := utiltesting.ContextWithLog(t)
+			updated, err := reconciler.reconcilePartialPreemption(ctx, wl)
+			if err != nil {
+				t.Fatalf("reconcilePartialPreemption() error = %v", err)
+			}
+			if updated != tc.wantUpdated {
+				t.Errorf("reconcilePartialPreemption() updated = %v, want %v", updated, tc.wantUpdated)
+			}
+
+			got := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+				t.Fatalf("getting workload: %v", err)
+			}
+			psa := got.Status.Admission.PodSetAssignments[0]
+			if count := ptr.Deref(psa.Count, -1); count != tc.wantCount {
+				t.Errorf("admitted count = %d, want %d", count, tc.wantCount)
+			}
+			if diff := cmp.Diff(tc.wantTarget, psa.ReclaimTargetCount); diff != "" {
+				t.Errorf("ReclaimTargetCount (-want,+got):\n%s", diff)
+			}
+			if gotUsage := psa.ResourceUsage[corev1.ResourceCPU]; gotUsage.Cmp(resource.MustParse(tc.wantUsage)) != 0 {
+				t.Errorf("resource usage = %s, want %s", gotUsage.String(), tc.wantUsage)
 			}
 		})
 	}

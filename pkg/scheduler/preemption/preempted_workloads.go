@@ -18,12 +18,11 @@ package preemption
 
 import (
 	"maps"
-	"slices"
 
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type PreemptedWorkloads map[workload.Reference]*workload.Info
+type PreemptedWorkloads map[workload.Reference]*Target
 
 func (p PreemptedWorkloads) HasAny(newTargets []*Target) bool {
 	for _, target := range newTargets {
@@ -36,7 +35,7 @@ func (p PreemptedWorkloads) HasAny(newTargets []*Target) bool {
 
 func (p PreemptedWorkloads) Insert(newTargets []*Target) {
 	for _, target := range newTargets {
-		p[workload.Key(target.WorkloadInfo.Obj)] = target.WorkloadInfo
+		p[workload.Key(target.WorkloadInfo.Obj)] = target
 	}
 }
 
@@ -53,5 +52,17 @@ func (p PreemptedWorkloads) MergeWithTargets(targets []*Target) PreemptedWorkloa
 }
 
 func (p PreemptedWorkloads) Workloads() []*workload.Info {
-	return slices.Collect(maps.Values(p))
+	workloads := make([]*workload.Info, 0, len(p))
+	for _, target := range p {
+		workloads = append(workloads, target.WorkloadInfo)
+	}
+	return workloads
+}
+
+func (p PreemptedWorkloads) Targets() []*Target {
+	targets := make([]*Target, 0, len(p))
+	for _, target := range p {
+		targets = append(targets, target)
+	}
+	return targets
 }

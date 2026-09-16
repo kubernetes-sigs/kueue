@@ -1886,6 +1886,7 @@ func autoConvert_v1beta1_PodSetAssignment_To_v1beta2_PodSetAssignment(in *PodSet
 		out.TopologyAssignment = nil
 	}
 	out.DelayedTopologyRequest = (*v1beta2.DelayedTopologyRequestState)(unsafe.Pointer(in.DelayedTopologyRequest))
+	out.ReclaimTargetCount = (*int32)(unsafe.Pointer(in.ReclaimTargetCount))
 	return nil
 }
 
@@ -1909,6 +1910,7 @@ func autoConvert_v1beta2_PodSetAssignment_To_v1beta1_PodSetAssignment(in *v1beta
 		out.TopologyAssignment = nil
 	}
 	out.DelayedTopologyRequest = (*DelayedTopologyRequestState)(unsafe.Pointer(in.DelayedTopologyRequest))
+	out.ReclaimTargetCount = (*int32)(unsafe.Pointer(in.ReclaimTargetCount))
 	return nil
 }
 
