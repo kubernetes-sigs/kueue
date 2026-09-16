@@ -669,13 +669,18 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
+          {{- /* Path routing serves the dashboard and the backend from one origin, so the
+                 frontend is given no URL and falls back to the origin the page came from. */}}
+          {{- $backendUrl := "" }}
+          {{- if not .Values.kueueViz.ingress.enabled }}
           {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
           {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
           {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
           {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
           {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
           {{- $scheme := ternary "wss" "ws" $hasTls }}
-          {{- $backendUrl := printf "%s://%s" $scheme (.Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local") }}
+          {{- $backendUrl = printf "%s://%s" $scheme (.Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local") }}
+          {{- end }}
         onFileCondition: '.kind == "ConfigMap"'
       - type: INSERT_TEXT
         position: START
@@ -690,7 +695,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         position: END
@@ -700,7 +705,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
         position: END

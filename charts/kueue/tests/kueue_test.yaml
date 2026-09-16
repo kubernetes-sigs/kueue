@@ -5,6 +5,7 @@ templates:
   - kueueviz/frontend-configmap.yaml
   - kueueviz/backend-ingress.yaml
   - kueueviz/frontend-ingress.yaml
+  - kueueviz/ingress.yaml
 tests:
   - it: should set the pod priorityClassName when provided for backend deployment
     template: kueueviz/backend-deployment.yaml
@@ -559,3 +560,125 @@ tests:
           count: 1
       - isKind:
           of: Ingress
+
+  - it: should not render the path-routed ingress by default
+    template: kueueviz/ingress.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should route the backend prefixes and the dashboard to one host
+    template: kueueviz/ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+          host: kueueviz.example.com
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.rules[0].host
+          value: kueueviz.example.com
+      - lengthEqual:
+          path: spec.rules[0].http.paths
+          count: 4
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /ws
+      - equal:
+          path: spec.rules[0].http.paths[1].path
+          value: /api
+      - equal:
+          path: spec.rules[0].http.paths[2].path
+          value: /auth
+      - equal:
+          path: spec.rules[0].http.paths[2].backend.service.name
+          value: RELEASE-NAME-kueue-kueueviz-backend
+      - equal:
+          path: spec.rules[0].http.paths[3].path
+          value: /
+      - equal:
+          path: spec.rules[0].http.paths[3].backend.service.name
+          value: RELEASE-NAME-kueue-kueueviz-frontend
+  - it: should default the path-routed ingress host when it is empty
+    template: kueueviz/ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+          host: ""
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: kueueviz.local
+  - it: should serve the path-routed ingress over TLS when a secret is given
+    template: kueueviz/ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+          host: kueueviz.example.com
+          tlsSecretName: kueueviz-tls
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: kueueviz.example.com
+      - equal:
+          path: spec.tls[0].secretName
+          value: kueueviz-tls
+  - it: should not serve the path-routed ingress over TLS when it is disabled
+    template: kueueviz/ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+          host: kueueviz.example.com
+          tlsEnabled: false
+          tlsSecretName: kueueviz-tls
+    asserts:
+      - notExists:
+          path: spec.tls
+  - it: should give the frontend no backend URL when path routing is enabled
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+          host: kueueviz.example.com
+          tlsSecretName: kueueviz-tls
+    asserts:
+      - matchRegex:
+          path: data["env.js"]
+          pattern: 'VITE_WEBSOCKET_URL: ""'
+      - matchRegex:
+          path: data["env.js"]
+          pattern: 'REACT_APP_WEBSOCKET_URL: ""'
+  - it: should not render the backend ingress when path routing is enabled
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: should not render the frontend ingress when path routing is enabled
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
