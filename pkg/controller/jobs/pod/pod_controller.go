@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -47,6 +48,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -72,6 +74,11 @@ const (
 // errMsgIncorrectGroupRoleCount is derived from jobframework.MaxPodSets so the
 // message stays in sync with the limit.
 var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more than %d roles", jobframework.MaxPodSets)
+
+var (
+	replicaSetGVK = appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
+	deploymentGVK = appsv1.SchemeGroupVersion.WithKind("Deployment")
+)
 
 // Event reasons used by the pod controller
 const (
@@ -115,6 +122,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups="apps",resources=replicasets,verbs=get;list;watch
 
 type Reconciler struct {
 	*jobframework.JobReconciler
@@ -1188,7 +1196,16 @@ func (p *Pod) getByKey(
 
 func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy, annotationsToCopy sets.Set[string]) (*kueue.Workload, error) {
 	if !p.isGroup {
-		return jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy, annotationsToCopy)
+		wl, err := jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy, annotationsToCopy)
+		if err != nil {
+			return nil, err
+		}
+		if features.Enabled(features.DeploymentJobUIDLabel) {
+			if err := p.applyDeploymentJobUID(ctx, c, wl); err != nil {
+				return nil, err
+			}
+		}
+		return wl, nil
 	}
 
 	activePods, inactivePods := p.partitionPods()
@@ -1258,6 +1275,66 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
 	}
 	return wl, nil
+}
+
+// applyDeploymentJobUID replaces the Pod UID that ConstructWorkload put in the job-uid
+// label with the UID of the owning Deployment, so that every Workload of one Deployment
+// shares a single value. The label is left untouched when the Pod does not resolve to a
+// Deployment.
+//
+// A Pod is Deployment-managed when a parent integration gated it and its ownership chain
+// leads to a Deployment; no other parent integration produces Pods owned by a ReplicaSet.
+// Without the annotation the Pod carries its own queue-name and is managed standalone,
+// so its Workload must keep the Pod UID even if a Deployment happens to own it.
+func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if _, suspendedByParent := p.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendedByParent {
+		return nil
+	}
+	uid, err := p.getOwningDeploymentUID(ctx, c)
+	if err != nil || uid == "" {
+		return err
+	}
+	if wl.Labels == nil {
+		wl.Labels = make(map[string]string, 1)
+	}
+	wl.Labels[ctrlconstants.JobUIDLabel] = string(uid)
+	return nil
+}
+
+// getOwningDeploymentUID resolves the Deployment that owns the Pod through its interim
+// ReplicaSet. The Deployment itself is not fetched because the ReplicaSet's controller
+// reference already carries its UID. An empty UID means the Pod is not part of a
+// Deployment, which is not an error.
+func (p *Pod) getOwningDeploymentUID(ctx context.Context, c client.Client) (types.UID, error) {
+	replicaSetRef := metav1.GetControllerOfNoCopy(&p.pod)
+	if !isControllerOfGVK(replicaSetRef, replicaSetGVK) {
+		return "", nil
+	}
+
+	replicaSet := &appsv1.ReplicaSet{}
+	key := client.ObjectKey{Namespace: p.pod.Namespace, Name: replicaSetRef.Name}
+	if err := c.Get(ctx, key, replicaSet); err != nil {
+		return "", err
+	}
+	// A recreated ReplicaSet reusing the name would otherwise group the Pod under the
+	// wrong Deployment.
+	if replicaSet.UID != replicaSetRef.UID {
+		return "", nil
+	}
+
+	deploymentRef := metav1.GetControllerOfNoCopy(replicaSet)
+	if !isControllerOfGVK(deploymentRef, deploymentGVK) {
+		return "", nil
+	}
+	return deploymentRef.UID, nil
+}
+
+func isControllerOfGVK(ref *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
+	if ref == nil {
+		return false
+	}
+	apiVersion, kind := gvk.ToAPIVersionAndKind()
+	return ref.APIVersion == apiVersion && ref.Kind == kind
 }
 
 func (p *Pod) workloadName() string {

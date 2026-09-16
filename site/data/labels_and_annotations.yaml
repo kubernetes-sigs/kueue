@@ -101,7 +101,9 @@
   used_on: |
     [Workload](/docs/concepts/workload/).
   description: |
-    The label key in the workload resource holds the UID of the owner job.
+    The label key in the workload resource holds the UID of the owner job. For Workloads of
+    Pods owned by a Deployment it holds the UID of the Deployment when the
+    `DeploymentJobUIDLabel` feature gate is enabled, and the UID of the Pod otherwise.
 
 - key: kueue.x-k8s.io/local-queue-name
   type: Label

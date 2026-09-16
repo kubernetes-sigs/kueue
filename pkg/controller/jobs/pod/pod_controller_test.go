@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -224,6 +225,120 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 			}
 			if tc.wantErr == "" && len(wl.Spec.PodSets) != tc.roleCount {
 				t.Fatalf("podSets count = %d, want %d", len(wl.Spec.PodSets), tc.roleCount)
+			}
+		})
+	}
+}
+
+func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
+	makeReplicaSet := func(uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
+		return &appsv1.ReplicaSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "test-rs",
+				Namespace:       "ns",
+				UID:             types.UID(uid),
+				OwnerReferences: owners,
+			},
+		}
+	}
+	deploymentOwner := metav1.OwnerReference{
+		APIVersion: appsv1.SchemeGroupVersion.String(),
+		Kind:       "Deployment",
+		Name:       "test-deployment",
+		UID:        "deployment-uid",
+		Controller: new(true),
+	}
+	deploymentPod := func() *testingpod.PodWrapper {
+		return testingpod.MakePod("test-pod", "ns").
+			UID("pod-uid").
+			Queue("user-queue").
+			SuspendedByParent("deployment").
+			OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+			Image("", nil)
+	}
+
+	testCases := map[string]struct {
+		pod           *corev1.Pod
+		replicaSet    *appsv1.ReplicaSet
+		enableFeature bool
+		wantJobUID    string
+		wantErr       bool
+	}{
+		"deployment pod is labelled with the deployment UID": {
+			pod:           deploymentPod().Obj(),
+			replicaSet:    makeReplicaSet("rs-uid", deploymentOwner),
+			enableFeature: true,
+			wantJobUID:    "deployment-uid",
+		},
+		"feature disabled keeps the pod UID": {
+			pod:        deploymentPod().Obj(),
+			replicaSet: makeReplicaSet("rs-uid", deploymentOwner),
+			wantJobUID: "pod-uid",
+		},
+		"pod not gated by a parent integration keeps the pod UID": {
+			pod: testingpod.MakePod("test-pod", "ns").
+				UID("pod-uid").
+				Queue("user-queue").
+				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+				Image("", nil).
+				Obj(),
+			replicaSet:    makeReplicaSet("rs-uid", deploymentOwner),
+			enableFeature: true,
+			wantJobUID:    "pod-uid",
+		},
+		"standalone pod keeps the pod UID": {
+			pod: testingpod.MakePod("test-pod", "ns").
+				UID("pod-uid").
+				Queue("user-queue").
+				Image("", nil).
+				Obj(),
+			enableFeature: true,
+			wantJobUID:    "pod-uid",
+		},
+		"replicaset without a deployment owner keeps the pod UID": {
+			pod:           deploymentPod().Obj(),
+			replicaSet:    makeReplicaSet("rs-uid"),
+			enableFeature: true,
+			wantJobUID:    "pod-uid",
+		},
+		"replicaset UID not matching the owner reference keeps the pod UID": {
+			pod:           deploymentPod().Obj(),
+			replicaSet:    makeReplicaSet("recreated-rs-uid", deploymentOwner),
+			enableFeature: true,
+			wantJobUID:    "pod-uid",
+		},
+		"missing replicaset fails the construction": {
+			pod:           deploymentPod().Obj(),
+			enableFeature: true,
+			wantErr:       true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DeploymentJobUIDLabel, tc.enableFeature)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			builder := utiltesting.NewClientBuilder()
+			if tc.replicaSet != nil {
+				builder = builder.WithObjects(tc.replicaSet)
+			}
+			kClient := builder.Build()
+
+			pod := &Pod{pod: *tc.pod, isFound: true}
+			wl, gotErr := pod.ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
+
+			if tc.wantErr {
+				if gotErr == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				return
+			}
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != tc.wantJobUID {
+				t.Errorf("job-uid label = %q, want %q", gotJobUID, tc.wantJobUID)
 			}
 		})
 	}
