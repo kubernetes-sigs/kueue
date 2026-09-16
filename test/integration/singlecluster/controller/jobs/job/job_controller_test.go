@@ -4007,7 +4007,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			}
 		}
 
-		ginkgo.By("keeping a surplus Pod gated while preserving the first Pod")
+		ginkgo.By("creating a surplus Pod beyond the admitted count")
 		extra := testingpod.MakePod("surplus", ns.Name).
 			Annotation(kueue.WorkloadAnnotation, origin.Name).
 			Annotation(kueue.WorkloadSliceNameAnnotation, origin.Name).
@@ -4017,6 +4017,8 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			TopologySchedulingGate().
 			Obj()
 		util.MustCreate(ctx, k8sClient, extra)
+
+		ginkgo.By("keeping the surplus Pod gated and the first Pod unchanged")
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.TopologySchedulingGate))).To(gomega.ConsistOf("pod-0", "pod-1", "pod-2"))
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(extra), extra)).To(gomega.Succeed())
