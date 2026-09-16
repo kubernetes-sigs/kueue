@@ -148,7 +148,7 @@ managerConfig:
     #waitForPodsReady:
     #  timeout: 30m
     #  recoveryTimeout: 5m
-    #  unscheduledTimeout: 1m
+    #  unscheduledTimeout: 5m
     #  blockAdmission: false
     #  requeuingStrategy:
     #    timestamp: Eviction
