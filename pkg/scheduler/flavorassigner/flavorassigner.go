@@ -913,6 +913,23 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 					// change that. Force NoFit so processEntry doesn't run
 					// issuePreemptions on the back of a placement that only
 					// "fit" topologically while quota still says otherwise.
+					if features.Enabled(features.UnadmittedWorkloadsObservability) {
+						// markFlavorAttempt records a granular reason for the
+						// QuotaReserved condition. Skipping this when the gate
+						// is on leaves that reason empty - and unlike the
+						// fallback used when the gate is off (see
+						// UnadmittedWorkloadReasonWithFallback), an empty
+						// reason isn't replaced with anything, so the
+						// condition update would be rejected the same way the
+						// free-text reason earlier in this fix was.
+						for flavor, reqs := range tasRequests {
+							for _, req := range reqs {
+								if psAssignment := assignment.podSetAssignmentByName(req.PodSet.Name); psAssignment != nil {
+									psAssignment.markFlavorAttempt(flavor, NoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+								}
+							}
+						}
+					}
 					assignment.updateModeForTASRequests(tasRequests, NoFit)
 				}
 				// A result with neither a Failure nor an assignment for a
