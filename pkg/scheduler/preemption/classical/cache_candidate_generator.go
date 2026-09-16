@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -42,6 +43,11 @@ type cacheCandidateIterator struct {
 	segments     [numSegments][]*bucket
 	segmentIndex int
 	cmp          schdcache.CandidateOrderComparator
+	// roundHasCandidate records whether the current pass returned a candidate that can
+	// still make preemption progress. With PartialPreemption, a partially preempted
+	// candidate stays in the snapshot at a reduced size, so another pass may reduce it
+	// further or evict it as a whole.
+	roundHasCandidate bool
 
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
 	noCandidateFromOtherQueues        bool
@@ -182,13 +188,24 @@ func newCacheCandidateIterator(
 }
 
 func (c *cacheCandidateIterator) Next(borrow bool) (*workload.Info, string) {
-	for c.segmentIndex < numSegments {
-		if wl, variant, ok := c.nextFromSegment(c.segments[c.segmentIndex], borrow); ok {
-			return wl, variant.PreemptionReason()
+	for {
+		for c.segmentIndex < numSegments {
+			if wl, variant, ok := c.nextFromSegment(c.segments[c.segmentIndex], borrow); ok {
+				// A workload with an existing reclaim target can be returned for pending-target
+				// handling, but it must not keep the iterator scanning rounds because handling it
+				// does not produce further preemption progress.
+				if !workload.HasReclaimTargetCount(wl.Obj) {
+					c.roundHasCandidate = true
+				}
+				return wl, variant.PreemptionReason()
+			}
+			c.segmentIndex++
 		}
-		c.segmentIndex++
+		if !features.Enabled(features.PartialPreemption) || !c.roundHasCandidate {
+			return nil, ""
+		}
+		c.Reset()
 	}
-	return nil, ""
 }
 
 // nextFromSegment returns the next valid candidate from a single segment, merging
@@ -215,7 +232,9 @@ func (c *cacheCandidateIterator) nextFromSegment(buckets []*bucket, borrow bool)
 	if bestBucket == nil {
 		return nil, Never, false
 	}
-	wl := bestBucket.top()
+	// Return the workload as currently present in the snapshot: after a partial preemption
+	// it is the reduced copy, not the cached full-size one.
+	wl := bestBucket.cq.Workloads[workload.Key(bestBucket.top().Obj)]
 	bestBucket.advance()
 	return wl, bestVariant, true
 }
@@ -236,11 +255,12 @@ func (c *cacheCandidateIterator) advanceToEligible(b *bucket, borrow bool) (pree
 
 	for !b.empty() {
 		cachedWorkload := b.top()
-		if _, ok := b.cq.Workloads[workload.Key(cachedWorkload.Obj)]; !ok {
+		current, ok := b.cq.Workloads[workload.Key(cachedWorkload.Obj)]
+		if !ok {
 			b.advance()
 			continue
 		}
-		variant := classifyPreemptionVariant(c.hierarchicalReclaimCtx, cachedWorkload, b.hasHierarchicalAdvantage)
+		variant := classifyPreemptionVariant(c.hierarchicalReclaimCtx, current, b.hasHierarchicalAdvantage)
 		if variant != Never && (!borrow || variant != ReclaimWithoutBorrowing) {
 			return variant, true
 		}
@@ -266,6 +286,7 @@ func (c *cacheCandidateIterator) cqIsPruned(b *bucket) bool {
 
 func (c *cacheCandidateIterator) Reset() {
 	c.segmentIndex = 0
+	c.roundHasCandidate = false
 	for _, seg := range c.segments {
 		for _, b := range seg {
 			b.reset()

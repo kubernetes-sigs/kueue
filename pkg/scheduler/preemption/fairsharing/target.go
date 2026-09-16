@@ -39,7 +39,16 @@ func (t *TargetClusterQueue) PopWorkload() *workload.Info {
 
 	head := cqt[cqName][0]
 	cqt[cqName] = cqt[cqName][1:]
-	return head
+	current := t.targetCq.Workloads[workload.Key(head.Obj)]
+	if current == nil {
+		return head
+	}
+	return current
+}
+
+func (t *TargetClusterQueue) RequeueWorkload(wl *workload.Info) {
+	cqName := t.targetCq.GetName()
+	t.ordering.clusterQueueToTarget[cqName] = append(t.ordering.clusterQueueToTarget[cqName], wl)
 }
 
 func (t *TargetClusterQueue) HasWorkload() bool {

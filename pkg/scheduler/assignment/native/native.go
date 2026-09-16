@@ -91,11 +91,16 @@ func (p *nativePlanner) updateAssignmentForTAS(
 		log = log.WithValues("workload", klog.KRef(p.wl.Obj.Namespace, p.wl.Obj.Name))
 
 		if len(targets) > 0 {
-			var targetWorkloads []*workload.Info
+			replacements := make([]schdcache.WorkloadReplacement, 0, len(targets))
+			targetWorkloads := make([]*workload.Info, 0, len(targets))
 			for _, target := range targets {
-				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
+				full, reduced, partial := target.WorkloadInfoForReplacement()
+				replacements = append(replacements, schdcache.WorkloadReplacement{Full: full, Reduced: reduced})
+				if !partial {
+					targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
+				}
 			}
-			revertUsage := p.snapshot.SimulateWorkloadRemoval(targetWorkloads)
+			revertUsage := p.snapshot.SimulateWorkloadReplacement(replacements)
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
 			revertPods := p.snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)

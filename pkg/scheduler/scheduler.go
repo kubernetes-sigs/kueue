@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -943,9 +942,31 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
-	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
-	defer revertUsage()
+	revert := snapshot.SimulateWorkloadReplacement(workloadReplacements(merged.Targets()))
+	defer revert()
 	return cq.Fits(*usage)
+}
+
+func workloadReplacements(targets []*preemption.Target) []schdcache.WorkloadReplacement {
+	replacements := make([]schdcache.WorkloadReplacement, 0, len(targets))
+	for _, target := range targets {
+		full, reduced, _ := target.WorkloadInfoForReplacement()
+		replacements = append(replacements, schdcache.WorkloadReplacement{Full: full, Reduced: reduced})
+	}
+	return replacements
+}
+
+// fullyEvictedWorkloads returns the workloads of the targets that are evicted
+// entirely. Partially preempted targets keep running Pods, so they are not
+// removed from the scheduling simulator.
+func fullyEvictedWorkloads(targets []*preemption.Target) []*workload.Info {
+	workloads := make([]*workload.Info, 0, len(targets))
+	for _, target := range targets {
+		if _, _, partial := target.WorkloadInfoForReplacement(); !partial {
+			workloads = append(workloads, target.WorkloadInfo)
+		}
+	}
+	return workloads
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
@@ -1004,9 +1025,9 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 // out of the snapshot and returns the single undo. Freeing their quota is not enough:
 // until the simulator is told, it still reports their Pods and their host ports.
 func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
-	victims := slices.Collect(maps.Values(preemptedWorkloads))
-	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
-	revertPods := snapshot.SimulatePodRemoval(ctx, log, victims)
+	targets := preemptedWorkloads.Targets()
+	revertUsage := snapshot.SimulateWorkloadReplacement(workloadReplacements(targets))
+	revertPods := snapshot.SimulatePodRemoval(ctx, log, fullyEvictedWorkloads(targets))
 	return func() {
 		revertPods()
 		revertUsage()

@@ -2464,6 +2464,17 @@ least one PodSet which has delayedTopologyRequest=true and without
 topologyAssignment.</p>
 </td>
 </tr>
+<tr><td><code>reclaimTargetCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>reclaimTargetCount specifies, when set and lower than count, that the elastic job should scale this
+PodSet down to reclaimTargetCount so partial preemption can reclaim its quota. Kueue owns
+this field; the job runtime reads it and sheds pods down to reclaimTargetCount. Kueue clears
+this field once the PodSet's desired spec count has converged to reclaimTargetCount or below.
+This is an alpha field and requires enabling the PartialPreemption feature gate.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
