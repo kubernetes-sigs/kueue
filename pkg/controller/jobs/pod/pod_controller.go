@@ -1291,8 +1291,11 @@ func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *ku
 		return nil
 	}
 	uid, err := p.getOwningDeploymentUID(ctx, c)
-	if err != nil || uid == "" {
+	if err != nil {
 		return err
+	}
+	if uid == "" {
+		return nil
 	}
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string, 1)
@@ -1303,18 +1306,29 @@ func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *ku
 
 // getOwningDeploymentUID resolves the Deployment that owns the Pod through its interim
 // ReplicaSet. The Deployment itself is not fetched because the ReplicaSet's controller
-// reference already carries its UID. An empty UID means the Pod is not part of a
-// Deployment, which is not an error.
+// reference already carries its UID. An empty UID means the Pod does not resolve to a
+// Deployment, which is not an error: a Pod orphaned from its ReplicaSet must still get a
+// Workload rather than stay gated forever.
+//
+// The ReplicaSet is read as metadata only, like the owner traversal in
+// jobframework.FindAncestorJobManagedByKueue, so that resolving a UID does not pull every
+// ReplicaSet pod template in the cluster into the cache.
 func (p *Pod) getOwningDeploymentUID(ctx context.Context, c client.Client) (types.UID, error) {
 	replicaSetRef := metav1.GetControllerOfNoCopy(&p.pod)
 	if !isControllerOfGVK(replicaSetRef, replicaSetGVK) {
 		return "", nil
 	}
 
-	replicaSet := &appsv1.ReplicaSet{}
+	replicaSet := &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{
+		APIVersion: replicaSetGVK.GroupVersion().String(),
+		Kind:       replicaSetGVK.Kind,
+	}}
 	key := client.ObjectKey{Namespace: p.pod.Namespace, Name: replicaSetRef.Name}
 	if err := c.Get(ctx, key, replicaSet); err != nil {
-		return "", err
+		if apierrors.IsNotFound(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to get ReplicaSet %q owning the pod: %w", replicaSetRef.Name, err)
 	}
 	// A recreated ReplicaSet reusing the name would otherwise group the Pod under the
 	// wrong Deployment.

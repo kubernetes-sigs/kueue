@@ -18,6 +18,7 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -257,12 +258,15 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			Image("", nil)
 	}
 
+	errAPIDown := errors.New("api is down")
+
 	testCases := map[string]struct {
 		pod           *corev1.Pod
 		replicaSet    *appsv1.ReplicaSet
+		interceptors  interceptor.Funcs
 		enableFeature bool
 		wantJobUID    string
-		wantErr       bool
+		wantErr       error
 	}{
 		"deployment pod is labelled with the deployment UID": {
 			pod:           deploymentPod().Obj(),
@@ -307,10 +311,24 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
-		"missing replicaset fails the construction": {
+		"missing replicaset keeps the pod UID rather than blocking the workload": {
 			pod:           deploymentPod().Obj(),
 			enableFeature: true,
-			wantErr:       true,
+			wantJobUID:    "pod-uid",
+		},
+		"replicaset lookup failure is surfaced for retry": {
+			pod:        deploymentPod().Obj(),
+			replicaSet: makeReplicaSet("rs-uid", deploymentOwner),
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isMetadata := obj.(*metav1.PartialObjectMetadata); isMetadata {
+						return errAPIDown
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			enableFeature: true,
+			wantErr:       errAPIDown,
 		},
 	}
 
@@ -319,7 +337,7 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.DeploymentJobUIDLabel, tc.enableFeature)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			builder := utiltesting.NewClientBuilder()
+			builder := utiltesting.NewClientBuilder().WithInterceptorFuncs(tc.interceptors)
 			if tc.replicaSet != nil {
 				builder = builder.WithObjects(tc.replicaSet)
 			}
@@ -328,9 +346,9 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			pod := &Pod{pod: *tc.pod, isFound: true}
 			wl, gotErr := pod.ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
 
-			if tc.wantErr {
-				if gotErr == nil {
-					t.Fatal("expected an error, got nil")
+			if tc.wantErr != nil {
+				if !errors.Is(gotErr, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
 				}
 				return
 			}
@@ -339,6 +357,11 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			}
 			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != tc.wantJobUID {
 				t.Errorf("job-uid label = %q, want %q", gotJobUID, tc.wantJobUID)
+			}
+			// The Deployment UID belongs on the Workload only; patching it onto the Pod
+			// would race with informers that already observed the Pod.
+			if diff := cmp.Diff(*tc.pod, pod.pod); diff != "" {
+				t.Errorf("pod was modified (-want +got):\n%s", diff)
 			}
 		})
 	}
