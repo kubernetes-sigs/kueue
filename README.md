@@ -37,6 +37,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
       - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-0-main)
       - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-1-main)
       - ✔️ [shard-2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-2-main)
+      - ✔️ [shard-3](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-3-main)
     - ✔️ MultiKueue suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main).
   - ✔️ E2E tests:
     - ✔️ Baseline suites for Kubernetes
