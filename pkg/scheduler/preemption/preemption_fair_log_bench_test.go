@@ -31,11 +31,11 @@ type byteCounter struct{ n int64 }
 func (c *byteCounter) Write(p []byte) (int, error) { c.n += int64(len(p)); return len(p), nil }
 func (c *byteCounter) Sync() error                 { return nil }
 
-// BenchmarkRunFirstFsStrategy evaluates every workload of one borrowing
+// BenchmarkIterateWithFirstFsStrategy evaluates every workload of one borrowing
 // ClusterQueue with an always-failing strategy and reports the log volume it
 // emits (logB/op) through zap's JSON encoder. v2 disables the log (baseline),
 // v4 enables it.
-func BenchmarkRunFirstFsStrategy(b *testing.B) {
+func BenchmarkIterateWithFirstFsStrategy(b *testing.B) {
 	for _, candidates := range []int{10, 100} {
 		for _, v := range []int{2, 4} {
 			b.Run(fmt.Sprintf("candidatesPerCQ=%d/v%d", candidates, v), func(b *testing.B) {
@@ -47,7 +47,8 @@ func BenchmarkRunFirstFsStrategy(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for range b.N {
-					runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails)
+					iterateWithFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails,
+						func(*Target) bool { return true })
 				}
 				b.ReportMetric(float64(sink.n)/float64(b.N), "logB/op")
 			})

@@ -48,7 +48,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
 	log := log.FromContext(ctx)
-	candidates := p.preemptor.getTargets(&preemptionCtx{
+	pCtx := &preemptionCtx{
 		ctx:               ctx,
 		clock:             p.preemptor.clock,
 		log:               log,
@@ -61,7 +61,8 @@ func (p *PreemptionOracle) SimulatePreemption(
 				Assigned: resources.FlavorResourceQuantities{fr: quantity},
 			},
 		},
-	})
+	}
+	candidates := p.preemptor.getTargets(pCtx, p.preemptor.getPreemptionPlan(pCtx))
 
 	if len(candidates) == 0 {
 		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)

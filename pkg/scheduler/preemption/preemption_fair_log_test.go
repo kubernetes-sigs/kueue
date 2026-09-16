@@ -43,7 +43,7 @@ import (
 )
 
 // strategyLogMessage is emitted once per candidate ClusterQueue by both
-// runFirstFsStrategy and runSecondFsStrategy.
+// iterateWithFirstFsStrategy and iterateWithSecondFsStrategy.
 const strategyLogMessage = "Evaluating FairSharing strategy"
 
 // drsLogFields are the DominantResourceShare fields logged at the top level of
@@ -83,8 +83,8 @@ type fsLogClusterQueue struct {
 // Each ClusterQueue has 1 CPU of nominal quota. Every candidate ClusterQueue
 // admits `candidates` workloads of 1 CPU, so it borrows and is not pruned by
 // the target ordering. The preemptor's incoming workload requests 3 CPU, so
-// the preemptor borrows too. That keeps runFirstFsStrategy on the strategy
-// path instead of the FairSharingPreemptWithinNominal shortcut.
+// the preemptor borrows too. That keeps iterateWithFirstFsStrategy on the
+// strategy path instead of the FairSharingPreemptWithinNominal shortcut.
 func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fsLogFixture {
 	tb.Helper()
 	now := time.Now()
@@ -228,12 +228,12 @@ func assertJSONString(t *testing.T, fields map[string]any, key string) {
 	}
 }
 
-// TestRunFirstFsStrategyLogging covers how runFirstFsStrategy emits the first
-// FairSharing strategy's evaluations: one log entry per candidate ClusterQueue
-// (not per evaluated workload), collapsing every evaluation into that entry's
-// strategyEvaluations array, only when V(4) is enabled, and with every
-// DominantResourceShare serialized as a JSON string.
-func TestRunFirstFsStrategyLogging(t *testing.T) {
+// TestIterateWithFirstFsStrategyLogging covers how iterateWithFirstFsStrategy
+// emits the first FairSharing strategy's evaluations: one log entry per
+// candidate ClusterQueue (not per evaluated workload), collapsing every
+// evaluation into that entry's strategyEvaluations array, only when V(4) is
+// enabled, and with every DominantResourceShare serialized as a JSON string.
+func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 	zeroWeight := resource.MustParse("0")
 	cases := map[string]struct {
 		enabledUpToV     int                 // logger is enabled up to this logr V-level (4 = strategy log on, 3 = off).
@@ -326,7 +326,18 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 				evaluated++
 				return tc.passOnEvaluation != 0 && evaluated == tc.passOnEvaluation
 			}
-			fits, targets, retryCandidates := runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, strategy)
+			// Mirrors tryStrategies: collect the yielded targets and stop as
+			// soon as the incoming workload fits.
+			var targets []*Target
+			fits := false
+			retryCandidates := iterateWithFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
+				targets = append(targets, t)
+				if workloadFitsForFairSharing(fixture.preemptionCtx) {
+					fits = true
+					return false
+				}
+				return true
+			})
 
 			if tc.wantAllRejected {
 				if fits {
@@ -434,9 +445,10 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 	}
 }
 
-// TestRunSecondFsStrategyLog asserts that runSecondFsStrategy serializes its
-// DominantResourceShare values as JSON strings, for both finite and +Inf DRS.
-func TestRunSecondFsStrategyLog(t *testing.T) {
+// TestIterateWithSecondFsStrategyLog asserts that iterateWithSecondFsStrategy
+// serializes its DominantResourceShare values as JSON strings, for both finite
+// and +Inf DRS.
+func TestIterateWithSecondFsStrategyLog(t *testing.T) {
 	zeroWeight := resource.MustParse("0")
 	cases := map[string]struct {
 		fairWeight         *resource.Quantity
@@ -452,11 +464,11 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			runSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, nil)
+			iterateWithSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, func(*Target) bool { return true })
 
 			entries := observed.FilterMessage(strategyLogMessage).All()
 			if len(entries) == 0 {
-				t.Fatalf("expected at least 1 log entry from runSecondFsStrategy, got 0")
+				t.Fatalf("expected at least 1 log entry from iterateWithSecondFsStrategy, got 0")
 			}
 
 			decoded := decodeLogEntry(t, entries[0])
