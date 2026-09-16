@@ -246,12 +246,12 @@ func EnsureWorkloadSlices(
 	// replacement has already taken ownership of those Pods.
 	for i := range workloads {
 		wl := &workloads[i]
-		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
+		if !workload.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
 			continue
 		}
 		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
 			key := ReplacementForKey(&candidate)
-			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
+			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workload.IsEvicted(&candidate)
 		})
 		if !replaced {
 			return wl, true, nil
