@@ -3723,7 +3723,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 			}
 			// A recomputed hash must describe the inputs the Info now holds.
 			if !tc.wantReuse {
-				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests, tc.info.EffectivePodSpecs...)
+				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests, tc.info.EffectivePodSpecs)
 				if tc.info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, does not describe the Info's own inputs (%q)", tc.info.SchedulingHash, want)
 				}

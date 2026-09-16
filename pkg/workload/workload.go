@@ -368,7 +368,7 @@ func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 // updateSchedulingHash computes and sets the scheduling hash using the
 // provided contextual logger. Called internally by Update.
 func (i *Info) updateSchedulingHash(log logr.Logger) {
-	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs...)
+	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
 }
 
 // Update refreshes the object reference, rebuilds TotalRequests, and
@@ -461,7 +461,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 // computeSchedulingHash returns a deterministic hash of the workload's
 // scheduling-relevant shape: effective workload priority, pod spec (via
 // SpecShape), effective count, minCount, and topologyRequest per PodSet.
-func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources, specs ...corev1.PodSpec) EquivalenceHash {
+func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources, specs []corev1.PodSpec) EquivalenceHash {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
