@@ -59,12 +59,21 @@ It's done providing a yaml mapping file name as `--queuemapping-file` argument, 
 - match:
     labels:
       src.lbl: src-val3
+    resources:
+    - nvidia.com/gpu
+  toLocalQueue: user-queue3
+- match:
+    labels:
+      src.lbl: src-val3
   skip: true
 ```
 
 - During the mapping, if the match rule has no `priorityClassName` the `priorityClassName` of the pod will be ignored, if more than one `label: value` pairs are provided, all of them should match.
+- `resources` can be used to match only the pods requesting a non-zero amount of **all** the listed resources. If it's not provided, the pod's resource requests are ignored. The requests are totaled the same way the scheduler does it, accounting for init and sidecar containers, pod-level resources and pod overhead. To match pods requesting *any* of several resources, use one rule per resource pointing to the same LocalQueue.
+- All the conditions of a `match` rule (`priorityClassName`, `labels` and `resources`) need to be satisfied for the rule to match.
 - The rules are evaluated in order.
 - `skip: true` can be used to ignore the pods matching a rule.
+- Filtering on `resources` is only available with `--queuemapping-file`, the simple mapping (`--queuelabel` / `--queuemapping`) cannot express it.
 
 #### Other flags
 
@@ -142,6 +151,35 @@ When running the importer, if `--dry-run=false` was specified, for each selected
 ```
 
  Will import all the pods in namespace `ns1` or `ns2` having the label `src.lbl` set to `src-val` in LocalQueue `user-queue` regardless of their priorityClassName and those with `src.lbl==src-val2` ,`src2.lbl==src2-val` and `priorityClassName==p-class`in `user-queue2`.
+
+#### Filtering by requested resources
+
+A single label often covers both accelerator and CPU-only pods. Since the rules are evaluated in order, a `resources` match followed by a catch-all `skip` rule imports only the pods actually requesting an accelerator:
+
+```yaml
+- match:
+    labels:
+      src.lbl: src-val
+    resources:
+    - nvidia.com/gpu
+  toLocalQueue: gpu-queue
+- match:
+    labels:
+      src.lbl: src-val
+    resources:
+    - google.com/tpu
+  toLocalQueue: tpu-queue
+- match:
+    labels:
+      src.lbl: src-val
+  skip: true
+```
+
+```bash
+./bin/importer import -n ns1,ns2 --queuemapping-file=<mapping-file-path> --dry-run=false
+```
+
+ The pods requesting GPUs go to `gpu-queue`, those requesting TPUs to `tpu-queue`, and the remaining `src.lbl==src-val` pods are skipped. Skipped pods are reported in the `skipped` counter of the `Check done` / `Import done` summary.
 
 ### Run in cluster
 

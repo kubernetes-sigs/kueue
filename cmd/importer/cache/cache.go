@@ -144,7 +144,7 @@ func validateFlavors(cqName string, rgs []kueue.ResourceGroup, resourceFlavors m
 }
 
 func (ic *ImportCache) LocalQueueForPod(p *corev1.Pod) (*kueue.LocalQueue, bool, error) {
-	queueName, skip, found := ic.MappingRules.QueueFor(p.Spec.PriorityClassName, p.Labels)
+	queueName, skip, found := ic.MappingRules.QueueFor(p)
 	if !found {
 		return nil, false, mapping.ErrNoMapping
 	}
