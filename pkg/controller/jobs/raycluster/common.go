@@ -140,7 +140,9 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			Count:    effectiveWorkerCount(wgs),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
+			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).
+				SubGroupCount(wgs.Replicas).
+				Build()
 			if err != nil {
 				return nil, err
 			}
