@@ -282,7 +282,7 @@ In the initial iteration, candidate workloads are gathered from both classical p
 
 The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple ClusterQueues.
 
-#### Referencing PreemptionConfig and Strategy Interaction
+#### Referencing PreemptionConfig and Current Preemption Strategies Interaction
 
 In Kueue, `ClusterQueue.spec.preemption` has declarative kubebuilder defaulting (`+kubebuilder:default={}`). Setting `preemption` to `null` or removing its declarative defaulting cannot be done without a breaking change for existing clients, manifests, and stored objects.
 
@@ -427,24 +427,7 @@ Requested functionalities from the community can be satisfied with the following
                  maxValue: 8
    ```
 
-2. **Advanced topology comparison (matching podset required levels):**
-   Ensure preemption only targets workloads that match or fall within specific topology domains or required podset levels (e.g., only preempt workloads constrained to the same `rack` domain) using `labelSelector` or numeric label relations:
-
-   ```yaml
-   spec:
-     rules:
-       - name: preempt-same-topology-level-workloads
-         activationPolicy:
-           trigger: "QuotaFeasibleButInsufficientTopology"
-         candidateSelectors:
-           - scope: "SameParentCohort"
-             priorityComparison: "LowerOrEqual"
-             labelSelector:
-               matchLabels:
-                 kueue.x-k8s.io/topology-level: "rack"
-   ```
-
-3. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):**
+2. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):**
    Restricted preemption within the same ClusterQueue targeting only candidates matching a specific priority class using `labelSelector`:
 
    ```yaml
@@ -460,7 +443,7 @@ Requested functionalities from the community can be satisfied with the following
                  kueue.x-k8s.io/priority-class: "batch-low"
    ```
 
-4. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):**
+3. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):** _(Deferred to [Future Work Ideas](#future-work-ideas))_
    Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `labelSelector`:
 
    ```yaml
@@ -477,7 +460,7 @@ Requested functionalities from the community can be satisfied with the following
                  kueue.x-k8s.io/priority-class: "batch-low"
    ```
 
-5. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):** _(Deferred to [Future Work Ideas](#time-based-candidate-selectors-execution-and-creation-duration))_
+4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):** _(Deferred to [Future Work Ideas](#time-based-candidate-selectors-execution-and-creation-duration))_
    Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at least 15 minutes):
 
    ```yaml
@@ -492,7 +475,7 @@ Requested functionalities from the community can be satisfied with the following
              minExecutionDuration: "15m"
    ```
 
-6. **SLA protection based on workload creation time:** _(Deferred to [Future Work Ideas](#time-based-candidate-selectors-execution-and-creation-duration))_
+5. **SLA protection based on workload creation time:** _(Deferred to [Future Work Ideas](#time-based-candidate-selectors-execution-and-creation-duration))_
    Model SLA requirements by only preempting recently created workloads (e.g., created less than 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines:
    ```yaml
    spec:
