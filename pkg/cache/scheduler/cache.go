@@ -991,13 +991,12 @@ func (c *Cache) getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueu
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: c.resourceFormatter.ResourceQuantity(rName, used.Int64()),
+					Total: c.resourceFormatter.AmountQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cq.HasParent() {
-					borrowed := used.Sub(rQuota.Nominal).Int64()
-					if borrowed > 0 {
-						rUsage.Borrowed = c.resourceFormatter.ResourceQuantity(rName, borrowed)
+					if borrowed := used.Sub(rQuota.Nominal); borrowed.Sign() > 0 {
+						rUsage.Borrowed = c.resourceFormatter.AmountQuantity(rName, borrowed)
 					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
@@ -1056,7 +1055,7 @@ func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, r
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: c.resourceFormatter.ResourceQuantity(rName, orig[fr].Int64()),
+					Total: c.resourceFormatter.AmountQuantity(rName, orig[fr]),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.

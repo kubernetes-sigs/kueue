@@ -19,7 +19,6 @@ package scheduler
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -53,10 +52,20 @@ func (q ResourceQuota) Equal(other ResourceQuota) bool {
 	if !q.Nominal.Equal(other.Nominal) {
 		return false
 	}
-	if !ptr.Equal(q.BorrowingLimit, other.BorrowingLimit) {
+	if !amountPtrEqual(q.BorrowingLimit, other.BorrowingLimit) {
 		return false
 	}
-	return ptr.Equal(q.LendingLimit, other.LendingLimit)
+	return amountPtrEqual(q.LendingLimit, other.LendingLimit)
+}
+
+// amountPtrEqual keeps the nil semantics of ptr.Equal and compares the
+// pointed-to amounts numerically. ptr.Equal itself is not available here: it
+// constrains its argument to comparable, and Amount is deliberately not.
+func amountPtrEqual(a, b *resources.Amount) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorResource]ResourceQuota {

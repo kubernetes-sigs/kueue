@@ -175,8 +175,8 @@ func TestApplyCohortMetricPointReportsUnlimitedAsInf(t *testing.T) {
 	cache.applyCohortMetricPoint(cohortMetricPoint{
 		cohortName:      cohortName,
 		flavorResource:  fr,
-		quotaQty:        resources.Unlimited,
-		reservationsQty: resources.Unlimited,
+		quotaQty:        resources.NewAmount(math.MaxInt64),
+		reservationsQty: resources.NewAmount(math.MaxInt64),
 	})
 
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, labels, math.Inf(1))
