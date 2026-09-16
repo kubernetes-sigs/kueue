@@ -348,6 +348,7 @@ var (
 	}
 )
 
+// TestReconciler verifies pod and pod-group reconciliation behavior across pod states, Workload presence, and feature-gate settings.
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -2771,7 +2772,7 @@ func TestReconciler(t *testing.T) {
 			// The foreign finalizer stands in for the kubelet-held teardown: client and API server cannot keep an object with a deletionTimestamp and no finalizers at all. No new Workload must be
 			// created for it - the pod can never be scheduled again and the
 			// recreated Workload would only hang a reservation.
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true, features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2803,7 +2804,7 @@ func TestReconciler(t *testing.T) {
 			// Replacement-in-progress: a fresh gated (live) member coexists with the old
 			// terminating member that already lost Kueue's finalizer. The all-terminating
 			// skip must not fire while any member pod still needs lifecycle management.
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true, features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2876,7 +2877,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"workload is not created and pods are finalized when every group pod is terminating and no workload remains": {
 			// The Workload is gone, so finalize directly: drop the pod's finalizer, never re-create one.
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true, features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2893,11 +2894,64 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			// notably: the pod is gone, no workloads, no CreatedWorkload event
 		},
+		"workload is created for an all-terminating no-workload group when FinalizeTerminatingPodGroups is disabled": {
+			// Gate disabled keeps the legacy behavior this gate replaces (verified by running):
+			// Load does not short-circuit, so a Workload is re-created for the terminating
+			// group, pinning the admission-mutated NodeName into the PodSet.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: false, features.WorkloadIdentifierAnnotations: false},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							NodeName("test-node").
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
 		"finalization of an all-terminating group must not touch another group via a pod/workload name collision": {
 			// Regression guard: Load used to rewrite the shared request key to the first pod's
 			// name, so finalizing this group would have reached the Workload named after that pod
 			// (a different group's object) and stripped its finalizer.
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true, features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2947,6 +3001,7 @@ func TestReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.PodIntegrationValidateGroupOwner: true,
 				features.WorkloadIdentifierAnnotations:    false,
+				features.FinalizeTerminatingPodGroups:     true,
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -4168,7 +4223,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"deleted pods in incomplete group are finalized": {
 			// All listed pods are terminating with no Workload, so finalization precedes composition: no ErrWorkloadCompose event.
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true, features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
