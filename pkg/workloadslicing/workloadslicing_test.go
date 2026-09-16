@@ -1321,8 +1321,13 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
 				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").Creation(fiveMinutesAgo).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					EvictedAt(now).Obj(),
 			},
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndCurrent": {
@@ -1529,6 +1534,43 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if gotCompatible != tt.want.compatible {
 				t.Errorf("EnsureWorkloadSlices() compatible = %v, want %v", gotCompatible, tt.want.compatible)
+			}
+		})
+	}
+}
+
+func TestEnsureWorkloadSlicesEvictedOriginWithReservedReplacement(t *testing.T) {
+	for name, admitted := range map[string]bool{"waiting for admission checks": false, "replacement admitted": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			origin := utiltestingapi.MakeWorkload("origin", testJobObject.Namespace).
+				OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).Creation(now.Add(-time.Minute)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+				SimpleReserveQuota("cq", "default", now).AdmittedAt(true, now).EvictedAt(now).Obj()
+			replacement := utiltestingapi.MakeWorkload("replacement", testJobObject.Namespace).
+				OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).Creation(now).
+				Annotation(WorkloadSliceReplacementFor, string(workload.Key(origin))).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+				SimpleReserveQuota("cq", "default", now).AdmittedAt(admitted, now).Obj()
+			c := testWorkloadClientBuilder().WithObjects(origin, replacement).
+				WithStatusSubresource(&kueue.Workload{}).Build()
+			selected, compatible, err := EnsureWorkloadSlices(ctx, c, testingclock.NewFakeClock(now), replacement.Spec.PodSets, testJobObject, testJobGVK)
+			if err != nil || !compatible || selected == nil {
+				t.Fatalf("EnsureWorkloadSlices() = (%v, %v, %v)", selected, compatible, err)
+			}
+			wantName := origin.Name
+			if admitted {
+				wantName = replacement.Name
+			}
+			if selected.Name != wantName {
+				t.Errorf("selected %q, want %q", selected.Name, wantName)
+			}
+			if err := c.Get(ctx, client.ObjectKeyFromObject(origin), origin); err != nil {
+				t.Fatal(err)
+			}
+			if workloadfinish.IsFinished(origin) != admitted {
+				t.Errorf("origin finished = %v, want %v", workloadfinish.IsFinished(origin), admitted)
 			}
 		})
 	}
