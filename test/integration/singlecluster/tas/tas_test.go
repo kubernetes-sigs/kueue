@@ -8034,6 +8034,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should ungate late and recreated pods referencing a replaced slice", func() {
+			ginkgo.By("admitting the original slice")
 			original := utiltestingapi.MakeWorkload("original", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Annotation(constants.ElasticJobAnnotation, "true").
@@ -8057,10 +8058,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					g.Expect(pod.Spec.NodeSelector).NotTo(gomega.BeEmpty())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
+
+			ginkgo.By("ungating the first worker using the original admission")
 			first := newPod("first")
 			util.MustCreate(ctx, k8sClient, first)
 			expectUngated(first)
 
+			ginkgo.By("admitting the replacement slice and finishing the original")
 			replacement := utiltestingapi.MakeWorkload("replacement", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Annotation(constants.ElasticJobAnnotation, "true").
