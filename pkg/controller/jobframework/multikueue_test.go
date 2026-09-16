@@ -36,6 +36,7 @@ import (
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
 func TestValidateRemoteObjectOwnership(t *testing.T) {
@@ -120,7 +121,7 @@ func TestDeleteRemoteObjectIfOwned(t *testing.T) {
 	key := types.NamespacedName{Name: "test-job", Namespace: "default"}
 	const defaultOrigin = "origin-1"
 	boomErr := errors.New("boom")
-
+	ownedJob := testingjob.MakeJob(key.Name, key.Namespace).Label(kueue.MultiKueueOriginLabel, defaultOrigin)
 	tests := map[string]struct {
 		remoteObjects []client.Object
 		remoteClient  func(*runtime.Scheme, ...client.Object) client.Client
@@ -156,6 +157,15 @@ func TestDeleteRemoteObjectIfOwned(t *testing.T) {
 			origin:        defaultOrigin,
 			wantDeleted:   true,
 		},
+		"object of this Workload triggers adapter delete": {
+			remoteObjects: []client.Object{ownedJob.Clone().PrebuiltWorkloadLabel("wl1").Obj()},
+			origin:        defaultOrigin,
+			wantDeleted:   true,
+		},
+		"object of another Workload is preserved": {
+			remoteObjects: []client.Object{ownedJob.Clone().PrebuiltWorkloadLabel("wl2").Obj()},
+			origin:        defaultOrigin,
+		},
 	}
 
 	for name, tc := range tests {
@@ -179,7 +189,7 @@ func TestDeleteRemoteObjectIfOwned(t *testing.T) {
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			err := jobframework.DeleteRemoteObjectIfOwned(ctx, localClient, remoteClient, adapter, key, tc.origin)
+			err := jobframework.DeleteRemoteObjectIfOwned(ctx, localClient, remoteClient, adapter, key, tc.origin, "wl1")
 			if diff := cmp.Diff(err, tc.wantErr, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("DeleteRemoteObjectIfOwned() error = %v, wantErr %v", err, tc.wantErr)
 			}
