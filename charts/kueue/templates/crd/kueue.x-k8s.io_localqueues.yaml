@@ -458,7 +458,7 @@ spec:
           jsonPath: .status.admittedWorkloads
           name: Admitted Workloads
           type: integer
-        - description: Whether the LocalQueue is active
+        - description: Status of the LocalQueue's Active condition
           jsonPath: .status.conditions[?(@.type=='Active')].status
           name: Active
           priority: 1

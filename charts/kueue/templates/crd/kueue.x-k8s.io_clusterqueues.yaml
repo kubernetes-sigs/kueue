@@ -835,7 +835,7 @@ spec:
           name: Admitted Workloads
           priority: 1
           type: integer
-        - description: Whether the ClusterQueue is active
+        - description: Status of the ClusterQueue's Active condition
           jsonPath: .status.conditions[?(@.type=='Active')].status
           name: Active
           priority: 1
