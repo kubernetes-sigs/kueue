@@ -110,7 +110,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // otherDQOUpdatePredicate filters updates that can affect other orchestrators.
-// Changes to Distributed=False affect takeover of retained effective quotas.
+// Transitions into or out of Distributed=False change whether other orchestrators
+// can take over retained effective quotas.
 var otherDQOUpdatePredicate = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		if e.ObjectOld == nil || e.ObjectNew == nil {

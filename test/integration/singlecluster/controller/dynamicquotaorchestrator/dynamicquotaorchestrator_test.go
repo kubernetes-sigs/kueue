@@ -1172,7 +1172,11 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		dqoAKey := types.NamespacedName{Name: dqo.Name}
 
 		gomega.Eventually(func(g gomega.Gomega) {
-			expectClusterQueueOwnedBy(g, cqXKey, "leftover-a", "100")
+			expectClusterQueueOwnedBy(g, cqXKey, "leftover-a",
+				utiltestingapi.ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+				),
+			)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Retargeting A to Y and leaving X's orchestratorRef", func() {
@@ -1183,8 +1187,16 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				g.Expect(k8sClient.Update(ctx, latestA)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a", "100")
-				expectClusterQueueOwnedBy(g, cqXKey, "leftover-a", "100")
+				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a",
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+					),
+				)
+				expectClusterQueueOwnedBy(g, cqXKey, "leftover-a",
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+					),
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1218,7 +1230,11 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 				))
-				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b", "200")
+				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b",
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "200").Obj(),
+					),
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1231,8 +1247,16 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 				))
-				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a", "100")
-				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b", "200")
+				expectClusterQueueOwnedBy(g, cqYKey, "leftover-a",
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+					),
+				)
+				expectClusterQueueOwnedBy(g, cqXKey, "leftover-b",
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "200").Obj(),
+					),
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -1326,7 +1350,8 @@ func expectCohortEffectiveResourceGroups(
 func expectClusterQueueOwnedBy(
 	g gomega.Gomega,
 	key types.NamespacedName,
-	owner, cpu string,
+	owner string,
+	want ...kueue.ResourceGroup,
 ) {
 	ginkgo.GinkgoHelper()
 	var cq kueue.ClusterQueue
@@ -1337,9 +1362,5 @@ func expectClusterQueueOwnedBy(
 		Kind:     "DynamicQuotaOrchestrator",
 		Name:     owner,
 	}))
-	g.Expect(cmp.Diff([]kueue.ResourceGroup{
-		utiltestingapi.ResourceGroup(
-			*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, cpu).Obj(),
-		),
-	}, cq.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+	g.Expect(cmp.Diff(want, cq.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
 }

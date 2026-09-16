@@ -441,21 +441,6 @@ func TestOtherDQOUpdatePredicate(t *testing.T) {
 	now := metav1.Now()
 	later := metav1.NewTime(now.Add(time.Minute))
 
-	trueDistributedCond := metav1.Condition{
-		Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
-		Status:             metav1.ConditionTrue,
-		Reason:             kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
-		Message:            "Quotas successfully distributed",
-		LastTransitionTime: now,
-	}
-	falseNotComputed := metav1.Condition{
-		Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
-		Status:             metav1.ConditionFalse,
-		Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
-		Message:            "Capacity discovery not ready",
-		LastTransitionTime: now,
-	}
-
 	trueDistributed := utiltestingalpha.MakeDynamicQuotaOrchestrator("a").
 		DiscoveryProvider("cp-1", nil).
 		SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-x").
@@ -463,7 +448,13 @@ func TestOtherDQOUpdatePredicate(t *testing.T) {
 		EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
 			Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("f1").Resource(corev1.ResourceCPU, "100").Obj()).
 			Obj()).
-		Condition(trueDistributedCond)
+		Condition(metav1.Condition{
+			Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+			Message:            "Quotas successfully distributed",
+			LastTransitionTime: now,
+		})
 
 	cases := map[string]struct {
 		old  client.Object
@@ -504,7 +495,7 @@ func TestOtherDQOUpdatePredicate(t *testing.T) {
 					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
 					Status:             metav1.ConditionFalse,
 					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
-					Message:            "Quotas successfully distributed",
+					Message:            "Capacity discovery not ready",
 					LastTransitionTime: now,
 				}).
 				Obj(),
@@ -520,7 +511,7 @@ func TestOtherDQOUpdatePredicate(t *testing.T) {
 					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
 					Status:             metav1.ConditionFalse,
 					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
-					Message:            "Quotas successfully distributed",
+					Message:            "Capacity discovery not ready",
 					LastTransitionTime: now,
 				}).
 				Obj(),
@@ -528,7 +519,13 @@ func TestOtherDQOUpdatePredicate(t *testing.T) {
 		},
 		"false reason change only": {
 			old: trueDistributed.Clone().
-				Conditions(falseNotComputed).
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
 				Obj(),
 			new: trueDistributed.Clone().
 				Conditions(metav1.Condition{
@@ -567,8 +564,8 @@ func TestOtherDQOUpdatePredicate(t *testing.T) {
 				Conditions(metav1.Condition{
 					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
 					Status:             metav1.ConditionFalse,
-					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
-					Message:            "Quotas successfully distributed",
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
 					LastTransitionTime: now,
 				}).
 				Obj(),
@@ -576,8 +573,8 @@ func TestOtherDQOUpdatePredicate(t *testing.T) {
 				Conditions(metav1.Condition{
 					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
 					Status:             metav1.ConditionFalse,
-					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
-					Message:            "Quotas successfully distributed",
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
 					LastTransitionTime: later,
 				}).
 				Obj(),
