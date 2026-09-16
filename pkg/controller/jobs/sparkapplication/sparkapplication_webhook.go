@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -110,9 +111,11 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 	return nil, validationErrs.ToAggregate()
 }
 
-// returns whether the SparkApplication is an elastic job or not
+// returns whether the SparkApplication is an elastic job or not, under either elastic mode
+// (ElasticJobsViaWorkloadSlices or ElasticJobsViaWorkloadResize). Both reuse the same
+// `elastic-job` annotation and are mutually exclusive at startup.
 func isAnElasticJob(sparkApp *sparkv1beta2.SparkApplication) bool {
-	return workloadslicing.Enabled(sparkApp)
+	return workloadslicing.Enabled(sparkApp) || workload.IsResizeElastic(sparkApp)
 }
 
 func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication) (field.ErrorList, error) {
@@ -121,6 +124,9 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
 		spec := &job.Spec
+		dynamicAllocationError := "a kueue managed job can use dynamicAllocation only when one of the " +
+			"ElasticJobsViaWorkloadSlices or ElasticJobsViaWorkloadResize feature gates is on and the " +
+			"job is an elastic job (annotated with " + workloadslicing.EnabledAnnotationKey + ")"
 
 		if spec.Mode != sparkv1beta2.DeployModeCluster {
 			allErrors = append(allErrors, field.Invalid(specPath.Child("mode"), spec.Mode, "only Cluster mode is supported for a kueue managed job"))
@@ -130,7 +136,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 			allErrors = append(allErrors,
 				field.Invalid(dynamicAllocationEnabledPath,
 					ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled,
-					"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+					dynamicAllocationError,
 				),
 			)
 		}

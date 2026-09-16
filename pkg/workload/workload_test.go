@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,6 +43,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -4491,5 +4493,119 @@ func TestCurrentPodsScheduledCondition(t *testing.T) {
 				t.Errorf("Unexpected condition (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func admittedResizeWorkload(specCount, admittedCount int32, annotated bool) *kueue.Workload {
+	now := time.Now().Truncate(time.Second)
+	wl := utiltestingapi.MakeWorkload("wl", "ns")
+	if annotated {
+		wl = wl.Annotation(constants.ElasticJobAnnotation, "true")
+	}
+	return wl.
+		PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", fmt.Sprint(admittedCount)).
+					Count(admittedCount).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+}
+
+func TestResizeState(t *testing.T) {
+	cases := map[string]struct {
+		gate      bool
+		annotated bool
+		spec      int32
+		admitted  int32
+		wantUp    bool
+		wantDown  bool
+	}{
+		"gate disabled": {
+			annotated: true,
+			spec:      6,
+			admitted:  4,
+		},
+		"annotation missing": {
+			gate:     true,
+			spec:     6,
+			admitted: 4,
+		},
+		"scale up": {
+			gate:      true,
+			annotated: true,
+			spec:      6,
+			admitted:  4,
+			wantUp:    true,
+		},
+		"converged": {
+			gate:      true,
+			annotated: true,
+			spec:      4,
+			admitted:  4,
+		},
+		"scale down": {
+			gate:      true,
+			annotated: true,
+			spec:      2,
+			admitted:  4,
+			wantDown:  true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, tc.gate)
+			wl := admittedResizeWorkload(tc.spec, tc.admitted, tc.annotated)
+			if got := IsResizeScaleUp(wl); got != tc.wantUp {
+				t.Errorf("IsResizeScaleUp() = %t, want %t", got, tc.wantUp)
+			}
+			if got := IsResizeScaleDown(wl); got != tc.wantDown {
+				t.Errorf("IsResizeScaleDown() = %t, want %t", got, tc.wantDown)
+			}
+			if got := IsAdmissible(wl); got != tc.wantUp {
+				t.Errorf("IsAdmissible() = %t, want %t", got, tc.wantUp)
+			}
+		})
+	}
+}
+
+func TestAdmittedPodSetCounts(t *testing.T) {
+	wl := admittedResizeWorkload(6, 4, true)
+	if got := AdmittedPodSetCounts(wl)["main"]; got != 4 {
+		t.Errorf("AdmittedPodSetCounts()[main] = %d, want 4", got)
+	}
+
+	wl.Status.Admission.PodSetAssignments[0].Count = nil
+	if got := AdmittedPodSetCounts(wl)["main"]; got != 6 {
+		t.Errorf("AdmittedPodSetCounts()[main] = %d, want spec fallback 6", got)
+	}
+
+	wl.Status.Admission = nil
+	if got := AdmittedPodSetCounts(wl); got != nil {
+		t.Errorf("AdmittedPodSetCounts() = %v, want nil", got)
+	}
+}
+
+func TestSetScaleDownCondition(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Generation(7).Obj()
+
+	if !SetScaleDownCondition(wl, now) {
+		t.Fatal("SetScaleDownCondition() = false, want true")
+	}
+	condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadScaleDown)
+	if condition == nil {
+		t.Fatal("ScaleDown condition not found")
+	}
+	if condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != 7 {
+		t.Errorf("unexpected ScaleDown condition: %#v", condition)
+	}
+	if SetScaleDownCondition(wl, now) {
+		t.Fatal("unchanged SetScaleDownCondition() = true, want false")
 	}
 }

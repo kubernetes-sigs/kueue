@@ -194,6 +194,16 @@ func TestOrderedReduce(t *testing.T) {
 			ok:        func(counts []int32) bool { return true },
 			wantFound: false,
 		},
+		"lower bound raises the floor above minCount": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(2).Obj(),
+			},
+			ok: func(counts []int32) bool {
+				return counts[0] <= 8
+			},
+			wantCount: []int32{8},
+			wantFound: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -207,7 +217,11 @@ func TestOrderedReduce(t *testing.T) {
 				copy(out, counts)
 				return out, true
 			}
-			red := NewOrderedPodSetReducer(tc.podSets, fits)
+			var options []PodSetReducerOption
+			if name == "lower bound raises the floor above minCount" {
+				options = append(options, WithPodSetLowerBounds([]int32{6}))
+			}
+			red := NewOrderedPodSetReducer(tc.podSets, fits, options...)
 			count, found := red.Reduce()
 			if found != tc.wantFound {
 				t.Errorf("Unexpected found:%v, want: %v", found, tc.wantFound)
@@ -218,6 +232,23 @@ func TestOrderedReduce(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOrderedReduceLowerBoundDoesNotFit(t *testing.T) {
+	podSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(2).Obj(),
+	}
+	fits := func(counts []int32) ([]int32, bool) {
+		if counts[0] > 5 {
+			return nil, false
+		}
+		return slices.Clone(counts), true
+	}
+
+	red := NewOrderedPodSetReducer(podSets, fits, WithPodSetLowerBounds([]int32{6}))
+	if counts, found := red.Reduce(); found {
+		t.Fatalf("Reduce() = %v, true, want no solution above the lower bound", counts)
 	}
 }
 

@@ -45,6 +45,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -3378,5 +3379,46 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 	}
 	if got := pendingVal("gold", metrics.PendingStatusInadmissible); got != 1 {
 		t.Errorf("after delete silver: gold/inadmissible = %v, want 1", got)
+	}
+}
+
+func TestAddOrUpdateWorkloadResizeScaleUp(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, true)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	manager := NewManagerForUnitTests(
+		utiltesting.NewFakeClient(),
+		nil,
+		WithPreemptionExpectations(preemptexpectations.New()),
+	)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("AddClusterQueue() error: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("AddLocalQueue() error: %v", err)
+	}
+
+	wl := utiltestingapi.MakeWorkload("resize", "ns").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet("main", 4).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "2").
+					Count(2).
+					Obj()).
+				Obj(),
+			time.Now(),
+		).
+		Obj()
+
+	if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("AddOrUpdateWorkload() error: %v", err)
+	}
+	if got, err := manager.Pending(cq); err != nil || got != 1 {
+		t.Errorf("Pending() = (%d, %v), want (1, nil)", got, err)
 	}
 }

@@ -606,7 +606,7 @@ func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *en
 // on the very workload being evaluated and unset its own reservation - and, for a
 // failed-node replacement, its admission along with it.
 func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logger, e *entry) {
-	if workload.NeedsSecondPass(e.Obj) {
+	if workload.NeedsSecondPass(e.Obj) || workload.IsResizeScaleUp(e.Obj) {
 		return
 	}
 	if s.cache.PodsReadyForAllAdmittedWorkloads(log) {
@@ -694,7 +694,20 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 	var inadmissibleEntries []entry
 	for _, h := range heads {
 		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
-		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
+		resizeScaleUp := workload.IsResizeScaleUp(h.Obj)
+		if resizeScaleUp {
+			specCounts := workload.ExtractPodSetCountsFromWorkload(h.Obj)
+			scaled := make([]workload.PodSetResources, len(h.TotalRequests))
+			for i := range h.TotalRequests {
+				ps := h.TotalRequests[i].ScaledTo(specCounts[h.TotalRequests[i].Name])
+				ps.Flavors = nil
+				scaled[i] = *ps
+			}
+			h.TotalRequests = scaled
+			h.FlavorScanState = nil
+			h.SchedulingHash = workload.SchedulingHashUnknown
+		}
+		if !workload.NeedsSecondPass(h.Obj) && !resizeScaleUp && s.cache.IsAdded(h.Info) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
 			continue
 		}
@@ -825,7 +838,7 @@ func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuanti
 	if features.Enabled(features.TopologyAwareScheduling) {
 		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}
-	if !workload.HasQuotaReservation(e.Obj) {
+	if !workload.HasQuotaReservation(e.Obj) || workload.IsResizeScaleUp(e.Obj) {
 		result.Quota.Assigned = netQuota
 	}
 	return result
@@ -919,6 +932,16 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	resizeScaleUp := replaceableWorkloadSlice == nil && workload.IsResizeScaleUp(wl.Obj)
+	var resizeAdmitted map[kueue.PodSetReference]int32
+	if resizeScaleUp {
+		if self, found := cq.Workloads[workload.Key(wl.Obj)]; found {
+			replaceableWorkloadSlice = self
+			resizeAdmitted = workload.AdmittedPodSetCounts(wl.Obj)
+		} else {
+			resizeScaleUp = false
+		}
+	}
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
@@ -939,6 +962,14 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	}
 
 	if workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+		var reducerOptions []flavorassigner.PodSetReducerOption
+		if resizeScaleUp {
+			lowerBounds := make([]int32, len(wl.Obj.Spec.PodSets))
+			for i := range wl.Obj.Spec.PodSets {
+				lowerBounds[i] = resizeAdmitted[wl.Obj.Spec.PodSets[i].Name] + 1
+			}
+			reducerOptions = append(reducerOptions, flavorassigner.WithPodSetLowerBounds(lowerBounds))
+		}
 		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
@@ -953,7 +984,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 				}
 			}
 			return nil, false
-		})
+		}, reducerOptions...)
 		if pa, found := reducer.Reduce(); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
@@ -1103,10 +1134,17 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			}
 			return
 		}
-		// Ignore errors because the workload or clusterQueue could have been deleted
-		// by an event.
-		_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
-		s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+		if workload.IsResizeScaleUp(e.Obj) && !apierrors.IsNotFound(err) {
+			if !s.cache.AddOrUpdateWorkload(log, e.Obj) {
+				log.V(2).Info("Failed to restore resize workload admission in cache after failed admission")
+			}
+			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, e.Obj)
+		} else {
+			// Ignore errors because the workload or clusterQueue could have been deleted
+			// by an event.
+			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
+			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+		}
 		if s.shouldApplyEntryPenalty(e) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
@@ -1257,7 +1295,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
 	log.V(2).
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
-	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
+	if (e.status == notNominated || e.status == skipped || e.status == preemptionGated) && !workload.IsResizeScaleUp(e.Obj) {
 		if e.skipStatusUpdate {
 			log.V(3).Info("Skipping Workload status update", "workload", klog.KObj(e.Obj), "reason", e.inadmissibleMsg)
 			return

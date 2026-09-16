@@ -1564,3 +1564,82 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		})
 	}
 }
+
+func admittedResizeWebhookWorkload(specCount, admittedCount int32, annotated bool, now time.Time) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload("resize", "ns")
+	if annotated {
+		wl = wl.Annotation(constants.ElasticJobAnnotation, "true")
+	}
+	return wl.
+		PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Count(admittedCount).
+					Obj()).
+				Obj(),
+			now,
+		).
+		Obj()
+}
+
+func TestValidateWorkloadUpdateResize(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, true)
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		before *kueue.Workload
+		after  *kueue.Workload
+		wantOK bool
+	}{
+		"scale up": {
+			before: admittedResizeWebhookWorkload(2, 2, true, now),
+			after:  admittedResizeWebhookWorkload(5, 2, true, now),
+			wantOK: true,
+		},
+		"scale down": {
+			before: admittedResizeWebhookWorkload(5, 5, true, now),
+			after:  admittedResizeWebhookWorkload(2, 5, true, now),
+			wantOK: true,
+		},
+		"admission count update": {
+			before: admittedResizeWebhookWorkload(5, 2, true, now),
+			after:  admittedResizeWebhookWorkload(5, 4, true, now),
+			wantOK: true,
+		},
+		"adding annotation does not enable resize for an existing workload": {
+			before: admittedResizeWebhookWorkload(2, 2, false, now),
+			after:  admittedResizeWebhookWorkload(5, 2, true, now),
+		},
+		"unannotated workload cannot resize": {
+			before: admittedResizeWebhookWorkload(2, 2, false, now),
+			after:  admittedResizeWebhookWorkload(5, 2, false, now),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			errs := ValidateWorkloadUpdate(tc.after, tc.before)
+			if gotOK := len(errs) == 0; gotOK != tc.wantOK {
+				t.Errorf("ValidateWorkloadUpdate() errors = %v, wantOK %t", errs, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadResizeRejectsTopologyRequest(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, true)
+	wl := utiltestingapi.MakeWorkload("resize", "ns").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+
+	if errs := ValidateWorkload(wl, nil); len(errs) == 0 {
+		t.Fatal("ValidateWorkload() returned no error for resize with topology request")
+	}
+}
