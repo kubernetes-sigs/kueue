@@ -762,7 +762,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		// To get the projected cluster state after other preemptions complete,
 		// we simulate the removal of their victims.
 		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
-		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+		revertRemoval = snapshot.SimulateWorkloadRemoval(ctx, victimsOfOtherPreemptions)
 	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:

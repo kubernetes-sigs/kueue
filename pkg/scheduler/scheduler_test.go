@@ -10414,8 +10414,8 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 
 	victimInfo := workload.NewInfo(log, victimWL)
 	otherInfo := workload.NewInfo(log, otherWL)
-	snapshot.AddWorkload(victimInfo)
-	snapshot.AddWorkload(otherInfo)
+	snapshot.AddWorkload(ctx, victimInfo)
+	snapshot.AddWorkload(ctx, otherInfo)
 
 	// CQ usage is 8 CPU (victim 6 + other 2). Incoming needs 9.
 	// Freeing victim once leaves usage 2 → 8 free → 9 does not fit.
