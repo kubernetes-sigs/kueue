@@ -895,19 +895,21 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 			for _, tr := range trs {
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
-					// A PodSet that needs a node replacement should already have
-					// an existing TopologyAssignment to replace a domain in - if
-					// it doesn't, the workload's state is inconsistent with what
-					// this path expects. Report it as a failure for this PodSet
-					// rather than silently omitting it from result: leaving it
-					// out isn't the same as failing it, since callers only learn
-					// about a PodSet by checking Failure() or the FailureReason
-					// on an entry that exists, so a PodSet that never gets an
-					// entry looks like nothing was wrong with it.
-					result[tr.PodSet.Name] = tasPodSetAssignmentResult{
-						FailureReason: fmt.Sprintf("no existing TopologyAssignment found for PodSet %q needing node replacement", tr.PodSet.Name),
+					// This PodSet has no existing assignment to replace a domain
+					// in - e.g. one PodSet in the workload is replacing a failed
+					// node while another has never been placed at all. There's
+					// nothing to diff against, so give it a fresh placement
+					// instead of a replacement, still without simulating
+					// preemption: a failed-node repair must only use capacity
+					// that's genuinely free right now (see WithSimulateEmpty
+					// above), the same as the replacement path below.
+					assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, tr, nil, assumedUsage, false, "", opts.workload)
+					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignments[tr.PodSet.Name], FailureReason: reason}
+					if reason != "" {
+						return result
 					}
-					return result
+					addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
+					continue
 				}
 				if shouldKeepExistingAssignment(wlObj, psa) {
 					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
