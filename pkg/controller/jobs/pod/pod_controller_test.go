@@ -274,9 +274,17 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			enableFeature: true,
 			wantJobUID:    "deployment-uid",
 		},
-		"feature disabled keeps the pod UID": {
+		"feature disabled keeps the pod UID without reading the replicaset": {
 			pod:        deploymentPod().Obj(),
 			replicaSet: makeReplicaSet("rs-uid", deploymentOwner),
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isMetadata := obj.(*metav1.PartialObjectMetadata); isMetadata {
+						return errors.New("replicaset must not be read while the feature is disabled")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
 			wantJobUID: "pod-uid",
 		},
 		"pod not gated by a parent integration keeps the pod UID": {
@@ -362,6 +370,54 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			// would race with informers that already observed the Pod.
 			if diff := cmp.Diff(*tc.pod, pod.pod); diff != "" {
 				t.Errorf("pod was modified (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConstructComposableWorkloadDeploymentJobUIDAcrossRollingUpdate(t *testing.T) {
+	deploymentOwner := metav1.OwnerReference{
+		APIVersion: appsv1.SchemeGroupVersion.String(),
+		Kind:       "Deployment",
+		Name:       "test-deployment",
+		UID:        "deployment-uid",
+		Controller: new(true),
+	}
+	replicaSet := func(name, uid string) *appsv1.ReplicaSet {
+		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       "ns",
+			UID:             types.UID(uid),
+			OwnerReferences: []metav1.OwnerReference{deploymentOwner},
+		}}
+	}
+	replicaSetGVKRef := func(podName, rsName, rsUID string) *corev1.Pod {
+		return testingpod.MakePod(podName, "ns").
+			UID(podName+"-uid").
+			Queue("user-queue").
+			SuspendedByParent("deployment").
+			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
+			Image("", nil).
+			Obj()
+	}
+
+	features.SetFeatureGateDuringTest(t, features.DeploymentJobUIDLabel, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	kClient := utiltesting.NewClientBuilder().
+		WithObjects(replicaSet("test-deployment-old", "old-rs-uid"), replicaSet("test-deployment-new", "new-rs-uid")).
+		Build()
+
+	for name, pod := range map[string]*corev1.Pod{
+		"pod from the outgoing replicaset": replicaSetGVKRef("old-pod", "test-deployment-old", "old-rs-uid"),
+		"pod from the incoming replicaset": replicaSetGVKRef("new-pod", "test-deployment-new", "new-rs-uid"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			wl, err := (&Pod{pod: *pod, isFound: true}).ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := wl.Labels[controllerconsts.JobUIDLabel]; got != "deployment-uid" {
+				t.Errorf("job-uid label = %q, want %q", got, "deployment-uid")
 			}
 		})
 	}
