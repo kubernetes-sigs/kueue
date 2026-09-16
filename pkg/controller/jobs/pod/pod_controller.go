@@ -721,21 +721,25 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		return jobframework.NewLoadResult(true, false), nil
 	}
 
-	// All group pods are terminating: once no Workload remains, finalize directly - re-creating one would re-adopt the group from admission-mutated specs and wedge finalizer removal (issue #15148).
-	for i := range p.list.Items {
-		if p.list.Items[i].DeletionTimestamp.IsZero() {
-			return jobframework.NewLoadResult(false, p.isFound), nil
+	if features.Enabled(features.FinalizeTerminatingPodGroups) {
+		// All group pods are terminating: once no Workload remains, finalize directly - re-creating one would re-adopt the group from admission-mutated specs and wedge finalizer removal (issue #15148).
+		for i := range p.list.Items {
+			if p.list.Items[i].DeletionTimestamp.IsZero() {
+				return jobframework.NewLoadResult(false, p.isFound), nil
+			}
 		}
+		// Any Workload still existing under the group name (even foreign-owned) blocks finalizing the group.
+		wl := &kueue.Workload{}
+		if err := c.Get(ctx, client.ObjectKey{Namespace: p.key.Namespace, Name: p.key.Name}, wl); err == nil {
+			return jobframework.NewLoadResult(false, p.isFound), nil
+		} else if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		ctrl.LoggerFrom(ctx).V(2).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
+		return jobframework.NewLoadResult(true, p.isFound), nil
 	}
-	// Any Workload still existing under the group name (even foreign-owned) blocks finalizing the group.
-	wl := &kueue.Workload{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: p.key.Namespace, Name: p.key.Name}, wl); err == nil {
-		return jobframework.NewLoadResult(false, p.isFound), nil
-	} else if !apierrors.IsNotFound(err) {
-		return nil, err
-	}
-	ctrl.LoggerFrom(ctx).V(2).Info("All pod group members are terminating and no Workload remains; treating the pod group as terminating")
-	return jobframework.NewLoadResult(true, p.isFound), nil
+
+	return jobframework.NewLoadResult(false, p.isFound), nil
 }
 
 // fastAdmission determines if the pod is configured for fast admission based on specific annotations.
