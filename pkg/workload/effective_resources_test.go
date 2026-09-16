@@ -32,10 +32,9 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-// EffectivePodSpecs must (1) leave the workload untouched and (2) produce
-// exactly what AdjustResources writes into a mutated copy, for every input
-// combination.
-func TestEffectivePodSpecsMatchAdjustResources(t *testing.T) {
+// TestEffectivePodSpecs verifies resource defaulting and RuntimeClass overhead
+// against explicit expected PodSpecs, while preserving the original Workload.
+func TestEffectivePodSpecs(t *testing.T) {
 	runtimeClass := utiltesting.MakeRuntimeClass("kata", "handler").
 		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
 		Obj()
@@ -44,63 +43,111 @@ func TestEffectivePodSpecsMatchAdjustResources(t *testing.T) {
 		WithValue("DefaultRequest", corev1.ResourceCPU, "2").
 		Obj()
 
-	cases := map[string]*kueue.Workload{
-		"nothing set": utiltestingapi.MakeWorkload("wl", "ns").
-			PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-			Obj(),
-		"limits only": utiltestingapi.MakeWorkload("wl", "ns").
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				Limit(corev1.ResourceCPU, "3").Obj()).
-			Obj(),
-		"requests set": utiltestingapi.MakeWorkload("wl", "ns").
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				Request(corev1.ResourceCPU, "1").Obj()).
-			Obj(),
-		"overhead via runtime class": utiltestingapi.MakeWorkload("wl", "ns").
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				RuntimeClass("kata").
-				Limit(corev1.ResourceCPU, "3").Obj()).
-			Obj(),
-		"missing runtime class": utiltestingapi.MakeWorkload("wl", "ns").
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				RuntimeClass("missing").
-				Limit(corev1.ResourceCPU, "3").Obj()).
-			Obj(),
-		"pod-level limits": utiltestingapi.MakeWorkload("wl", "ns").
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				PodLevelLimit(corev1.ResourceMemory, "2Gi").Obj()).
-			Obj(),
-		"two podsets mixed": utiltestingapi.MakeWorkload("wl", "ns").
-			PodSets(
-				*utiltestingapi.MakePodSet("a", 1).Limit(corev1.ResourceCPU, "3").Obj(),
-				*utiltestingapi.MakePodSet("b", 1).RuntimeClass("kata").Obj(),
-			).
-			Obj(),
+	cases := map[string]struct {
+		wl           *kueue.Workload
+		wantPodSpecs []corev1.PodSpec
+	}{
+		"nothing set": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "4").Request(corev1.ResourceCPU, "2").Template.Spec,
+			},
+		},
+		"limits only": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			// An explicit limit supplies the missing request before LimitRange defaults.
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"requests set": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "4").Request(corev1.ResourceCPU, "1").Template.Spec,
+			},
+		},
+		"overhead via runtime class": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"missing runtime class": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("missing").
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("missing").
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"pod-level limits": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodLevelLimit(corev1.ResourceMemory, "2Gi").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					PodLevelLimit(corev1.ResourceMemory, "2Gi").PodLevelRequest(corev1.ResourceMemory, "2Gi").
+					Limit(corev1.ResourceCPU, "4").Request(corev1.ResourceCPU, "2").Template.Spec,
+			},
+		},
+		"two podsets mixed": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).Limit(corev1.ResourceCPU, "3").Obj(),
+					*utiltestingapi.MakePodSet("b", 1).RuntimeClass("kata").Obj(),
+				).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("a", 1).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+				utiltestingapi.MakePodSet("b", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+					Limit(corev1.ResourceCPU, "4").Request(corev1.ResourceCPU, "2").Template.Spec,
+			},
+		},
 	}
 
-	for name, wl := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(runtimeClass, limitRange).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
+			original := tc.wl.DeepCopy()
 
-			original := wl.DeepCopy()
+			in, _ := ResolveAdjustmentInputs(ctx, cl, tc.wl)
+			effective := EffectivePodSpecs(tc.wl, in)
 
-			adjusted := wl.DeepCopy()
-			AdjustResources(ctx, cl, adjusted)
-
-			in, _ := ResolveAdjustmentInputs(ctx, cl, wl)
-			effective := EffectivePodSpecs(wl, in)
-
-			if diff := cmp.Diff(original, wl); diff != "" {
+			if diff := cmp.Diff(original, tc.wl); diff != "" {
 				t.Errorf("EffectivePodSpecs mutated the workload (-want,+got):\n%s", diff)
 			}
-			for i := range effective {
-				if diff := cmp.Diff(adjusted.Spec.PodSets[i].Template.Spec, effective[i]); diff != "" {
-					t.Errorf("podSet %d effective spec differs from AdjustResources (-adjusted,+effective):\n%s", i, diff)
-				}
+			if diff := cmp.Diff(tc.wantPodSpecs, effective); diff != "" {
+				t.Errorf("Unexpected effective PodSpecs (-want,+got):\n%s", diff)
 			}
 		})
 	}

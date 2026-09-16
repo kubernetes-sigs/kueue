@@ -2205,7 +2205,7 @@ func TestReconcile(t *testing.T) {
 
 				for i := range tc.variantWorkloads {
 					if workload.IsAdmissible(&tc.variantWorkloads[i]) {
-						if err := qManager.AddOrUpdateWorkload(ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
+						if err := qManager.AddOrUpdateWorkload(t.Context(), ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
 							t.Fatalf("Failed to add workload to qManager: %v", err)
 						}
 					}

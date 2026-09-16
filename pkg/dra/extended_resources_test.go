@@ -1146,7 +1146,14 @@ func TestNeedsDRAReconcile(t *testing.T) {
 	}
 }
 
-func TestExtendedResourcesUseEffectiveInfo(t *testing.T) {
+// TestDRADetectionAndQuotaUseEffectiveRequests verifies that both DRA consumers
+// use Info's effective requests when the raw Workload has no explicit requests.
+// NeedsDRAReconcile must detect the defaulted GPU request, and
+// ResolveExtendedResourceQuota must account for the same two GPUs and mark the
+// resource as replaced so it is not also charged as a regular extended resource.
+// Limits-only and LimitRange inputs exercise the two sources of those requests;
+// this test covers the DRA helpers, without running a controller or scheduler.
+func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	const gpu corev1.ResourceName = "example.com/gpu"

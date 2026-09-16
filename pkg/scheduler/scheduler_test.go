@@ -9872,7 +9872,7 @@ func TestResourcesToReserve(t *testing.T) {
 						Obj()).
 					Obj()
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission, now).Obj()
-				cqCache.AddOrUpdateWorkload(log, wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, wl)
 				i++
 			}
 			snapshot, err := cqCache.Snapshot(ctx)

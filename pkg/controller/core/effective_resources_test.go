@@ -41,14 +41,23 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-func TestDRAQueueUsesPreprocessingResourceSnapshot(t *testing.T) {
+// TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing verifies the
+// handoff from DRA preprocessing to the queue, both in handleDRA and when
+// Reconcile queues the workload again after backoff. The queued PodSpec and
+// translated quota must describe the same resource snapshot, even if defaults
+// change between preprocessing and queue insertion; the raw Workload stays unchanged.
+// A fake client makes that intervening change deterministic without depending
+// on informer timing or running the scheduler.
+func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	cases := map[string]struct {
 		requeueAfterBackoff bool
 		preprocessingRead   int
 	}{
-		"initial DRA queue insertion":       {preprocessingRead: 1},
+		"initial DRA queue insertion": {preprocessingRead: 1},
+		// Reconcile first reads defaults in needsDRAReconcile; handleDRA
+		// takes the preprocessing snapshot on the second read.
 		"DRA queue insertion after backoff": {requeueAfterBackoff: true, preprocessingRead: 2},
 	}
 	for name, tc := range cases {
@@ -77,7 +86,9 @@ func TestDRAQueueUsesPreprocessingResourceSnapshot(t *testing.T) {
 						if _, ok := list.(*corev1.LimitRangeList); ok {
 							reads++
 							if reads == tc.preprocessingRead {
-								// DRA preprocesses 1 GPU; a fresh read when queueing would see 2.
+								// The returned list still contains 1 GPU. Update the
+								// stored default so rebuilding Info during either queue
+								// insertion would incorrectly pair 2 GPUs with quota for 1.
 								lr.Spec.Limits[0].DefaultRequest[gpu] = resource.MustParse("2")
 								return c.Update(ctx, lr)
 							}

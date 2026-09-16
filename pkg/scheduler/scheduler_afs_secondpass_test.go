@@ -152,7 +152,7 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 		t.Fatalf("inserting localQueue in manager: %v", err)
 	}
 	// The reserved workload contributes its usage to the cache, mirroring production.
-	cqCache.AddOrUpdateWorkload(log, &wl)
+	cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
 	if !qManager.QueueSecondPassIfNeeded(ctx, &wl, 0) {
 		t.Fatal("expected the workload to be queued for a second pass")
 	}

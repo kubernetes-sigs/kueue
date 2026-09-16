@@ -35,7 +35,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func TestAssumeKeepsEffectiveResourceSnapshot(t *testing.T) {
+// TestAssumeWorkloadPreservesEffectiveResourcesForTAS tests the handoff from a
+// scheduling entry to the assumed cache entry. After scheduling with a 1-CPU
+// default, a LimitRange change to 2 CPUs must not change the assumed TAS request
+// or reserved quota, and defaults must not be written into the raw Workload.
+// Calling assumeWorkload directly lets the test change defaults at this exact
+// boundary without rerunning scheduling and producing a new admission decision.
+func TestAssumeWorkloadPreservesEffectiveResourcesForTAS(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
@@ -54,6 +60,7 @@ func TestAssumeKeepsEffectiveResourceSnapshot(t *testing.T) {
 	if err := cl.Update(ctx, lr); err != nil {
 		t.Fatal(err)
 	}
+	// Model the admission decision made with the original 1-CPU snapshot.
 	admission := &kueue.Admission{ClusterQueue: "cq", PodSetAssignments: []kueue.PodSetAssignment{{
 		Name: "main", Count: new(int32(1)), Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "rf"},
 		ResourceUsage:      corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
@@ -61,7 +68,7 @@ func TestAssumeKeepsEffectiveResourceSnapshot(t *testing.T) {
 	}}}
 	sched := &Scheduler{cache: cache, clock: testingclock.NewFakeClock(time.Now())}
 	e := &entry{Head: qcache.Head{Info: *info}}
-	if _, err := sched.assumeWorkload(log, e, &schdcache.ClusterQueueSnapshot{}, admission); err != nil {
+	if _, err := sched.assumeWorkload(ctx, log, e, &schdcache.ClusterQueueSnapshot{}, admission); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := cache.Snapshot(ctx)
