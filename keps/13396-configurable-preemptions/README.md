@@ -420,7 +420,7 @@ Requested functionalities from the community can be satisfied with the following
          activationPolicy:
            trigger: "InsufficientQuota"
          candidateSelectors:
-           - scope: "SameClusterQueue"
+           - scope: "WithinClusterQueue"
              priorityComparison: "LessThan"
              numericLabels:
                - key: "requested-gpus"
@@ -437,7 +437,7 @@ Requested functionalities from the community can be satisfied with the following
          activationPolicy:
            trigger: "InsufficientQuota"
          candidateSelectors:
-           - scope: "SameClusterQueue"
+           - scope: "WithinClusterQueue"
              labelSelector:
                matchLabels:
                  kueue.x-k8s.io/priority-class: "batch-low"
@@ -453,7 +453,7 @@ Requested functionalities from the community can be satisfied with the following
          activationPolicy:
            trigger: "InsufficientQuota"
          candidateSelectors:
-           - scope: "SameParentCohort"
+           - scope: "WithinParentCohort"
              quota: "BorrowingCapacityFromPreemptor"
              labelSelector:
                matchLabels:
@@ -470,7 +470,7 @@ Requested functionalities from the community can be satisfied with the following
          activationPolicy:
            trigger: "InsufficientQuota"
          candidateSelectors:
-           - scope: "SameClusterQueue"
+           - scope: "WithinClusterQueue"
              priorityComparison: "LessThan"
              minExecutionDuration: "15m"
    ```
@@ -484,7 +484,7 @@ Requested functionalities from the community can be satisfied with the following
          activationPolicy:
            trigger: "InsufficientQuota"
          candidateSelectors:
-           - scope: "SameClusterQueue"
+           - scope: "WithinClusterQueue"
              priorityComparison: "LessThan"
              maxTimeFromCreationDuration: "1h"
    ```
@@ -666,33 +666,33 @@ After evaluating each tier, the scheduler simulates whether the preemptor worklo
 // PreemptionQueueScope specifies the relational boundary between
 // the preempting workload's queue and candidate workloads' queues.
 // Possible values are:
-// - "SameLocalQueue": restricts preemption candidates to workloads submitted to the exact same LocalQueue (matching name and namespace).
-// - "SameClusterQueue": restricts preemption candidates to workloads submitted to the same ClusterQueue as the preemptor.
-// - "SameParentCohort": restricts preemption candidates to workloads in ClusterQueues that share the exact same immediate direct Cohort, as well as workloads in the preemptor's own ClusterQueue (even if standalone).
-// - "SameCohortTree": restricts preemption candidates to workloads in ClusterQueues that belong to the same Cohort Tree (sharing the same root ancestor Cohort), as well as workloads in the preemptor's own ClusterQueue (even if standalone).
+// - "WithinLocalQueue": restricts preemption candidates to workloads submitted to the exact same LocalQueue (matching name and namespace).
+// - "WithinClusterQueue": restricts preemption candidates to workloads submitted to the same ClusterQueue as the preemptor.
+// - "WithinParentCohort": restricts preemption candidates to workloads in ClusterQueues that share the exact same immediate direct Cohort, as well as workloads in the preemptor's own ClusterQueue (even if standalone).
+// - "WithinCohortTree": restricts preemption candidates to workloads in ClusterQueues that belong to the same Cohort Tree (sharing the same root ancestor Cohort), as well as workloads in the preemptor's own ClusterQueue (even if standalone).
 // - "AnyClusterQueue": places no relationship restrictions on preemption candidates.
 //
-// +kubebuilder:validation:Enum=SameLocalQueue;SameClusterQueue;SameParentCohort;SameCohortTree;AnyClusterQueue
+// +kubebuilder:validation:Enum=WithinLocalQueue;WithinClusterQueue;WithinParentCohort;WithinCohortTree;AnyClusterQueue
 type PreemptionQueueScope string
 
 const (
-  // SameLocalQueue restricts preemption candidates to workloads submitted
+  // WithinLocalQueue restricts preemption candidates to workloads submitted
   // to the exact same LocalQueue (matching name and namespace).
-  SameLocalQueue PreemptionQueueScope = "SameLocalQueue"
+  WithinLocalQueue PreemptionQueueScope = "WithinLocalQueue"
 
-  // SameClusterQueue restricts preemption candidates to workloads submitted
+  // WithinClusterQueue restricts preemption candidates to workloads submitted
   // to the same ClusterQueue as the preemptor.
-  SameClusterQueue PreemptionQueueScope = "SameClusterQueue"
+  WithinClusterQueue PreemptionQueueScope = "WithinClusterQueue"
 
-  // SameParentCohort restricts preemption candidates to workloads in ClusterQueues
+  // WithinParentCohort restricts preemption candidates to workloads in ClusterQueues
   // that share the exact same immediate direct Cohort, as well as workloads in the
   // preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
-  SameParentCohort PreemptionQueueScope = "SameParentCohort"
+  WithinParentCohort PreemptionQueueScope = "WithinParentCohort"
 
-  // SameCohortTree restricts preemption candidates to workloads in ClusterQueues
+  // WithinCohortTree restricts preemption candidates to workloads in ClusterQueues
   // that belong to the same Cohort Tree (sharing the same root ancestor Cohort),
   // as well as workloads in the preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
-  SameCohortTree PreemptionQueueScope = "SameCohortTree"
+  WithinCohortTree PreemptionQueueScope = "WithinCohortTree"
 
   // AnyClusterQueue places no relationship restrictions on preemption candidates.
   AnyClusterQueue PreemptionQueueScope = "AnyClusterQueue"
@@ -1413,7 +1413,7 @@ spec:
       activationPolicy:
         trigger: "InsufficientQuota"
       candidateSelectors:
-        - scope: "SameClusterQueue"
+        - scope: "WithinClusterQueue"
           priorityComparison: "LessThan"
           minExecutionDuration: "15m"
 ```
@@ -1427,7 +1427,7 @@ spec:
       activationPolicy:
         trigger: "InsufficientQuota"
       candidateSelectors:
-        - scope: "SameClusterQueue"
+        - scope: "WithinClusterQueue"
           priorityComparison: "LessThan"
           maxTimeFromCreationDuration: "1h"
 ```
@@ -1465,7 +1465,7 @@ type PreemptionCandidateSelector struct {
   // ... baseline candidate selector fields ...
 
   // Quota specifies quota-based preemption constraints (e.g., borrowing capacity or fair sharing share).
-  // Cannot be set if Scope is SameLocalQueue or SameClusterQueue.
+  // Cannot be set if Scope is WithinLocalQueue or WithinClusterQueue.
   // Accepts all if not set.
   //
   // +optional
