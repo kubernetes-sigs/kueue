@@ -249,6 +249,23 @@ func EnsureWorkloadSlices(
 		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
 
+	// An evicted slice can still own running Pods. Return it to the job
+	// reconciler until its reservation is released, unless an admitted
+	// replacement has already taken ownership of those Pods.
+	for i := range workloads {
+		wl := &workloads[i]
+		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
+			continue
+		}
+		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
+			key := ReplacementForKey(&candidate)
+			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
+		})
+		if !replaced {
+			return wl, true, nil
+		}
+	}
+
 	switch len(workloads) {
 	case 0:
 		// No existing slices found — new slice should be created.

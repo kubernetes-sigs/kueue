@@ -4573,6 +4573,157 @@ func ungatedPodNames(g gomega.Gomega, nsName string) sets.Set[string] {
 	return ungated
 }
 
+var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacity",
+	func(tasEnabled bool) {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, tasEnabled)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, tasEnabled)
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(tasEnabled, true, nil))
+		ginkgo.DeferCleanup(func() { fwk.StopManager(ctx) })
+
+		ns := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resize-preemption-")
+		nodes := []corev1.Node{}
+		for _, name := range []string{"resize-node-a", "resize-node-b"} {
+			nodes = append(nodes, *testingnode.MakeNode(name).
+				Label("node-group", "resize-preemption").Label(corev1.LabelHostname, name).
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("2Gi"),
+					corev1.ResourcePods: resource.MustParse("10"), "nvidia.com/gpu": resource.MustParse("2"),
+				}).Ready().Obj())
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		ginkgo.DeferCleanup(func() {
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		})
+		flavor := utiltestingapi.MakeResourceFlavor("resize-preemption").NodeLabel("node-group", "resize-preemption").Obj()
+		if tasEnabled {
+			topology := utiltestingapi.MakeTopology("resize-preemption").Levels(corev1.LabelHostname).Obj()
+			util.MustCreate(ctx, k8sClient, topology)
+			ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true) })
+			flavor.Spec.TopologyName = new(kueue.TopologyReference(topology.Name))
+		}
+		util.MustCreate(ctx, k8sClient, flavor)
+		ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true) })
+		cq := utiltestingapi.MakeClusterQueue("resize-preemption").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+				Resource(corev1.ResourceCPU, "4").Resource(corev1.ResourceMemory, "4Gi").Resource("nvidia.com/gpu", "4").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+		ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true) })
+		lq := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+		priority := utiltestingapi.MakeWorkloadPriorityClass("resize-urgent").PriorityValue(100).Obj()
+		util.MustCreate(ctx, k8sClient, priority)
+		ginkgo.DeferCleanup(func() { util.ExpectObjectToBeDeleted(ctx, k8sClient, priority, true) })
+
+		ginkgo.DeferCleanup(func() { gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed()) })
+
+		ginkgo.By("admitting the victim at its original size")
+		victim := testingjob.MakeJob("victim", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(lq.Name)).Parallelism(3).Completions(5).
+			Request(corev1.ResourceCPU, "1").Request(corev1.ResourceMemory, "512Mi").Request("nvidia.com/gpu", "1").Limit("nvidia.com/gpu", "1").Obj()
+		if tasEnabled {
+			victim.Spec.Template.Annotations = map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}
+		}
+		util.MustCreate(ctx, k8sClient, victim)
+		origin := util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &origin)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), victim)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(victim.Spec.Suspend, true)).To(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// envtest has no Job controller or kubelet. Materialize the real admitted
+		// template, then hold its Pods Running until the controller requests suspension.
+		ginkgo.By("holding the original workers running")
+		pods := make([]*corev1.Pod, 0, 3)
+		ginkgo.DeferCleanup(func() {
+			for _, p := range pods {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, p, true)
+			}
+		})
+		for i := range 3 {
+			p := &corev1.Pod{ObjectMeta: *victim.Spec.Template.ObjectMeta.DeepCopy(), Spec: *victim.Spec.Template.Spec.DeepCopy()}
+			p.Name, p.Namespace = fmt.Sprintf("victim-%d", i), ns.Name
+			p.Spec.TerminationGracePeriodSeconds = new(int64(0))
+			p.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(victim, batchv1.SchemeGroupVersion.WithKind("Job"))}
+			util.MustCreate(ctx, k8sClient, p)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), p)).To(gomega.Succeed())
+				g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			node := nodes[i/2].Name
+			if tasEnabled {
+				node = p.Spec.NodeSelector[corev1.LabelHostname]
+			}
+			util.BindPodWithNode(ctx, k8sClient, node, p)
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, p)
+			pods = append(pods, p)
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), victim)).To(gomega.Succeed())
+			victim.Status.Active = 3
+			g.Expect(k8sClient.Status().Update(ctx, victim)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("requesting growth beyond capacity, leaving the original Pods running")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), victim)).To(gomega.Succeed())
+			victim.Spec.Parallelism = new(int32(5))
+			g.Expect(k8sClient.Update(ctx, victim)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		replacement := util.ExpectNewWorkloadSlice(ctx, k8sClient, &origin)
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, replacement)
+
+		ginkgo.By("submitting a higher-priority Job that requires preemption")
+		urgent := testingjob.MakeJob("urgent", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).
+			WorkloadPriorityClass(priority.Name).Parallelism(2).Completions(2).
+			Request(corev1.ResourceCPU, "1").Request(corev1.ResourceMemory, "512Mi").Request("nvidia.com/gpu", "1").Limit("nvidia.com/gpu", "1").Obj()
+		if tasEnabled {
+			urgent.Spec.Template.Annotations = map[string]string{kueue.PodSetUnconstrainedTopologyAnnotation: "true"}
+		}
+		util.MustCreate(ctx, k8sClient, urgent)
+		urgentWL := util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(urgent.Name, urgent.UID)}, urgent)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(workloadevict.IsEvicted(&origin)).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("suspending the victim before releasing capacity still occupied by its Pods")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), victim)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(urgentWL), urgentWL)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(victim.Spec.Suspend, false)).To(gomega.BeTrue(),
+				"origin finished=%t, urgent admitted=%t, active Pods=%d", workloadfinish.IsFinished(&origin), workload.IsAdmitted(urgentWL), victim.Status.Active)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.By("retaining the reservation while the suspended Job still has active Pods")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(workloadfinish.IsFinished(&origin)).To(gomega.BeFalse())
+			g.Expect(workload.HasQuotaReservation(&origin)).To(gomega.BeTrue())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(urgentWL), urgentWL)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(urgentWL)).To(gomega.BeFalse())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("simulating Pod termination after suspension and allowing the urgent job to start")
+		for _, p := range pods {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, p, true)
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), victim)).To(gomega.Succeed())
+			victim.Status.Active = 0
+			g.Expect(k8sClient.Status().Update(ctx, victim)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, urgentWL)
+	},
+	ginkgo.Entry("without TAS", false),
+	ginkgo.Entry("with TAS", true),
+)
+
 var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
@@ -5823,8 +5974,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByPreemption, "", lowPriorityClass.Name, 1)
 		util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, kueue.WorkloadEvictedByPreemption, "", highPriorityClass.Name, 0)
 
-		util.ExpectFinishedWorkloadsTotalMetric(clusterQueue, lowPriorityClass.Name, 1)
-		util.ExpectLQFinishedWorkloadsTotalMetric(localQueue, lowPriorityClass.Name, 1)
+		// Eviction clears admission before the obsolete slice is finished.
+		util.ExpectFinishedWorkloadsTotalMetric(clusterQueue, lowPriorityClass.Name, 0)
+		util.ExpectLQFinishedWorkloadsTotalMetric(localQueue, lowPriorityClass.Name, 0)
 		util.ExpectFinishedWorkloadsTotalMetric(clusterQueue, highPriorityClass.Name, 0)
 		util.ExpectLQFinishedWorkloadsTotalMetric(localQueue, highPriorityClass.Name, 0)
 	})
