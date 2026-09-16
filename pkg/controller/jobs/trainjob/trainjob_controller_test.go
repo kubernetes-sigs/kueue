@@ -503,6 +503,44 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantReturn: true,
 		},
+		"should report no change when the kueue RuntimePatch is already cleared": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
+		"should report no change when there is no kueue RuntimePatch": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("user-provided-1").Obj(),
+						).
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("user-provided-1").Obj(),
+						).
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
 	}
 
 	for name, tc := range cases {
@@ -510,10 +548,10 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			kTrainJob := (*TrainJob)(tc.trainJob)
 			ret := kTrainJob.RestorePodSetsInfo(t.Context(), []podset.PodSetInfo{})
 			if ret != tc.wantReturn {
-				t.Errorf("RunWithPodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
+				t.Errorf("RestorePodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
 			}
 			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob, tjobCmpOpts); diff != "" {
-				t.Errorf("RunWithPodSetsInfo() mismatch (-want,+got):\n%s", diff)
+				t.Errorf("RestorePodSetsInfo() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}
