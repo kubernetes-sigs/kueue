@@ -682,6 +682,14 @@ const (
 	// Enable cross-Workload topology spreading, limiting how many Workloads
 	// matching a label selector may be placed in a single topology domain.
 	TASTopologySpreading featuregate.Feature = "TASTopologySpreading"
+
+	// owner: @pajakd
+	//
+	// Allow a PodSet slice size that does not evenly divide the PodSet count.
+	// The trailing pods form one incomplete slice, which is placed in a single
+	// topology domain just like a full slice. Without this gate the trailing
+	// pods are dropped from the assignment.
+	TASPartialSlices featuregate.Feature = "TASPartialSlices"
 )
 
 func init() {
@@ -714,6 +722,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
 	TASTopologySpreading:                            {TopologyAwareScheduling},
+	TASPartialSlices:                                {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1057,6 +1066,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASTopologySpreading: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASPartialSlices: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
