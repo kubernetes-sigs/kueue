@@ -67,6 +67,13 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 			candidatePod: corev1.PodTemplateSpec{},
 			wantFeasible: map[string]bool{"node2": true},
 		},
+		// The simulator builds one profile, so a candidate naming a profile it does not
+		// build is judged by that profile rather than failing the whole check.
+		"another scheduler name does not change feasibility": {
+			nodes:        []*corev1.Node{node1, node2},
+			candidatePod: corev1.PodTemplateSpec{Spec: corev1.PodSpec{SchedulerName: "secondary-scheduler"}},
+			wantFeasible: map[string]bool{"node2": true},
+		},
 	}
 
 	for name, tc := range tests {
@@ -89,11 +96,16 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 				t.Fatalf("NewFeasibilityChecker failed: %v", err)
 			}
 
+			origSpec := *tc.candidatePod.Spec.DeepCopy()
 			results, err := checker.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 				PodTemplate: &tc.candidatePod,
 			}, &simulator.NodeExclusionStats{})
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes failed: %v", err)
+			}
+
+			if diff := cmp.Diff(origSpec, tc.candidatePod.Spec); diff != "" {
+				t.Errorf("PodTemplate.Spec was rewritten (-want,+got):\n%s", diff)
 			}
 
 			gotNames := make(map[string]bool)
