@@ -186,6 +186,8 @@ type LocalQueueResourceUsage struct {
 // +kubebuilder:printcolumn:name="ClusterQueue",JSONPath=".spec.clusterQueue",type=string,description="Backing ClusterQueue"
 // +kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
 // +kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet."
+// +kubebuilder:printcolumn:name="Active",JSONPath=".status.conditions[?(@.type=='Active')].status",type=string,description="Whether the LocalQueue is active",priority=1
+// +kubebuilder:printcolumn:name="Reason",JSONPath=".status.conditions[?(@.type=='Active')].reason",type=string,description="Reason for the Active condition",priority=1
 // +kubebuilder:resource:shortName={queue,queues,lq}
 
 // LocalQueue is the Schema for the localQueues API
