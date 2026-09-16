@@ -3516,59 +3516,73 @@ func TestElasticTopologyRegrowth(t *testing.T) {
 }
 
 func TestTopologyUngaterElasticSlice(t *testing.T) {
+	now := time.Now()
+	makeSlice := func(name string, count int32) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "ns").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+			PodSets(*utiltestingapi.MakePodSet("workers", int(count)).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				utiltestingapi.MakePodSetAssignment("workers").Count(count).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, count).Obj()).Obj()).Obj(),
+			).Obj(), now).AdmittedAt(true, now)
+	}
+
 	for name, tc := range map[string]struct {
 		deleteOrigin bool
 		deletePod    bool
 		podReference string
-		finished     bool
-		evicted      bool
-		admitted     bool
+		replacement  *kueue.Workload
 		wantUngated  bool
 	}{
-		"deleted Pod clears chain expectations":               {podReference: "replacement", admitted: true, wantUngated: true, deletePod: true},
-		"late pod references original slice":                  {podReference: "origin", admitted: true, wantUngated: true},
-		"original slice has been deleted":                     {deleteOrigin: true, podReference: "origin", admitted: true, wantUngated: true},
-		"pod references replacement but keeps chain identity": {podReference: "replacement", admitted: true, wantUngated: true},
-		"finished replacement cannot ungate":                  {podReference: "origin", admitted: true, finished: true},
-		"evicted replacement cannot ungate":                   {podReference: "origin", admitted: true, evicted: true},
-		"quota reservation without admission cannot ungate":   {podReference: "origin"},
+		"deleted Pod clears chain expectations": {
+			deletePod:    true,
+			podReference: "replacement",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"late pod references original slice": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"original slice has been deleted": {
+			deleteOrigin: true,
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"pod references replacement but keeps chain identity": {
+			podReference: "replacement",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"finished replacement cannot ungate": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Finished().Obj(),
+		},
+		"evicted replacement cannot ungate": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).EvictedAt(now).Obj(),
+		},
+		"quota reservation without admission cannot ungate": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).AdmittedAt(false, now).Obj(),
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			g := gomega.NewWithT(t)
-			now := time.Now()
-			makeSlice := func(name string, count int32) *kueue.Workload {
-				return utiltestingapi.MakeWorkload(name, "ns").
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
-					PodSets(*utiltestingapi.MakePodSet("workers", int(count)).Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-						utiltestingapi.MakePodSetAssignment("workers").Count(count).
-							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, count).Obj()).Obj()).Obj(),
-					).Obj(), now).AdmittedAt(true, now).Obj()
-			}
-			origin := makeSlice("origin", 1)
-			origin.Status.Conditions = append(origin.Status.Conditions, metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue})
-			replacement := makeSlice("replacement", 2)
-			replacement.CreationTimestamp = metav1.NewTime(now.Add(time.Second))
-			if !tc.admitted {
-				for i := range replacement.Status.Conditions {
-					if replacement.Status.Conditions[i].Type == kueue.WorkloadAdmitted {
-						replacement.Status.Conditions[i].Status = metav1.ConditionFalse
-					}
-				}
-			}
-			if tc.finished {
-				replacement.Status.Conditions = append(replacement.Status.Conditions, metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue})
-			}
-			if tc.evicted {
-				replacement.Status.Conditions = append(replacement.Status.Conditions, metav1.Condition{Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue})
-			}
+
+			// The finished origin and its replacement share the Pod event key.
+			origin := makeSlice("origin", 1).Finished().Obj()
+			replacement := tc.replacement.DeepCopy()
 			running := testingpod.MakePod("running", "ns").UID("running-uid").
 				Annotation(kueue.WorkloadAnnotation, "origin").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
 				Label(constants.PodSetLabel, "workers").NodeSelector(corev1.LabelHostname, "node").Obj()
+
 			builder := utiltesting.NewClientBuilder()
 			g.Expect(indexer.SetupIndexes(ctx, utiltesting.AsIndexer(builder))).To(gomega.Succeed())
 			builder.WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName)
@@ -3579,14 +3593,18 @@ func TestTopologyUngaterElasticSlice(t *testing.T) {
 			}
 			c := builder.Build()
 			r := newTopologyUngater(c, nil, nil)
+
 			// Admission is processed before the additional Pod exists.
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
+
 			late := testingpod.MakePod("late", "ns").UID("late-uid").
 				Annotation(kueue.WorkloadAnnotation, tc.podReference).Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
 				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Label(constants.PodSetLabel, "workers").TopologySchedulingGate().Obj()
 			g.Expect(c.Create(ctx, late)).To(gomega.Succeed())
+
+			// Reconcile the request produced by the real Pod event handler.
 			h := podHandler{expectationsStore: r.expectationsStore}
 			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			defer q.ShutDown()
@@ -3594,15 +3612,14 @@ func TestTopologyUngaterElasticSlice(t *testing.T) {
 			g.Eventually(q.Len, 5*time.Second, 10*time.Millisecond).Should(gomega.Equal(1))
 			req, shutdown := q.Get()
 			g.Expect(shutdown).To(gomega.BeFalse())
-			g.Expect(req.Name).To(gomega.Equal("origin"))
 			_, err = r.Reconcile(ctx, req)
 			q.Done(req)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
+
 			updated := &corev1.Pod{}
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(late), updated)).To(gomega.Succeed())
-			g.Expect(utilpod.HasGate(updated, kueue.TopologySchedulingGate)).To(gomega.Equal(!tc.wantUngated))
 			if tc.wantUngated {
-				g.Expect(updated.Spec.NodeSelector[corev1.LabelHostname]).To(gomega.Equal("node"))
+				// Expectations must remain pending until the update or deletion is observed.
 				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeFalse())
 				if tc.deletePod {
 					h.Delete(ctx, event.DeleteEvent{Object: updated}, q)
@@ -3612,6 +3629,12 @@ func TestTopologyUngaterElasticSlice(t *testing.T) {
 				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeTrue())
 				_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
 				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			g.Expect(req.Name).To(gomega.Equal("origin"))
+			g.Expect(utilpod.HasGate(updated, kueue.TopologySchedulingGate)).To(gomega.Equal(!tc.wantUngated))
+			if tc.wantUngated {
+				g.Expect(updated.Spec.NodeSelector[corev1.LabelHostname]).To(gomega.Equal("node"))
 			}
 		})
 	}
