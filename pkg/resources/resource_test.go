@@ -35,6 +35,9 @@ func TestToResourceListScalesBeforeNarrowing(t *testing.T) {
 	if q := got[corev1.ResourceCPU]; q.String() != "10P" {
 		t.Errorf("cpu = %s, want 10P", q.String())
 	}
+	if got := (FlavorResourceQuantities{}).ToResourceList(NewResourceFormatter()); got != nil {
+		t.Errorf("ToResourceList() of nothing = %v, want nil", got)
+	}
 }
 
 // The JSON shape is a lossy int64 projection kept for diagnostics.

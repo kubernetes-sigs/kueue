@@ -36,54 +36,127 @@ func bigAmount(t *testing.T, s string) Amount {
 	return fromBig(v)
 }
 
-func TestAmountArithmetic(t *testing.T) {
+func TestAmountAdd(t *testing.T) {
 	cases := map[string]struct {
-		got  Amount
+		a, b Amount
 		want string
+		// Whether the result is held in the int64 field, which it must be
+		// exactly when the value fits one.
+		wantInt64 bool
 	}{
-		"the zero value is zero":                      {got: Amount{}, want: "0"},
-		"MaxInt64 is an ordinary amount":              {got: NewAmount(math.MaxInt64), want: "9223372036854775807"},
-		"a sum past int64 is exact":                   {got: NewAmount(math.MaxInt64).AddInt64(7), want: "9223372036854775814"},
-		"a sum past int64 minus the first operand":    {got: NewAmount(math.MaxInt64).AddInt64(7).SubInt64(math.MaxInt64), want: "7"},
-		"a sum past int64 minus the second operand":   {got: NewAmount(math.MaxInt64).AddInt64(7).SubInt64(7), want: "9223372036854775807"},
-		"a difference past int64 is exact":            {got: NewAmount(math.MinInt64).SubInt64(7), want: "-9223372036854775815"},
-		"a difference past int64 plus the subtrahend": {got: NewAmount(math.MinInt64).SubInt64(7).AddInt64(7), want: "-9223372036854775808"},
-		"two large amounts add":                       {got: bigAmount(t, "9223372036854775814").AddInt64(1), want: "9223372036854775815"},
-		"a large amount minus a large one":            {got: bigAmount(t, "9223372036854775814").Sub(bigAmount(t, "9223372036854775814")), want: "0"},
-		"MinInt64 subtracted from MinInt64":           {got: NewAmount(math.MinInt64).SubInt64(math.MinInt64), want: "0"},
+		"two int64 values":                {a: NewAmount(2), b: NewAmount(3), want: "5", wantInt64: true},
+		"an int64 sum at the ceiling":     {a: NewAmount(math.MaxInt64 - 1), b: NewAmount(1), want: "9223372036854775807", wantInt64: true},
+		"an int64 sum past the ceiling":   {a: NewAmount(math.MaxInt64), b: NewAmount(1), want: "9223372036854775808"},
+		"an int64 sum at the floor":       {a: NewAmount(math.MinInt64 + 1), b: NewAmount(-1), want: "-9223372036854775808", wantInt64: true},
+		"an int64 sum past the floor":     {a: NewAmount(math.MinInt64), b: NewAmount(-1), want: "-9223372036854775809"},
+		"a large value and an int64":      {a: bigAmount(t, "9223372036854775808"), b: NewAmount(1), want: "9223372036854775809"},
+		"an int64 and a large value":      {a: NewAmount(1), b: bigAmount(t, "9223372036854775808"), want: "9223372036854775809"},
+		"two large values":                {a: bigAmount(t, "9223372036854775808"), b: bigAmount(t, "9223372036854775808"), want: "18446744073709551616"},
+		"a large value back into int64":   {a: bigAmount(t, "9223372036854775814"), b: NewAmount(-7), want: "9223372036854775807", wantInt64: true},
+		"two large values cancelling out": {a: bigAmount(t, "9223372036854775808"), b: bigAmount(t, "-9223372036854775808"), want: "0", wantInt64: true},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := tc.got.String(); got != tc.want {
-				t.Errorf("= %s, want %s", got, tc.want)
+			got := tc.a.Add(tc.b)
+			if got.String() != tc.want {
+				t.Errorf("Add() = %s, want %s", got, tc.want)
+			}
+			if held := got.large == nil; held != tc.wantInt64 {
+				t.Errorf("Add() = %s held in int64: %v, want %v", got, held, tc.wantInt64)
+			}
+			if back := got.Sub(tc.b); !back.Equal(tc.a) {
+				t.Errorf("Add() then Sub() = %s, want %s", back, tc.a)
 			}
 		})
 	}
 }
 
-func TestAmountDemotes(t *testing.T) {
-	roundTrip := NewAmount(math.MaxInt64).AddInt64(7).SubInt64(7)
-	direct := NewAmount(math.MaxInt64)
-	if !roundTrip.Equal(direct) {
-		t.Errorf("%s != %s", roundTrip, direct)
+func TestAmountSub(t *testing.T) {
+	cases := map[string]struct {
+		a, b      Amount
+		want      string
+		wantInt64 bool
+	}{
+		"two int64 values":                     {a: NewAmount(5), b: NewAmount(3), want: "2", wantInt64: true},
+		"an int64 difference past the floor":   {a: NewAmount(math.MinInt64), b: NewAmount(1), want: "-9223372036854775809"},
+		"an int64 difference past the ceiling": {a: NewAmount(math.MaxInt64), b: NewAmount(-1), want: "9223372036854775808"},
+		"MinInt64 subtracted from zero":        {a: NewAmount(0), b: NewAmount(math.MinInt64), want: "9223372036854775808"},
+		"MinInt64 subtracted from MinInt64":    {a: NewAmount(math.MinInt64), b: NewAmount(math.MinInt64), want: "0", wantInt64: true},
+		"a large value back into int64":        {a: bigAmount(t, "9223372036854775808"), b: NewAmount(1), want: "9223372036854775807", wantInt64: true},
+		"a large value from an int64":          {a: NewAmount(0), b: bigAmount(t, "9223372036854775808"), want: "-9223372036854775808", wantInt64: true},
+		"two large values":                     {a: bigAmount(t, "18446744073709551616"), b: bigAmount(t, "9223372036854775808"), want: "9223372036854775808"},
+		"two equal large values":               {a: bigAmount(t, "9223372036854775814"), b: bigAmount(t, "9223372036854775814"), want: "0", wantInt64: true},
 	}
-	if _, ok := roundTrip.asInt64(); !ok {
-		t.Error("asInt64() reports it does not fit an int64")
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.a.Sub(tc.b)
+			if got.String() != tc.want {
+				t.Errorf("Sub() = %s, want %s", got, tc.want)
+			}
+			if held := got.large == nil; held != tc.wantInt64 {
+				t.Errorf("Sub() = %s held in int64: %v, want %v", got, held, tc.wantInt64)
+			}
+			if back := got.Add(tc.b); !back.Equal(tc.a) {
+				t.Errorf("Sub() then Add() = %s, want %s", back, tc.a)
+			}
+		})
 	}
 }
 
-func TestAmountEqualIsNumeric(t *testing.T) {
-	a := bigAmount(t, "9223372036854775814")
-	b := bigAmount(t, "9223372036854775814")
-	if a.large == b.large {
-		t.Fatal("the two amounts share a pointer, so this proves nothing")
+func TestAmountCmp(t *testing.T) {
+	large := bigAmount(t, "9223372036854775808")
+	negative := bigAmount(t, "-9223372036854775809")
+	cases := map[string]struct {
+		a, b Amount
+		want int
+	}{
+		"a smaller int64":                            {a: NewAmount(1), b: NewAmount(2), want: -1},
+		"an equal int64":                             {a: NewAmount(2), b: NewAmount(2), want: 0},
+		"a greater int64":                            {a: NewAmount(3), b: NewAmount(2), want: 1},
+		"a large value against an int64":             {a: large, b: NewAmount(math.MaxInt64), want: 1},
+		"a large negative value against an int64":    {a: negative, b: NewAmount(math.MinInt64), want: -1},
+		"an int64 against a large value":             {a: NewAmount(math.MaxInt64), b: large, want: -1},
+		"an int64 against a large negative value":    {a: NewAmount(math.MinInt64), b: negative, want: 1},
+		"a smaller large value":                      {a: large, b: bigAmount(t, "9223372036854775809"), want: -1},
+		"an equal large value in another pointer":    {a: large, b: bigAmount(t, "9223372036854775808"), want: 0},
+		"a large value against a large negative one": {a: large, b: negative, want: 1},
 	}
-	if !a.Equal(b) {
-		t.Error("Equal() = false for equal values")
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.a.Cmp(tc.b); got != tc.want {
+				t.Errorf("Cmp() = %d, want %d", got, tc.want)
+			}
+			if got := tc.b.Cmp(tc.a); got != -tc.want {
+				t.Errorf("Cmp() the other way = %d, want %d", got, -tc.want)
+			}
+			if got := tc.a.Equal(tc.b); got != (tc.want == 0) {
+				t.Errorf("Equal() = %v, want %v", got, tc.want == 0)
+			}
+		})
 	}
-	if a.Cmp(b) != 0 {
-		t.Errorf("Cmp() = %d, want 0", a.Cmp(b))
+}
+
+func TestAmountSign(t *testing.T) {
+	cases := map[string]struct {
+		a    Amount
+		want int
+	}{
+		"a negative int64":       {a: NewAmount(-1), want: -1},
+		"zero":                   {a: Amount{}, want: 0},
+		"a positive int64":       {a: NewAmount(1), want: 1},
+		"a large value":          {a: bigAmount(t, "9223372036854775808"), want: 1},
+		"a large negative value": {a: bigAmount(t, "-9223372036854775809"), want: -1},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.a.Sign(); got != tc.want {
+				t.Errorf("Sign() = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -204,24 +277,25 @@ func TestAmountAsApproximateFloat64(t *testing.T) {
 	}
 }
 
-func BenchmarkAmountAddSmall(b *testing.B) {
-	a := NewAmount(1 << 20)
-	for b.Loop() {
-		a = a.AddInt64(1)
-		a = a.SubInt64(1)
-	}
-}
-
 func TestPerThousandOf(t *testing.T) {
 	const twoTo53 = int64(1) << 53
 	cases := map[string]struct {
 		a, b Amount
 		want float64
 	}{
-		"a small ratio":      {a: NewAmount(1_000), b: NewAmount(1_000_000), want: 1},
-		"a zero denominator": {a: NewAmount(5), b: Amount{}, want: 0},
+		"a small ratio":        {a: NewAmount(1_000), b: NewAmount(1_000_000), want: 1},
+		"a negative numerator": {a: NewAmount(-1_000), b: NewAmount(1_000), want: -1000},
+		"a zero denominator":   {a: NewAmount(5), b: Amount{}, want: 0},
+		// The int64 division applies while both operands stay exact in a float64.
+		"the numerator bound of the int64 division":   {a: NewAmount(maxExactFloat64Int / 1000), b: NewAmount(1), want: 9007199254740000},
+		"one past the numerator bound":                {a: NewAmount(maxExactFloat64Int/1000 + 1), b: NewAmount(1), want: 9007199254741000},
+		"the denominator bound of the int64 division": {a: NewAmount(1), b: NewAmount(twoTo53), want: 1000.0 / (1 << 53)},
+		"one past the denominator bound":              {a: NewAmount(1), b: NewAmount(twoTo53 + 1), want: 1000.0 / (1<<53 + 1)},
 		// Dividing as float64 loses the difference above 2^53 and answers 1000.
 		"exact above float64 integers": {a: NewAmount(twoTo53 + 1), b: NewAmount(twoTo53), want: math.Nextafter(1000, 2000)},
+		"a large numerator":            {a: bigAmount(t, "9223372036854775808"), b: NewAmount(1), want: 9223372036854775808000},
+		"a large denominator":          {a: NewAmount(1_000), b: cpuAmount("1E"), want: 1e-15},
+		"two large values":             {a: cpuAmount("1E"), b: cpuAmount("1E"), want: 1000},
 		"a ratio past float64":         {a: bigAmount(t, "1"+strings.Repeat("0", 400)), b: NewAmount(1), want: math.Inf(1)},
 	}
 
@@ -231,23 +305,6 @@ func TestPerThousandOf(t *testing.T) {
 				t.Errorf("PerThousandOf() = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-var benchRatio float64
-
-func BenchmarkPerThousandOfSmall(b *testing.B) {
-	borrowed, lendable := NewAmount(1_000), NewAmount(1_000_000)
-	for b.Loop() {
-		benchRatio = borrowed.PerThousandOf(lendable)
-	}
-}
-
-func BenchmarkPerThousandOfLarge(b *testing.B) {
-	borrowed := NewAmount(1_000)
-	lendable := NewAmount(math.MaxInt64).AddInt64(1)
-	for b.Loop() {
-		benchRatio = borrowed.PerThousandOf(lendable)
 	}
 }
 

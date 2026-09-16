@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"cmp"
 	"math"
 	"math/big"
 	"strconv"
@@ -177,14 +178,7 @@ func subInt64(x, y int64) (int64, bool) {
 // Cmp returns -1 / 0 / +1 like bytes.Compare.
 func (a Amount) Cmp(b Amount) int {
 	if a.large == nil && b.large == nil {
-		switch {
-		case a.small < b.small:
-			return -1
-		case a.small > b.small:
-			return 1
-		default:
-			return 0
-		}
+		return cmp.Compare(a.small, b.small)
 	}
 	// Only a value outside the int64 range is held in large, so against one
 	// held in small its sign is already the answer.
@@ -208,14 +202,7 @@ func (a Amount) Sign() int {
 	if a.large != nil {
 		return a.large.Sign()
 	}
-	switch {
-	case a.small < 0:
-		return -1
-	case a.small > 0:
-		return 1
-	default:
-		return 0
-	}
+	return cmp.Compare(a.small, 0)
 }
 
 // asInt64 returns a as an int64, and false when it does not fit one.
