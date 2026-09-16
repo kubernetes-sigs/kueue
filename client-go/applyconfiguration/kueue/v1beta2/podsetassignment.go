@@ -40,7 +40,6 @@ type PodSetAssignmentApplyConfiguration struct {
 	// This field will not change in case of quota reclaim.
 	// Value could be missing for Workloads created before this field was added,
 	// in that case spec.podSets[*].count value will be used.
-	//
 	Count *int32 `json:"count,omitempty"`
 	// topologyAssignment indicates the topology assignment divided into
 	// topology domains corresponding to the lowest level of the topology.
@@ -153,7 +152,6 @@ type PodSetAssignmentApplyConfiguration struct {
 	// roots: [1, 2]
 	// podCounts:
 	// universal: 1
-	//
 	TopologyAssignment *TopologyAssignmentApplyConfiguration `json:"topologyAssignment,omitempty"`
 	// delayedTopologyRequest indicates the topology assignment is delayed.
 	// Topology assignment might be delayed in case there is ProvisioningRequest
@@ -161,8 +159,13 @@ type PodSetAssignmentApplyConfiguration struct {
 	// Kueue schedules the second pass of scheduling for each workload with at
 	// least one PodSet which has delayedTopologyRequest=true and without
 	// topologyAssignment.
-	//
 	DelayedTopologyRequest *kueuev1beta2.DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
+	// reclaimTargetCount, when set and lower than count, requests the elastic job to scale this
+	// PodSet down to reclaimTargetCount so partial preemption can reclaim its quota. Kueue owns
+	// this field; the job runtime reads it and sheds pods down to reclaimTargetCount. Kueue clears
+	// this field once the PodSet's desired spec count has converged to reclaimTargetCount or below.
+	// This is an alpha field and requires enabling the PartialPreemption feature gate.
+	ReclaimTargetCount *int32 `json:"reclaimTargetCount,omitempty"`
 }
 
 // PodSetAssignmentApplyConfiguration constructs a declarative configuration of the PodSetAssignment type for use with
@@ -222,5 +225,13 @@ func (b *PodSetAssignmentApplyConfiguration) WithTopologyAssignment(value *Topol
 // If called multiple times, the DelayedTopologyRequest field is set to the value of the last call.
 func (b *PodSetAssignmentApplyConfiguration) WithDelayedTopologyRequest(value kueuev1beta2.DelayedTopologyRequestState) *PodSetAssignmentApplyConfiguration {
 	b.DelayedTopologyRequest = &value
+	return b
+}
+
+// WithReclaimTargetCount sets the ReclaimTargetCount field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ReclaimTargetCount field is set to the value of the last call.
+func (b *PodSetAssignmentApplyConfiguration) WithReclaimTargetCount(value int32) *PodSetAssignmentApplyConfiguration {
+	b.ReclaimTargetCount = &value
 	return b
 }

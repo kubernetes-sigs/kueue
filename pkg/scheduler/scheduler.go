@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -761,8 +760,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
 		// To get the projected cluster state after other preemptions complete,
 		// we simulate the removal of their victims.
-		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
-		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+		revertRemoval = snapshot.SimulateWorkloadReplacement(workloadReplacements(preemptedWorkloads.Targets()))
 	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
@@ -809,9 +807,18 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
-	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
-	defer revertUsage()
+	revert := snapshot.SimulateWorkloadReplacement(workloadReplacements(merged.Targets()))
+	defer revert()
 	return cq.Fits(*usage)
+}
+
+func workloadReplacements(targets []*preemption.Target) []schdcache.WorkloadReplacement {
+	replacements := make([]schdcache.WorkloadReplacement, 0, len(targets))
+	for _, target := range targets {
+		full, reduced, _ := target.WorkloadInfoForReplacement()
+		replacements = append(replacements, schdcache.WorkloadReplacement{Full: full, Reduced: reduced})
+	}
+	return replacements
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
@@ -1029,11 +1036,15 @@ func updateAssignmentForTAS(
 		log = log.WithValues("workload", klog.KRef(wl.Obj.Namespace, wl.Obj.Name))
 
 		if len(targets) > 0 {
-			var targetWorkloads []*workload.Info
+			replacements := workloadReplacements(targets)
+			targetWorkloads := make([]*workload.Info, 0, len(targets))
 			for _, target := range targets {
-				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
+				_, _, partial := target.WorkloadInfoForReplacement()
+				if !partial {
+					targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
+				}
 			}
-			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadReplacement(replacements)
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
 			revertPods := simulatePodRemoval(ctx, log, snapshot, targetWorkloads)

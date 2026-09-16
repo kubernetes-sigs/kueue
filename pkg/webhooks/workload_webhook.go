@@ -123,15 +123,17 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	}
 
 	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
-	// so both checks below are skipped for them.
+	// so both checks below are skipped for them. Partial preemption also allows one minCount
+	// PodSet on an opted-in elastic Workload.
 	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
 		workloadslicing.Enabled(obj)
+	partialPreemption := workload.IsPartialPreemptionJob(obj)
 
 	if variableCountPodSets > 1 && !elasticPartialScaleUp {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && !partialPreemption && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
@@ -376,7 +378,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
-	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj, oldObj, field.NewPath("status", "admission"))...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
 	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 
@@ -388,8 +390,10 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 }
 
 // validateAdmissionUpdate validates that admission can be set or unset, but the
-// fields within can't change.
-func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
+// fields within can't change except for fields owned by enabled Kueue features.
+func validateAdmissionUpdate(newObj, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
+	new := newObj.Status.Admission
+	old := oldObj.Status.Admission
 	if old == nil || new == nil {
 		return nil
 	}
@@ -401,6 +405,29 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 		for i := range new.PodSetAssignments {
 			old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
+		}
+	}
+	if features.Enabled(features.PartialPreemption) && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		// Kueue owns reclaimTargetCount and updates it on an already-admitted Workload to request (or
+		// clear) a partial-preemption scale-down; allow it to change. Once the spec count reaches the
+		// old target, also allow Kueue to converge the admitted count and resource usage to that count.
+		specCounts := workload.ExtractPodSetCountsFromWorkload(newObj)
+		for i := range new.PodSetAssignments {
+			newPSA := &new.PodSetAssignments[i]
+			oldPSA := &old.PodSetAssignments[i]
+			specCount, found := specCounts[newPSA.Name]
+			targetCompleted := found &&
+				oldPSA.Name == newPSA.Name &&
+				oldPSA.ReclaimTargetCount != nil &&
+				newPSA.ReclaimTargetCount == nil &&
+				specCount <= *oldPSA.ReclaimTargetCount &&
+				ptr.Deref(newPSA.Count, specCount) == specCount &&
+				ptr.Deref(oldPSA.Count, specCount) >= specCount
+			if targetCompleted {
+				oldPSA.Count = newPSA.Count
+				oldPSA.ResourceUsage = newPSA.ResourceUsage
+			}
+			oldPSA.ReclaimTargetCount = newPSA.ReclaimTargetCount
 		}
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)

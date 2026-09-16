@@ -4455,3 +4455,94 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 	})
 })
+
+var _ = ginkgo.Describe("Scheduler with partial preemption", func() {
+	var (
+		ns           *corev1.Namespace
+		flavor       *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PartialPreemption, true)
+
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "partial-preemption-")
+		flavor = utiltestingapi.MakeResourceFlavor("partial-preemption-flavor").Obj()
+		util.MustCreate(ctx, k8sClient, flavor)
+		clusterQueue = utiltestingapi.MakeClusterQueue("partial-preemption-cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+				Resource(corev1.ResourceCPU, "10").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+		localQueue = utiltestingapi.MakeLocalQueue("partial-preemption-lq", ns.Name).
+			ClusterQueue(clusterQueue.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+	})
+
+	ginkgo.It("requests a partial scale-down and admits the preemptor after the victim converges", func() {
+		victim := utiltestingapi.MakeWorkload("victim", ns.Name).
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Priority(0).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodSets(*utiltestingapi.MakePodSet("main", 6).
+				SetMinimumCount(2).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+		blocker := utiltestingapi.MakeWorkload("blocker", ns.Name).
+			Priority(20).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "4").
+			Obj()
+		preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
+			Priority(10).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "4").
+			Obj()
+
+		util.MustCreate(ctx, k8sClient, victim)
+		util.MustCreate(ctx, k8sClient, blocker)
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, victim, blocker)
+
+		util.MustCreate(ctx, k8sClient, preemptor)
+		gomega.Eventually(func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), got)).To(gomega.Succeed())
+			g.Expect(got.Status.Admission).NotTo(gomega.BeNil())
+			g.Expect(got.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+			g.Expect(got.Status.Admission.PodSetAssignments[0].ReclaimTargetCount).To(gomega.Equal(ptr.To[int32](2)))
+			g.Expect(ptr.Deref(got.Status.Admission.PodSetAssignments[0].Count, -1)).To(gomega.Equal(int32(6)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, preemptor)
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), got)).To(gomega.Succeed())
+			got.Spec.PodSets[0].Count = 2
+			g.Expect(k8sClient.Update(ctx, got)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			got := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), got)).To(gomega.Succeed())
+			g.Expect(got.Status.Admission).NotTo(gomega.BeNil())
+			g.Expect(ptr.Deref(got.Status.Admission.PodSetAssignments[0].Count, -1)).To(gomega.Equal(int32(2)))
+			g.Expect(got.Status.Admission.PodSetAssignments[0].ReclaimTargetCount).To(gomega.BeNil())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
+	})
+})

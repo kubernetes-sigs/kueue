@@ -1767,6 +1767,59 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	}
 }
 
+func TestSimulateWorkloadRemovalWithPartialPreemption(t *testing.T) {
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	full := workload.NewInfo(logr.Discard(), utiltestingapi.MakeWorkload("victim", "").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "default", "6").
+				Count(6).Obj()).Obj(), time.Now()).Obj())
+	full.ClusterQueue = "cq"
+	reduced := workload.NewInfo(logr.Discard(), full.Obj.DeepCopy())
+	reduced.ClusterQueue = "cq"
+	reduced.TotalRequests[0] = *full.TotalRequests[0].ScaledTo(2)
+
+	cohort := &CohortSnapshot{
+		Name:         "cohort",
+		ResourceNode: resourceNode{Usage: resources.FlavorResourceQuantities{fr: resources.NewAmount(6_000)}},
+		Cohort:       hierarchy.NewCohort[*ClusterQueueSnapshot, *CohortSnapshot](),
+	}
+	cq := &ClusterQueueSnapshot{
+		Name:         "cq",
+		Workloads:    map[workload.Reference]*workload.Info{workload.Key(full.Obj): full},
+		ResourceNode: resourceNode{Usage: resources.FlavorResourceQuantities{fr: resources.NewAmount(6_000)}},
+	}
+	manager := hierarchy.NewManagerForTest(
+		map[kueue.CohortReference]*CohortSnapshot{"cohort": cohort},
+		map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{"cq": cq},
+	)
+	manager.UpdateClusterQueueEdge("cq", "cohort")
+	snapshot := &Snapshot{Manager: manager}
+
+	revert := snapshot.SimulateWorkloadReplacement([]WorkloadReplacement{{Full: full, Reduced: reduced}})
+	if got := cq.ResourceNode.Usage[fr]; got.CmpInt64(2_000) != 0 {
+		t.Errorf("ClusterQueue usage after replacement = %d, want 2000", got)
+	}
+	if got := cohort.ResourceNode.Usage[fr]; got.CmpInt64(2_000) != 0 {
+		t.Errorf("Cohort usage after replacement = %d, want 2000", got)
+	}
+	if got := cq.Workloads[workload.Key(full.Obj)]; got != reduced {
+		t.Error("snapshot workload was not replaced with reduced info")
+	}
+
+	revert()
+	if got := cq.ResourceNode.Usage[fr]; got.CmpInt64(6_000) != 0 {
+		t.Errorf("ClusterQueue usage after revert = %d, want 6000", got)
+	}
+	if got := cohort.ResourceNode.Usage[fr]; got.CmpInt64(6_000) != 0 {
+		t.Errorf("Cohort usage after revert = %d, want 6000", got)
+	}
+	if got := cq.Workloads[workload.Key(full.Obj)]; got != full {
+		t.Error("snapshot workload was not restored to full info")
+	}
+}
+
 func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{

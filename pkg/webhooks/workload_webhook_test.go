@@ -29,6 +29,7 @@ import (
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -704,6 +705,18 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(specPath.Child("podSets"), 1, ""),
 			}.ToAggregate(),
+		},
+		"partial preemption and elastic job can be used together": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.PartialPreemption:            true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(constants.PartialPreemptionAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
+				Obj(),
+			wantErr: nil,
 		},
 		"elastic partial scale-up first-create shape (one minCount podSet) is accepted": {
 			featureGates: map[featuregate.Feature]bool{
@@ -1560,6 +1573,147 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantCleared)
 				}
+			}
+		})
+	}
+}
+
+// TestValidateWorkloadUpdatePartialPreemptionTargetCount verifies that Kueue may set/change the
+// admission targetCount (the partial-preemption scale-down request) on an already-admitted Workload
+// only when the PartialPreemption feature gate is enabled; otherwise it stays immutable.
+func TestValidateWorkloadUpdatePartialPreemptionTargetCount(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	admittedWLMinCount := func(specCount int, admittedCount, minCount int32) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			PodSets(*utiltestingapi.MakePodSet("main", specCount).
+				SetMinimumCount(minCount).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(admittedCount).
+						Obj()).
+					Obj(),
+				now,
+			).
+			Obj()
+	}
+	withTargetCount := func(wl *kueue.Workload, tc int32) *kueue.Workload {
+		out := wl.DeepCopy()
+		out.Status.Admission.PodSetAssignments[0].ReclaimTargetCount = new(tc)
+		return out
+	}
+	cases := map[string]struct {
+		gate    bool
+		wantErr bool
+	}{
+		"gate on: setting targetCount is allowed":               {gate: true, wantErr: false},
+		"gate off: setting targetCount is rejected (immutable)": {gate: false, wantErr: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
+
+			before := admittedWLMinCount(5, 5, 1)
+			after := withTargetCount(before, 1)
+
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdatePartialPreemptionConvergence(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	makeBefore := func() *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			PodSets(*utiltestingapi.MakePodSet("main", 6).
+				SetMinimumCount(2).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "6").
+						Count(6).
+						Obj()).
+					Obj(),
+				now,
+			).
+			Obj()
+		wl.Status.Admission.PodSetAssignments[0].ReclaimTargetCount = ptr.To[int32](2)
+		return wl
+	}
+	converged := func(before *kueue.Workload) *kueue.Workload {
+		after := before.DeepCopy()
+		after.Spec.PodSets[0].Count = 2
+		after.Status.Admission.PodSetAssignments[0].Count = ptr.To[int32](2)
+		after.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = resource.MustParse("2")
+		after.Status.Admission.PodSetAssignments[0].ReclaimTargetCount = nil
+		return after
+	}
+
+	cases := map[string]struct {
+		gate    bool
+		mutate  func(*kueue.Workload)
+		wantErr bool
+	}{
+		"completed target is allowed": {
+			gate: true,
+		},
+		"completed target is rejected with the gate off": {
+			gate:    false,
+			wantErr: true,
+		},
+		"admission cannot converge before spec reaches the target": {
+			gate: true,
+			mutate: func(wl *kueue.Workload) {
+				wl.Spec.PodSets[0].Count = 3
+				wl.Status.Admission.PodSetAssignments[0].Count = ptr.To[int32](3)
+				wl.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = resource.MustParse("3")
+			},
+			wantErr: true,
+		},
+		"admission count must match the converged spec count": {
+			gate: true,
+			mutate: func(wl *kueue.Workload) {
+				wl.Status.Admission.PodSetAssignments[0].Count = ptr.To[int32](1)
+				wl.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = resource.MustParse("1")
+			},
+			wantErr: true,
+		},
+		"admission cannot converge while retaining the target": {
+			gate: true,
+			mutate: func(wl *kueue.Workload) {
+				wl.Status.Admission.PodSetAssignments[0].ReclaimTargetCount = ptr.To[int32](2)
+			},
+			wantErr: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
+
+			before := makeBefore()
+			after := converged(before)
+			if tc.mutate != nil {
+				tc.mutate(after)
+			}
+
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
 			}
 		})
 	}

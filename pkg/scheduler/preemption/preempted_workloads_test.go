@@ -32,7 +32,7 @@ func TestWorkloadsToRemove(t *testing.T) {
 	originalKey := workload.Key(original.Obj)
 	additionalKey := workload.Key(additional.Obj)
 
-	preempted := PreemptedWorkloads{originalKey: original}
+	preempted := PreemptedWorkloads{originalKey: &Target{WorkloadInfo: original}}
 	got := preempted.MergeWithTargets([]*Target{
 		{WorkloadInfo: replacement},
 		{WorkloadInfo: additional},
@@ -43,15 +43,15 @@ func TestWorkloadsToRemove(t *testing.T) {
 	}
 	gotByKey := make(PreemptedWorkloads, len(got))
 	for _, info := range got {
-		gotByKey[workload.Key(info.Obj)] = info
+		gotByKey[workload.Key(info.Obj)] = &Target{WorkloadInfo: info}
 	}
-	if gotByKey[originalKey] != replacement {
+	if gotByKey[originalKey].WorkloadInfo != replacement {
 		t.Errorf("duplicate target was not deduplicated with the new target value")
 	}
-	if gotByKey[additionalKey] != additional {
+	if gotByKey[additionalKey].WorkloadInfo != additional {
 		t.Errorf("new target was not included")
 	}
-	if len(preempted) != 1 || preempted[originalKey] != original {
+	if len(preempted) != 1 || preempted[originalKey].WorkloadInfo != original {
 		t.Errorf("WorkloadsToRemove() mutated receiver: %#v", preempted)
 	}
 }

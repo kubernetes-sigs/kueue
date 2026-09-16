@@ -1744,9 +1744,11 @@ func IsElasticWorkload(wl *kueue.Workload) bool {
 }
 
 // MinCountsUsable reports whether PodSet.MinCount is honored for the given Workload, i.e. whether
-// the workload may be partially admitted. MinCount is populated by two independent mechanisms, each
-// with its own feature gate: PartialAdmission (classic, e.g. batch/Job's job-min-parallelism) and
-// ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp (elastic partial scale-up).
+// the workload may be partially admitted. MinCount is populated by three independent mechanisms,
+// each with its own feature gate: PartialAdmission (classic, e.g. batch/Job's
+// job-min-parallelism), ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp (elastic partial
+// scale-up), and PartialPreemption for elastic workloads that explicitly opt in to scale-down
+// preemption.
 //
 // Both the scheduler and the job reconciler must agree on this predicate: the reconciler clears
 // MinCounts it reports as unusable, so a looser check in the scheduler would admit on values the
@@ -1758,7 +1760,8 @@ func IsElasticWorkload(wl *kueue.Workload) bool {
 // "atomic" workload reaches the scheduler with no MinCount to act on.
 func MinCountsUsable(wl *kueue.Workload) bool {
 	return features.Enabled(features.PartialAdmission) ||
-		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && IsElasticWorkload(wl))
+		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && IsElasticWorkload(wl)) ||
+		IsPartialPreemptionJob(wl)
 }
 
 // UnadmittedWorkloadReasonWithFallback returns the granularReason if the UnadmittedWorkloadsObservability
