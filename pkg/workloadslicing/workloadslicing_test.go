@@ -1540,34 +1540,44 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 }
 
 func TestEnsureWorkloadSlicesEvictedOriginWithReservedReplacement(t *testing.T) {
-	for name, admitted := range map[string]bool{"waiting for admission checks": false, "replacement admitted": true} {
+	for name, admitted := range map[string]bool{
+		"waiting for admission checks": false,
+		"replacement admitted":         true,
+	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			now := time.Now()
+
+			// The origin still reserves quota while eviction is pending.
 			origin := utiltestingapi.MakeWorkload("origin", testJobObject.Namespace).
 				OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).Creation(now.Add(-time.Minute)).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
 				SimpleReserveQuota("cq", "default", now).AdmittedAt(true, now).EvictedAt(now).Obj()
+
 			replacement := utiltestingapi.MakeWorkload("replacement", testJobObject.Namespace).
 				OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).Creation(now).
 				Annotation(WorkloadSliceReplacementFor, string(workload.Key(origin))).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
 				SimpleReserveQuota("cq", "default", now).AdmittedAt(admitted, now).Obj()
+
 			c := testWorkloadClientBuilder().WithObjects(origin, replacement).
 				WithStatusSubresource(&kueue.Workload{}).Build()
+
 			selected, compatible, err := EnsureWorkloadSlices(ctx, c, testingclock.NewFakeClock(now), replacement.Spec.PodSets, testJobObject, testJobGVK)
 			if err != nil || !compatible || selected == nil {
 				t.Fatalf("EnsureWorkloadSlices() = (%v, %v, %v)", selected, compatible, err)
 			}
+			if err := c.Get(ctx, client.ObjectKeyFromObject(origin), origin); err != nil {
+				t.Fatal(err)
+			}
+
+			// Admission determines whether the replacement can take over.
 			wantName := origin.Name
 			if admitted {
 				wantName = replacement.Name
 			}
 			if selected.Name != wantName {
 				t.Errorf("selected %q, want %q", selected.Name, wantName)
-			}
-			if err := c.Get(ctx, client.ObjectKeyFromObject(origin), origin); err != nil {
-				t.Fatal(err)
 			}
 			if workloadfinish.IsFinished(origin) != admitted {
 				t.Errorf("origin finished = %v, want %v", workloadfinish.IsFinished(origin), admitted)
