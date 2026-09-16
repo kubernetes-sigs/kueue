@@ -143,7 +143,7 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			Count:    effectiveWorkerCount(wgs),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
+			topologyRequest, err := buildWorkerTopologyRequest(wgs)
 			if err != nil {
 				return nil, err
 			}
@@ -163,6 +163,33 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	}
 
 	return podSets, nil
+}
+
+func buildWorkerTopologyRequest(wgs *rayv1.WorkerGroupSpec) (*kueue.PodSetTopologyRequest, error) {
+	podIndexLabel, subGroupIndexLabel := workerTopologyIndexLabels(wgs.Replicas, wgs.NumOfHosts)
+	return jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).
+		SubGroupCount(wgs.Replicas).
+		PodIndexLabel(podIndexLabel).
+		SubGroupIndexLabel(subGroupIndexLabel).
+		Build()
+}
+
+func workerTopologyIndexLabels(replicas *int32, numOfHosts int32) (podIndexLabel, subGroupIndexLabel *string) {
+	if numOfHosts > 1 {
+		// For multi-host replicas, kuberay sets both a host index and
+		// replica index label, where the replica index denotes a
+		// subgroup that should schedule together (e.g. on a single TPU
+		// slice).
+		podIndexLabel = new(rayutils.RayHostIndexKey)
+		if ptr.Deref(replicas, 1) > 1 {
+			subGroupIndexLabel = new(rayutils.RayWorkerReplicaIndexKey)
+		}
+	} else if ptr.Deref(replicas, 1) > 1 {
+		// In the more common single-host case, kuberay only sets a
+		// replica index.
+		podIndexLabel = new(rayutils.RayWorkerReplicaIndexKey)
+	}
+	return podIndexLabel, subGroupIndexLabel
 }
 
 func accountForRedisCleanupInHeadPodSet(headPodSet *kueue.PodSet) error {
@@ -302,6 +329,13 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 							"oldCount", podSet.Count,
 							"newCount", count)
 						podSet.Count = count
+						if features.Enabled(features.TopologyAwareScheduling) {
+							topologyRequest, err := buildWorkerTopologyRequest(wgs)
+							if err != nil {
+								return nil, err
+							}
+							podSet.TopologyRequest = topologyRequest
+						}
 					}
 				}
 			}
@@ -505,6 +539,19 @@ func isManagedByMultiKueue(object client.Object) bool {
 	return ok && ptr.Deref(rj.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 }
 
+func getRayClusterSpec(object client.Object) *rayv1.RayClusterSpec {
+	switch job := object.(type) {
+	case *rayv1.RayCluster:
+		return &job.Spec
+	case *rayv1.RayJob:
+		return job.Spec.RayClusterSpec
+	case *rayv1.RayService:
+		return &job.Spec.RayClusterSpec
+	default:
+		return nil
+	}
+}
+
 // applyRuntimeCountsAnnotation overrides worker-group PodSet counts from the
 // RayClusterPodsetReplicaSizesAnnotation, when present. It is the
 // manager-side fallback of UpdatePodSets for jobs whose runtime child
@@ -523,12 +570,34 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 			"rayObject", object.GetName(), "error", err.Error())
 		return podSets
 	}
+	var numOfHostsByGroup map[kueue.PodSetReference]int32
+	if spec := getRayClusterSpec(object); spec != nil {
+		numOfHostsByGroup = make(map[kueue.PodSetReference]int32, len(spec.WorkerGroupSpecs))
+		for i := range spec.WorkerGroupSpecs {
+			wgs := &spec.WorkerGroupSpecs[i]
+			numOfHostsByGroup[kueue.NewPodSetReference(wgs.GroupName)] = wgs.NumOfHosts
+		}
+	}
 	for i := range podSets {
 		if count, ok := counts[podSets[i].Name]; ok && count >= 0 && podSets[i].Count != count {
 			log.V(2).Info("Updated PodSet worker count from MultiKueue runtime annotation",
 				"rayObject", object.GetName(), "podSet", podSets[i].Name,
 				"oldCount", podSets[i].Count, "newCount", count)
 			podSets[i].Count = count
+			if features.Enabled(features.TopologyAwareScheduling) && podSets[i].Name != headGroupPodSetName {
+				numOfHosts := numOfHostsByGroup[podSets[i].Name]
+				replicas := count
+				if numOfHosts > 1 {
+					replicas = count / numOfHosts
+				}
+				if podSets[i].TopologyRequest == nil {
+					podSets[i].TopologyRequest = &kueue.PodSetTopologyRequest{}
+				}
+				podIndexLabel, subGroupIndexLabel := workerTopologyIndexLabels(new(replicas), numOfHosts)
+				podSets[i].TopologyRequest.PodIndexLabel = podIndexLabel
+				podSets[i].TopologyRequest.SubGroupIndexLabel = subGroupIndexLabel
+				podSets[i].TopologyRequest.SubGroupCount = new(replicas)
+			}
 		}
 	}
 	return podSets

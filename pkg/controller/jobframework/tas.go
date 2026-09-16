@@ -52,6 +52,16 @@ func (p *podSetTopologyRequestBuilder) SubGroup(subGroupIndexLabel *string, subG
 	return p
 }
 
+func (p *podSetTopologyRequestBuilder) SubGroupIndexLabel(subGroupIndexLabel *string) *podSetTopologyRequestBuilder {
+	p.subGroupIndexLabel = subGroupIndexLabel
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroupCount(subGroupCount *int32) *podSetTopologyRequestBuilder {
+	p.subGroupCount = subGroupCount
+	return p
+}
+
 func NewPodSetTopologyRequest(meta *metav1.ObjectMeta) *podSetTopologyRequestBuilder {
 	return &podSetTopologyRequestBuilder{
 		meta: meta,
