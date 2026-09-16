@@ -202,14 +202,44 @@ func ResourceQuantityString(name corev1.ResourceName, v int64) string {
 	return rq.String()
 }
 
-// AmountQuantityString formats an Amount as a Kubernetes resource quantity
-// string. Unlimited amounts are formatted as "<unlimited>" rather than as
-// the raw math.MaxInt64 sentinel.
-func AmountQuantityString(name corev1.ResourceName, a Amount) string {
-	if a.Equal(Unlimited) {
-		return Unlimited.String()
+// AmountQuantity returns a in the format the API reports name in. A Quantity
+// carries at most MaxInt64 in the unit it reports, cores for CPU, so the scale
+// is applied before that bound; a magnitude past it is capped with its sign.
+func AmountQuantity(name corev1.ResourceName, a Amount) resource.Quantity {
+	if name == corev1.ResourceCPU {
+		// Everything held in an int64 of milli keeps the path it is on today.
+		if v, ok := a.asInt64(); ok {
+			return ResourceQuantity(name, v)
+		}
+		if dec, ok := a.milliDec(); ok {
+			return *resource.NewDecimalQuantity(*dec, resource.DecimalSI)
+		}
+		// ResourceQuantity reads its argument as milli, so the cap is built
+		// here in the cores a CPU Quantity reports.
+		return *resource.NewQuantity(quantityCap(a.Sign()), resource.DecimalSI)
 	}
-	return ResourceQuantityString(name, a.Int64())
+	// Reported in the whole units it is held in, so the two limits coincide.
+	// MinInt64 fits an int64 and is one past the magnitude a Quantity carries.
+	if v, ok := a.asInt64(); ok && v != math.MinInt64 {
+		return ResourceQuantity(name, v)
+	}
+	return ResourceQuantity(name, quantityCap(a.Sign()))
+}
+
+// quantityCap returns the largest magnitude a Quantity carries, with sign, in
+// the unit the Quantity reports.
+func quantityCap(sign int) int64 {
+	if sign < 0 {
+		return -math.MaxInt64
+	}
+	return math.MaxInt64
+}
+
+// AmountQuantityString renders a as the API would report it, capped past what
+// a Quantity carries; Amount.String is the exact form.
+func AmountQuantityString(name corev1.ResourceName, a Amount) string {
+	q := AmountQuantity(name, a)
+	return q.String()
 }
 
 // GreaterKeys returns keys where the receiver is greater than other,

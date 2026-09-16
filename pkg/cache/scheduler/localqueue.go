@@ -43,7 +43,7 @@ type LocalQueue struct {
 func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
-	return q.admittedUsage.FlattenFlavors().ToResourceList()
+	return q.admittedUsage.ToResourceList()
 }
 
 func (q *LocalQueue) GetLabels() map[string]string {

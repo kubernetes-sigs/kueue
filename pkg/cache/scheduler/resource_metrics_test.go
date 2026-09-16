@@ -31,7 +31,7 @@ func TestClusterQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	defer kueuemetrics.InitMetricVectors(nil)
 
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}
-	unlimited := resources.Unlimited
+	unlimited := resources.NewAmount(math.MaxInt64)
 	cq := &clusterQueue{
 		Name:          "unlimited-cq",
 		AdmittedUsage: resources.FlavorResourceQuantities{fr: unlimited},
@@ -64,7 +64,7 @@ func TestLocalQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	defer kueuemetrics.InitMetricVectors(nil)
 
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}
-	unlimited := resources.Unlimited
+	unlimited := resources.NewAmount(math.MaxInt64)
 	lq := &LocalQueue{
 		key:           queue.NewLocalQueueReference("namespace", "unlimited-lq"),
 		totalReserved: resources.FlavorResourceQuantities{fr: unlimited},
