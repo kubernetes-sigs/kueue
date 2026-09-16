@@ -488,6 +488,29 @@ Requested functionalities from the community can be satisfied with the following
              priorityComparison: "LessThan"
              maxTimeFromCreationDuration: "1h"
    ```
+6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
+   Use a configuration with two rules: candidates within the same ClusterQueue (`WithinClusterQueue`) compare priorities using `Boosted` mode, while cross-queue candidates (`WithinParentCohort` or `WithinCohortTree`) compare priorities using `Vanilla` mode.
+
+   ```yaml
+   spec:
+     rules:
+       - name: preempt-within-cq-boosted
+         activationPolicy:
+           trigger: "Always"
+         candidateSelectors:
+           - scope: "WithinClusterQueue"
+             priority:
+               mode: "Boosted"
+               comparison: "LessThan"
+       - name: preempt-within-parent-cohort-vanilla
+         activationPolicy:
+           trigger: "Always"
+         candidateSelectors:
+           - scope: "WithinParentCohort"
+             priority:
+               mode: "Vanilla"
+               comparison: "LessThan"
+   ```
 
 ### Notes
 
@@ -726,14 +749,12 @@ type PreemptionCandidateSelector struct {
   // +optional
   LabelSelector *metav1.LabelSelector `json:"labelSelector,omitempty"`
 
-  // PriorityComparison defines how the candidate's priority compares to the preemptor's priority.
-  // For example "LessThan" means that only workloads with lower
-  // priority will be allowed as preemption candidates.
-  // The comparison is made using effective priority (accounting for priority boost if enabled).
-  // If nil, no relative priority check is enforced.
+  // priority defines the requirements for the priority of candidates.
+  // Workloads not matching those requirements will not be considered as preemption candidates.
+  // If nil, no priority requirements are enforced.
   //
   // +optional
-  PriorityComparison *NumericComparison `json:"priorityComparison,omitempty"`
+  Priority *PriorityConstraint `json:"priority,omitempty"`
 }
 
 
@@ -778,7 +799,7 @@ type NumericLabelConstraint struct {
   MaxValue *int32 `json:"maxValue,omitempty"`
 }
 
-// NumericComparison defines how a specified numeric property (e.g., effective priority) of the candidate compares to the same property of the preemptor.
+// NumericComparison defines how a specified numeric property (e.g., priority or custom numeric label value) of the candidate compares to the same property of the preemptor.
 // Possible values are:
 // - "LessThan": permits preemption if candidate field value < preemptor field value
 // - "GreaterThan": permits preemption if candidate field value > preemptor field value
@@ -801,6 +822,37 @@ const (
 // Kueue uses full, descriptive identifiers ("LessThan", "GreaterThan", "LessThanOrEqual", "GreaterThanOrEqual").
 // This maintains consistency with equality comparisons, enhances YAML readability, and provides
 // clear, intuitive semantics for cluster administrators.
+
+// PriorityConstraint defines the requirements for the priority of preemption candidates.
+type PriorityConstraint struct {
+  // Mode specifies whether the priority is compared using vanilla or boosted values.
+  //
+  // +kubebuilder:validation:Required
+  Mode PriorityMode `json:"mode"`
+
+  // Comparison defines how the candidate's priority compares to the preemptor's priority.
+  // For example, "LessThan" means that only workloads with lower
+  // priority will be allowed as preemption candidates.
+  //
+  // +kubebuilder:validation:Required
+  Comparison NumericComparison `json:"comparison"`
+}
+
+// PriorityMode defines whether raw or boosted priority is used in candidate comparison.
+// Possible values are:
+// - "Vanilla": uses the raw priority value as assigned in the Workload resource.
+// - "Boosted": uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled).
+//
+// +kubebuilder:validation:Enum=Vanilla;Boosted
+type PriorityMode string
+
+const (
+  // Vanilla uses the raw priority value as assigned in the Workload resource.
+  Vanilla PriorityMode = "Vanilla"
+  // Boosted uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled).
+  Boosted PriorityMode = "Boosted"
+)
+
 
 ```
 
