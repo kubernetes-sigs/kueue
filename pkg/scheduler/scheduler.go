@@ -760,10 +760,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	switch {
 	case needsOverlapRecompute:
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
-		// To get the projected cluster state after other preemptions complete,
-		// we simulate the removal of their victims.
-		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
-		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
 	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
@@ -975,6 +972,19 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
 	}
 	return nil
+}
+
+// simulateOtherPreemptions projects the victims of preemptions already decided this cycle
+// out of the snapshot and returns the single undo. Freeing their quota is not enough:
+// until the simulator is told, it still reports their Pods and their host ports.
+func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
+	victims := slices.Collect(maps.Values(preemptedWorkloads))
+	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
+	revertPods := simulatePodRemoval(ctx, log, snapshot, victims)
+	return func() {
+		revertPods()
+		revertUsage()
+	}
 }
 
 // simulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
