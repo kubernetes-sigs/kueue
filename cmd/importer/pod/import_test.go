@@ -159,9 +159,11 @@ func TestImportNamespace(t *testing.T) {
 		flavors         []kueue.ResourceFlavor
 		priorityClasses []schedulingv1.PriorityClass
 		podListErr      error
-		wantPods        []corev1.Pod
-		wantWorkloads   []kueue.Workload
-		wantError       error
+		// mapping defaults to baseMapping when not set.
+		mapping       mapping.Rules
+		wantPods      []corev1.Pod
+		wantWorkloads []kueue.Workload
+		wantError     error
 	}{
 		"returns an error when listing pods fails": {
 			pods: []corev1.Pod{
@@ -416,6 +418,36 @@ func TestImportNamespace(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{},
 		},
+		"imports only the pods requesting the resources listed in the mapping rule": {
+			pods: []corev1.Pod{
+				*baseGpuPodWrapper.DeepCopy(),
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: mapping.Rules{
+				{
+					Match: mapping.Match{
+						Labels:    map[string]string{testingQueueLabel: "q1"},
+						Resources: []corev1.ResourceName{testingGPUResource},
+					},
+					ToLocalQueue: "lq1",
+				},
+				{Skip: true},
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *cpuAndGpuClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("cpu-flavor").Obj(),
+				*utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj(),
+			},
+			wantPods: []corev1.Pod{
+				// The cpu-only Pod is skipped, so it keeps its original labels.
+				*basePodWrapper.DeepCopy(),
+				*baseGpuManagedPodWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseGpuWlWrapper.DeepCopy(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -437,7 +469,12 @@ func TestImportNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, baseMapping, tc.addLabels, nil)
+			rules := tc.mapping
+			if rules == nil {
+				rules = baseMapping
+			}
+
+			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, rules, tc.addLabels, nil)
 			if err != nil {
 				t.Fatalf("Unexpected cache load error: %s", err)
 			}
