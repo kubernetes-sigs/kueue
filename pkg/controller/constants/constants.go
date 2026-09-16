@@ -95,4 +95,9 @@ const (
 	// The value of this label is boolean, and it is set to "true" if the Workload is a parent of Variants.
 	// The label is used with ConcurrentAdmission feature.
 	ConcurrentAdmissionParentLabelKey = "kueue.x-k8s.io/concurrent-admission-parent"
+
+	// PausedByKueueAnnotation is set on a Deployment when Kueue pauses it to
+	// prevent ProgressDeadlineExceeded while its pods are scheduling-gated.
+	// The pod controller removes it when the workload is admitted.
+	PausedByKueueAnnotation = "kueue.x-k8s.io/paused-by-kueue"
 )
