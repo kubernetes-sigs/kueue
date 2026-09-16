@@ -1326,10 +1326,10 @@ func (p *Pod) getOwningDeploymentUID(ctx context.Context, c client.Client) (type
 	key := client.ObjectKey{Namespace: p.pod.Namespace, Name: replicaSetRef.Name}
 	if err := c.Get(ctx, key, replicaSet); err != nil {
 		if apierrors.IsNotFound(err) {
-			// A Pod of a live Deployment always has its ReplicaSet, so a NotFound here
-			// means the owner is gone for good. Fall back to the Pod UID rather than
-			// retrying: the label is written when the Workload is created and is never
-			// re-synced afterwards.
+			// A Pod managed by a live Deployment is expected to have its ReplicaSet,
+			// so a NotFound here means the Pod is orphaned. Retrying would not help:
+			// the label is written when the Workload is created and is never re-synced
+			// afterwards.
 			return "", nil
 		}
 		return "", fmt.Errorf("failed to get ReplicaSet %q owning the pod: %w", replicaSetRef.Name, err)
