@@ -617,7 +617,36 @@ tests:
       - equal:
           path: spec.rules[0].host
           value: kueueviz.local
-  - it: should point the frontend config at the path-routed host
+  - it: should serve the path-routed ingress over TLS when a secret is given
+    template: kueueviz/ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+          host: kueueviz.example.com
+          tlsSecretName: kueueviz-tls
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: kueueviz.example.com
+      - equal:
+          path: spec.tls[0].secretName
+          value: kueueviz-tls
+  - it: should not serve the path-routed ingress over TLS when it is disabled
+    template: kueueviz/ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        ingress:
+          enabled: true
+          host: kueueviz.example.com
+          tlsEnabled: false
+          tlsSecretName: kueueviz-tls
+    asserts:
+      - notExists:
+          path: spec.tls
+  - it: should give the frontend no backend URL when path routing is enabled
     template: kueueviz/frontend-configmap.yaml
     set:
       enableKueueViz: true
@@ -629,7 +658,10 @@ tests:
     asserts:
       - matchRegex:
           path: data["env.js"]
-          pattern: 'REACT_APP_WEBSOCKET_URL: "wss://kueueviz.example.com"'
+          pattern: 'VITE_WEBSOCKET_URL: ""'
+      - matchRegex:
+          path: data["env.js"]
+          pattern: 'REACT_APP_WEBSOCKET_URL: ""'
   - it: should not render the backend ingress when path routing is enabled
     template: kueueviz/backend-ingress.yaml
     set:
