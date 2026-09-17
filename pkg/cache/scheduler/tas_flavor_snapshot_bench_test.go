@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -264,4 +265,91 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 		})
 	}
 	return requests
+}
+
+// benchPoolLabel splits the cluster so the workers and the leader want different
+// nodes. Without that split every node is feasible for both and the leader pass
+// costs the same however it is written, which is what the cases above measure.
+const benchPoolLabel = "bench.kueue.x-k8s.io/pool"
+
+// BenchmarkTASLeaderFeasibility measures a PodSet group whose leader only fits on
+// nodes the workers cannot use. The leader pass has to consider every leaf, not just
+// the workers', so this is where the cost of that pass shows up; the workers' pass is
+// served from matchingLeavesCache after the first cycle, so what is left is the
+// leader's.
+func BenchmarkTASLeaderFeasibility(b *testing.B) {
+	features.SetFeatureGateDuringTest(b, features.TASLeaderPodSetFeasibility, true)
+	features.SetFeatureGateDuringTest(b, features.TASCacheNodeMatchResults, true)
+
+	for _, nodeCount := range []int{500, 2500} {
+		b.Run(fmt.Sprintf("nodes=%d", nodeCount), func(b *testing.B) {
+			b.ReportAllocs()
+			_, log := utiltesting.ContextWithLog(b)
+			topo := benchTopology{nodes: nodeCount, nodesPerRack: 16, racksPerBlock: 16}
+			nodes := buildBenchNodes(topo)
+			for i := range nodes {
+				pool := "workers"
+				if i >= len(nodes)-topo.nodesPerRack {
+					pool = "leader"
+				}
+				nodes[i].Labels[benchPoolLabel] = pool
+			}
+
+			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+			for i := range nodes {
+				tasCache.SyncNode(&nodes[i])
+			}
+			flavorCache := tasCache.NewTASFlavorCache(
+				topologyInformation{Levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
+				flavorInformation{TopologyName: "default"},
+			)
+			snapshot, err := flavorCache.snapshot(b.Context(), log, nil)
+			if err != nil {
+				b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+			}
+
+			requests := leaderFeasibilityBenchRequests()
+			// Production always passes a Workload, and matchingLeavesCache is keyed by
+			// its UID, so omitting it would measure an uncached cluster.
+			wl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default", Name: "bench", UID: "bench-uid",
+			}}
+			result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkload(wl))
+			if failure := result.Failure(); failure != nil {
+				b.Fatalf("leader feasibility preflight failed: %s", failure.Reason)
+			}
+
+			for b.Loop() {
+				result = snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkload(wl))
+			}
+			if failure := result.Failure(); failure != nil {
+				b.Fatalf("repeated leader feasibility failed: %s", failure.Reason)
+			}
+		})
+	}
+}
+
+func leaderFeasibilityBenchRequests() FlavorTASRequests {
+	const groupName = "benchmark-group"
+	eightCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000})
+	return FlavorTASRequests{
+		{
+			PodSet: utiltestingapi.MakePodSet("workers", 64).
+				UnconstrainedTopologyRequest().
+				PodSetGroup(groupName).
+				NodeSelector(map[string]string{benchPoolLabel: "workers"}).Obj(),
+			SinglePodRequests: eightCPU,
+			Count:             64,
+			PodSetGroupName:   new(groupName),
+		},
+		{
+			PodSet: utiltestingapi.MakePodSet("leader", 1).
+				UnconstrainedTopologyRequest().
+				PodSetGroup(groupName).
+				NodeSelector(map[string]string{benchPoolLabel: "leader"}).Obj(),
+			SinglePodRequests: eightCPU,
+			Count:             1,
+			PodSetGroupName:   new(groupName),
+		},
+	}
 }
