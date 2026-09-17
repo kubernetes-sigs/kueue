@@ -181,6 +181,10 @@ func IsTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
 }
 
+func IsScheduled(p *corev1.Pod) bool {
+	return p.Spec.NodeName != "" && HasCondition(p, &corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue})
+}
+
 func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueue.Workload, isGroup bool, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
 	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	if cond == nil || cond.Status != metav1.ConditionTrue {

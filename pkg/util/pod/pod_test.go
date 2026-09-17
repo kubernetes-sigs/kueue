@@ -265,6 +265,69 @@ func TestIsTerminated(t *testing.T) {
 	}
 }
 
+func TestIsScheduled(t *testing.T) {
+	cases := map[string]struct {
+		pod           *corev1.Pod
+		wantScheduled bool
+	}{
+		"node name without PodScheduled condition": {
+			pod: testingpod.MakePod("", "").
+				NodeName("node-1").
+				Obj(),
+		},
+		"PodScheduled=True without node name": {
+			pod: testingpod.MakePod("", "").
+				StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}).
+				Obj(),
+		},
+		"PodScheduled=False": {
+			pod: testingpod.MakePod("", "").
+				StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionFalse}).
+				Obj(),
+		},
+		"node name and PodScheduled=False": {
+			pod: testingpod.MakePod("", "").
+				NodeName("node-1").
+				StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionFalse}).
+				Obj(),
+		},
+		"node name and PodScheduled=Unknown": {
+			pod: testingpod.MakePod("", "").
+				NodeName("node-1").
+				StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionUnknown}).
+				Obj(),
+		},
+		"node name and PodScheduled=True": {
+			pod: testingpod.MakePod("", "").
+				NodeName("node-1").
+				StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}).
+				Obj(),
+			wantScheduled: true,
+		},
+		"gated pod without the condition": {
+			pod: testingpod.MakePod("", "").
+				KueueSchedulingGate().
+				Obj(),
+		},
+		"failed pod with node name and PodScheduled=True": {
+			pod: testingpod.MakePod("", "").
+				NodeName("node-1").
+				StatusConditions(corev1.PodCondition{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}).
+				StatusPhase(corev1.PodFailed).
+				Obj(),
+			wantScheduled: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsScheduled(tc.pod)
+			if diff := cmp.Diff(tc.wantScheduled, got); diff != "" {
+				t.Errorf("Unexpected Pod scheduled (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestSpecShape(t *testing.T) {
 	podResources := &corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},

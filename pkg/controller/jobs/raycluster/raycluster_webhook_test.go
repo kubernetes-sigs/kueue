@@ -158,20 +158,34 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
-		"invalid managed - elastic MultiKueue job with auto scaler": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		"invalid MultiKueue elastic autoscaling when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				ManagedBy(kueue.MultiKueueControllerName).
-				SchedulingGate(kueue.ElasticJobSchedulingGate).
 				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(1, 1, 5).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(
 					field.NewPath("spec", "enableInTreeAutoscaling"),
-					"in-tree autoscaling is not supported for a MultiKueue-managed elastic RayCluster",
+					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic RayCluster requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
 				),
 			}.ToAggregate(),
+		},
+		"valid MultiKueue elastic autoscaling when feature gate is enabled": {
+			// The autoscaler runs on the worker and its resizes are written back
+			// to the manager, so a range (minReplicas < maxReplicas) is allowed.
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(1, 1, 5).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: nil,
 		},
 		"valid managed - elastic MultiKueue job without auto scaler": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},

@@ -29,11 +29,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -185,6 +188,18 @@ func TestNodeFailureReconciler(t *testing.T) {
 
 	baseNode := testingnode.MakeNode(nodeName)
 	unassignedNode := testingnode.MakeNode(nodeNameUnassigned)
+	// The TopologyAssignment refers to the node by its kubernetes.io/hostname
+	// label, which can differ from the Node name.
+	nodeObjectName := "node-object-name"
+	nodeWithDifferentName := testingnode.MakeNode(nodeObjectName).Label(corev1.LabelHostname, nodeName)
+	podOnNodeWithDifferentName := basePod.DeepCopy()
+	podOnNodeWithDifferentName.Spec.NodeName = nodeObjectName
+	// kubernetes.io/hostname is not guaranteed to be unique, so two Nodes can
+	// carry the value a TopologyAssignment refers to.
+	duplicateNodeNotReady := "duplicate-node-a"
+	duplicateNodeReady := "duplicate-node-b"
+	podOnDuplicateReadyNode := basePod.DeepCopy()
+	podOnDuplicateReadyNode.Spec.NodeName = duplicateNodeReady
 
 	tests := map[string]struct {
 		initObjs           []client.Object
@@ -225,6 +240,63 @@ func TestNodeFailureReconciler(t *testing.T) {
 			reconcileRequests:    []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
 			wantUnhealthyNodes:   nil,
 			ignoreUnhealthyNodes: true,
+		},
+		"Node Ready, hostname label differs from Node name, reconciled by hostname - not marked as unavailable": {
+			initObjs: []client.Object{
+				nodeWithDifferentName.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				podOnNodeWithDifferentName.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+		},
+		"Node NotReady, delay passed, hostname label differs from Node name - marked as unavailable by hostname": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+			initObjs: []client.Object{
+				nodeWithDifferentName.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: earlierTime}).Obj(),
+				baseWorkload.DeepCopy(),
+				podOnNodeWithDifferentName.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+		},
+		"Node NotReady, hostname label differs from Node name, pod running on the Node - not marked (ReplaceNodeOnPodTermination)": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: true},
+			initObjs: []client.Object{
+				nodeWithDifferentName.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				podOnNodeWithDifferentName.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
+		},
+		"Two Nodes share the hostname label, delay passed - neither Node is evaluated": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
+			initObjs: []client.Object{
+				testingnode.MakeNode(duplicateNodeNotReady).Label(corev1.LabelHostname, nodeName).
+					StatusConditions(corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						LastTransitionTime: earlierTime}).Obj(),
+				testingnode.MakeNode(duplicateNodeReady).Label(corev1.LabelHostname, nodeName).
+					StatusConditions(corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				podOnDuplicateReadyNode.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: nil,
 		},
 		"Node Found and Unhealthy (NotReady), delay not passed - not marked as unavailable": {
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceNodeOnPodTermination: false, features.TASReplaceNodeDueToNotReadyOverFixedTime: true},
@@ -1174,16 +1246,18 @@ func TestNodeFailureReconciler(t *testing.T) {
 				WithObjects(initObjs...).
 				WithStatusSubresource(tc.initObjs...).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, client client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+					SubResourceApply: func(ctx context.Context, client client.Client, subResource string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if tc.injectPatchError && subResource == "status" {
-							if wl, ok := obj.(*kueue.Workload); ok && wl.Name == wlName {
+							wl := &kueue.Workload{}
+							if err := utiltesting.DecodeApplyConfiguration(applyConf, wl); err != nil {
+								return err
+							}
+							if wl.Name == wlName && !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
 								// Fail only if it's trying to remove the node (it's not in the list anymore).
-								if !slices.Contains(wl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: nodeName}) {
-									return errors.New("injected patch error on removal")
-								}
+								return errors.New("injected patch error on removal")
 							}
 						}
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResource, obj, patch, opts...)
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResource, applyConf, opts...)
 					},
 				})
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -1404,4 +1478,75 @@ func TestGetWorkloadStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNodeFailurePodHandlerQueuesHostname(t *testing.T) {
+	cases := map[string]struct {
+		pod  *corev1.Pod
+		want []string
+	}{
+		"pending pod queues the hostname from its nodeSelector": {
+			pod: testingpod.MakePod("pending", "ns").
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				NodeSelector(corev1.LabelHostname, "x1").
+				StatusPhase(corev1.PodPending).
+				Obj(),
+			want: []string{"x1"},
+		},
+		"terminated pod queues the hostname from its nodeSelector, not the Node name": {
+			pod: testingpod.MakePod("failed", "ns").
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				NodeSelector(corev1.LabelHostname, "x1").
+				NodeName("node-x1").
+				StatusPhase(corev1.PodFailed).
+				Obj(),
+			want: []string{"x1"},
+		},
+		"terminated pod without a hostname nodeSelector queues the Node name": {
+			pod: testingpod.MakePod("failed", "ns").
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				NodeName("node-x1").
+				StatusPhase(corev1.PodFailed).
+				Obj(),
+			want: []string{"node-x1"},
+		},
+		"running pod queues nothing": {
+			pod: testingpod.MakePod("running", "ns").
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				NodeSelector(corev1.LabelHostname, "x1").
+				NodeName("node-x1").
+				StatusPhase(corev1.PodRunning).
+				Obj(),
+		},
+		"non-TAS pod queues nothing": {
+			pod: testingpod.MakePod("plain", "ns").
+				NodeSelector(corev1.LabelHostname, "x1").
+				StatusPhase(corev1.PodPending).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			q := &recordingQueue{TypedRateLimitingInterface: workqueue.NewTypedRateLimitingQueue(
+				workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())}
+			defer q.ShutDown()
+
+			h := &nodeFailurePodHandler{}
+			h.Create(ctx, event.CreateEvent{Object: tc.pod}, q)
+
+			if diff := cmp.Diff(tc.want, q.added, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected queued node names (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+type recordingQueue struct {
+	workqueue.TypedRateLimitingInterface[reconcile.Request]
+	added []string
+}
+
+func (q *recordingQueue) AddAfter(item reconcile.Request, _ time.Duration) {
+	q.added = append(q.added, item.Name)
 }

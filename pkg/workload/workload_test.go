@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -1181,6 +1182,7 @@ func TestNewInfo(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			info := NewInfo(log, &tc.workload, tc.infoOptions...)
+			tc.wantInfo.EffectivePodSpecs = effectivePodSpecs(&tc.workload, AdjustmentInputs{})
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
@@ -1376,7 +1378,13 @@ func TestSetConditionAndUpdate(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -1451,7 +1459,13 @@ func TestUpdateReclaimablePods(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -3709,7 +3723,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 			}
 			// A recomputed hash must describe the inputs the Info now holds.
 			if !tc.wantReuse {
-				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests)
+				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests, tc.info.EffectivePodSpecs)
 				if tc.info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, does not describe the Info's own inputs (%q)", tc.info.SchedulingHash, want)
 				}
@@ -4306,6 +4320,47 @@ func TestTotalExecutionTime(t *testing.T) {
 				if *got != *tc.want {
 					t.Errorf("TotalExecutionTime() = %v, want %v", *got, *tc.want)
 				}
+			}
+		})
+	}
+}
+
+func TestHasPodsScheduledCondition(t *testing.T) {
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"no conditions": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+		},
+		"only another condition": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+				Obj(),
+		},
+		"scheduled": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionTrue}).
+				Obj(),
+			want: true,
+		},
+		"not scheduled": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse}).
+				Obj(),
+			want: true,
+		},
+		"unknown": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionUnknown}).
+				Obj(),
+			want: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := HasPodsScheduledCondition(tc.workload); got != tc.want {
+				t.Errorf("HasPodsScheduledCondition() = %t, want %t", got, tc.want)
 			}
 		})
 	}

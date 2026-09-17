@@ -2148,7 +2148,9 @@ func TestReconcile(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, featureGate, enabled)
 				}
 
-				interceptorFuncs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
+				interceptorFuncs := interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}
 				if tc.interceptorFuncsCreate != nil {
 					interceptorFuncs.Create = tc.interceptorFuncsCreate
 				}

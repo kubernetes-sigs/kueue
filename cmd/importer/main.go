@@ -81,7 +81,7 @@ func setFlags(cmd *cobra.Command) {
 	cmd.Flags().String(QueueMappingFileFlag, "", "yaml file containing extra mappings from \""+QueueLabelFlag+"\" label values to local queue names")
 	cmd.Flags().Float32(QPSFlag, 50, "client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
 	cmd.Flags().Int(BurstFlag, 50, "client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit")
-	cmd.Flags().UintP(ConcurrencyFlag, ConcurrencyFlagShort, 8, "number of concurrent import workers")
+	cmd.Flags().UintP(ConcurrencyFlag, ConcurrencyFlagShort, 8, "number of concurrent import workers (must be at least 1)")
 	cmd.Flags().Bool(DryRunFlag, true, "don't import, check the config only")
 
 	_ = cmd.MarkFlagRequired(NamespaceFlag)
@@ -205,6 +205,9 @@ func importCmd(cmd *cobra.Command, _ []string) error {
 	log := ctrl.Log.WithName("import")
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	cWorkers, _ := cmd.Flags().GetUint(ConcurrencyFlag)
+	if cWorkers == 0 {
+		return fmt.Errorf("--%s must be at least 1", ConcurrencyFlag)
+	}
 	c, err := getKubeClient(cmd)
 	if err != nil {
 		return err

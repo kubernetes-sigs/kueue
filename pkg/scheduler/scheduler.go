@@ -527,6 +527,7 @@ func (s *Scheduler) processEntry(
 
 	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+		e.Obj = e.Obj.DeepCopy()
 		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
 	}
 
@@ -976,6 +977,42 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	return nil
 }
 
+// simulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
+// returns a function that puts them back.
+func simulatePodRemoval(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, workloads []*workload.Info) func() {
+	// The default simulator reports the same cluster whatever is running, so there is
+	// nothing to take out of it and nothing cached to drop.
+	if snapshot.SimulatorSnapshot == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+		return func() {}
+	}
+	reverts := make([]func() error, 0, len(workloads))
+	for _, w := range workloads {
+		revert, err := snapshot.SimulatorSnapshot.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		if err != nil {
+			// The simulation still holds this victim's Pods, so it can only be
+			// stricter than reality. Log it and keep scheduling.
+			log.V(2).Info("Could not remove a preempted Workload from the scheduling simulator",
+				"workload", klog.KObj(w.Obj), "error", err)
+			continue
+		}
+		reverts = append(reverts, revert)
+	}
+	if len(reverts) == 0 {
+		return func() {}
+	}
+	// The simulator reports a different cluster now, so results cached before this
+	// no longer hold. The revert changes it back, so they are dropped again there.
+	snapshot.ForgetSimulatedFeasibility()
+	return func() {
+		for _, revert := range reverts {
+			if err := revert(); err != nil {
+				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
+			}
+		}
+		snapshot.ForgetSimulatedFeasibility()
+	}
+}
+
 func updateAssignmentForTAS(
 	ctx context.Context,
 	snapshot *schdcache.Snapshot,
@@ -998,11 +1035,15 @@ func updateAssignmentForTAS(
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
 			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
+			// Freeing the victims' quota is not enough. Until the simulator is told,
+			// it still reports their Pods and their nodes still look occupied.
+			revertPods := simulatePodRemoval(ctx, log, snapshot, targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
 				schdcache.WithWorkload(wl.Obj),
 			)
+			revertPods()
 			revertUsage()
 		} else {
 			// In this scenario we don't have any preemption candidates, yet we need
@@ -1034,7 +1075,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
-	cacheWl, err := s.assumeWorkload(log, e, cq, admission)
+	cacheWl, err := s.assumeWorkload(ctx, log, e, cq, admission)
 	if err != nil {
 		return err
 	}
@@ -1090,10 +1131,10 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 	}
 }
 
-func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
+func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
-	if added := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
+	if added := s.cache.AddOrUpdateWorkload(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)); !added {
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 

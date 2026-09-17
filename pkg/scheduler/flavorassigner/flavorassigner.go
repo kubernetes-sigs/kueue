@@ -130,7 +130,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
 			continue
 		}
-		singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
+		singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpecByName(psa.Name))
 		for _, domain := range psa.TopologyAssignment.Domains {
 			count := domain.Count - accounted[tas.DomainID(domain.Values)]
 			if count <= 0 {
@@ -865,6 +865,12 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
+		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
+			// Elastic placement accounts for the previous assignment itself.
+			// Remove its cached usage during the search to avoid counting it twice.
+			restore := a.cq.SimulateUsageRemoval(workload.Usage{TAS: a.replaceWorkloadSlice.TASUsage()})
+			defer restore()
+		}
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
 			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkload(a.wl.Obj))
@@ -1083,11 +1089,6 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	status := NewStatus()
 	requests = filterRequestedResources(requests, resourceGroup.CoveredResources)
 
-	podSets := make([]*kueue.PodSet, len(psIDs))
-	for idx, psID := range psIDs {
-		podSets[idx] = &a.wl.Obj.Spec.PodSets[psID]
-	}
-
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := worstGranularMode()
 	consideredFlavors := newFlavorAssignmentAttempts(len(resourceGroup.Flavors))
@@ -1107,7 +1108,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			continue
 		}
 
-		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, resourceGroup); !flavorStatus.IsFit() {
+		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, resourceGroup); !flavorStatus.IsFit() {
 			flavorStatus.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
@@ -1218,7 +1219,6 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	log logr.Logger,
 	flavorName kueue.ResourceFlavorReference,
 	psIDs []int,
-	podSets []*kueue.PodSet,
 	rg *resourcegroups.ResourceGroup,
 ) *Status {
 	status := NewStatus()
@@ -1235,16 +1235,19 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	// flavors are correctly ignored when evaluating this flavor.
 	flavorLabelKeys := sets.KeySet(flavor.Spec.NodeLabels)
 
-	for psIdx, psID := range psIDs {
+	for _, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
-			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
+			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, a.wl.PodSpec(psID), flavor, rg); message != nil {
 				log.V(3).Info("Flavor does not match TAS requirements", "reason", *message)
 				status.appendf("%s", *message)
 				return status
 			}
 		}
-		podSpec := podSets[psIdx].Template.Spec
+		// The effective spec carries what the RuntimeClass admission controller
+		// will merge into the Pods, so the flavor is checked against the
+		// constraints they actually end up with.
+		podSpec := *a.wl.PodSpec(psID)
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		}, true)
