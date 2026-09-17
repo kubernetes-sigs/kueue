@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -160,6 +161,35 @@ func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		// from the leader role as soon as possible.
 		o.LeaderElectionReleaseOnCancel = true
 	}
+}
+
+// SetLeaderElectionConfig gives the leader election lease client its own copy of
+// kubeConfig with a dedicated client-side rate limiter. Callers invoke it only when
+// leader election is enabled.
+//
+// The manager kubeConfig carries a single RateLimiter shared by every controller
+// client (see cmd/kueue/main.go) and controller-runtime falls back to
+// rest.CopyConfig(kubeConfig) for the lease client, which copies that limiter. The
+// lease renewals then compete for tokens with every reconcile, so a burst of
+// requests under a low clientConnection.qps can delay a renewal past renewDeadline
+// and make the manager exit with "leader election lost".
+//
+// The lease client keeps the configured clientConnection.qps and burst, but in a
+// bucket of its own that no controller can drain. The leader election loop is paced
+// by leaderElection.retryPeriod and issues at most one get and one update per
+// period per replica, so the bucket only matters while the API server is unhealthy.
+// A negative clientConnection.qps disables client-side throttling for the lease
+// client as well, matching the manager client.
+func SetLeaderElectionConfig(o *ctrl.Options, kubeConfig *rest.Config, cfg *configapi.Configuration) {
+	leaderConfig := rest.CopyConfig(kubeConfig)
+	// Drop the shared limiter so that the REST client builds one from QPS and Burst.
+	leaderConfig.RateLimiter = nil
+	leaderConfig.QPS = -1
+	if cfg.ClientConnection != nil && cfg.ClientConnection.QPS != nil && *cfg.ClientConnection.QPS >= 0 {
+		leaderConfig.QPS = *cfg.ClientConnection.QPS
+		leaderConfig.Burst = int(ptr.Deref(cfg.ClientConnection.Burst, 0))
+	}
+	o.LeaderElectionConfig = leaderConfig
 }
 
 // AddWebhookSettingsTo is used to add settings to the webhook
