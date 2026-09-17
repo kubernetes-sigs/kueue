@@ -495,7 +495,7 @@ Requested functionalities from the community can be satisfied with the following
    ```yaml
    spec:
      rules:
-       - name: preempt-within-cq-boosted
+       - name: preempt-within-cq-boosted-priority
          activationPolicy:
            trigger: "Always"
          candidateSelectors:
@@ -503,7 +503,7 @@ Requested functionalities from the community can be satisfied with the following
              priority:
                mode: "Boosted"
                comparison: "LessThan"
-       - name: preempt-within-parent-cohort-vanilla
+       - name: preempt-within-parent-cohort-base-priority
          activationPolicy:
            trigger: "Always"
          candidateSelectors:
@@ -828,7 +828,7 @@ const (
 
 // PriorityConstraint defines the requirements for the priority of preemption candidates.
 type PriorityConstraint struct {
-  // Mode specifies whether the priority is compared using vanilla or boosted values.
+  // Mode specifies whether priority comparison uses base or boosted (effective) priority.
   //
   // +kubebuilder:validation:Required
   Mode PriorityMode `json:"mode"`
@@ -841,18 +841,18 @@ type PriorityConstraint struct {
   Comparison NumericComparison `json:"comparison"`
 }
 
-// PriorityMode defines whether raw or boosted priority is used in candidate comparison.
+// PriorityMode defines whether base or boosted (effective) priority is used when comparing candidates against the preemptor.
 // Possible values are:
-// - "Base": uses the raw priority value as assigned in the Workload resource for both the candidate and preemptor.
-// - "Boosted": uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
+// - "Base": uses the raw priority value as assigned in the Workload resource (`spec.priority`) for both the candidate and preemptor, ignoring any priority boost.
+// - "Boosted": uses the effective priority value, adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
 //
 // +kubebuilder:validation:Enum=Base;Boosted
 type PriorityMode string
 
 const (
-  // Base uses the raw priority value as assigned in the Workload resource.
+  // Base uses the raw priority value as assigned in the Workload resource (`spec.priority`) for both the candidate and preemptor, ignoring any priority boost.
   Base PriorityMode = "Base"
-  // Boosted uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled).
+  // Boosted uses the effective priority value, adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
   Boosted PriorityMode = "Boosted"
 )
 
@@ -1212,6 +1212,8 @@ the order is currently based on:
 
 Therefore, the proposed custom ordering fields were designed to cover and generalize this well.
 
+Because DRS values depend on the dynamic state of the cluster, workloads selected for preemption directly affect the relative ordering of remaining candidates when DRS-based ordering fields (such as `ClusterQueueDRS`, `LocalQueueDRS`, or share-based criteria) are used. Consequently, candidate generation and ordering must be adjusted dynamically during evaluation. Because naive re-sorting would degrade scheduling throughput in large clusters, an optimized approach is detailed in the [[Optimized] Dynamically Adjusted Candidate Generation](#optimized-dynamically-adjusted-candidate-generation) section.
+
 #### Examples with Custom Ordering
 
 In future work, users would be able to configure explicit candidate ordering in `PreemptionConfig` manifests:
@@ -1483,6 +1485,8 @@ spec:
 ### Quota-Based Candidate Selectors (QuotaConstraint)
 
 In Alpha, candidate evaluation reuses the regular preemption ordering rules from classical preemption and fair sharing, which already take borrowing capacity and Dominant Resource Share (DRS) into account dynamically. Explicit pre-filtering of preemption candidates via a `Quota` constraint (such as `BorrowingCapacityFromPreemptor` or DRS share comparisons) is therefore not needed for Alpha and is deferred to future work.
+
+Because borrowing and DRS values depend on the dynamic state of the cluster, workloads selected for preemption directly affect the eligibility of remaining candidates. Consequently, candidates must be adjusted dynamically during evaluation. Because a naive re-evaluation would degrade scheduling throughput in large clusters, an optimized approach is detailed in the [[Optimized] Dynamically Adjusted Candidate Generation](#optimized-dynamically-adjusted-candidate-generation) section.
 
 #### Proposed API for Quota-Based Candidate Selectors
 
