@@ -80,6 +80,14 @@ func TestPodsReady(t *testing.T) {
 	pendingPod := func(name string) corev1.Pod {
 		return *testingpod.MakePod(name, "test-ns").Obj()
 	}
+	// The kubelet flips PodReady to False once a pod completes, so a Succeeded pod
+	// carries the same conditions as a pod that is not ready.
+	succeededPod := func(name string) corev1.Pod {
+		return *testingpod.MakePod(name, "test-ns").
+			StatusPhase(corev1.PodSucceeded).
+			StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
+			Obj()
+	}
 	makePodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
 		driver := testingpod.MakePod("driver", "test-ns").
 			GroupNameLabel("test-group").
@@ -113,6 +121,25 @@ func TestPodsReady(t *testing.T) {
 		},
 		"pod group with all pods present but not all ready": {
 			pod:  makePodGroup("3", readyPod("driver"), pendingPod("worker-1"), pendingPod("worker-2")),
+			want: false,
+		},
+		"single pod succeeded": {
+			pod: FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").
+				StatusPhase(corev1.PodSucceeded).
+				StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
+				Obj()),
+			want: true,
+		},
+		"pod group with some pods succeeded and the rest ready": {
+			pod:  makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			want: true,
+		},
+		"pod group with all pods succeeded": {
+			pod:  makePodGroup("3", succeededPod("driver"), succeededPod("worker-1"), succeededPod("worker-2")),
+			want: true,
+		},
+		"pod group with some pods succeeded and one pending": {
+			pod:  makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), pendingPod("worker-2")),
 			want: false,
 		},
 		"pod group without total count annotation": {
