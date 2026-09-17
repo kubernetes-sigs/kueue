@@ -4838,6 +4838,149 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				worker,
 			)
 		})
+		ginkgo.It("Should preserve existing workload podset ordering during feature gate rollout", func() {
+			const workloadName = "rollout-gpu-group"
+
+			features.SetFeatureGateDuringTest(
+				ginkgo.GinkgoTB(),
+				features.PodGroupSchedulingShapeOrdering,
+				false,
+			)
+
+			leader := testingpod.MakePod("rollout-leader", ns.Name).
+				GroupNameLabel(workloadName).
+				GroupTotalCount("2").
+				Annotation(podconstants.RoleHashAnnotation, "leader").
+				Annotation(
+					podconstants.PodSchedulingShapeHashAnnotation,
+					"bbbb",
+				).
+				Queue(localQueue.Name).
+				Request(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Limit(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Obj()
+
+			worker := testingpod.MakePod("rollout-worker", ns.Name).
+				GroupNameLabel(workloadName).
+				GroupTotalCount("2").
+				Annotation(podconstants.RoleHashAnnotation, "worker").
+				Annotation(
+					podconstants.PodSchedulingShapeHashAnnotation,
+					"aaaa",
+				).
+				Queue(localQueue.Name).
+				Request(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Limit(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, leader)
+			util.MustCreate(ctx, k8sClient, worker)
+
+			wlKey := types.NamespacedName{
+				Namespace: ns.Name,
+				Name:      workloadName,
+			}
+
+			wl := &kueue.Workload{}
+
+			ginkgo.By("checking the workload is created with the legacy podset order", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).
+						To(gomega.Succeed())
+
+					g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(2))
+					g.Expect(wl.Spec.PodSets[0].Name).
+						To(gomega.Equal(kueue.PodSetReference("leader")))
+					g.Expect(wl.Spec.PodSets[1].Name).
+						To(gomega.Equal(kueue.PodSetReference("worker")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			originalUID := wl.UID
+			originalPodSets := slices.Clone(wl.Spec.PodSets)
+
+			ginkgo.By("checking the workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).
+						To(gomega.Succeed())
+
+					g.Expect(wl.Status.Conditions).To(
+						utiltesting.HaveConditionStatusTrue(
+							kueue.WorkloadAdmitted,
+						),
+					)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking both pods are unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, pod := range []*corev1.Pod{leader, worker} {
+						currentPod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(
+							ctx,
+							client.ObjectKeyFromObject(pod),
+							currentPod,
+						)).To(gomega.Succeed())
+
+						g.Expect(currentPod.Spec.SchedulingGates).
+							To(gomega.BeEmpty())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("enabling scheduling shape ordering", func() {
+				features.SetFeatureGateDuringTest(
+					ginkgo.GinkgoTB(),
+					features.PodGroupSchedulingShapeOrdering,
+					true,
+				)
+			})
+
+			ginkgo.By("checking the existing workload is preserved", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sClient.Get(
+						ctx,
+						wlKey,
+						createdWorkload,
+					)).To(gomega.Succeed())
+
+					g.Expect(createdWorkload.UID).To(gomega.Equal(originalUID))
+					g.Expect(createdWorkload.Spec.PodSets).
+						To(gomega.Equal(originalPodSets))
+
+					g.Expect(createdWorkload.Status.Conditions).To(
+						utiltesting.HaveConditionStatusTrue(
+							kueue.WorkloadAdmitted,
+						),
+					)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking both pods remain unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, pod := range []*corev1.Pod{leader, worker} {
+						currentPod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(
+							ctx,
+							client.ObjectKeyFromObject(pod),
+							currentPod,
+						)).To(gomega.Succeed())
+
+						g.Expect(currentPod.Spec.SchedulingGates).
+							To(gomega.BeEmpty())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			util.SetPodsPhase(
+				ctx,
+				k8sClient,
+				corev1.PodSucceeded,
+				leader,
+				worker,
+			)
+		})
 	},
 )
 
