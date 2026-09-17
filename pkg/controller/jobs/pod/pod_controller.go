@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -1282,12 +1283,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 // shares a single value. The label is left untouched when the Pod does not resolve to a
 // Deployment.
 //
-// A Pod is Deployment-managed when a parent integration gated it and its ownership chain
-// leads to a Deployment; no other parent integration produces Pods owned by a ReplicaSet.
-// Without the annotation the Pod carries its own queue-name and is managed standalone,
-// so its Workload must keep the Pod UID even if a Deployment happens to own it.
+// The annotation names the user-owned object that carried the queue-name, so it is what
+// decides whether the Deployment UID applies. A Pod without it carries its own queue-name
+// and is managed standalone, and must keep the Pod UID even if a Deployment owns it.
 func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *kueue.Workload) error {
-	if _, suspendedByParent := p.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendedByParent {
+	if p.pod.Annotations[podconstants.SuspendedByParentAnnotation] != deploymentconstants.FrameworkName {
 		return nil
 	}
 	uid, err := p.getOwningDeploymentUID(ctx, c)

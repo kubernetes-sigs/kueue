@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -253,7 +254,7 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 		return testingpod.MakePod("test-pod", "ns").
 			UID("pod-uid").
 			Queue("user-queue").
-			SuspendedByParent("deployment").
+			SuspendedByParent(deploymentconstants.FrameworkName).
 			OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
 			Image("", nil)
 	}
@@ -286,6 +287,14 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 				},
 			},
 			wantJobUID: "pod-uid",
+		},
+		"pod gated by another parent integration keeps the pod UID": {
+			pod: deploymentPod().
+				SuspendedByParent("statefulset").
+				Obj(),
+			replicaSet:    makeReplicaSet("rs-uid", deploymentOwner),
+			enableFeature: true,
+			wantJobUID:    "pod-uid",
 		},
 		"pod not gated by a parent integration keeps the pod UID": {
 			pod: testingpod.MakePod("test-pod", "ns").
@@ -395,7 +404,7 @@ func TestConstructComposableWorkloadDeploymentJobUIDAcrossRollingUpdate(t *testi
 		return testingpod.MakePod(podName, "ns").
 			UID(podName+"-uid").
 			Queue("user-queue").
-			SuspendedByParent("deployment").
+			SuspendedByParent(deploymentconstants.FrameworkName).
 			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
 			Image("", nil).
 			Obj()
