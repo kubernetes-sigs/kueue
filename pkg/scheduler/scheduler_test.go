@@ -23,6 +23,7 @@ import (
 	"maps"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -10209,6 +10211,299 @@ func TestSchedulerNotifiesWatchersWhenAssumedWorkloadAdmissionFailsWithNotFound(
 	if got, want := watcher.oldWl.Status.Admission.ClusterQueue, kueue.ClusterQueueReference(cq.Name); got != want {
 		t.Errorf("Unexpected notified workload ClusterQueue: got %q, want %q", got, want)
 	}
+}
+
+// TestSchedulerSkipsAdmissionWriteWhenStateChanged: an out-of-band admission landing between
+// evaluation and commit must cancel the write, drop the assumed cache entry, and notify watchers.
+func TestSchedulerSkipsAdmissionWriteWhenStateChanged(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+	wl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+
+	// Entry saw a pending workload; someone else admitted it meanwhile.
+	count1 := int32(1)
+	outOfBandAdmission := &kueue.Admission{
+		ClusterQueue: kueue.ClusterQueueReference("other-cq"),
+		PodSetAssignments: []kueue.PodSetAssignment{{
+			Name:    kueue.DefaultPodSetName,
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: kueue.ResourceFlavorReference("other-rf")},
+			Count:   &count1,
+		}},
+	}
+
+	var patchAttempted bool
+	var driftPersisted atomic.Bool
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(ns, rf, cq, lq, wl).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			// On the first Get of the workload (the freshness check inside schedule(), which
+			// is the first Wl-keyed read), persist the out-of-band admission through the
+			// client so the fake server, not merely one call's response, holds the newer state.
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == wl.Name && key.Namespace == wl.Namespace && driftPersisted.CompareAndSwap(false, true) {
+					var cur kueue.Workload
+					if err := c.Get(ctx, key, &cur); err != nil {
+						return err
+					}
+					cur.Status.Admission = outOfBandAdmission
+					if err := c.Status().Update(ctx, &cur); err != nil {
+						return err
+					}
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+				patchAttempted = true
+				return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+			},
+		}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	watcher := &workloadUpdateWatcherRecorder{}
+	qManager.AddWorkloadUpdateWatcher(watcher)
+
+	cqCache.AddOrUpdateResourceFlavor(log, rf)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	go qManager.CleanUpOnContext(ctx)
+	defer cancel()
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	if patchAttempted {
+		t.Error("admission write should have been skipped: the workload's live admission changed between evaluation and commit")
+	}
+	if !cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
+		t.Fatal("Expected the aborted assumed workload to be removed from ClusterQueue cache")
+	}
+	if watcher.oldWl == nil {
+		t.Fatal("Expected workload update watcher to be notified about the aborted assumed workload")
+	}
+	if watcher.newWl != nil {
+		t.Errorf("Expected delete-like workload notification, got new workload %s/%s", watcher.newWl.Namespace, watcher.newWl.Name)
+	}
+	if got, want := watcher.oldWl.Status.Admission.ClusterQueue, kueue.ClusterQueueReference(cq.Name); got != want {
+		t.Errorf("Unexpected notified workload ClusterQueue: got %q, want %q", got, want)
+	}
+
+	if !driftPersisted.Load() {
+		t.Fatal("the competing admission was never persisted")
+	}
+
+	// The competing admission must still be on the server: the scheduler's stale write was skipped.
+	var final kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &final); err != nil {
+		t.Fatalf("Failed obtaining the workload: %v", err)
+	}
+	if diff := cmp.Diff(outOfBandAdmission, final.Status.Admission); diff != "" {
+		t.Errorf("Stale write clobbered the newer admission (-want/+got):\n%s", diff)
+	}
+}
+
+// TestSchedulerRestoresReservedWorkloadOnStaleAbort covers the second-pass shape: the abort path's
+// assumption-cleanup must not drop the workload's real, still-live reservation from the cache when
+// the drift was produced by an earlier pass's own commit. Otherwise the ClusterQueue cache
+// under-counts a live workload until some unrelated update event re-adds it.
+func TestSchedulerRestoresReservedWorkloadOnStaleAbort(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+
+	// Workload reserved under cq, carrying marks from a node failure.
+	liveWl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+		ResourceVersion("2").
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(&kueue.Admission{
+			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
+			PodSetAssignments: []kueue.PodSetAssignment{{
+				Name:    kueue.DefaultPodSetName,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: kueue.ResourceFlavorReference(rf.Name)},
+				Count:   ptr.To[int32](1),
+			}},
+		}, now).
+		UnhealthyNodes("old-node").
+		Obj()
+
+	// The second-pass entry evaluated against the same object but with the same reservation — and
+	// between evaluation and this pass's commit the marks got cleared by the earlier pass's
+	// other commit (a live admission that differs in topology only).
+	entryWl := liveWl.DeepCopy()
+
+	cl := utiltesting.NewClientBuilder().WithObjects(ns, liveWl).WithStatusSubresource(&kueue.Workload{}).Build()
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	cqCache.AddOrUpdateResourceFlavor(log, rf)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+
+	// Preload the cache with the live state as if pass 1 of the replacement had already committed .
+	if added := cqCache.AddOrUpdateWorkload(ctx, log, liveWl); !added {
+		t.Fatalf("Failed adding reserved workload %s/%s to cache", liveWl.Namespace, liveWl.Name)
+	}
+
+	e := &entry{}
+	entryWl.Generation = 1 // older than live ('2'): the entry was produced from an older snapshot
+	e.Obj = entryWl
+
+	// Preload the cache with the live (still-reserved) state as if pass 1 of the replacement had
+	// already committed: pass 2's abort must not leak it away.
+	if added := cqCache.AddOrUpdateWorkload(ctx, log, liveWl); !added {
+		t.Fatalf("Failed adding reserved workload %s/%s to cache", liveWl.Namespace, liveWl.Name)
+	}
+
+	live, chkErr := scheduler.checkEntrySnapshotCurrent(ctx, e)
+	if !errors.Is(chkErr, errStaleEntrySnapshot) {
+		t.Fatalf("expected staleness sentinel, got: %v", chkErr)
+	}
+	if live == nil {
+		t.Fatal("expected the live workload returned alongside the sentinel")
+	}
+
+	// The failure path removes the image this entry assumed; the branch then restores the
+	// still-reserved live workload so the ClusterQueue cache keeps accounting for reality.
+	_ = scheduler.cache.DeleteWorkload(log, workload.Key(liveWl))
+	if workload.HasQuotaReservation(live) {
+		scheduler.cache.AddOrUpdateWorkload(ctx, log, live)
+	}
+
+	if cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
+		t.Fatal("aborting a stale second-pass write dropped a still-reserved workload from the ClusterQueue cache")
+	}
+}
+
+// TestCheckEntrySnapshotCurrent unit-tests the staleness comparator: real drift is aborted,
+// reordered marks and condition-only resourceVersion bumps are let through.
+func TestCheckEntrySnapshotCurrent(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	mkAdmission := func(cq, rf string, node string) *kueue.Admission {
+		ps := []kueue.PodSetAssignment{{
+			Name:    kueue.DefaultPodSetName,
+			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: kueue.ResourceFlavorReference(rf)},
+		}}
+		if node != "" {
+			ps[0].TopologyAssignment = &kueue.TopologyAssignment{
+				Levels: []string{"kubernetes.io/hostname"},
+				Slices: []kueue.TopologyAssignmentSlice{{
+					DomainCount:    1,
+					ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{{Universal: new(node)}},
+				}},
+			}
+		}
+		return &kueue.Admission{ClusterQueue: kueue.ClusterQueueReference(cq), PodSetAssignments: ps}
+	}
+
+	baseWl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		Admission(mkAdmission("cq", "rf", "node-a")).
+		UnhealthyNodes("x1", "x2").
+		Obj()
+
+	for _, tc := range []struct {
+		name    string
+		mutate  func(w *kueue.Workload)
+		wantErr error
+	}{
+		{name: "identical"},
+		{name: "condition-only churn (same fields compared)", mutate: func(w *kueue.Workload) {
+			w.ResourceVersion = "999"
+		}},
+		{name: "admission rewritten out-of-band", mutate: func(w *kueue.Workload) { w.Status.Admission = mkAdmission("cq", "rf", "node-b") }, wantErr: errStaleEntrySnapshot},
+		{name: "admission removed out-of-band", mutate: func(w *kueue.Workload) { w.Status.Admission = nil }, wantErr: errStaleEntrySnapshot},
+		{name: "unhealthy nodes written out-of-band", mutate: func(w *kueue.Workload) {
+			w.Status.UnhealthyNodes = append(w.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: "x3"})
+		}, wantErr: errStaleEntrySnapshot},
+		{name: "unhealthy nodes cleared out-of-band", mutate: func(w *kueue.Workload) { w.Status.UnhealthyNodes = nil }, wantErr: errStaleEntrySnapshot},
+		{name: "same marks, permuted order", mutate: func(w *kueue.Workload) { w.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: "x2"}, {Name: "x1"}} }},
+		{name: "spec generation bump", mutate: func(w *kueue.Workload) { w.Generation++ }, wantErr: errStaleEntrySnapshot},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := baseWl.DeepCopy()
+			if tc.mutate != nil {
+				tc.mutate(live)
+			}
+
+			cl := utiltesting.NewClientBuilder().WithObjects(live).WithStatusSubresource(&kueue.Workload{}).Build()
+			cqCache := schdcache.New(cl)
+			scheduler := New(qcache.NewManagerForUnitTests(cl, cqCache), cqCache, cl, &utiltesting.EventRecorder{})
+
+			e := &entry{}
+			e.Obj = baseWl.DeepCopy()
+
+			_, err := scheduler.checkEntrySnapshotCurrent(ctx, e)
+			switch tc.wantErr {
+			case nil:
+				if err != nil {
+					t.Fatalf("expected snapshot to be current, got: %v", err)
+				}
+			case errStaleEntrySnapshot:
+				if !errors.Is(err, errStaleEntrySnapshot) {
+					t.Fatalf("expected stale sentinel, got: %v", err)
+				}
+			}
+		})
+	}
+
+	t.Run("live workload missing", func(t *testing.T) {
+		cl := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{}).Build()
+		scheduler := New(qcache.NewManagerForUnitTests(cl, schdcache.New(cl)), schdcache.New(cl), cl, &utiltesting.EventRecorder{})
+		e := &entry{}
+		e.Obj = baseWl.DeepCopy()
+		if _, err := scheduler.checkEntrySnapshotCurrent(ctx, e); !apierrors.IsNotFound(err) {
+			t.Fatalf("expected NotFound for missing workload, got: %v", err)
+		}
+	})
 }
 
 type workloadUpdateWatcherRecorder struct {
