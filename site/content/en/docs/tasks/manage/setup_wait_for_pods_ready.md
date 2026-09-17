@@ -42,7 +42,7 @@ install a release version and customize the default `waitForPodsReady` configura
 ```yaml
     waitForPodsReady:
       timeout: 30m
-      recoveryTimeout: 30m
+      recoveryTimeout: 5m
       blockAdmission: false
       requeuingStrategy:
         timestamp: Eviction | Creation

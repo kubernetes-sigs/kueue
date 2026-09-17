@@ -146,8 +146,8 @@ managerConfig:
       burst: 500
     #pprofBindAddress: :8083
     #waitForPodsReady:
-    #  timeout: 5m
-    #  recoveryTimeout: 3m
+    #  timeout: 30m
+    #  recoveryTimeout: 5m
     #  blockAdmission: false
     #  requeuingStrategy:
     #    timestamp: Eviction
