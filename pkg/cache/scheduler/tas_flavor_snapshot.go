@@ -249,6 +249,9 @@ type podSetMatchKey struct {
 	// EmptyCluster marks the entry holding what would fit if every Workload were
 	// preempted, so it cannot answer what fits now.
 	EmptyCluster bool
+	// Leader separates the leader's entry from the workers', which would otherwise
+	// share a key because both are built from the workers' PodSet name.
+	Leader bool
 }
 
 // matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
@@ -2298,6 +2301,10 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	if requirements.leader == nil || requirements.leader.podRequirements == nil || !s.leafIsNode() {
 		return nil
 	}
+	if leaves, found := s.cachedLeaderLeaves(requirements); found {
+		state.leaderFeasibleLeaves = leaves
+		return nil
+	}
 	allLeaves := slices.Collect(s.candidates())
 	// FindFeasibleNodes writes affinity scores into the snapshot's domain state, and
 	// this pass only wants the feasible set, so the workers' scores are put back.
@@ -2305,10 +2312,11 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	for i, leaf := range allLeaves {
 		scores[i] = leaf.GetAffinityScore()
 	}
+	leaderStats := newTASExclusionStats()
 	leaderLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx,
 		simulator.AsCandidates(slices.Values(allLeaves)),
 		requirements.leader.podRequirements,
-		&simulator.NodeExclusionStats{})
+		&leaderStats.NodeExclusionStats)
 	for i, leaf := range allLeaves {
 		leaf.SetAffinityScore(scores[i])
 	}
@@ -2319,7 +2327,40 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 	for _, leaf := range leaderLeaves {
 		state.leaderFeasibleLeaves.Insert(leaf.GetID())
 	}
+	if key, ok := requirements.leaderMatchKey(); ok {
+		s.storeMatchingLeaves(key, leaderLeaves, leaderStats)
+	}
 	return nil
+}
+
+// cachedLeaderLeaves returns the leaves an earlier call found for these leader filters,
+// as a fresh set so that a caller cannot write through it into the cache.
+func (s *TASFlavorSnapshot) cachedLeaderLeaves(requirements *topologyAssignmentPodRequirements) (sets.Set[utiltas.TopologyDomainID], bool) {
+	key, ok := requirements.leaderMatchKey()
+	if !ok {
+		return nil, false
+	}
+	entry, found := s.matchingLeavesCache[key]
+	if !found {
+		return nil, false
+	}
+	leaves := sets.New[utiltas.TopologyDomainID]()
+	for _, leaf := range entry.leaves {
+		leaves.Insert(leaf.GetID())
+	}
+	return leaves, true
+}
+
+// leaderMatchKey is the workers' key marked as the leader's. The leader is asked about
+// every leaf, so repeating that per preemption simulation is the most expensive part of
+// placing a group.
+func (r *topologyAssignmentPodRequirements) leaderMatchKey() (podSetMatchKey, bool) {
+	if r.matchKey == nil {
+		return podSetMatchKey{}, false
+	}
+	key := *r.matchKey
+	key.Leader = true
+	return key, true
 }
 
 // fillLeaderOnlyLeafCounts records the leaves that suit the leader but not the workers.
@@ -2375,19 +2416,19 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if err != nil {
 		return nil, nil, err
 	}
-	entry := &matchingLeavesCacheEntry{
-		leaves: feasibleLeaves,
-		stats:  leafStats,
-	}
-
 	if requirements.matchKey != nil {
-		if s.matchingLeavesCache == nil {
-			s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
-		}
-		s.matchingLeavesCache[*requirements.matchKey] = entry
+		s.storeMatchingLeaves(*requirements.matchKey, feasibleLeaves, leafStats)
 	}
+	return feasibleLeaves, leafStats, nil
+}
 
-	return entry.leaves, entry.stats, nil
+// storeMatchingLeaves records what the simulator reported for one key. The workers' and
+// the leader's passes both go through here, so every entry carries its stats.
+func (s *TASFlavorSnapshot) storeMatchingLeaves(key podSetMatchKey, leaves []simulator.MatchedCandidate, stats *tasExclusionStats) {
+	if s.matchingLeavesCache == nil {
+		s.matchingLeavesCache = make(map[podSetMatchKey]*matchingLeavesCacheEntry)
+	}
+	s.matchingLeavesCache[key] = &matchingLeavesCacheEntry{leaves: leaves, stats: stats}
 }
 
 // availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling

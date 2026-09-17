@@ -154,7 +154,7 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
 
 	unconstrained := true
@@ -183,10 +183,16 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 	}
 	requests := FlavorTASRequests{podSet("workers", 1), podSet("leader", 1)}
 
-	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests).Failure() == nil {
-		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
-	}
-	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithSimulateEmpty(true)).Failure(); failure != nil {
-		t.Errorf("FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", failure)
+	// A Workload is what keys matchingLeavesCache, so without one the leader's answers
+	// are never cached and this would not notice an entry serving the wrong question.
+	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	// Asked twice each way, because the cache only answers from the second cycle.
+	for _, cycle := range []string{"first", "second"} {
+		if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
+			t.Fatalf("%s cycle: FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port", cycle)
+		}
+		if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
+			t.Errorf("%s cycle: FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", cycle, failure)
+		}
 	}
 }

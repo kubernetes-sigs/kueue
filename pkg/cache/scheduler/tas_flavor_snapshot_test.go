@@ -34,6 +34,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -43,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -2587,5 +2589,117 @@ func TestValidateSpreadingLevels(t *testing.T) {
 				t.Errorf("unexpected reason (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Caching must not change an answer: every case runs with TASCacheNodeMatchResults on and
+// off and expects the same domains. Both entries of a group are built from the workers'
+// PodSet name, so an entry serving the leader the workers' leaves shows up here as the
+// leader on a node its own nodeSelector forbids.
+func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	const (
+		blockLabel = "cloud.provider.com/topology-block"
+		rackLabel  = "cloud.provider.com/topology-rack"
+	)
+
+	cases := map[string]struct {
+		required    string
+		workerPool  string
+		leaderPool  string
+		workers     int32
+		wantWorkers []string
+		wantLeader  []string
+	}{
+		"leader and workers want different nodes": {
+			required: blockLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
+			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
+		},
+		"leader and workers want the same node": {
+			required: blockLabel, workerPool: "workers", leaderPool: "workers", workers: 1,
+			wantWorkers: []string{"n1"}, wantLeader: []string{"n1"},
+		},
+		"leader takes the last place the workers could have used": {
+			required: blockLabel, workerPool: "workers", leaderPool: "workers", workers: 4,
+			wantWorkers: []string{"n1"}, wantLeader: []string{"n1"},
+		},
+		"required at the rack level": {
+			required: rackLabel, workerPool: "workers", leaderPool: "leader", workers: 2,
+			wantWorkers: []string{"n1"}, wantLeader: []string{"n2"},
+		},
+	}
+	for name, tc := range cases {
+		for _, cacheEnabled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s with TASCacheNodeMatchResults enabled: %t", name, cacheEnabled), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheEnabled)
+				ctx, log := utiltesting.ContextWithLog(t)
+
+				// One rack of two nodes, one pool each, so a PodSet served the other's
+				// leaves names the wrong node rather than failing to fit. The hostname
+				// level is declared so that the assignment names the node.
+				rackNode := node.MakeNode("").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("5"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).Ready()
+				nodes := []*corev1.Node{
+					rackNode.Clone().Name("n1").Label(blockLabel, "b1").Label(rackLabel, "r1").
+						Label(corev1.LabelHostname, "n1").Label("pool", "workers").Obj(),
+					rackNode.Clone().Name("n2").Label(blockLabel, "b1").Label(rackLabel, "r1").
+						Label(corev1.LabelHostname, "n2").Label("pool", "leader").Obj(),
+				}
+				tree := newTopologyTree([]string{blockLabel, rackLabel, corev1.LabelHostname}, nodes, 0)
+				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
+					newDefaultSimulatorSnapshot())
+
+				const groupName = "group"
+				oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+				requests := FlavorTASRequests{
+					{
+						PodSet: utiltestingapi.MakePodSet("workers", int(tc.workers)).
+							RequiredTopologyRequest(tc.required).
+							PodSetGroup(groupName).
+							NodeSelector(map[string]string{"pool": tc.workerPool}).Obj(),
+						SinglePodRequests: oneCPU,
+						Count:             tc.workers,
+						PodSetGroupName:   new(groupName),
+					},
+					{
+						PodSet: utiltestingapi.MakePodSet("leader", 1).
+							RequiredTopologyRequest(tc.required).
+							PodSetGroup(groupName).
+							NodeSelector(map[string]string{"pool": tc.leaderPool}).Obj(),
+						SinglePodRequests: oneCPU,
+						Count:             1,
+						PodSetGroupName:   new(groupName),
+					},
+				}
+				wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+
+				want := map[kueue.PodSetReference][]string{"workers": tc.wantWorkers, "leader": tc.wantLeader}
+				// The cache only answers from the second cycle, and the flavor assigner
+				// asks both ways, so an entry that answered one question must not serve
+				// the other.
+				for cycle := range 2 {
+					for _, simulateEmpty := range []bool{false, true} {
+						opts := []FindTopologyAssignmentsOption{WithWorkloadInfo(wl)}
+						if simulateEmpty {
+							opts = append(opts, WithSimulateEmpty(true))
+						}
+						result := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, opts...)
+						if failure := result.Failure(); failure != nil {
+							t.Fatalf("cycle %d simulateEmpty=%t: FindTopologyAssignmentsForFlavor() = %v, want a fit", cycle, simulateEmpty, failure)
+						}
+						for podSet, wantNodes := range want {
+							got := result[podSet].TopologyAssignment.Domains[0].Values
+							if diff := cmp.Diff(wantNodes, got); diff != "" {
+								t.Errorf("cycle %d simulateEmpty=%t: PodSet %s placed wrong (-want,+got): %s", cycle, simulateEmpty, podSet, diff)
+							}
+						}
+					}
+				}
+			})
+		}
 	}
 }
