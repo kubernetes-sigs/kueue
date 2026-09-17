@@ -96,15 +96,15 @@ func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preempti
 	return PreemptionPlan{func(yieldPlan func(PreemptionStrategy, StrategyParams) bool) {
 		for _, opts := range attemptPossibleOpts {
 			allowBorrowing := opts.borrowing
-			strat := func(yieldStrat func(*Target) bool) {
+			strategy := func(yieldStrategy func(*Target) bool) {
 				candidatesGenerator.Reset()
 				for candidate, reason := candidatesGenerator.Next(allowBorrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(allowBorrowing) {
-					if !yieldStrat(&Target{candidate, reason, preemptionCtx.snapshot.ClusterQueue(candidate.ClusterQueue)}) {
+					if !yieldStrategy(&Target{candidate, reason, preemptionCtx.snapshot.ClusterQueue(candidate.ClusterQueue)}) {
 						return
 					}
 				}
 			}
-			if !yieldPlan(strat, StrategyParams{allowBorrowing}) {
+			if !yieldPlan(strategy, StrategyParams{allowBorrowing}) {
 				return
 			}
 		}
@@ -139,20 +139,20 @@ func FairPreemptionPlan(
 
 	return PreemptionPlan{func(yieldPlan func(PreemptionStrategy, StrategyParams) bool) {
 		targetsInPreemptorCQ := false
-		if !yieldPlan(func(yieldStrat func(*Target) bool) {
+		if !yieldPlan(func(yieldStrategy func(*Target) bool) {
 			candidates = iterateWithFirstFsStrategy(log, preemptionCtx, candidates, fsStrategies[0], func(t *Target) bool {
 				if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 					targetsInPreemptorCQ = true
 				}
-				return yieldStrat(t)
+				return yieldStrategy(t)
 			})
 		}, StrategyParams{Borrowing: true}) {
 			return
 		}
 
 		if features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
-			if !yieldPlan(func(yieldStrat func(*Target) bool) {
-				candidates = iterateWithFirstFsStrategy(log, preemptionCtx, candidates, fsStrategies[0], yieldStrat)
+			if !yieldPlan(func(yieldStrategy func(*Target) bool) {
+				candidates = iterateWithFirstFsStrategy(log, preemptionCtx, candidates, fsStrategies[0], yieldStrategy)
 			}, StrategyParams{Borrowing: true}) {
 				return
 			}
@@ -160,8 +160,8 @@ func FairPreemptionPlan(
 
 		// Use the second fair sharing strategy.
 		if len(fsStrategies) > 1 {
-			yieldPlan(func(yieldStrat func(*Target) bool) {
-				iterateWithSecondFsStrategy(log, preemptionCtx, candidates, yieldStrat)
+			yieldPlan(func(yieldStrategy func(*Target) bool) {
+				iterateWithSecondFsStrategy(log, preemptionCtx, candidates, yieldStrategy)
 			}, StrategyParams{Borrowing: true})
 		}
 	}, FairPreemptions, preemptionCtx}
