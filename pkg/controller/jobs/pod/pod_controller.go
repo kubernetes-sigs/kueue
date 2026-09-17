@@ -520,7 +520,10 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 // completed successfully. A Succeeded pod has its PodReady condition set to False by
 // the kubelet, so checking readiness alone would treat a finished pod as unhealthy.
 func isPodReadyOrSucceeded(pod *corev1.Pod) bool {
-	return pod.Status.Phase == corev1.PodSucceeded || hasPodReadyTrue(pod.Status.Conditions)
+	if features.Enabled(features.PodIntegrationCountSucceededPodsAsReady) && pod.Status.Phase == corev1.PodSucceeded {
+		return true
+	}
+	return hasPodReadyTrue(pod.Status.Conditions)
 }
 
 // PodsReady instructs whether job derived pods are all ready now.
