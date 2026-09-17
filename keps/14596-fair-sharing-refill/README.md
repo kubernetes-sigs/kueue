@@ -223,7 +223,7 @@ The shared scheduler test body asserts after every case that any in-flight claim
 
 ### Integration tests
 
-The #9345 shape is exercised end to end with the gate enabled and disabled.
+The #9345 shape is exercised end to end with the gate enabled.
 
 ### Benchmark
 
