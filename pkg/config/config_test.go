@@ -1505,30 +1505,27 @@ namespace: kueue-system
 }
 
 func TestSetLeaderElectionConfig(t *testing.T) {
-	testcases := []struct {
-		name      string
+	testCases := map[string]struct {
 		qps       float32
 		burst     int32
 		wantQPS   float32
 		wantBurst int
 	}{
-		{
-			name:      "configured qps and burst are kept in a dedicated bucket",
+		"configured qps and burst are kept in a dedicated bucket": {
 			qps:       20,
 			burst:     30,
 			wantQPS:   20,
 			wantBurst: 30,
 		},
-		{
-			name:    "negative qps disables client-side throttling for the lease client too",
+		"negative qps disables client-side throttling for the lease client too": {
 			qps:     -1,
 			burst:   30,
 			wantQPS: -1,
 		},
 	}
 
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			// Mirror cmd/kueue/main.go: one explicit RateLimiter shared by every controller client.
 			sharedLimiter := flowcontrol.NewTokenBucketRateLimiter(tc.qps, int(tc.burst))
 			kubeConfig := &rest.Config{
