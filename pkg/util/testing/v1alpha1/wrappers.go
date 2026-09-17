@@ -52,9 +52,26 @@ func (w *DynamicQuotaOrchestratorWrapper) Obj() *kueuealpha.DynamicQuotaOrchestr
 	return &w.DynamicQuotaOrchestrator
 }
 
+// Clone returns a deep copy of the wrapper.
+func (w *DynamicQuotaOrchestratorWrapper) Clone() *DynamicQuotaOrchestratorWrapper {
+	return &DynamicQuotaOrchestratorWrapper{DynamicQuotaOrchestrator: *w.DeepCopy()}
+}
+
 // UID sets the UID of the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) UID(uid types.UID) *DynamicQuotaOrchestratorWrapper {
 	w.DynamicQuotaOrchestrator.UID = uid
+	return w
+}
+
+// Generation sets the generation of the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) Generation(num int64) *DynamicQuotaOrchestratorWrapper {
+	w.ObjectMeta.Generation = num
+	return w
+}
+
+// DeletionTimestamp sets a deletion timestamp on the DynamicQuotaOrchestrator.
+func (w *DynamicQuotaOrchestratorWrapper) DeletionTimestamp(t time.Time) *DynamicQuotaOrchestratorWrapper {
+	w.DynamicQuotaOrchestrator.DeletionTimestamp = new(metav1.NewTime(t).Rfc3339Copy())
 	return w
 }
 
@@ -87,6 +104,12 @@ func (w *DynamicQuotaOrchestratorWrapper) EffectiveCapacity(capacity *kueuealpha
 // Condition adds a condition to the DynamicQuotaOrchestrator.
 func (w *DynamicQuotaOrchestratorWrapper) Condition(condition metav1.Condition) *DynamicQuotaOrchestratorWrapper {
 	w.Status.Conditions = append(w.Status.Conditions, condition)
+	return w
+}
+
+// Conditions replaces status conditions on the DynamicQuotaOrchestrator. An empty list clears them.
+func (w *DynamicQuotaOrchestratorWrapper) Conditions(conditions ...metav1.Condition) *DynamicQuotaOrchestratorWrapper {
+	w.Status.Conditions = conditions
 	return w
 }
 

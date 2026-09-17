@@ -29,9 +29,9 @@ export const getBackendWebSocketUrl = () => {
   if (backendUrl && !backendUrl.endsWith("://")) {
     return backendUrl;
   }
-  // Nothing is set, so use the origin of the page itself. This works if a
-  // proxy in front of both containers sends /ws and /api to the backend. The
-  // chart does not do this: it gives them separate ingress hosts.
+  // Nothing is set, so use the origin of the page itself. This is the
+  // kueueViz.ingress.enabled layout: one ingress routes /ws, /api and /auth to
+  // the backend and everything else to the frontend.
   const { protocol, host } = window.location;
   return `${protocol === "https:" ? "wss" : "ws"}://${host}`;
 };
