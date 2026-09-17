@@ -922,7 +922,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 			_ = cqCache.AddLocalQueue(tc.localQueue)
 			for _, wl := range tc.runningWls {
-				cqCache.AddOrUpdateWorkload(log, &wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
 			}
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {

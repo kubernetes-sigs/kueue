@@ -1102,6 +1102,11 @@ func TestReconcileRequeue(t *testing.T) {
 			wantPendingWorkloads: map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info{
 				"cq": {
 					"ns/wl": {
+						EffectivePodSpecs: []corev1.PodSpec{
+							utiltestingapi.MakeWorkload("wl", "ns").
+								Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").
+								Obj().Spec.PodSets[0].Template.Spec,
+						},
 						TotalRequests: []workload.PodSetResources{
 							{
 								Name:  kueue.DefaultPodSetName,

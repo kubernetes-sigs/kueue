@@ -3979,7 +3979,7 @@ func TestScheduleForTAS(t *testing.T) {
 					// Reserved workloads must contribute their usage to the snapshot, mirroring production.
 					for i := range testWls {
 						if workload.HasQuotaReservation(&testWls[i]) {
-							cqCache.AddOrUpdateWorkload(log, &testWls[i])
+							cqCache.AddOrUpdateWorkload(t.Context(), log, &testWls[i])
 						}
 					}
 					for _, w := range testWls {
@@ -10884,7 +10884,7 @@ func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
 			}
 			// Contributes the reserved usage and, with pods-ready tracking on, places
 			// the workload in its ClusterQueue's WorkloadsNotReady set.
-			cqCache.AddOrUpdateWorkload(log, tc.workload.DeepCopy())
+			cqCache.AddOrUpdateWorkload(t.Context(), log, tc.workload.DeepCopy())
 			if !qManager.QueueSecondPassIfNeeded(ctx, tc.workload, 0) {
 				t.Fatal("expected the workload to be queued for a second pass")
 			}
