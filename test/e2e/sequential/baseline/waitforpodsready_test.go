@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -32,6 +33,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -42,6 +44,9 @@ import (
 const (
 	serviceAccountName           = "kueue-controller-manager"
 	metricsReaderClusterRoleName = "kueue-metrics-reader"
+
+	unscheduledTimeout   = 15 * time.Second
+	unscheduledNodeLabel = "kueue.x-k8s.io/unscheduled-e2e"
 )
 
 var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeout", ginkgo.Label("feature:waitforpodsready", util.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -508,6 +513,179 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				{"kueue_admitted_until_ready_wait_time_seconds_count", cq.Name, "} 1"},
 				{"kueue_local_queue_ready_wait_time_seconds_count", ns.Name, lq.Name, "} 1"},
 				{"kueue_local_queue_admitted_until_ready_wait_time_seconds_count", ns.Name, lq.Name, "} 1"}})
+		})
+	})
+})
+
+var _ = ginkgo.Describe("WaitForPodsReady with a short UnscheduledTimeout", ginkgo.Label("feature:waitforpodsready", util.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns    *corev1.Namespace
+		rf    *kueue.ResourceFlavor
+		cq    *kueue.ClusterQueue
+		lq    *kueue.LocalQueue
+		job   *batchv1.Job
+		wl    kueue.Workload
+		wlKey types.NamespacedName
+
+		metricsReaderClusterRoleBinding *rbacv1.ClusterRoleBinding
+
+		curlContainerName string
+		curlPod           *corev1.Pod
+	)
+
+	ginkgo.BeforeAll(func() {
+		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:      "ServiceAccount",
+					Name:      serviceAccountName,
+					Namespace: kueueNS,
+				},
+			},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: rbacv1.GroupName,
+				Kind:     "ClusterRole",
+				Name:     metricsReaderClusterRoleName,
+			},
+		}
+		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
+
+		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
+				BlockAdmission:     new(true),
+				Timeout:            metav1.Duration{Duration: util.LongTimeout},
+				UnscheduledTimeout: &metav1.Duration{Duration: unscheduledTimeout},
+				RequeuingStrategy: &configapi.RequeuingStrategy{
+					Timestamp:          new(configapi.EvictionTimestamp),
+					BackoffBaseSeconds: new(int32(10)),
+					BackoffLimitCount:  new(int32(1)),
+				},
+			}
+			if cfg.FeatureGates == nil {
+				cfg.FeatureGates = make(map[string]bool)
+			}
+			cfg.FeatureGates[string(features.WaitForPodsReadyUnscheduledTimeout)] = true
+		})
+
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
+			ServiceAccountName(serviceAccountName).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			Obj()
+		util.MustCreate(ctx, k8sClient, curlPod)
+
+		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
+			util.WaitForPodRunning(ctx, k8sClient, curlPod)
+		})
+
+		curlContainerName = curlPod.Spec.Containers[0].Name
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
+
+		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
+		util.MustCreate(ctx, k8sClient, rf)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "10").
+				Obj()).
+			Obj()
+		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).
+			ClusterQueue(cq.Name).
+			Obj()
+		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+	})
+
+	ginkgo.AfterAll(func() {
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
+	})
+
+	ginkgo.It("should evict the workload when its pods stay unscheduled for the unscheduledTimeout", func() {
+		var (
+			admittedAt metav1.Time
+		)
+
+		ginkgo.By("creating a job whose pods select a node label no node carries", func() {
+			job = testingjob.MakeJob("job-unscheduled", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				TerminationGracePeriod(1).
+				Request(corev1.ResourceCPU, "2").
+				Parallelism(1).
+				NodeSelector(unscheduledNodeLabel, "true").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		wlKey = types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("waiting for the tracker to report the unscheduled pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsScheduled, kueue.WorkloadWaitForScheduling))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForScheduling))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			admittedAt = apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime
+		})
+
+		ginkgo.By("verifying that the job pod template links the pods to the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+				g.Expect(job.Spec.Template.Annotations).To(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, wlKey.Name))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("waiting for the workload to be evicted by the scheduling deadline", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByPodsReadyTimeout))
+				g.Expect(wl.Status.SchedulingStats).NotTo(gomega.BeNil())
+				g.Expect(wl.Status.SchedulingStats.Evictions).To(
+					gomega.BeComparableTo([]kueue.WorkloadSchedulingStatsEviction{{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForScheduling,
+						Count:           1,
+					}}),
+				)
+			}, util.Timeout+unscheduledTimeout, util.Interval).Should(gomega.Succeed())
+			evicted := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+			gomega.Expect(evicted.LastTransitionTime.Time).To(gomega.BeTemporally(">=", admittedAt.Add(unscheduledTimeout)),
+				"the workload was evicted before the unscheduledTimeout since admission")
+		})
+
+		ginkgo.By("verifying readiness resets while the unscheduled observation is retained", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsReady, kueue.WorkloadWaitForStart))
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadPodsScheduled, kueue.WorkloadWaitForScheduling))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying that the metric is updated", func() {
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_evicted_workloads_once_total", cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForScheduling, "1"},
+			})
+		})
+
+		ginkgo.By("deleting the job", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true)
 		})
 	})
 })
