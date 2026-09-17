@@ -39,8 +39,6 @@ import (
 // TestNominateReleasesHeadAlreadyAccountedInCache covers the one exit where a
 // popped head leaves the cycle without being requeued or deleted: its
 // nomination is dropped because the scheduler cache already accounts for it.
-// With inflight claims keyed per workload, nothing else would release that
-// claim, and the workload could never be queued again.
 //
 // Not expressible as a scheduleTestCase: the harness derives the queues and
 // the scheduler cache from one workload list, so no workload can be pending in

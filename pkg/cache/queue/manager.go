@@ -768,37 +768,28 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only expected error is NotFound.
-	// We should not requeue a workload that is not admissible. None of the three
-	// branches below requeues, so each has to clear what the checkout left in the
-	// queues: if the object is gone its queue assignment goes with it, and if it
-	// still exists that record belongs to the workload controller.
+	// We should not requeue a workload that is not admissible. While the object
+	// still exists, its queue assignment and unadmitted record belong to the
+	// workload controller, so only a deleted workload loses them here.
 	if apierrors.IsNotFound(err) {
 		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 	if err != nil {
-		// Unexpected with a cached client; the object may still exist, so
-		// clear only the queue-side bookkeeping and keep the records owned
-		// by the workload controller.
+		// Unexpected with a cached client; the object may still exist.
 		m.deleteWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 	if !workload.IsAdmissible(&w) {
-		// The workload still exists (e.g. it finished or was put on hold
-		// while inflight), so keep its finished/unadmitted records and queue
-		// assignment: the workload controller owns their lifecycle and only
-		// forgets them when the object is deleted.
 		m.deleteWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 
 	qKey := queue.KeyFromWorkload(&w)
 	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
-		// The workload changed LocalQueue while it was checked out, so drop what
-		// it left in the old one. Its entry in the unadmitted-workloads registry
-		// is only labelled by queue, not held by it, so count it again under the
-		// new labels: this call is the scheduler's, and no reconcile follows it
-		// to rebuild the entry.
+		// The workload changed LocalQueue while it was checked out. No reconcile
+		// follows this requeue, so its unadmitted record has to be rebuilt under
+		// the new queue here.
 		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
 			m.updateUnadmittedWorkloadWithoutLock(log, &w)
@@ -1001,8 +992,6 @@ func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
 		return nil
 	}
 	head := newHead(*wl, cq)
-	// Defensive: deleting a LocalQueue removes its workloads from the heap
-	// under the same lock, so q is expected to exist here.
 	wlKey := workload.Key(wl.Obj)
 	if q := m.localQueues[m.workloadAssignedQueues[wlKey]]; q != nil {
 		delete(q.items, wlKey)
@@ -1011,11 +1000,9 @@ func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
 	return &head
 }
 
-// PopFrom pops the head of the given ClusterQueue so it can join the running
-// scheduling cycle mid-way (fair sharing refill), with the same per-queue
-// bookkeeping as heads(). The popped workload is checked out and, like the
-// workloads returned by Heads, the caller must end that checkout before the
-// cycle ends.
+// PopFrom checks out the head of the given ClusterQueue for the scheduling
+// cycle already in progress (fair sharing refill). Like a Head, the caller must
+// end the checkout before the cycle ends.
 func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
 	m.Lock()
 	defer m.Unlock()
@@ -1030,9 +1017,9 @@ func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
 	return m.takePopped(cq, cq.PopMidCycle())
 }
 
-// HasQueuedWorkloads reports whether a mid-cycle pop would find a successor:
-// a workload waiting in the ClusterQueue's active heap, and the ClusterQueue
-// active. Inflight and inadmissible workloads do not count.
+// HasQueuedWorkloads reports whether the ClusterQueue can still hand the running
+// cycle another workload. Unlike the pending counts, it ignores workloads that
+// are already checked out or waiting as inadmissible.
 func (m *Manager) HasQueuedWorkloads(cqName kueue.ClusterQueueReference) bool {
 	m.RLock()
 	defer m.RUnlock()

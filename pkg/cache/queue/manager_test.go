@@ -3533,10 +3533,9 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 	}
 }
 
-// TestForgetInflight verifies that a popped workload whose inflight entry is
-// explicitly forgotten becomes visible to PushOrUpdate again. Without the
-// cleanup, the stale entry would make PushOrUpdate ignore every future update
-// for the workload.
+// TestForgetInflight verifies that abandoning a checkout lets the ClusterQueue
+// take the workload back. A checkout left open would keep the workload out of
+// scheduling until it is deleted.
 func TestForgetInflight(t *testing.T) {
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
@@ -3576,11 +3575,8 @@ func TestForgetInflight(t *testing.T) {
 	}
 }
 
-// TestRequeueWorkloadWhileInflight covers RequeueWorkload's non-requeue exits
-// for popped (inflight) workloads: the queue-side bookkeeping must be dropped
-// so PushOrUpdate does not ignore future updates for the workload, while
-// records owned by the workload controller are kept when the object still
-// exists.
+// TestRequeueWorkloadWhileInflight covers RequeueWorkload's exits for a
+// workload that changed while it was checked out.
 func TestRequeueWorkloadWhileInflight(t *testing.T) {
 	setup := func(t *testing.T) (context.Context, client.Client, *Manager, *Head) {
 		t.Helper()
@@ -3647,8 +3643,6 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
 			t.Errorf("inflight entries left after requeue of finished workload: %d", got)
 		}
-		// The object still exists: the workload controller owns the queue
-		// assignment record and forgets it only on deletion.
 		if _, ok := manager.workloadAssignedQueues["earth/a"]; !ok {
 			t.Error("queue assignment dropped for a workload that still exists")
 		}
@@ -3681,10 +3675,10 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 	})
 }
 
-// TestDeleteLocalQueueReleasesInflight covers the LocalQueue deletion sweep
-// as the only releaser of an inflight claim: the pop removed the workload
-// from the LocalQueue's items, so the per-item cleanup never sees it, and a
-// stale claim would make the ClusterQueue ignore the workload once re-added.
+// TestDeleteLocalQueueReleasesInflight covers deleting a LocalQueue while one of
+// its workloads is checked out. The checkout already took the workload out of
+// the LocalQueue, so only the deletion itself can end it; otherwise the
+// ClusterQueue would refuse the workload once it is added back.
 func TestDeleteLocalQueueReleasesInflight(t *testing.T) {
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()

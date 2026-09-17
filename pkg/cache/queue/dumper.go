@@ -25,8 +25,7 @@ import (
 )
 
 // LogDump dumps the pending, inadmissible and inflight workloads for each
-// ClusterQueue into the log, one line per ClusterQueue. A workload that never
-// left inflight is in neither of the other two and reports nothing on its own.
+// ClusterQueue into the log, one line per ClusterQueue.
 func (m *Manager) LogDump(log logr.Logger) {
 	m.Lock()
 	defer m.Unlock()
@@ -84,8 +83,7 @@ func (m *Manager) DumpInadmissible() map[kueue.ClusterQueueReference][]workload.
 	return dump
 }
 
-// DumpInflight is a dump of the workloads the scheduler has popped and not yet
-// given back.
+// DumpInflight is a dump of the workloads currently checked out to the scheduler.
 func (m *Manager) DumpInflight() map[kueue.ClusterQueueReference][]workload.Reference {
 	m.Lock()
 	defer m.Unlock()

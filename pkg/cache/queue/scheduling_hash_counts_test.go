@@ -451,9 +451,10 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 	}
 }
 
-// TestSchedulingHashCountsMultiInflight pins the inflight count-map
-// semantics that fair sharing refill relies on when a ClusterQueue holds
-// several inflight workloads at once.
+// TestSchedulingHashCountsMultiInflight covers a ClusterQueue with several
+// workloads checked out at once, as during fair sharing refill: a shared hash
+// stays pending until its last holder comes back, and is not counted twice when
+// it is also on the heap.
 func TestSchedulingHashCountsMultiInflight(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	now := time.Now()

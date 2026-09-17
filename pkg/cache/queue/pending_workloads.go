@@ -213,8 +213,9 @@ func (p *PendingWorkloads) ForgetInflightByKey(ref workload.Reference) {
 	p.clearInflight(ref)
 }
 
-// ForgetInflightFromLocalQueue forgets every inflight workload that belongs to
-// the given LocalQueue.
+// ForgetInflightFromLocalQueue ends the checkouts of a LocalQueue that is being
+// deleted. A checked-out workload has already left the LocalQueue, so deleting
+// the LocalQueue's workloads does not reach it.
 func (p *PendingWorkloads) ForgetInflightFromLocalQueue(lqRef utilqueue.LocalQueueReference) {
 	p.Lock()
 	defer p.Unlock()
@@ -225,7 +226,6 @@ func (p *PendingWorkloads) ForgetInflightFromLocalQueue(lqRef utilqueue.LocalQue
 	}
 }
 
-// hasActive reports whether the active workloads heap holds any workload.
 func (p *PendingWorkloads) hasActive() bool {
 	p.RLock()
 	defer p.RUnlock()
@@ -479,8 +479,7 @@ func (p *PendingWorkloads) DumpInadmissible() ([]workload.Reference, bool) {
 	return elements, true
 }
 
-// DumpInflight produces a dump of the workloads this ClusterQueue has handed to
-// the scheduler and not got back. It returns false if there are none.
+// DumpInflight produces a dump of the workloads checked out to the scheduler.
 func (p *PendingWorkloads) DumpInflight() ([]workload.Reference, bool) {
 	p.RLock()
 	defer p.RUnlock()

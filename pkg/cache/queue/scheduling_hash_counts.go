@@ -42,9 +42,7 @@ type schedulingHashCounts struct {
 	inadmissible map[workload.EquivalenceHash]int
 	// inflight counts the hashes of the workloads in PendingWorkloads.inflight.
 	// They are folded into the counts at read time because Pop moves a
-	// workload out of the heap while it is still being scheduled. It is a
-	// count map rather than a single hash because fair sharing refill lets
-	// the scheduler hold more than one workload inflight per ClusterQueue.
+	// workload out of the heap while it is still being scheduled.
 	inflight map[workload.EquivalenceHash]int
 }
 
@@ -138,8 +136,8 @@ func (s *schedulingHashCounts) moveToInadmissible(wInfo *workload.Info) {
 	addSchedulingHash(s.inadmissible, wInfo)
 }
 
-// moveActiveToInflight removes wInfo's hash from the active bucket and adds it
-// to the inflight bucket, mirroring Pop handing the workload to the scheduler.
+// moveActiveToInflight moves wInfo's hash from the active to the inflight bucket
+// when the scheduler checks the workload out.
 func (s *schedulingHashCounts) moveActiveToInflight(wInfo *workload.Info) {
 	s.rwm.Lock()
 	defer s.rwm.Unlock()
@@ -147,8 +145,8 @@ func (s *schedulingHashCounts) moveActiveToInflight(wInfo *workload.Info) {
 	addSchedulingHash(s.inflight, wInfo)
 }
 
-// removeInflight forgets wInfo's inflight hash, mirroring its entry in
-// PendingWorkloads.inflight being cleared.
+// removeInflight drops wInfo's hash from the inflight bucket when its checkout
+// ends.
 func (s *schedulingHashCounts) removeInflight(wInfo *workload.Info) {
 	s.rwm.Lock()
 	defer s.rwm.Unlock()

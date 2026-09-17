@@ -174,10 +174,9 @@ type ClusterQueue struct {
 
 	finishedWorkloads sets.Set[workload.Reference]
 
-	// popCycle identifies the current evaluation epoch: Pop advances it,
-	// PopMidCycle does not. popCycle and queueInadmissibleCycle are used to
-	// track when there is a requeuing of inadmissible workloads while a
-	// workload is being scheduled.
+	// popCycle identifies the current evaluation epoch. popCycle and
+	// queueInadmissibleCycle are used to track when there is a requeuing of
+	// inadmissible workloads while a workload is being scheduled.
 	popCycle int64
 
 	// queueInadmissibleCycle stores the popId at the time when
@@ -615,9 +614,6 @@ func (c *ClusterQueue) forgetInflight(key workload.Reference) {
 	c.workloads.ForgetInflightByKey(key)
 }
 
-// hasQueuedWorkloads reports whether any workload is waiting in the active
-// heap. Unlike pendingActive, inflight and inadmissible workloads do not
-// count: this answers "would a pop find a successor right now".
 func (c *ClusterQueue) hasQueuedWorkloads() bool {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
@@ -686,9 +682,7 @@ func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueRe
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the
-// queue is empty. Pop advances popCycle, starting a new evaluation epoch:
-// requeueIfNotPresent treats inadmissible-requeue events stamped before the
-// current epoch as stale.
+// queue is empty.
 func (c *ClusterQueue) Pop() *workload.Info {
 	return c.pop(true)
 }
