@@ -474,6 +474,9 @@ func isManagedByMultiKueue(object client.Object) bool {
 // manager-side fallback of UpdatePodSets for jobs whose runtime child
 // RayCluster lives only on the worker cluster.
 func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, object client.Object) []kueue.PodSet {
+	if !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+		return podSets
+	}
 	annotation := object.GetAnnotations()[RayClusterPodsetReplicaSizesAnnotation]
 	if annotation == "" {
 		return podSets

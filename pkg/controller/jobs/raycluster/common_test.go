@@ -698,13 +698,14 @@ func TestBuildPodSets(t *testing.T) {
 
 func TestUpdatePodSets(t *testing.T) {
 	testCases := map[string]struct {
-		podSets                 []kueue.PodSet
-		object                  client.Object
-		enableInTreeAutoscaling *bool
-		rayClusterName          string
-		rayClusterInClient      *rayv1.RayCluster
-		wantPodSets             []kueue.PodSet
-		wantErr                 error
+		podSets                              []kueue.PodSet
+		object                               client.Object
+		enableInTreeAutoscaling              *bool
+		enableMultiKueueRayInTreeAutoscaling bool
+		rayClusterName                       string
+		rayClusterInClient                   *rayv1.RayCluster
+		wantPodSets                          []kueue.PodSet
+		wantErr                              error
 	}{
 		"workload slicing disabled - no update": {
 			podSets: []kueue.PodSet{
@@ -750,11 +751,29 @@ func TestUpdatePodSets(t *testing.T) {
 				Annotation("kueue.x-k8s.io/elastic-job", "true").
 				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
 				Obj(),
+			enableInTreeAutoscaling:              new(true),
+			enableMultiKueueRayInTreeAutoscaling: true,
+			rayClusterName:                       "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).Obj(),
+			},
+		},
+		"child raycluster absent - runtime annotation is ignored when MultiKueue Ray autoscaling is disabled": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Obj(),
 			enableInTreeAutoscaling: new(true),
 			rayClusterName:          "nonexistent-child",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers", 5).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
 		},
 		"empty rayClusterName - no update": {
@@ -850,6 +869,7 @@ func TestUpdatePodSets(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.MultiKueueRayInTreeAutoscaling, tc.enableMultiKueueRayInTreeAutoscaling)
 
 			scheme := runtime.NewScheme()
 			_ = rayv1.AddToScheme(scheme)
