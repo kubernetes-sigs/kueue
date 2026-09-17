@@ -74,6 +74,7 @@ func TestValidateWorkload(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		workload     *kueue.Workload
 		wantErr      error
+		wantDetail   string
 		wantWarnings admission.Warnings
 	}{
 		"valid": {
@@ -111,6 +112,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, ""),
 			}.ToAggregate(),
+			wantDetail: "is not a multiple of 3",
 		},
 		"should not request num-pods resource": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -725,6 +727,15 @@ func TestValidateWorkload(t *testing.T) {
 			gotWarnings, gotErr := (&WorkloadWebhook{}).ValidateCreate(t.Context(), tc.workload)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateCreate() error mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantDetail != "" {
+				gotErr := ValidateWorkload(tc.workload, nil)
+				if len(gotErr) == 0 {
+					t.Fatalf("expected an error but got none")
+				}
+				if gotErr[0].Detail != tc.wantDetail {
+					t.Errorf("unexpected error detail, want %q got %q", tc.wantDetail, gotErr[0].Detail)
+				}
 			}
 			if diff := cmp.Diff(tc.wantWarnings, gotWarnings); diff != "" {
 				t.Errorf("ValidateCreate() warnings mismatch (-want +got):\n%s", diff)
