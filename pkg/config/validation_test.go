@@ -2397,11 +2397,10 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
 			featureGateMap: map[string]bool{
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
-				// Disable another default-on dependent to isolate the dependency under test.
-				string(features.MultiKueueRayInTreeAutoscaling): false,
-				string(features.TopologyAwareScheduling):        true,
-				string(features.ElasticJobsViaWorkloadSlices):   false,
-				string(features.TASProfileMixed):                false,
+				string(features.MultiKueueRayInTreeAutoscaling):      false,
+				string(features.TopologyAwareScheduling):             true,
+				string(features.ElasticJobsViaWorkloadSlices):        false,
+				string(features.TASProfileMixed):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
