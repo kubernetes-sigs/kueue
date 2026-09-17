@@ -1,4 +1,4 @@
-# KEP-13243: MultiKueue Worker-Side Ray In-Tree Autoscaling for Elastic Jobs
+# KEP-13243: MultiKueue Worker-Cluster Side Autoscaling for Elastic Jobs
 
 <!-- toc -->
 - [Summary](#summary)
@@ -6,19 +6,22 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [User Stories](#user-stories)
-    - [Story 1: Online and offline inference](#story-1-online-and-offline-inference)
-    - [Story 2: Colocated training and evaluation](#story-2-colocated-training-and-evaluation)
-  - [Notes/Constraints/Caveats](#notesconstraintscaveats)
+  - [Generic reverse elastic sync](#generic-reverse-elastic-sync)
+  - [Alpha: Ray integration](#alpha-ray-integration)
+    - [Ray user stories](#ray-user-stories)
+      - [Story 1: Online and offline inference](#story-1-online-and-offline-inference)
+      - [Story 2: Colocated training and evaluation](#story-2-colocated-training-and-evaluation)
+    - [Ray constraints](#ray-constraints)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [Reverse elastic sync](#reverse-elastic-sync)
-    - [RayCluster](#raycluster)
-    - [RayJob](#rayjob)
-    - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
-  - [Manager-side replicas pinning](#manager-side-replicas-pinning)
-  - [Worker-side resize tolerance](#worker-side-resize-tolerance)
-  - [Triggering the reverse sync](#triggering-the-reverse-sync)
+  - [Alpha: Ray implementation](#alpha-ray-implementation)
+    - [Ray reverse elastic sync](#ray-reverse-elastic-sync)
+      - [RayCluster](#raycluster)
+      - [RayJob](#rayjob)
+      - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
+    - [Manager-side replicas pinning](#manager-side-replicas-pinning)
+    - [Worker-side resize tolerance](#worker-side-resize-tolerance)
+    - [Triggering the reverse sync](#triggering-the-reverse-sync)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [e2e tests](#e2e-tests)
@@ -30,32 +33,32 @@
 
 ## Summary
 
-Kueue can dispatch an elastic RayCluster or RayJob (`ElasticJobsViaWorkloadSlices`)
-to a worker cluster through MultiKueue, and the manager-driven forward sync
-([#12885](https://github.com/kubernetes-sigs/kueue/pull/12885)) propagates
-manager-side resizes down to that worker copy. But when the workload is meant to
-be resized by the [Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html), there
-is no path for those worker-side resizes to travel back to the manager.
+Kueue can dispatch an elastic workload (`ElasticJobsViaWorkloadSlices`) to a
+worker cluster through MultiKueue, and its existing forward sync (e.g.,
+[#12885](https://github.com/kubernetes-sigs/kueue/pull/12885)) propagates
+manager-side resizes down to that worker copy. Some integrations, however, run
+an autoscaler next to the workload on the worker cluster. MultiKueue has no
+path for those worker-side replica changes to travel back to the manager.
 
-This KEP proposes the missing **worker→manager** direction — a *reverse elastic
-sync* in the shared Ray adapter — so an autoscaler-driven resize on the worker
-cluster is reflected onto the manager object, and the manager re-reserves quota
-through its existing workload-slicing machinery.
+This KEP proposes the missing **worker→manager** direction as a generic
+*reverse elastic sync* capability for MultiKueue adapters. An adapter reports a
+restricted replica update; the manager then re-reserves quota through its
+existing workload-slicing machinery.
 
 ## Motivation
 
-MultiKueue today supports only a *manager-driven* resize model for elastic Ray
-workloads, built on the forward sync from
-[#12885](https://github.com/kubernetes-sigs/kueue/pull/12885):
+MultiKueue today supports only a *manager-driven* resize model for elastic
+workloads:
 
-- Step 1: a user (or an external controller) edits the manager RayCluster's
-  replicas.
+- Step 1: a user or controller changes the desired size on the manager object.
 - Step 2: MultiKueue forward-syncs the new count to the worker copy.
-- Step 3: the worker's KubeRay adjusts the worker pods to match.
+- Step 3: the integration's controller adjusts the worker pods to match.
 
-But the [Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html)
-is the natural way to run these workloads — it grows and shrinks worker groups in
-response to the actual resource demands of the application:
+That direction is insufficient for integrations whose autoscaler runs on the
+worker cluster, where application demand and runtime state are observed. Ray is
+the first such integration: the
+[Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html)
+grows and shrinks worker groups in response to actual application demand:
 
 - Step 1: the user runs a Ray application (submitting tasks, actors, or placement
   groups) on the RayCluster.
@@ -65,39 +68,48 @@ response to the actual resource demands of the application:
 - Step 3: KubeRay reconciles the updated CR and creates or deletes the worker
   pods.
 
-Many real workloads depend on it — mixed online/offline inference, and training
-colocated with evaluation in a single long-lived RayCluster. The manager-driven-only
-model shuts out every such use case. To unblock them, the resize decision must be
-allowed to **originate on the worker** and **flow back to the manager**, which
-remains the quota authority.
+Many workloads depend on worker-local signals to scale. The resize decision must
+be allowed to **originate on the worker** and **flow back to the manager**, while
+the manager remains the quota authority.
 
 ### Goals
 
-- Let the Ray Autoscaler resize a MultiKueue-dispatched elastic
-  `RayCluster` or `RayJob` on the worker cluster, and reflect that resize back
-  onto the manager object — and extend the same mechanism to `RayService` once its
-  zero-downtime / incremental upgrade support is complete.
+- Define an integration-neutral reverse elastic sync capability for MultiKueue
+  adapters.
 - Keep the manager as the single quota authority: worker-originated resizes flow
   through the manager's workload-slicing admission (quota re-reservation), never
   bypass it.
 
 ### Non-Goals
 
-- A brand-new autoscaling algorithm — this reuses the Ray Autoscaler and
-  Kueue's existing workload slicing.
-- Extending reverse elastic sync to non-Ray integrations in this KEP (the adapter
-  hooks are designed to generalize, but only Ray is implemented here).
+- A brand-new autoscaling algorithm. Each integration retains its own scaling
+  policy; this KEP only transports its replica decisions through Kueue's existing
+  workload slicing.
 - Manager-driven and worker-driven resizing of the *same* object at the same
   time; a given elastic object is resized by one side.
 
 ## Proposal
 
-Add a **reverse elastic sync** to the shared Ray adapter that detects an
-autoscaler-driven resize on the worker cluster and reflects it onto the manager
-object **as annotations, leaving the manager spec untouched**, where the existing
-workload-slicing machinery re-reserves quota. A single `Runtime{Fetch, Apply}`
-hook drives it for both types; only *where the live worker replicas are read*
-differs:
+### Generic reverse elastic sync
+
+Extend the MultiKueue adapter model with a reverse elastic sync capability. An
+enabled adapter reads its worker-side runtime state and returns a structured
+replica update containing only:
+
+- effective counts keyed by existing PodSet name; and
+- a revision that distinguishes successive scale-ups and remote-object
+  recreation.
+
+Under the generalized contract, the shared MultiKueue path applies only the
+controller-owned representation of those two values on the manager object.
+
+### Alpha: Ray integration
+
+For Ray, reverse elastic sync detects an autoscaler-driven resize on the worker
+cluster and reflects it onto the manager object **as annotations, leaving the
+manager spec untouched**, where the existing workload-slicing machinery
+re-reserves quota. A single `Runtime{Fetch, Apply}` hook drives it for both types;
+only *where the live worker replicas are read* differs:
 
 - **RayCluster** — the replicas live on the remote RayCluster copy itself.
 - **RayJob** — the replicas live on the child RayCluster that KubeRay creates on
@@ -108,9 +120,9 @@ In both cases `Apply` records the counts (and a revision) on the manager copy as
 the `raycluster-podset-replica-sizes` and `raycluster-generation` annotations,
 which feed the manager's PodSets derivation and the workload-slice name.
 
-### User Stories
+#### Ray user stories
 
-#### Story 1: Online and offline inference
+##### Story 1: Online and offline inference
 
 The Ray autoscaler sizes each worker group independently to match its demand:
 
@@ -121,13 +133,13 @@ The Ray autoscaler sizes each worker group independently to match its demand:
   decoding and GPU workers for captioning — so the autoscaler grows and shrinks
   each worker group as the batch moves through the pipeline.
 
-#### Story 2: Colocated training and evaluation
+##### Story 2: Colocated training and evaluation
 
 A team colocates a training job and periodic evaluation actors in the same
 RayCluster. Evaluation bursts cause the autoscaler to grow the cluster
 temporarily.
 
-### Notes/Constraints/Caveats
+#### Ray constraints
 
 - The feature is gated by the new `MultiKueueRayInTreeAutoscaling` feature gate
   (alpha, off by default) and applies only to elastic
@@ -176,7 +188,9 @@ temporarily.
 
 ## Design Details
 
-The end-to-end flow of a worker-side autoscaler resize:
+### Alpha: Ray implementation
+
+The end-to-end flow of the initial Ray worker-side autoscaler integration is:
 
 1. An elastic, autoscaling `RayCluster` (or `RayJob`) is dispatched through
    MultiKueue and runs on a **worker** cluster with `enableInTreeAutoscaling` on;
@@ -201,15 +215,15 @@ The end-to-end flow of a worker-side autoscaler resize:
    reflected annotations are **cleared** alongside the existing PodSets restore, so
    re-admission reserves at the spec baseline rather than the last autoscaled size.
 
-The subsections below detail each step.
+The subsections below detail the Ray-specific implementation of each step.
 
-### Reverse elastic sync
+#### Ray reverse elastic sync
 
-The shared Ray adapter gains a single reverse-sync hook, `Runtime{Fetch, Apply}`,
-guarded by an `AutoscalingEnabled` predicate that turns the reverse direction on
-only when the object runs the worker autoscaler. Both RayCluster and RayJob use
-the same hook — the reflection is **annotation-based for both**, leaving the
-manager spec untouched.
+The shared Ray adapter gains a single reverse-sync hook,
+`Runtime{Fetch, Apply}`, guarded by an `AutoscalingEnabled` predicate that turns
+the reverse direction on only when the object runs the worker autoscaler. Both
+RayCluster and RayJob use the same hook — the reflection is **annotation-based
+for both**, leaving the manager spec untouched.
 
 ```go
 type FetchResult struct {
@@ -260,7 +274,7 @@ which splits the job types into two kinds:
 
 The two `Fetch` implementations map onto these:
 
-#### RayCluster
+##### RayCluster
 
 The worker replicas live on the remote RayCluster copy's spec, so `Fetch` reads
 that spec directly; the revision is the remote RayCluster's `UID-generation`.
@@ -270,7 +284,7 @@ that spec directly; the revision is the remote RayCluster's `UID-generation`.
 revision := fmt.Sprintf("%s-%d", remoteCluster.UID, remoteCluster.Generation)
 ```
 
-#### RayJob
+##### RayJob
 
 The worker replicas live on the spec of the **child RayCluster** that KubeRay
 creates on the worker cluster (the child never exists on the manager), so `Fetch`
@@ -283,7 +297,7 @@ child := getRemoteChild(remoteJob.Status.RayClusterName)
 revision := fmt.Sprintf("%s-%d", child.UID, child.Generation)
 ```
 
-#### Workload-slice naming under annotation reflection
+##### Workload-slice naming under annotation reflection
 
 The `raycluster-generation` annotation predates this KEP:
 [#9960](https://github.com/kubernetes-sigs/kueue/pull/9960) introduced it for
@@ -301,7 +315,7 @@ reflected worker `UID-generation`, which advances on every worker-side resize. T
 UID component keeps the name unique across a remote recreation, whose generation
 restarts from 1.
 
-### Manager-side replicas pinning
+#### Manager-side replicas pinning
 
 While the worker autoscaler owns the replicas, a **validating webhook** on the
 manager cluster rejects manager-side edits to the pinned fields. Without it, the
@@ -314,7 +328,7 @@ Pinned field paths:
 
 - `RayCluster`: `spec.workerGroupSpecs[*].replicas`
 
-### Worker-side resize tolerance
+#### Worker-side resize tolerance
 
 During a resize handover, the job's observed count **on the worker cluster** can
 transiently differ from its admitted slice's count. Without tolerance, the **worker
@@ -338,7 +352,7 @@ proves insufficient, a future refinement could defer the workload update until
 KubeRay has cleared `workersToDelete` — that is, until the listed pods are
 actually gone.
 
-### Triggering the reverse sync
+#### Triggering the reverse sync
 
 A resize must wake the manager's workload reconcile. MultiKueue watches each
 worker object and maps it back to a workload through its prebuilt-workload marker.
@@ -379,26 +393,30 @@ None beyond the coverage described below.
 
 ### Graduation Criteria
 
-The feature follows the standard Kueue maturity progression on its own
-`MultiKueueRayInTreeAutoscaling` feature gate; it additionally requires
-`ElasticJobsViaWorkloadSlices` and MultiKueue.
+The Alpha Ray implementation follows the standard Kueue maturity progression on
+the `MultiKueueRayInTreeAutoscaling` feature gate; it additionally requires
+`ElasticJobsViaWorkloadSlices` and MultiKueue. The feature-gate boundary is
+revisited when the adapter contract becomes integration-neutral for Beta.
 
-**Alpha**: Reverse elastic sync is implemented for RayCluster and RayJob behind the
+**Alpha**: The integration-neutral lifecycle is defined by this KEP, and reverse
+elastic sync is implemented for RayCluster and RayJob behind the
 `MultiKueueRayInTreeAutoscaling` gate (off by default), with basic functionality
 covered by tests and accompanying documentation. While the gate is off, the
 validating webhook keeps rejecting `enableInTreeAutoscaling` on a
 MultiKueue-managed elastic Ray object, exactly as it does today.
 
-**Beta**: Positive feedback from Alpha, broader test coverage, and any documented
-follow-ups addressed. Re-evaluate whether to generalize the annotation-based
-replica-count and revision mechanism currently represented by
-`raycluster-podset-replica-sizes` and `raycluster-generation` for non-KubeRay
-integrations such as batch/Job and JobSet.
-Decide whether `enableInTreeAutoscaling` must be immutable while an elastic
-MultiKueue workload is active or define a safe replica-ownership handoff.
+**Beta** requires positive feedback from Alpha, broader test coverage, and all of
+the following:
 
-**Stable (GA)**: The feature has spent at least one release cycle in beta with no
-major outstanding bugs.
+- Move reverse elastic sync into the shared MultiKueue adapter framework by
+  generalizing the `RuntimeReplicaSync` interface.
+- In addition to the Alpha integrations (`RayCluster` and `RayJob`), support at
+  least `RayService` and `StatefulSet`.
+- Decide whether `enableInTreeAutoscaling` must be immutable while an elastic
+  MultiKueue workload is active or define a safe replica-ownership handoff.
+
+**Stable (GA)**: The generalized feature has spent at least one release cycle in
+Beta with no major outstanding bugs.
 
 ## Implementation History
 
@@ -409,8 +427,8 @@ major outstanding bugs.
 
 ## Drawbacks
 
-- Adds a second sync direction to the Ray adapter, increasing the surface area of
-  MultiKueue's elastic handling and the number of interleavings to reason about.
+- Adds a second sync direction to MultiKueue adapters, increasing the surface area
+  of elastic handling and the number of interleavings to reason about.
 - Retaining `enableInTreeAutoscaling` on the remote copy makes the worker, rather
   than the manager, the source of truth for the worker replica count.
 
