@@ -19,6 +19,7 @@ package list
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 var (
@@ -76,6 +78,7 @@ type PodOptions struct {
 	ForGVK                 schema.GroupVersionKind
 	ForObject              *unstructured.Unstructured
 	PodLabelSelector       string
+	PodFieldSelector       string
 	IntegrationManager     *jobframework.IntegrationManager
 
 	Clientset k8s.Interface
@@ -110,7 +113,7 @@ func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.
 			if o.ForObject == nil {
 				return nil
 			}
-			if len(o.PodLabelSelector) == 0 {
+			if len(o.PodLabelSelector) == 0 && len(o.PodFieldSelector) == 0 {
 				return fmt.Errorf("unsupported kind: %s", o.ForObject.GetKind())
 			}
 			return o.Run(clientGetter)
@@ -186,7 +189,30 @@ func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 		return err
 	}
 
+	standalone, err := o.isStandalonePod()
+	if err != nil {
+		return err
+	}
+	if standalone {
+		// A Pod without a group name has no label shared with other members,
+		// so a label selector cannot find it. Select it by name instead.
+		o.PodLabelSelector = ""
+		o.PodFieldSelector = fmt.Sprintf("metadata.namespace=%s,metadata.name=%s", o.ForObject.GetNamespace(), o.ForObject.GetName())
+	}
+
 	return nil
+}
+
+// isStandalonePod reports whether --for points to a Pod that is not part of a pod group.
+func (o *PodOptions) isStandalonePod() (bool, error) {
+	if o.ForGVK != corev1.SchemeGroupVersion.WithKind("Pod") {
+		return false, nil
+	}
+	var pod corev1.Pod
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.ForObject.UnstructuredContent(), &pod); err != nil {
+		return false, fmt.Errorf("failed to convert unstructured object: %w", err)
+	}
+	return !utilpod.IsPodGroup(&pod), nil
 }
 
 // getForObjectInfos builds and executes a dynamic client query for a resource specified in --for
@@ -250,6 +276,11 @@ func (o *PodOptions) getPodLabelSelector() (string, error) {
 	}
 
 	return jobWithPodLabelSelector.PodLabelSelector(), nil
+}
+
+// joinSelectors joins non-empty selector requirements with commas.
+func joinSelectors(selectors ...string) string {
+	return strings.Join(slices.DeleteFunc(selectors, func(s string) bool { return s == "" }), ",")
 }
 
 type trackingWriterWrapper struct {
@@ -357,15 +388,10 @@ func (o *PodOptions) getPodsInfos(clientGetter clientgetter.ClientGetter) ([]*re
 		namespace = ""
 	}
 
-	podLabelSelector := o.PodLabelSelector
-	if len(o.LabelSelector) != 0 {
-		podLabelSelector = "," + o.PodLabelSelector
-	}
-
 	r := clientGetter.NewResourceBuilder().Unstructured().
 		NamespaceParam(namespace).DefaultNamespace().AllNamespaces(o.AllNamespaces).
-		FieldSelectorParam(o.FieldSelector).
-		LabelSelectorParam(o.LabelSelector+podLabelSelector).
+		FieldSelectorParam(joinSelectors(o.FieldSelector, o.PodFieldSelector)).
+		LabelSelectorParam(joinSelectors(o.LabelSelector, o.PodLabelSelector)).
 		ResourceTypeOrNameArgs(true, "pods").
 		ContinueOnError().
 		RequestChunksOf(o.Limit).
