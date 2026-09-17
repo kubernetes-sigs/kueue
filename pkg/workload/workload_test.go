@@ -4527,6 +4527,9 @@ func TestInfoTopologySpreading(t *testing.T) {
 		// spreading group. Only asserted when wantSpec is set.
 		peerLabels      map[string]string
 		wantMatchesPeer bool
+		// wantSpecCount is the number of resolved groups, asserted only when
+		// set, so a multi-PodSet group is shown to resolve to one entry.
+		wantSpecCount int
 	}{
 		"annotation absent": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
@@ -4587,6 +4590,25 @@ func TestInfoTopologySpreading(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 		},
+		// The group resolves once, from the first PodSet carrying the
+		// annotation, so the second member's value is never parsed - the
+		// webhook already requires the two to match.
+		"multi-PodSet group: only the first annotated PodSet is consulted": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("leader", 1).PodSetGroup("g").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validAnnotation}).
+						Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("workers", 2).PodSetGroup("g").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: malformedAnnotation}).
+						Request(corev1.ResourceCPU, "1").Obj(),
+				).Obj(),
+			featureGates:    map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:        true,
+			wantSpecCount:   1,
+			peerLabels:      map[string]string{"app": "main"},
+			wantMatchesPeer: true,
+		},
 	}
 
 	for name, tc := range cases {
@@ -4604,6 +4626,9 @@ func TestInfoTopologySpreading(t *testing.T) {
 			}
 			if info.TopologySpreading == nil {
 				t.Fatal("TopologySpreading = nil, want non-nil")
+			}
+			if tc.wantSpecCount != 0 && len(info.TopologySpreading) != tc.wantSpecCount {
+				t.Errorf("len(TopologySpreading) = %d, want %d", len(info.TopologySpreading), tc.wantSpecCount)
 			}
 
 			groupKey := utiltas.GroupKeyForPodSet(&tc.wl.Spec.PodSets[0])

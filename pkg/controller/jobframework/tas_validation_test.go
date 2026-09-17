@@ -19,9 +19,11 @@ package jobframework
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -560,6 +562,150 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 			errs := ValidateSliceSizeAnnotationUpperBound(replicaPath, meta, podSet)
 			if got := len(errs); got != tc.wantErrNum {
 				t.Errorf("ValidateSliceSizeAnnotationUpperBound() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			}
+		})
+	}
+}
+
+// TestValidatePodSetGroupingTopologySpreadingConsistency covers the
+// requirement that the two PodSets of a group agree on the topology-spreading
+// annotation. Spreading counts a group as one unit, so two members asking for
+// different rules would have no single answer.
+func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
+	const (
+		groupName  = "group1"
+		spreading  = `{"rules":[{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.45"}]}`
+		spreading2 = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+	)
+	requiredTopology := "cloud.com/block"
+
+	podSet := func(name kueue.PodSetReference, count int32, spreadingAnnotation string) kueue.PodSet {
+		annotations := map[string]string{}
+		if spreadingAnnotation != "" {
+			annotations[kueue.PodSetTopologySpreadingAnnotation] = spreadingAnnotation
+		}
+		return kueue.PodSet{
+			Name:  name,
+			Count: count,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: annotations},
+			},
+			TopologyRequest: &kueue.PodSetTopologyRequest{
+				Required:        &requiredTopology,
+				PodSetGroupName: ptr.To(groupName),
+			},
+		}
+	}
+
+	testCases := map[string]struct {
+		gateOff    bool
+		leader     string
+		workers    string
+		wantErrNum int
+	}{
+		"both PodSets carry the same annotation": {
+			leader:  spreading,
+			workers: spreading,
+		},
+		"neither PodSet carries the annotation": {},
+		// One error per PodSet, so the user sees both field paths.
+		"only the leader carries the annotation": {
+			leader:     spreading,
+			wantErrNum: 2,
+		},
+		"only the workers carry the annotation": {
+			workers:    spreading,
+			wantErrNum: 2,
+		},
+		"the PodSets carry different annotations": {
+			leader:     spreading,
+			workers:    spreading2,
+			wantErrNum: 2,
+		},
+		// Inert while the gate is off, so operators can stage the annotation
+		// ahead of enabling the feature.
+		"gate off, only the leader carries the annotation": {
+			gateOff: true,
+			leader:  spreading,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, !tc.gateOff)
+
+			podSets := []kueue.PodSet{
+				podSet("leader", 1, tc.leader),
+				podSet("workers", 3, tc.workers),
+			}
+			paths := map[kueue.PodSetReference]*field.Path{
+				"leader":  field.NewPath("spec", "leaderTemplate", "metadata", "annotations"),
+				"workers": field.NewPath("spec", "workerTemplate", "metadata", "annotations"),
+			}
+
+			gotErrs := ValidatePodSetGroupingTopology(podSets, paths)
+			if len(gotErrs) != tc.wantErrNum {
+				t.Errorf("ValidatePodSetGroupingTopology() returned %d errors, want %d: %v",
+					len(gotErrs), tc.wantErrNum, gotErrs)
+			}
+		})
+	}
+}
+
+// TestValidateSpreadingSelectors covers the requirement-shape rules directly.
+// The empty-values case is unreachable through
+// validateTopologySpreadingAnnotation, because ParseSpreadingAnnotation fails
+// to compile such a selector and returns first, so it is only observable here.
+func TestValidateSpreadingSelectors(t *testing.T) {
+	fldPath := field.NewPath("spec", "template", "metadata", "annotations").
+		Key(kueue.PodSetTopologySpreadingAnnotation).Child("workloadLabelSelectors")
+
+	testCases := map[string]struct {
+		selectors  []metav1.LabelSelectorRequirement
+		wantErrNum int
+	}{
+		"no selectors": {},
+		"one valid requirement": {
+			selectors: []metav1.LabelSelectorRequirement{
+				{Key: "app", Operator: metav1.LabelSelectorOpIn, Values: []string{"main"}},
+			},
+		},
+		// Alpha accepts a single requirement only.
+		"more requirements than alpha accepts": {
+			selectors: []metav1.LabelSelectorRequirement{
+				{Key: "app", Operator: metav1.LabelSelectorOpIn, Values: []string{"main"}},
+				{Key: "tier", Operator: metav1.LabelSelectorOpIn, Values: []string{"serving"}},
+			},
+			wantErrNum: 1,
+		},
+		"invalid label key": {
+			selectors: []metav1.LabelSelectorRequirement{
+				{Key: "_bad_", Operator: metav1.LabelSelectorOpIn, Values: []string{"main"}},
+			},
+			wantErrNum: 1,
+		},
+		// Only In is supported in alpha, and the values check is skipped once
+		// the operator is already rejected.
+		"unsupported operator": {
+			selectors: []metav1.LabelSelectorRequirement{
+				{Key: "app", Operator: metav1.LabelSelectorOpExists},
+			},
+			wantErrNum: 1,
+		},
+		"In operator with no values": {
+			selectors: []metav1.LabelSelectorRequirement{
+				{Key: "app", Operator: metav1.LabelSelectorOpIn},
+			},
+			wantErrNum: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotErrs := validateSpreadingSelectors(fldPath, tc.selectors)
+			if len(gotErrs) != tc.wantErrNum {
+				t.Errorf("validateSpreadingSelectors() returned %d errors, want %d: %v",
+					len(gotErrs), tc.wantErrNum, gotErrs)
 			}
 		})
 	}

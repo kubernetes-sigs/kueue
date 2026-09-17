@@ -329,3 +329,44 @@ func TestNewSpreadingSpec(t *testing.T) {
 		})
 	}
 }
+
+func TestExceedsShare(t *testing.T) {
+	cases := map[string]struct {
+		maxShare string
+		count    int32
+		total    int32
+		want     bool
+	}{
+		// Nothing admitted yet, so the first Workload of a set is always
+		// placeable.
+		"cold start": {maxShare: "0.45", count: 0, total: 0, want: false},
+
+		"under the share":                 {maxShare: "0.45", count: 1, total: 3, want: false},
+		"over the share":                  {maxShare: "0.45", count: 1, total: 2, want: true},
+		"over the share, larger set":      {maxShare: "0.45", count: 2, total: 4, want: true},
+		"empty domain of a non-empty set": {maxShare: "0.45", count: 0, total: 4, want: false},
+		"domain holds the whole set":      {maxShare: "0.45", count: 4, total: 4, want: true},
+
+		// Exactly at the share is not over it, so placement is still allowed.
+		"exactly at the share":         {maxShare: "0.5", count: 1, total: 2, want: false},
+		"exactly at a repeating share": {maxShare: "0.1", count: 1, total: 10, want: false},
+
+		// The comparison is cross-multiplied against the share reduced to
+		// milli, so it resolves 0.1% differences without rounding a float.
+		"just over a milli-precision share":  {maxShare: "0.333", count: 1, total: 3, want: true},
+		"just under a milli-precision share": {maxShare: "0.334", count: 1, total: 3, want: false},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			rule := SpreadingRule{
+				TopologyKey:               "topology.kubernetes.io/zone",
+				MaxShareAllowingPlacement: resource.MustParse(tc.maxShare),
+			}
+			if got := rule.ExceedsShare(tc.count, tc.total); got != tc.want {
+				t.Errorf("ExceedsShare(%d, %d) with maxShareAllowingPlacement %s = %t, want %t",
+					tc.count, tc.total, tc.maxShare, got, tc.want)
+			}
+		})
+	}
+}

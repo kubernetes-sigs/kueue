@@ -364,3 +364,180 @@ func TestTopologySpreadCountsHostnameLevelRule(t *testing.T) {
 		t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
 	}
 }
+
+// makeSpreadCountsWorkloadInFlavor is makeSpreadCountsWorkload admitted to a
+// flavor other than the one being counted.
+func makeSpreadCountsWorkloadInFlavor(name, namespace, app string, flavor kueue.ResourceFlavorReference, placements []spreadCountsPodSetPlacement) *kueue.Workload {
+	wl := makeSpreadCountsWorkload(name, namespace, app, placements)
+	for i := range wl.Status.Admission.PodSetAssignments {
+		wl.Status.Admission.PodSetAssignments[i].Flavors = map[corev1.ResourceName]kueue.ResourceFlavorReference{
+			corev1.ResourceCPU: flavor,
+		}
+	}
+	return wl
+}
+
+// TestTopologySpreadCountsSkipped covers the inputs that make counting bail
+// out or skip a PodSet: either spreading does not apply at all, and the result
+// is nil, or it applies but nothing an existing Workload holds can be
+// attributed to a rule's domain, and the group's counts stay empty.
+func TestTopologySpreadCountsSkipped(t *testing.T) {
+	levels := []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname}
+	nodes := []*corev1.Node{
+		makeTreeTestNode("n1", "b1", "r1"),
+		makeTreeTestNode("n3", "b2", "r2"),
+	}
+	// A group whose counts exist but stay at zero, so a skipped PodSet is
+	// distinguishable from spreading not applying at all.
+	emptyCounts := PodSetGroupNameToTreeCount{
+		spreadKeyForGroupName("group-a"): {ByDomain: map[utiltas.TopologyDomainID]int32{}},
+	}
+
+	cases := map[string]struct {
+		gateOff bool
+		// nilWorkload and noSpreadingSpec make spreading inapplicable to the
+		// incoming Workload; unknownFlavor and requestWithoutSpec make it
+		// inapplicable to the flavor or the PodSets asking for it.
+		nilWorkload        bool
+		noSpreadingSpec    bool
+		unknownFlavor      bool
+		requestWithoutSpec bool
+
+		// ruleKeys defaults to the rack level when empty.
+		ruleKeys []string
+		existing []*kueue.Workload
+
+		want PodSetGroupNameToTreeCount
+	}{
+		"feature gate disabled": {
+			gateOff: true,
+			want:    nil,
+		},
+		"no incoming Workload": {
+			nilWorkload: true,
+			want:        nil,
+		},
+		"incoming Workload carries no spreading spec": {
+			noSpreadingSpec: true,
+			want:            nil,
+		},
+		"flavor is not a TAS flavor": {
+			unknownFlavor: true,
+			want:          nil,
+		},
+		"no PodSet requesting the flavor carries a spreading spec": {
+			requestWithoutSpec: true,
+			want:               nil,
+		},
+		"existing Workload is not admitted": {
+			existing: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-1", "ns").
+					Label("app", "main").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).PodSetGroup("group-a").Obj()).
+					Obj(),
+			},
+			want: emptyCounts,
+		},
+		"existing Workload is admitted to another flavor": {
+			existing: []*kueue.Workload{
+				makeSpreadCountsWorkloadInFlavor("wl-1", "ns", "main", "other-flavor", []spreadCountsPodSetPlacement{
+					{name: "a", group: "group-a", node: "n1"},
+				}),
+			},
+			want: emptyCounts,
+		},
+		"existing Workload holds a domain absent from the flavor topology": {
+			existing: []*kueue.Workload{
+				makeSpreadCountsWorkload("wl-1", "ns", "main", []spreadCountsPodSetPlacement{
+					{name: "a", group: "group-a", node: "deleted-node"},
+				}),
+			},
+			want: emptyCounts,
+		},
+		"rule names a level absent from the flavor topology": {
+			ruleKeys: []string{"cloud.provider.com/topology-zone"},
+			existing: []*kueue.Workload{
+				makeSpreadCountsWorkload("wl-1", "ns", "main", []spreadCountsPodSetPlacement{
+					{name: "a", group: "group-a", node: "n1"},
+				}),
+			},
+			want: emptyCounts,
+		},
+		// Placed above the rule's level, the Workload spans every domain there
+		// and pins none of them.
+		"existing Workload is placed above the rule's level": {
+			ruleKeys: []string{treeTestRackLabel},
+			existing: []*kueue.Workload{
+				makeSpreadCountsWorkloadAtLevels("wl-1", "ns", "main", []string{treeTestBlockLabel}, []spreadCountsPodSetPlacement{
+					{name: "a", group: "group-a", values: []string{"b1"}},
+				}),
+			},
+			want: emptyCounts,
+		},
+		// A PodSet of a different group is not counted towards this one.
+		"existing Workload belongs to another PodSet group": {
+			existing: []*kueue.Workload{
+				makeSpreadCountsWorkload("wl-1", "ns", "main", []spreadCountsPodSetPlacement{
+					{name: "a", group: "group-b", node: "n1"},
+				}),
+			},
+			want: emptyCounts,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, !tc.gateOff)
+
+			log := testr.New(t)
+			tasFlavor := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "topology"},
+				newTopologyTree(levels, nodes, 0), newDefaultSimulatorSnapshot())
+
+			podSetName := kueue.PodSetReference("worker")
+			groupName := "group-a"
+			incomingObj := utiltestingapi.MakeWorkload("incoming", "ns").
+				PodSets(*utiltestingapi.MakePodSet(podSetName, 1).PodSetGroup(groupName).Obj()).
+				Obj()
+			incoming := workload.NewInfo(log, incomingObj)
+			if !tc.noSpreadingSpec {
+				ruleKeys := tc.ruleKeys
+				if len(ruleKeys) == 0 {
+					ruleKeys = []string{treeTestRackLabel}
+				}
+				incoming.TopologySpreading = map[utiltas.PodSetGroupKey]*utiltas.SpreadingSpec{
+					spreadKeyForGroupName(groupName): appMainSpreading(t, ruleKeys...),
+				}
+			}
+			if tc.nilWorkload {
+				incoming = nil
+			}
+
+			// A PodSet declaring no group falls back to its own name, a key the
+			// incoming Workload's spreading map has no entry for.
+			requestedPodSet := &incomingObj.Spec.PodSets[0]
+			requests := FlavorTASRequests{{PodSet: requestedPodSet, PodSetGroupName: new(groupName)}}
+			if tc.requestWithoutSpec {
+				ungrouped := *utiltestingapi.MakePodSet("ungrouped", 1).Obj()
+				requests = FlavorTASRequests{{PodSet: &ungrouped}}
+			}
+
+			cq := &ClusterQueueSnapshot{
+				Workloads:  make(map[workload.Reference]*workload.Info, len(tc.existing)),
+				TASFlavors: map[kueue.ResourceFlavorReference]*TASFlavorSnapshot{spreadCountsTestFlavor: tasFlavor},
+			}
+			for _, wl := range tc.existing {
+				cq.Workloads[workload.Key(wl)] = workload.NewInfo(log, wl)
+			}
+
+			flavor := spreadCountsTestFlavor
+			if tc.unknownFlavor {
+				flavor = "not-a-tas-flavor"
+			}
+
+			got := cq.topologySpreadCountsForFlavor(incoming, flavor, requests)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
