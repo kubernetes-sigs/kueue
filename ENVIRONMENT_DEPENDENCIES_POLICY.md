@@ -85,32 +85,41 @@ Actions.
   pinned in `hack/tools/go.mod`; there is no separate CI-only tool
   manifest.
 - **Kubernetes control-plane binaries.** Integration tests run against
-  `envtest` binaries for the Kubernetes version pinned by
-  `ENVTEST_K8S_VERSION`, and end-to-end tests run against `kind`
-  clusters for the versions pinned by `E2E_K8S_VERSIONS`, both in
-  [`hack/make/test.mk`](hack/make/test.mk). These follow the three
-  most recent Kubernetes minor versions, as described in
-  `DEPENDENCY_LIFECYCLE.md`.
+  `envtest` binaries for the single Kubernetes version pinned by
+  `ENVTEST_K8S_VERSION` in [`hack/make/test.mk`](hack/make/test.mk).
+  End-to-end tests run against `kind` clusters for each of the
+  Kubernetes minor versions listed in `E2E_K8S_VERSIONS` in the same
+  file, which is the authoritative list of the minor versions Kueue
+  currently tests against. The alignment policy between these pins and
+  the `k8s.io/*` Go modules is described in `DEPENDENCY_LIFECYCLE.md`.
 - **External operators.** End-to-end tests that exercise integrations
   (JobSet, Kubeflow Training / Trainer / MPI, KubeRay, AppWrapper,
   LeaderWorkerSet, Spark Operator, cert-manager, and so on) install the
   version of each operator that matches the corresponding Go module in
   `go.mod`. The version is resolved with `go list -m` in
   `hack/make/deps.mk`, so the operator deployed in the test cluster and
-  the client library compiled into Kueue can never drift apart.
+  the client library compiled into Kueue cannot drift apart. The one
+  exception is the Prometheus Operator, which Kueue does not import as
+  a Go module: its version is pinned independently by
+  `PROMETHEUS_OPERATOR_VERSION` in `hack/make/test.mk`, and
+  `hack/testing/e2e-common.sh` installs it from the release bundle
+  published for that tag.
 - **Test helper images.** Auxiliary images used only by tests (for
   example, `agnhost`, Ray, Redis, Spark, Cypress, and shellcheck) are
   built from the Dockerfiles under
   [`hack/testing`](hack/testing), each of which pins its base image
-  by digest.
+  by digest. The exception is the `skillsaw` image used by
+  `verify-skills-lint`, which is pinned to a version tag only because
+  `hack/make/verify.mk` reads the tag from the Dockerfile and runs
+  the published image directly rather than building it.
 - **GitHub Actions.** Every third-party action referenced from
   `.github/workflows` and `.github/actions` is pinned to a full commit
   SHA, with the human-readable tag recorded in a trailing comment.
   Dependabot keeps these pins current on a daily schedule.
 - **Gates.** `make verify` (see
   [`hack/make/verify.mk`](hack/make/verify.mk)) enforces that
-  `go.mod`, `go.sum`, and `vendor/` are tidy and unchanged
-  (`gomod-verify`), that npm manifests contain no unused or missing
+  `go.mod` and `go.sum` are tidy and unchanged (`gomod-verify`), that
+  npm manifests contain no unused or missing
   packages (`npm-depcheck`), and that lint, formatting, and generated
   artifacts are up to date. Pull requests must pass these checks
   before they can be merged.
