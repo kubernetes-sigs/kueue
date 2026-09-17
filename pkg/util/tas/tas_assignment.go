@@ -526,7 +526,10 @@ func CountPodsInAssignment(ta *TopologyAssignment) int32 {
 
 // TruncateAssignment reduces an assignment to fit newCount pods (removes from end).
 func TruncateAssignment(ta *TopologyAssignment, newCount int32) *TopologyAssignment {
-	if ta == nil || newCount <= 0 {
+	if ta == nil {
+		return nil
+	}
+	if newCount <= 0 {
 		return &TopologyAssignment{Levels: ta.Levels, Domains: nil}
 	}
 
