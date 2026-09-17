@@ -29,55 +29,41 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type schedulingSimulation interface {
-	Run(
-		ctx context.Context,
-		initialAssignment flavorassigner.Assignment,
-		preemptedTargets []*preemption.Target,
-		preemptionPlanFactory preemption.PreemptionPlanFactory,
-	) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
-}
-
-type classicalSimulation struct {
-	flvAssigner *flavorassigner.FlavorAssigner
-	snap        *schdcache.Snapshot
-	preemptor   *preemption.Preemptor
-	wl          *workload.Info
-}
-
-func newClassicalSimulation(
-	flvAssigner *flavorassigner.FlavorAssigner,
-	snap *schdcache.Snapshot,
-	preemptor *preemption.Preemptor,
-	wl *workload.Info,
-) schedulingSimulation {
-	return &classicalSimulation{
-		flvAssigner: flvAssigner,
-		snap:        snap,
-		preemptor:   preemptor,
-		wl:          wl,
-	}
-}
-
-func (s *classicalSimulation) Run(
+type schedulingSimulation func(
 	ctx context.Context,
-	initialAssignment flavorassigner.Assignment,
+	wl *workload.Info,
+	snapshot *schdcache.Snapshot,
 	preemptedTargets []*preemption.Target,
+	flavorAssigner *flavorassigner.FlavorAssigner,
+	preemptor *preemption.Preemptor,
 	preemptionPlanFactory preemption.PreemptionPlanFactory,
+	counts []int32,
+) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
+
+func classicalSimulation(
+	ctx context.Context,
+	wl *workload.Info,
+	snapshot *schdcache.Snapshot,
+	preemptedTargets []*preemption.Target,
+	flavorAssigner *flavorassigner.FlavorAssigner,
+	preemptor *preemption.Preemptor,
+	preemptionPlanFactory preemption.PreemptionPlanFactory,
+	counts []int32,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
 	log := log.FromContext(ctx)
-	cq := s.snap.ClusterQueue(s.wl.ClusterQueue)
+	cq := snapshot.ClusterQueue(wl.ClusterQueue)
 
 	defer func() {
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
 			assignment.ResolveNoFitReason(cq)
 		}
-		updateAssignmentForTAS(ctx, s.snap, cq, s.wl, &assignment, targets)
+		updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, targets)
 	}()
 
-	assignment = initialAssignment
+	preemptionOracle := preemption.NewOracle(preemptor, snapshot)
+	assignment = flavorAssigner.AssignFlavors(ctx, log, preemptionOracle, counts)
 	if assignment.RepresentativeMode() != flavorassigner.NoFit {
-		s.flvAssigner.AssignTopology(ctx, log, &assignment)
+		flavorAssigner.AssignTopology(ctx, log, &assignment)
 	}
 
 	arm := assignment.RepresentativeMode()
@@ -87,7 +73,7 @@ func (s *classicalSimulation) Run(
 
 	if arm == flavorassigner.Preempt {
 		preemptionPlan := preemptionPlanFactory(ctx, &assignment)
-		faPreemptionTargets := s.preemptor.GetTargetsUsingPlan(ctx, preemptionPlan)
+		faPreemptionTargets := preemptor.GetTargetsUsingPlan(ctx, preemptionPlan)
 		if len(faPreemptionTargets) > 0 {
 			targets = slices.Concat(preemptedTargets, faPreemptionTargets)
 			return assignment, targets, true
@@ -96,17 +82,15 @@ func (s *classicalSimulation) Run(
 	return
 }
 
-type schedulerLibrarySimulation struct{}
-
-func newSchedulerLibrarySimulation() schedulingSimulation {
-	return &schedulerLibrarySimulation{}
-}
-
-func (s *schedulerLibrarySimulation) Run(
+func schedulerLibrarySimulation(
 	ctx context.Context,
-	initialAssignment flavorassigner.Assignment,
+	wl *workload.Info,
+	snapshot *schdcache.Snapshot,
 	preemptedTargets []*preemption.Target,
+	flavorAssigner *flavorassigner.FlavorAssigner,
+	preemptor *preemption.Preemptor,
 	preemptionPlanFactory preemption.PreemptionPlanFactory,
+	counts []int32,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
 	panic("not implemented")
 }

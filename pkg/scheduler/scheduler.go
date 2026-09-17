@@ -1464,28 +1464,41 @@ func (s *Scheduler) findFit(ctx context.Context, wl *workload.Info, snap *schdca
 	}
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	preemptionPlanFactory := s.preemptor.GetPreemptionPlanFactory(*wl, snap)
 	flvAssigner := flavorassigner.New(
-		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
-		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
+		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), replaceableWorkloadSlice,
 		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
-	var simulation schedulingSimulation
+	var simulateScheduling schedulingSimulation
 	if features.Enabled(features.TASSchedulerLibraryDeepIntegration) {
-		simulation = newSchedulerLibrarySimulation()
+		simulateScheduling = schedulerLibrarySimulation
 	} else {
-		simulation = newClassicalSimulation(flvAssigner, snap, s.preemptor, wl)
+		simulateScheduling = classicalSimulation
 	}
 
-	preemptionPlanFactory := s.preemptor.GetPreemptionPlanFactory(*wl, snap)
-	assignment, targets, fits := simulation.Run(ctx, flvAssigner.AssignFlavors(ctx, log, nil), preemptionTargets, preemptionPlanFactory)
+	assignment, targets, fits := simulateScheduling(
+		ctx,
+		wl,
+		snap,
+		preemptionTargets,
+		flvAssigner,
+		s.preemptor,
+		preemptionPlanFactory,
+		nil,
+	)
+
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			if assignment, targets, fits := simulation.Run(
+			if assignment, targets, fits := simulateScheduling(
 				ctx,
-				flvAssigner.AssignFlavors(ctx, log, nextCounts),
+				wl,
+				snap,
 				preemptionTargets,
+				flvAssigner,
+				s.preemptor,
 				preemptionPlanFactory,
+				nextCounts,
 			); fits {
 				return &partialAssignment{assignment: assignment, preemptionTargets: targets}, true
 			}
