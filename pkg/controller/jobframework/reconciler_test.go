@@ -2678,7 +2678,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
 		},
-		"scale-up with previous admitted workload sets minCount and probe extra": {
+		"scale-up with previous admitted workload sets minCount to the granted baseline and probe extra": {
 			job: job,
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
@@ -2692,9 +2692,11 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        20,
 			},
 			wantMinCounts: map[kueue.PodSetReference]*int32{
+				// head was granted its full count, so it stays fixed; the growing podSets get the
+				// counts granted to them, not those counts plus one.
 				kueue.PodSetReference("head"):                nil,
-				kueue.PodSetReference("workers-reservation"): new(int32(2)),
-				kueue.PodSetReference("workers-spot"):        new(int32(5)),
+				kueue.PodSetReference("workers-reservation"): new(int32(1)),
+				kueue.PodSetReference("workers-spot"):        new(int32(4)),
 			},
 		},
 	}
