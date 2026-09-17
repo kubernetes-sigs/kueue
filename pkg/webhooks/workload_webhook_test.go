@@ -74,6 +74,7 @@ func TestValidateWorkload(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		workload     *kueue.Workload
 		wantErr      field.ErrorList
+		wantDetail   string
 	}{
 		"valid": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
@@ -110,6 +111,7 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, ""),
 			},
+			wantDetail: "is not a multiple of 3",
 		},
 		"should not request num-pods resource": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -711,6 +713,15 @@ func TestValidateWorkload(t *testing.T) {
 			gotErr := ValidateWorkload(tc.workload, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantDetail != "" {
+				validationErrs := ValidateWorkload(tc.workload, nil)
+				if len(validationErrs) == 0 {
+					t.Fatalf("expected an error but got none")
+				}
+				if validationErrs[0].Detail != tc.wantDetail {
+					t.Errorf("unexpected error detail, want %q got %q", tc.wantDetail, validationErrs[0].Detail)
+				}
 			}
 		})
 	}
