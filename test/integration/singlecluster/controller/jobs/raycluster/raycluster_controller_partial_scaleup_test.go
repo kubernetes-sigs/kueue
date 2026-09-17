@@ -158,9 +158,10 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		ginkgo.By("a new workload slice replaces the admitted one, requesting the full 10 workers")
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].Count).Should(gomega.Equal(int32(10)))
-		// MinCount is the previously-admitted worker count plus one, i.e. the scale-up must grow
-		// by at least one pod to be worth admitting at all.
-		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
+		// MinCount is the baseline: the previously-admitted worker count, which the scale-up may
+		// not go below. That the scale-up has to grow by at least one pod somewhere to be worth
+		// admitting is enforced by the scheduler across the whole Workload, not per PodSet.
+		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 
 		ginkgo.By("only 6 of the 10 requested workers fit: 1 head + 6 workers = the whole quota")
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
@@ -239,6 +240,50 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		// KEP Step 4 (scale down, e.g. 12 -> 8, where spec.podSets.count drops while
 		// status.admission.count stays put) is not covered yet, and neither are the multi-PodSet
 		// order-based scenarios A-D, which need the order-based reducer and its give-back phase.
+	})
+
+	ginkgo.It("Should give the spare capacity to the earlier worker group rather than spread it", func() {
+		// Two worker groups drawing on the same quota, so they compete. Both want two more
+		// workers and only two pods are spare, which forces a choice: the earlier group is the
+		// higher-priority one and should take both, rather than each group growing by one.
+		const groupA, groupB = "workers-a", "workers-b"
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			WithWorkerGroups(
+				*testingraycluster.MakeWorkerGroup(groupA, 2).Request(corev1.ResourceCPU, "1").Obj(),
+				*testingraycluster.MakeWorkerGroup(groupB, 2).Request(corev1.ResourceCPU, "1").Obj(),
+			).
+			Obj()
+
+		ginkgo.By("admitting the raycluster at 2 workers in each group")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupA, 2)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupB, 2)
+
+		ginkgo.By("quota usage reflects the full 5 pods (1 head + 2 + 2 workers)")
+		expectPodsUsage(5)
+
+		// 1 head + 4 + 4 = 9 pods against the 7-pod quota, so only two of the four requested
+		// workers fit.
+		ginkgo.By("scaling both worker groups to 4 replicas")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs).Should(gomega.HaveLen(2))
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(4))
+			testRayCluster.Spec.WorkerGroupSpecs[1].Replicas = new(int32(4))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("both spare pods go to the earlier group, the later one stays at its baseline")
+		scaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, groupA, 4)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, groupB, 2)
+		// Usage settling at the full 7-pod quota also says the pre-scale-up slice released its
+		// own 5 pods: were both live, usage would read 12, which the quota cannot hold.
+		expectPodsUsage(7)
 	})
 
 	ginkgo.It("Should partially admit a RayCluster scale-up by preempting a lower-priority workload", func() {
