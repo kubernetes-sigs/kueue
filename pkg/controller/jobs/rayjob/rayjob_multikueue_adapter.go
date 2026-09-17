@@ -35,6 +35,7 @@ import (
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 	ray.WithElasticReplicaSync(elasticRuntimeSync()),
+	ray.WithMarkInactiveOnDelete(markInactive),
 )
 
 // elasticRuntimeSync wires the RayJob-specific hooks for worker-side
@@ -86,6 +87,13 @@ func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remo
 		Counts:   raycluster.WorkerGroupPodCounts(&child.Spec),
 		Revision: fmt.Sprintf("%s-%d", child.UID, child.Generation),
 	}, nil
+}
+
+// markInactive sets the manager RayJob's mirrored deployment status to
+// Suspended once MultiKueue has confirmed its remote copy is gone - see
+// ray.WithMarkInactiveOnDelete.
+func markInactive(job *rayv1.RayJob) {
+	job.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
 }
 
 func copyJobStatus(dst, src *rayv1.RayJob) {

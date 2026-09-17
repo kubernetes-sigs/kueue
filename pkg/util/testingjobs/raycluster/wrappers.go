@@ -353,6 +353,12 @@ func (j *ClusterWrapper) StatusConditions(c metav1.Condition) *ClusterWrapper {
 	return j
 }
 
+// State sets status.state.
+func (j *ClusterWrapper) State(s rayv1.ClusterState) *ClusterWrapper {
+	j.Status.State = s
+	return j
+}
+
 // ManagedBy adds a managedby.
 func (j *ClusterWrapper) ManagedBy(c string) *ClusterWrapper {
 	j.Spec.ManagedBy = &c

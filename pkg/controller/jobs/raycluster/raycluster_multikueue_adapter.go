@@ -33,10 +33,18 @@ import (
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 	ray.WithElasticReplicaSync(elasticReplicaSync()),
+	ray.WithMarkInactiveOnDelete(markInactive),
 )
 
 func copyJobStatus(dst, src *rayv1.RayCluster) {
 	dst.Status = src.Status
+}
+
+// markInactive sets the manager RayCluster's mirrored state to Suspended once
+// MultiKueue has confirmed its remote copy is gone - see
+// ray.WithMarkInactiveOnDelete.
+func markInactive(job *rayv1.RayCluster) {
+	job.Status.State = rayv1.Suspended
 }
 
 func copyJobSpec(dst, src *rayv1.RayCluster) {

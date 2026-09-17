@@ -54,7 +54,8 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		JobType:       &rayv1.RayCluster{},
 		AddToScheme:   rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-			ray.WithElasticReplicaSync(elasticReplicaSync())),
+			ray.WithElasticReplicaSync(elasticReplicaSync()),
+			ray.WithMarkInactiveOnDelete(markInactive)),
 	})
 }
 

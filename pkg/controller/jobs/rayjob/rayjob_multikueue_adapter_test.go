@@ -158,6 +158,38 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
 			},
 		},
+		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/15380:
+		// the manager rayjob's status only ever changes because MultiKueue mirrors
+		// it from the remote. If the remote is deleted while it was still
+		// Initializing, that status must not stay stuck on the manager forever -
+		// deleting the remote is itself proof nothing is running anymore, so the
+		// manager rayjob must come out of this looking Suspended (inactive), not
+		// frozen on whatever it last mirrored.
+		"remote rayjob deleted while manager rayjob still shows Initializing": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusInitializing).
+					Obj(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusInitializing).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusSuspended).
+					Obj(),
+			},
+		},
 		"job with wrong managedBy is not considered managed": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{
@@ -244,7 +276,8 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy)
+			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+				ray.WithMarkInactiveOnDelete(markInactive))
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 
