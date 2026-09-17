@@ -335,7 +335,7 @@ spec:
             comparison: "LessThanOrEqual"
           scope: "AnyClusterQueue"
           numericLabels:
-            - key: "tpus-count"
+            - key: "example.com/tpus-count"
               comparison: "LessThan"
               fallbackValue: 0
 ```
@@ -380,7 +380,7 @@ Thanks to the elevated preemption privileges, the hero job will be able to preem
 
 #### Story 3 - Business driven preemption rules
 
-Requested functionalities from the community can be satisfied with the following configurations (with time-based duration selectors in stories 5 & 6 deferred to [Future Work](FUTURE_WORK.md#time-based-candidate-selectors-execution-and-creation-duration)):
+Requested functionalities from the community can be satisfied with the following configurations (with quota-based selectors in item 3 and time-based duration selectors in items 4 & 5 deferred to [Future Work](FUTURE_WORK.md)):
 
 1. **Resource requests/limits based preemption (filtering by resource size):**
    Protect large, long-running batch workloads from preemption by ensuring only "small" workloads (e.g. workloads requesting at most 8 GPUs or 32 CPU cores) are eligible as preemption candidates using custom numeric labels with `maxValue`:
@@ -490,11 +490,13 @@ Requested functionalities from the community can be satisfied with the following
                comparison: "LessThan"
    ```
 
+   Note: As the same cluster queue is also considered `WithinParentCohort`, this config will allow preempting within the same cluster queue based on both boosted and base priorities. This should be enough for many boosting use cases, but if it is required to only preempt using boosted priority (disallowing selection with base priorities `WithinClusterQueue`), this would require an extension to add scopes excluding the same cluster queue.
+
 ### Notes
 
 There are many possible extensions of the proposed selectors in the rules. For now, we propose to support only those that seem most common and natural, but the design allows for extensibility.
 
-This KEP also introduces an alternative approach of the hero jobs handling that [Dynamic Quota Orchestration KEP](../12382-dynamic-quota-orchestration/README.md), as both are aimed alpha in the same release, we will collect user feedback and decide which appoach should be assumed the recommended one in the future.
+This KEP also introduces an alternative approach to hero job handling compared to that of the [Dynamic Quota Orchestration KEP](../12382-dynamic-quota-orchestration/README.md). As both are aimed at alpha in the same release, we will collect user feedback and decide which approach should be assumed the recommended one in the future.
 
 ### Constraints
 
@@ -617,7 +619,7 @@ type PreemptionConfigPreemptionRule struct {
   ActivationPolicy PreemptionConfigActivationPolicy `json:"activationPolicy"`
 
 
-  // CandidateSelectors specifies the selection rules for workloads that are candidates for preemption.
+  // candidateSelectors specifies the selection rules for workloads that are candidates for preemption.
   // Candidates resulting from multiple selectors are summed into one set.
   // No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.
   //
@@ -662,7 +664,7 @@ After evaluating each tier, the scheduler simulates whether the preemptor worklo
 > **Relationship with Dynamic Resource Allocation (DRA)**:
 > Workloads requesting devices via `ResourceClaimTemplate` objects mapped to Kueue resource flavors and quotas are evaluated under `InsufficientQuota`. Preempting candidates holding such quota frees device capacity deterministically.
 >
-> In contrast, per-node DRA device feasibility (evaluating whether a single node has devices matching claim constraints) is explicitly **not** folded into `InsufficientTopology`. `InsufficientTopology` is strictly reserved for Topology-Aware Scheduling (TAS) domains (blocks, racks, nodes) where Kueue directly manages placement. Swiping DRA device feasibility into `InsufficientTopology` would cause non-deterministic preemptions because Kueue does not track which specific device instances are allocated to running workloads. Dedicated per-node DRA preemption is deferred to future work.
+> In contrast, per-node DRA device feasibility (evaluating whether a single node has devices matching claim constraints) is explicitly **not** folded into `QuotaFeasibleAndInsufficientTopology`. `QuotaFeasibleAndInsufficientTopology` is strictly reserved for Topology-Aware Scheduling (TAS) domains (blocks, racks, nodes) where Kueue directly manages placement. Swiping DRA device feasibility into `QuotaFeasibleAndInsufficientTopology` would cause non-deterministic preemptions because Kueue does not track which specific device instances are allocated to running workloads. Dedicated per-node DRA preemption is deferred to future work.
 
 ```go
 
@@ -704,12 +706,12 @@ const (
 
 // PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
 type PreemptionConfigPreemptionCandidateSelector struct {
-  // Scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
+  // scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
   //
   // +kubebuilder:validation:Required
   Scope PreemptionConfigPreemptionQueueScope `json:"scope"`
 
-  // NumericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
+  // numericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
   // Multiple numeric labels are joined using AND-rule (all have to be satisfied).
   // Accepts all if not set.
   //
@@ -751,14 +753,14 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 // copied to the workload via the Kueue main configuration
 // if you wish to use a custom label.
 type PreemptionConfigNumericLabelConstraint struct {
-  // Key is the label key that stores the integer value in the workload that will
+  // key is the label key that stores the integer value in the workload that will
   // be used for candidate selection.
   //
   // +kubebuilder:validation:Required
   // +kubebuilder:validation:MaxLength=316
   Key string `json:"key"`
 
-  // FallbackValue is used when a workload does not have the label key
+  // fallbackValue is used when a workload does not have the label key
   // or the value under the key cannot be parsed as an integer.
   // If not specified, workloads without the label or
   // with a label value not parsable as int are treated as incomparable,
@@ -766,15 +768,15 @@ type PreemptionConfigNumericLabelConstraint struct {
   // +optional
   FallbackValue *int32 `json:"fallbackValue,omitempty"`
 
-  // Comparison defines how the candidate's label value compares to the preemptor's.
+  // comparison defines how the candidate's label value compares to the preemptor's.
   // +optional
   Comparison *NumericComparison `json:"comparison,omitempty"`
 
-  // MinValue specifies the lowest label value a candidate workload can have to be considered for preemption.
+  // minValue specifies the lowest label value a candidate workload can have to be considered for preemption.
   // +optional
   MinValue *int32 `json:"minValue,omitempty"`
 
-  // MaxValue specifies the highest label value a candidate workload can have to be considered for preemption.
+  // maxValue specifies the highest label value a candidate workload can have to be considered for preemption.
   // +optional
   MaxValue *int32 `json:"maxValue,omitempty"`
 }
@@ -805,12 +807,12 @@ const (
 
 // PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
 type PreemptionConfigPriorityConstraint struct {
-  // Mode specifies whether priority comparison uses base or boosted (effective) priority.
+  // mode specifies whether priority comparison uses base or boosted (effective) priority.
   //
   // +kubebuilder:validation:Required
   Mode PreemptionConfigPriorityMode `json:"mode"`
 
-  // Comparison defines how the candidate's priority compares to the preemptor's priority.
+  // comparison defines how the candidate's priority compares to the preemptor's priority.
   // For example, "LessThan" means that only workloads with lower
   // priority will be allowed as preemption candidates.
   //
@@ -889,12 +891,13 @@ The test plan is focused on `PreemptionConfig` (`PreemptionLimit` is deferred to
 
 1. Preemption Evaluator:
    - Uses only rules that are applicable according to the trigger.
-   - Orders candidates according to default preemption ordering rules (reusing classical preemption and fair sharing ordering logic).
    - Collects candidates from multiple rules and deduplicates.
    - Tests for each candidate selector.
 2. New preemptions are only considered when the feature gate is enabled.
+3. New preemption candidates are merged with candidates from pre-existing preemption mechanisms and finally ordered using the default preemption ordering rules (reusing classical preemption and fair sharing ordering logic).
+4. Triggers are extended incrementally in tiers until workload is schedulable, first `Always` then `InsufficientQuota`, and finally `QuotaFeasibleAndInsufficientTopology`.
 
-The majority of the code will be in the `scheduler/preemption` package; a new subpackage with configurable preemptions will be created there.
+The majority of the code will be in the `pkg/scheduler/preemption` package; a new subpackage with configurable preemptions will be created there.
 
 Small parts of the implementation like integration with the scheduler itself will be done in other packages and accompanied with appropriate unit tests.
 
@@ -974,7 +977,7 @@ Implementation of the following candidate selector fields and constraints to hav
 
 Expose the implementation under feature gate "ConfigurablePreemptions", integration should not change in any way the existing preemption logic.
 
-**Step 2.** Implement fair sharing and borrowing based rules, integrating with fair sharing candidate ordering.
+**Step 2.** Implement fair sharing, borrowing based rules, and custom candidate ordering.
 
 Create performance test suite for preemptions to validate current implementation.
 
@@ -982,9 +985,7 @@ Create performance test suite for preemptions to validate current implementation
 
 **Step 4.** Implement additional candidate selectors (time-based execution and creation duration selectors) and minimum trigger duration (`minTriggerRequiredDuration`).
 
-**Step 5.** Implement configurable candidate ordering (`ordering:` comparator chains, per-selector, per-CQ priority queues, and dynamic multi-queue candidate iteration).
-
-**Step 6.** Future design and implementation of preemption rate limiting (`PreemptionLimit`).
+**Step 5.** Future design and implementation of preemption rate limiting (`PreemptionLimit`).
 
 <!--
 Major milestones in the lifecycle of a KEP should be tracked in this section.
