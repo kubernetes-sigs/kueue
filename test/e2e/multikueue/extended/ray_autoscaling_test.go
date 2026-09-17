@@ -90,6 +90,8 @@ func runRayClusterAutoscalingTest(
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
+		// The head and autoscaler request 1250m in total. That keeps the initial
+		// placement off worker2, whose ClusterQueue has only 1200m.
 		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "750m").
 		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
 		Image(rayv1.HeadNode, util.GetKuberayTestImage(), []string{}).
