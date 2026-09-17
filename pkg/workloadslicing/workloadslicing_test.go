@@ -29,6 +29,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -110,36 +113,108 @@ func TestEnabled(t *testing.T) {
 
 func TestListPodsForWorkloadSlice(t *testing.T) {
 	errListPods := errors.New("list pods failed")
+	basePod := testingpod.MakePod("", "ns")
+	// Match the omitted fields after the fake client's JSON round trip.
+	basePod.Spec.Containers[0].Resources = corev1.ResourceRequirements{}
+	basePod.Spec.SchedulingGates = nil
+	originPod := basePod.Clone().Name("origin-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Annotation(kueue.WorkloadAnnotation, "origin").
+		Label("role", "worker").NodeName("node-a").Obj()
+	replacementPod := basePod.Clone().Name("replacement-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Annotation(kueue.WorkloadAnnotation, "replacement").
+		Label("role", "worker").NodeName("node-a").Obj()
+	succeededPod := basePod.Clone().Name("succeeded-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Label("role", "worker").NodeName("node-b").StatusPhase(corev1.PodSucceeded).Obj()
+	failedPod := basePod.Clone().Name("failed-pod").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Label("role", "launcher").NodeName("node-a").StatusPhase(corev1.PodFailed).Obj()
+	regularPod := basePod.Clone().Name("regular-pod").
+		Annotation(kueue.WorkloadAnnotation, "regular").
+		Label("role", "worker").NodeName("node-a").Obj()
 	pods := []client.Object{
-		testingpod.MakePod("origin-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").Annotation(kueue.WorkloadAnnotation, "origin").Obj(),
-		testingpod.MakePod("replacement-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").Annotation(kueue.WorkloadAnnotation, "replacement").Label("role", "worker").Obj(),
-		testingpod.MakePod("succeeded-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").StatusPhase(corev1.PodSucceeded).Obj(),
-		testingpod.MakePod("failed-pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").StatusPhase(corev1.PodFailed).Obj(),
-		testingpod.MakePod("other-namespace", "other").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").Obj(),
-		testingpod.MakePod("regular-pod", "ns").Annotation(kueue.WorkloadAnnotation, "regular").Obj(),
-		testingpod.MakePod("unrelated-pod", "ns").Obj(),
+		originPod,
+		replacementPod,
+		succeededPod,
+		failedPod,
+		regularPod,
+		basePod.Clone().Name("other-namespace").Namespace("other").
+			Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+			Label("role", "worker").NodeName("node-a").Obj(),
+		basePod.Clone().Name("other-slice-pod").
+			Annotation(kueue.WorkloadAnnotation, "origin").
+			Annotation(kueue.WorkloadSliceNameAnnotation, "other").
+			Label("role", "worker").NodeName("node-a").Obj(),
+		basePod.Clone().Name("unrelated-pod").
+			Label("role", "worker").NodeName("node-a").Obj(),
 	}
 	testCases := map[string]struct {
 		sliceName   string
 		listOptions []client.ListOption
-		wantNames   []string
+		wantPods    []*corev1.Pod
 		wantErr     error
 	}{
 		"all pods in the slice chain, including terminal pods": {
 			sliceName: "origin",
-			wantNames: []string{"failed-pod", "origin-pod", "replacement-pod", "succeeded-pod"},
+			wantPods:  []*corev1.Pod{originPod, replacementPod, succeededPod, failedPod},
 		},
 		"additional label selector": {
 			sliceName:   "origin",
 			listOptions: []client.ListOption{client.MatchingLabels{"role": "worker"}},
-			wantNames:   []string{"replacement-pod"},
+			wantPods:    []*corev1.Pod{originPod, replacementPod, succeededPod},
+		},
+		"matching fields": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{tasindexer.PodNodeNameKey: "node-a"}},
+			wantPods:    []*corev1.Pod{originPod, replacementPod, failedPod},
+		},
+		"field and label selectors": {
+			sliceName: "origin",
+			listOptions: []client.ListOption{
+				client.MatchingFields{tasindexer.PodNodeNameKey: "node-a"},
+				client.MatchingLabels{"role": "worker"},
+			},
+			wantPods: []*corev1.Pod{originPod, replacementPod},
+		},
+		"matching fields selector": {
+			sliceName: "origin",
+			listOptions: []client.ListOption{client.MatchingFieldsSelector{
+				Selector: fields.OneTermEqualSelector(tasindexer.PodNodeNameKey, "node-a"),
+			}},
+			wantPods: []*corev1.Pod{originPod, replacementPod, failedPod},
+		},
+		"list options with field and label selectors": {
+			sliceName: "origin",
+			listOptions: []client.ListOption{&client.ListOptions{
+				FieldSelector: fields.OneTermEqualSelector(tasindexer.PodNodeNameKey, "node-a"),
+				LabelSelector: labels.SelectorFromSet(labels.Set{"role": "worker"}),
+			}},
+			wantPods: []*corev1.Pod{originPod, replacementPod},
+		},
+		"empty field selector": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{}},
+			wantPods:    []*corev1.Pod{originPod, replacementPod, succeededPod, failedPod},
+		},
+		"no pods match the node": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{tasindexer.PodNodeNameKey: "unknown-node"}},
+			wantPods:    []*corev1.Pod{},
+		},
+		"conflicting slice selector": {
+			sliceName:   "origin",
+			listOptions: []client.ListOption{client.MatchingFields{indexer.WorkloadSliceNameKey: "regular"}},
+			wantPods:    []*corev1.Pod{},
 		},
 		"regular workload uses the workload annotation": {
 			sliceName: "regular",
-			wantNames: []string{"regular-pod"},
+			wantPods:  []*corev1.Pod{regularPod},
 		},
 		"no matching pods": {
 			sliceName: "missing",
+			wantPods:  []*corev1.Pod{},
 		},
 		"list failure is returned": {
 			sliceName: "origin",
@@ -149,7 +224,7 @@ func TestListPodsForWorkloadSlice(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().
+			builder := utiltesting.NewClientBuilder().
 				WithObjects(pods...).
 				WithIndex(&corev1.Pod{}, indexer.WorkloadSliceNameKey, indexer.IndexPodWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
@@ -159,20 +234,419 @@ func TestListPodsForWorkloadSlice(t *testing.T) {
 						}
 						return c.List(ctx, objs, opts...)
 					},
-				}).
-				Build()
-			got, err := ListPodsForWorkloadSlice(ctx, cl, "ns", tc.sliceName, tc.listOptions...)
+				})
+			if err := tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(builder)); err != nil {
+				t.Fatalf("Failed to set up indexes: %v", err)
+			}
+			gotPods, err := ListPodsForWorkloadSlice(ctx, builder.Build(), "ns", tc.sliceName, tc.listOptions...)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
-			var gotNames []string
-			for _, pod := range got {
-				gotNames = append(gotNames, pod.Name)
-			}
-			if diff := cmp.Diff(tc.wantNames, gotNames, cmpopts.SortSlices(func(a, b string) bool {
-				return a < b
-			})); diff != "" {
+			if diff := cmp.Diff(tc.wantPods, gotPods,
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+				cmpopts.SortSlices(func(a, b *corev1.Pod) bool { return a.Name < b.Name }),
+			); diff != "" {
 				t.Errorf("Unexpected pods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFindActiveWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	errGetWorkload := errors.New("get workload failed")
+	errListWorkload := errors.New("list workloads failed")
+	origin := utiltestingapi.MakeWorkload("origin", "ns").
+		Request(corev1.ResourceCPU, "1").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Creation(now.Add(-time.Minute)).
+		SimpleReserveQuota("cq", "flavor", now).
+		AdmittedAt(true, now)
+	replacement := utiltestingapi.MakeWorkload("replacement", "ns").
+		Request(corev1.ResourceCPU, "1").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Creation(now).
+		SimpleReserveQuota("cq", "flavor", now).
+		AdmittedAt(true, now)
+	variant := utiltestingapi.MakeWorkload("variant", "ns").
+		Request(corev1.ResourceCPU, "1").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "replacement", "parent").
+		Creation(now.Add(time.Second)).
+		SimpleReserveQuota("cq", "flavor", now).
+		AdmittedAt(true, now)
+
+	testCases := map[string]struct {
+		featureGates    map[featuregate.Feature]bool
+		excludeVariants bool
+		requestName     string
+		workloads       []*kueue.Workload
+		wantWorkload    *kueue.Workload
+		wantError       error
+	}{
+		"ordinary workload does not require the slice index": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("origin", "ns").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("origin", "ns").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		},
+		"ordinary workload is not redirected with elastic jobs enabled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("origin", "ns").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				replacement.Obj(),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("origin", "ns").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		},
+		"disabled elastic jobs retain the requested slice": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantWorkload: origin.Obj(),
+		},
+		"missing workload without elastic jobs does not require the slice index": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+		},
+		"missing workload without a replacement": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		"get error is returned": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wantError:    errGetWorkload,
+		},
+		"list error after a missing origin is returned": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wantError:    errListWorkload,
+		},
+		"list error after an existing origin is returned": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Obj()},
+			wantError:    errListWorkload,
+		},
+		"latest admitted slice replaces an admitted origin": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantWorkload: replacement.Obj(),
+		},
+		"finished origin resolves to the replacement": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Clone().FinishedAt(now).Obj(), replacement.Obj()},
+			wantWorkload: replacement.Obj(),
+		},
+		"deleted origin resolves to the replacement": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{replacement.Obj()},
+			wantWorkload: replacement.Obj(),
+		},
+		"request for a replacement uses the chain annotation": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			requestName:  "replacement",
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantWorkload: replacement.Obj(),
+		},
+		"non-admitted workload is retained for condition reset": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Clone().AdmittedAt(false, now).Obj()},
+			wantWorkload: origin.Clone().AdmittedAt(false, now).Obj(),
+		},
+		"finished workload is retained when there is no active slice": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Clone().FinishedAt(now).Obj()},
+			wantWorkload: origin.Clone().FinishedAt(now).Obj(),
+		},
+		"evicted replacement is ignored even before quota release": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Clone().EvictedAt(now).Obj()},
+			wantWorkload: origin.Obj(),
+		},
+		"finished replacement is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Clone().FinishedAt(now).Obj()},
+			wantWorkload: origin.Obj(),
+		},
+		"quota reserved but not admitted replacement is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Clone().AdmittedAt(false, now).Obj()},
+			wantWorkload: origin.Obj(),
+		},
+		"replacement in another namespace is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads: []*kueue.Workload{
+				origin.Obj(),
+				utiltestingapi.MakeWorkload("replacement", "other").
+					Request(corev1.ResourceCPU, "1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+					SimpleReserveQuota("cq", "flavor", now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkload: origin.Obj(),
+		},
+		"tracker excludes variants": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.ConcurrentAdmission:          true,
+			},
+			workloads:       []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			excludeVariants: true,
+			wantWorkload:    replacement.Obj(),
+		},
+		"ungaters retain variant selection": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.ConcurrentAdmission:          true,
+			},
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			wantWorkload: variant.Obj(),
+		},
+		"concurrent admission disabled retains variant selection": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.ConcurrentAdmission:          false,
+			},
+			workloads:       []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			excludeVariants: true,
+			wantWorkload:    variant.Obj(),
+		},
+		"same creation timestamp is ordered by UID": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workloads:    []*kueue.Workload{origin.Clone().Creation(now).UID("z").Obj(), replacement.Clone().UID("a").Obj()},
+			wantWorkload: origin.Clone().Creation(now).UID("z").Obj(),
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*kueue.Workload); ok && errors.Is(tc.wantError, errGetWorkload) {
+						return errGetWorkload
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+				List: func(ctx context.Context, c client.WithWatch, objs client.ObjectList, opts ...client.ListOption) error {
+					if _, ok := objs.(*kueue.WorkloadList); ok && errors.Is(tc.wantError, errListWorkload) {
+						return errListWorkload
+					}
+					return c.List(ctx, objs, opts...)
+				},
+			})
+			if tc.featureGates[features.ElasticJobsViaWorkloadSlices] {
+				builder.WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName)
+			}
+			for _, wl := range tc.workloads {
+				builder.WithObjects(wl)
+			}
+			key := types.NamespacedName{Namespace: "ns", Name: "origin"}
+			if tc.requestName != "" {
+				key.Name = tc.requestName
+			}
+			got, err := FindActiveWorkload(ctx, builder.Build(), key, tc.excludeVariants)
+			if diff := cmp.Diff(tc.wantError, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantWorkload, got, cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion")); diff != "" {
+				t.Errorf("Unexpected Workload (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestFindLatestAdmittedWorkload(t *testing.T) {
+	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+	errListWorkloads := errors.New("list workloads failed")
+
+	origin := utiltestingapi.MakeWorkload("origin", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Creation(fakeClock.Now().Add(-time.Minute)).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), fakeClock.Now().Add(-time.Minute)).
+		AdmittedAt(true, fakeClock.Now().Add(-time.Minute))
+	replacement := utiltestingapi.MakeWorkload("replacement", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Creation(fakeClock.Now()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), fakeClock.Now()).
+		AdmittedAt(true, fakeClock.Now())
+	variant := utiltestingapi.MakeWorkload("variant", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+		Creation(fakeClock.Now().Add(time.Second)).
+		OwnerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "replacement", "parent-uid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), fakeClock.Now()).
+		AdmittedAt(true, fakeClock.Now())
+
+	testCases := map[string]struct {
+		featureGates    map[featuregate.Feature]bool
+		excludeVariants bool
+		workload        *kueue.Workload
+		workloads       []*kueue.Workload
+		wantName        string
+		wantErr         error
+	}{
+		"nil workload": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		"origin without the elastic annotation retains the slice lookup": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload:     utiltestingapi.MakeWorkload("origin", "ns").Obj(),
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantName:     "replacement",
+		},
+		"elastic feature gate disabled retains the slice lookup": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			workload:     origin.Obj(),
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantName:     "replacement",
+		},
+		"no admitted slice": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload:     origin.Obj(),
+		},
+		"list failure is returned": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload:     origin.Obj(),
+			wantErr:      errListWorkloads,
+		},
+		"finished origin resolves to the replacement": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload: origin.Clone().
+				FinishedAt(fakeClock.Now()).
+				Obj(),
+			workloads: []*kueue.Workload{origin.Clone().
+				FinishedAt(fakeClock.Now()).
+				Obj(), replacement.Obj()},
+			wantName: "replacement",
+		},
+		"latest admitted replacement is selected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload:     origin.Obj(),
+			workloads:    []*kueue.Workload{origin.Obj(), replacement.Obj()},
+			wantName:     "replacement",
+		},
+		"newer admitted variant does not hide the replacement slice": {
+			excludeVariants: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                true,
+			},
+			workload: origin.Obj(),
+			workloads: []*kueue.Workload{
+				origin.Clone().
+					FinishedAt(fakeClock.Now()).
+					Obj(),
+				replacement.Obj(),
+				variant.Obj(),
+			},
+			wantName: "replacement",
+		},
+		"scheduling feature gate disabled preserves variant selection": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.ConcurrentAdmission:                true,
+			},
+			workload:  origin.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			wantName:  "variant",
+		},
+		"ungater lookup preserves variant selection with the scheduling gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                true,
+			},
+			workload:  origin.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			wantName:  "variant",
+		},
+		"concurrent admission disabled preserves variant selection": {
+			excludeVariants: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                false,
+			},
+			workload:  origin.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			wantName:  "variant",
+		},
+		"elastic feature gate disabled still excludes variants": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: false,
+				features.ConcurrentAdmission:          true,
+			},
+			excludeVariants: true,
+			workload:        origin.Obj(),
+			workloads:       []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			wantName:        "replacement",
+		},
+		"evicted replacement is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload:     replacement.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Clone().
+				EvictedAt(fakeClock.Now()).
+				Obj()},
+			wantName: "origin",
+		},
+		"finished replacement is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload:     replacement.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Clone().
+				FinishedAt(fakeClock.Now()).
+				Obj()},
+			wantName: "origin",
+		},
+		"replacement in another namespace is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			workload:     origin.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(),
+				utiltestingapi.MakeWorkload("replacement", "other").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), fakeClock.Now()).
+					AdmittedAt(true, fakeClock.Now()).
+					Obj()},
+			wantName: "origin",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder := utiltesting.NewClientBuilder().
+				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, objs client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := objs.(*kueue.WorkloadList); ok && errors.Is(tc.wantErr, errListWorkloads) {
+							return errListWorkloads
+						}
+						return c.List(ctx, objs, opts...)
+					},
+				})
+			for _, wl := range tc.workloads {
+				builder = builder.WithObjects(wl)
+			}
+			got, err := FindLatestAdmittedWorkload(ctx, builder.Build(), tc.workload, tc.excludeVariants)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			var gotName string
+			if got != nil {
+				gotName = got.Name
+			}
+			if diff := cmp.Diff(tc.wantName, gotName); diff != "" {
+				t.Errorf("Unexpected workload name (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -480,6 +954,14 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		return nil
 	}
 
+	assertStatusConditionApply := func(t *testing.T, subResourceName string, applyConf runtime.ApplyConfiguration, wantWorkloadName string, activeConditionType, activeConditionReason string) error {
+		wl := &kueue.Workload{}
+		if err := utiltesting.DecodeApplyConfiguration(applyConf, wl); err != nil {
+			t.Fatalf("Failed decoding the apply configuration: %v", err)
+		}
+		return assertStatusConditionPatch(t, subResourceName, wl, wantWorkloadName, activeConditionType, activeConditionReason)
+	}
+
 	tests := map[string]struct {
 		args args
 		want want
@@ -737,8 +1219,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
 						},
 					}).
 					Build(),
@@ -772,7 +1254,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(_ context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 							return errors.New("test-patch-failure")
 						},
 					}).
@@ -853,15 +1335,22 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Creation(now).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
 				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").Creation(fiveMinutesAgo).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Obj()).Obj(), now).
+					EvictedAt(now).Obj(),
 			},
 		},
 		"TwoWorkloadSlices_NewIsUnreservedAndCurrent": {
@@ -1016,8 +1505,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
 						},
 					}).
 					Build(),
@@ -1052,6 +1541,84 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			want: want{
 				error:      true,
 				compatible: true,
+			},
+		},
+		// The origin still reserves quota while eviction is pending, so it is returned
+		// to the job reconciler until an admitted replacement takes over its Pods.
+		"EvictedOriginWithReservedReplacement_ReplacementNotAdmitted": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(false, now).
+						Obj()).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(fiveMinutesAgo).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+					Obj(),
+			},
+		},
+		// Once the replacement is admitted, it takes over the origin's Pods, so the
+		// origin is finished with a "SliceReplaced" reason and the replacement is selected.
+		"EvictedOriginWithReservedReplacement_ReplacementAdmitted": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
+						Obj()).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
+						},
+					}).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(now).
+					Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
+					Obj(),
 			},
 		},
 	}

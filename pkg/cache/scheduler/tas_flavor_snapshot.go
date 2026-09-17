@@ -229,6 +229,9 @@ func (s *TASFlavorSnapshot) shallowCloneWithState(d *domain) *domain {
 type podSetMatchKey struct {
 	WorkloadUID types.UID
 	PodSetName  string
+	// EmptyCluster marks the entry holding what would fit if every Workload were
+	// preempted, so it cannot answer what fits now.
+	EmptyCluster bool
 }
 
 // matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
@@ -255,9 +258,8 @@ func withResourceFormatter(formatter *resources.ResourceFormatter) tasFlavorSnap
 // with no usage, and the assignment-algorithm scratch state is zeroed.
 func newTASFlavorSnapshot(
 	log logr.Logger,
-	topologyName kueue.TopologyReference,
+	flavor flavorInformation,
 	tree *topologyTree,
-	tolerations []corev1.Toleration,
 	simulatorSnapshot simulator.SimulatorSnapshot,
 	opts ...tasFlavorSnapshotOption,
 ) *TASFlavorSnapshot {
@@ -270,14 +272,14 @@ func newTASFlavorSnapshot(
 
 	snapshot := &TASFlavorSnapshot{
 		log:                  log,
-		topologyName:         topologyName,
+		topologyName:         flavor.TopologyName,
 		topologyTree:         tree,
 		domainStates:         make([]domainState, tree.domainCount),
 		domainTASUsage:       make(map[utiltas.TopologyDomainID]resources.Requests),
 		domainFreeCapacities: make(map[utiltas.TopologyDomainID]resources.Requests),
 		leafCapacities:       make([]leafCapacity, len(tree.leaves)),
 		leafCandidates:       make([]leafCandidate, len(tree.leaves)),
-		tolerations:          slices.Clone(tolerations),
+		tolerations:          slices.Clone(flavor.Tolerations),
 		simulatorSnapshot:    simulatorSnapshot,
 		resourceFormatter:    options.resourceFormatter,
 	}
@@ -416,6 +418,20 @@ func (s *TASFlavorSnapshot) domainRemainingCapacity(dom *domain, assumedUsage re
 	// subtracts the leaf-keyed side the same way.
 	remaining.Sub(assumedUsage)
 	return remaining
+}
+
+// updateTASUsageForHeldDomains applies the requests only to the domains this
+// snapshot has a leaf for. An overlapping flavor holds only some of them, so an
+// unheld domain must not reach the skip report in addTASUsage and
+// removeTASUsage, which means the backing node went away.
+func (s *TASFlavorSnapshot) updateTASUsageForHeldDomains(usage workload.TASFlavorUsage, op usageOp) {
+	for _, tr := range usage {
+		domainID := utiltas.DomainID(tr.Values)
+		if !s.hasDomain(domainID) {
+			continue
+		}
+		s.updateTASUsage(domainID, tr.TotalRequests(), op, tr.Count)
+	}
 }
 
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -601,11 +617,19 @@ type tasExclusionStats struct {
 type topologyAssignmentPodRequirements struct {
 	podRequirements           simulator.PodRequirements
 	requests                  resources.Requests
-	leaderRequests            resources.Requests
+	leader                    *leaderRequirements
 	assumedUsage              *assumedUsage
 	requiredReplacementDomain utiltas.TopologyDomainID
-	simulateEmpty             bool
 	matchKey                  *podSetMatchKey
+}
+
+// leaderRequirements is what TAS needs to place the leader Pod of a PodSet group.
+type leaderRequirements struct {
+	// requests covers one leader Pod, its Pod count included.
+	requests resources.Requests
+	// podRequirements are the leader's own node filters, applied on top of the
+	// workers' when choosing its domain. Nil when TASLeaderPodSetFeasibility is off.
+	podRequirements *simulator.PodRequirements
 }
 
 // topologyAssignmentParameters stores placement-specific inputs that remain
@@ -625,8 +649,16 @@ type topologyAssignmentParameters struct {
 // findTopologyAssignmentState stores the derived state for a single run of the
 // TAS placement algorithm.
 type findTopologyAssignmentState struct {
+	// leaderFeasibleLeaves holds the leaves the leader PodSet can run on. Nil means
+	// the leader adds no restriction; empty means no leaf suits it. Not the same.
+	leaderFeasibleLeaves sets.Set[utiltas.TopologyDomainID]
+
 	topologyAssignmentParameters
 	stats *tasExclusionStats
+}
+
+func (s *findTopologyAssignmentState) leaderFeasibleFor(leaf *leafDomain) bool {
+	return s.leaderFeasibleLeaves == nil || s.leaderFeasibleLeaves.Has(leaf.id)
 }
 
 func newTASExclusionStats() *tasExclusionStats {
@@ -746,7 +778,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 
 	for _, groupKey := range groupsOrder {
 		trs := groupedTASRequests[groupKey]
-		if workload.HasUnhealthyNodes(opts.workload) {
+		// Without an admission there is nothing to replace; take the fresh-placement path.
+		if workload.HasUnhealthyNodes(opts.workload) && opts.workload.Status.Admission != nil {
 			for _, tr := range trs {
 				// In case of looking for Node replacement, TopologyRequest has only
 				// PodSets with the Node to replace, so we match PodSetAssignment
@@ -1101,9 +1134,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	assumedUsage *assumedUsage,
 	simulateEmpty bool, requiredReplacementDomain utiltas.TopologyDomainID, wl *kueue.Workload) (assignments, leafAssignments map[kueue.PodSetReference]*utiltas.TopologyAssignment, reason string) {
 	requirements := &topologyAssignmentPodRequirements{
+		podRequirements:           simulator.PodRequirements{SimulateEmpty: simulateEmpty},
 		assumedUsage:              assumedUsage,
 		requiredReplacementDomain: requiredReplacementDomain,
-		simulateEmpty:             simulateEmpty,
 	}
 	state := &findTopologyAssignmentState{
 		topologyAssignmentParameters: topologyAssignmentParameters{
@@ -1115,17 +1148,16 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	requirements.requests.Add(resources.OnePodRequest)
 
 	if leaderTasPodSetRequests != nil {
-		requirements.leaderRequests = leaderTasPodSetRequests.SinglePodRequests.Clone()
-		requirements.leaderRequests.Add(resources.OnePodRequest)
+		leaderRequests := leaderTasPodSetRequests.SinglePodRequests.Clone()
+		leaderRequests.Add(resources.OnePodRequest)
+		requirements.leader = &leaderRequirements{requests: leaderRequests}
 		// PodSet grouping validation requires the leader PodSet to have one replica.
 		state.leaderCount = 1
 	}
 
-	info := podset.FromPodSet(workersTasPodSetRequests.PodSet)
-	for _, podSetUpdate := range workersTasPodSetRequests.PodSetUpdates {
-		if err := info.Merge(podset.FromUpdate(podSetUpdate)); err != nil {
-			return nil, nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", workersTasPodSetRequests.PodSet.Name, err.Error())
-		}
+	info, reason := podSetInfo(workersTasPodSetRequests)
+	if reason != "" {
+		return nil, nil, reason
 	}
 
 	// If slice topology is not requested then we can assume that slice is a single pod
@@ -1169,45 +1201,44 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
-	requirements.podRequirements.Tolerations = append(info.Tolerations, s.tolerations...)
-
-	if s.leafIsNode() {
-		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
-		if err != nil {
-			return nil, nil, fmt.Sprintf("invalid node selectors: %s, reason: %s", info.NodeSelector, err)
-		}
-		requirements.podRequirements.Selector = sel
-		if features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.UID != "" {
-			requirements.matchKey = &podSetMatchKey{
-				WorkloadUID: wl.UID,
-				PodSetName:  string(workersTasPodSetRequests.PodSet.Name),
-			}
-		}
-	} else {
-		requirements.podRequirements.Selector = labels.Everything()
+	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet)
+	if reason != "" {
+		return nil, nil, reason
 	}
-
-	if info.Affinity != nil && info.Affinity.NodeAffinity != nil {
-		if requiredAffinity := info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; requiredAffinity != nil {
-			affinitySelector, err := nodeaffinity.NewNodeSelector(requiredAffinity)
-			if err != nil {
-				return nil, nil, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinity, err)
-			}
-			requirements.podRequirements.AffinitySelector = affinitySelector
-		}
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) {
-			preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
-			if len(preferredAffinity) > 0 {
-				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
-				if err != nil {
-					return nil, nil, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
-				}
-				requirements.podRequirements.PreferredSchedulingTerms = prefTerms
-			}
+	// buildPodRequirements only knows the PodSet, so the caller's question is carried
+	// over rather than overwritten.
+	podRequirements.SimulateEmpty = simulateEmpty
+	requirements.podRequirements = podRequirements
+	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.UID != "" {
+		requirements.matchKey = &podSetMatchKey{
+			WorkloadUID: wl.UID,
+			PodSetName:  string(workersTasPodSetRequests.PodSet.Name),
+			// The default simulator answers both the same way, so it keeps one
+			// entry for both.
+			EmptyCluster: simulateEmpty && features.Enabled(features.SchedulerLibraryIntegration),
 		}
 	}
 
-	requirements.podRequirements.PodTemplate = workersTasPodSetRequests.PodSet.Template.DeepCopy()
+	if leaderTasPodSetRequests != nil && features.Enabled(features.TASLeaderPodSetFeasibility) {
+		leaderInfo, reason := podSetInfo(*leaderTasPodSetRequests)
+		if reason != "" {
+			return nil, nil, reason
+		}
+		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet)
+		if reason != "" {
+			return nil, nil, reason
+		}
+		leaderPodRequirements.SimulateEmpty = simulateEmpty
+		// The scheduler-library filters with the Pod template alone, so the merged
+		// PodSetUpdates have to be written onto it. The workers' template has the
+		// same gap, left alone here because fixing it changes today's filtering.
+		if err := podset.Merge(s.log, &leaderPodRequirements.PodTemplate.ObjectMeta,
+			&leaderPodRequirements.PodTemplate.Spec, leaderInfo); err != nil {
+			return nil, nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s",
+				leaderTasPodSetRequests.PodSet.Name, err.Error())
+		}
+		requirements.leader.podRequirements = &leaderPodRequirements
+	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
 	err := s.fillInCounts(ctx, requirements, state)
@@ -2064,14 +2095,21 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			return err
 		}
 		state.stats.add(stats)
+		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state); err != nil {
+			return err
+		}
 		for _, ml := range matchingLeaves {
 			leaf := s.leaves[ml.GetID()]
 			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
 			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
+		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
 		feasibleLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
 		if err != nil {
+			return err
+		}
+		if err := s.fillLeaderFeasibleLeaves(ctx, requirements, state); err != nil {
 			return err
 		}
 		for _, ml := range feasibleLeaves {
@@ -2079,6 +2117,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
 			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
+		s.fillLeaderOnlyLeafCounts(requirements, state, feasibleLeaves, cachingRemainingResourcesEnabled)
 	default:
 		// A leaf spans several nodes, so it has none to check for feasibility.
 		state.stats.TotalNodes += len(s.leaves)
@@ -2101,16 +2140,141 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 // fillInCountsHelper applies the bounds when it rolls the leaves up.
 func (s *TASFlavorSnapshot) recordUsageDomainCaps(requirements *topologyAssignmentPodRequirements) {
 	for domainID, dom := range s.usageDomains() {
-		remaining := s.domainRemainingCapacity(dom, requirements.assumedUsage.perDomain[domainID], requirements.simulateEmpty)
+		remaining := s.domainRemainingCapacity(dom, requirements.assumedUsage.perDomain[domainID], requirements.podRequirements.SimulateEmpty)
 		domainState := s.domainStateOf(dom)
 		domainState.capacityBound.podCount = requirements.requests.CountIn(remaining.Get())
 
 		domainState.capacityBound.leaderCount = 0
-		if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remaining.Get()) > 0 {
+		if requirements.leader != nil && requirements.leader.requests.CountIn(remaining.Get()) > 0 {
 			domainState.capacityBound.leaderCount = 1
-			remaining.Sub(requirements.leaderRequests)
+			remaining.Sub(requirements.leader.requests)
 		}
 		domainState.capacityBound.podCountWithLeader = requirements.requests.CountIn(remaining.Get())
+	}
+}
+
+// forgetMatchingLeaves drops the cached leaf sets. The simulator's answers feed them,
+// so anything that changes what it reports has to call this.
+func (s *TASFlavorSnapshot) forgetMatchingLeaves() {
+	clear(s.matchingLeavesCache)
+}
+
+// podSetInfo merges a PodSet with its updates into the form the node filters read.
+func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string) {
+	info := podset.FromPodSet(tasPodSetRequests.PodSet)
+	for _, podSetUpdate := range tasPodSetRequests.PodSetUpdates {
+		if err := info.Merge(podset.FromUpdate(podSetUpdate)); err != nil {
+			return info, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", tasPodSetRequests.PodSet.Name, err.Error())
+		}
+	}
+	return info, ""
+}
+
+// buildPodRequirements turns a PodSet into the node filters TAS applies to it.
+// A non-empty second return value is the reason the PodSet cannot be placed.
+func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
+	var podRequirements simulator.PodRequirements
+	podRequirements.Tolerations = append(info.Tolerations, s.tolerations...)
+
+	if s.leafIsNode() {
+		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
+		if err != nil {
+			return podRequirements, fmt.Sprintf("invalid node selectors: %s, reason: %s", info.NodeSelector, err)
+		}
+		podRequirements.Selector = sel
+	} else {
+		podRequirements.Selector = labels.Everything()
+	}
+
+	if info.Affinity != nil && info.Affinity.NodeAffinity != nil {
+		if requiredAffinity := info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; requiredAffinity != nil {
+			affinitySelector, err := nodeaffinity.NewNodeSelector(requiredAffinity)
+			if err != nil {
+				return podRequirements, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinity, err)
+			}
+			podRequirements.AffinitySelector = affinitySelector
+		}
+		if features.Enabled(features.TASRespectNodeAffinityPreferred) {
+			preferredAffinity := info.Affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+			if len(preferredAffinity) > 0 {
+				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
+				if err != nil {
+					return podRequirements, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
+				}
+				podRequirements.PreferredSchedulingTerms = prefTerms
+			}
+		}
+	}
+
+	podRequirements.PodTemplate = podSet.Template.DeepCopy()
+	return podRequirements, ""
+}
+
+// fillLeaderFeasibleLeaves records which leaves suit the leader. It asks about every
+// leaf rather than only the workers', because the group shares the domain the assignment
+// names, not the leaf: with a required level above the leaf, or with the hostname level
+// injected, the leader and the workers can sit on different nodes of the same domain.
+// A leaf spanning several nodes has no node to ask about, and TAS does not filter the
+// workers per node there either.
+func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
+	ctx context.Context,
+	requirements *topologyAssignmentPodRequirements,
+	state *findTopologyAssignmentState,
+) error {
+	if requirements.leader == nil || requirements.leader.podRequirements == nil || !s.leafIsNode() {
+		return nil
+	}
+	allLeaves := slices.Collect(s.candidates())
+	// FindFeasibleNodes writes affinity scores into the snapshot's domain state, and
+	// this pass only wants the feasible set, so the workers' scores are put back.
+	scores := make([]int64, len(allLeaves))
+	for i, leaf := range allLeaves {
+		scores[i] = leaf.GetAffinityScore()
+	}
+	leaderLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx,
+		simulator.AsCandidates(slices.Values(allLeaves)),
+		requirements.leader.podRequirements,
+		&simulator.NodeExclusionStats{})
+	for i, leaf := range allLeaves {
+		leaf.SetAffinityScore(scores[i])
+	}
+	if err != nil {
+		return err
+	}
+	state.leaderFeasibleLeaves = sets.New[utiltas.TopologyDomainID]()
+	for _, leaf := range leaderLeaves {
+		state.leaderFeasibleLeaves.Insert(leaf.GetID())
+	}
+	return nil
+}
+
+// fillLeaderOnlyLeafCounts records the leaves that suit the leader but not the workers.
+// fillLeafCounts only visits the workers' leaves, so without this the leader's own node
+// is never counted and its domain looks like it has nowhere to put the leader.
+func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
+	requirements *topologyAssignmentPodRequirements,
+	state *findTopologyAssignmentState,
+	workersLeaves []simulator.MatchedCandidate,
+	cachingRemainingResourcesEnabled bool,
+) {
+	if state.leaderFeasibleLeaves == nil {
+		return
+	}
+	workerFeasible := sets.New[utiltas.TopologyDomainID]()
+	for _, leaf := range workersLeaves {
+		workerFeasible.Insert(leaf.GetID())
+	}
+	for id := range state.leaderFeasibleLeaves.Difference(workerFeasible) {
+		leaf := s.leaves[id]
+		if !utiltas.DomainID(leaf.levelValues).BelongsTo(requirements.requiredReplacementDomain) {
+			continue
+		}
+		remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
+		if requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
+			// podCount stays zero: the domain gains a place for the leader, not room
+			// for workers.
+			s.domainStateOf(&leaf.domain).leaderCount = 1
+		}
 	}
 }
 
@@ -2152,6 +2316,18 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	return entry.leaves, entry.stats, nil
 }
 
+// availableCapacityForLeaf is the leaf's remaining capacity less what this scheduling
+// cycle has already placed on it. The two steps belong together: reading the capacity
+// without subtracting the in-cycle usage counts the same node twice.
+func (s *TASFlavorSnapshot) availableCapacityForLeaf(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, cachingRemainingResourcesEnabled bool) resources.LazyRequests {
+	// In-cycle assignments are keyed by leaf, so this picks up the exact nodes an
+	// earlier PodSet took. Domain-keyed entries, which come from assignments recovered
+	// from the Workload, are applied in recordUsageDomainCaps.
+	remaining := s.remainingCapacityForLeaf(leaf, requirements.podRequirements.SimulateEmpty, cachingRemainingResourcesEnabled)
+	remaining.Sub(s.assumedUsageForLeaf(requirements.assumedUsage, leaf))
+	return remaining
+}
+
 func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateEmpty, cachingRemainingResourcesEnabled bool) resources.LazyRequests {
 	leafCapacity := s.leafCapacityOf(leaf)
 	if cachingRemainingResourcesEnabled {
@@ -2174,12 +2350,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 		state.stats.TopologyDomain++
 		return
 	}
-	remainingCapacity := s.remainingCapacityForLeaf(leaf, requirements.simulateEmpty, cachingRemainingResourcesEnabled)
-
-	// In-cycle assignments are keyed by leaf, so this picks up the exact nodes
-	// an earlier PodSet took. Domain-keyed entries, which come from assignments
-	// recovered from the Workload, are applied in recordUsageDomainCaps.
-	remainingCapacity.Sub(s.assumedUsageForLeaf(requirements.assumedUsage, leaf))
+	remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
 	var limitingRes corev1.ResourceName
 	leafDomainState := s.domainStateOf(&leaf.domain)
 	leafDomainState.podCount, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity.Get())
@@ -2191,9 +2362,10 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	}
 
 	leafDomainState.leaderCount = 0
-	if requirements.leaderRequests != nil && requirements.leaderRequests.CountIn(remainingCapacity.Get()) > 0 {
+	if requirements.leader != nil && state.leaderFeasibleFor(leaf) &&
+		requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
 		leafDomainState.leaderCount = 1
-		remainingCapacity.Sub(requirements.leaderRequests)
+		remainingCapacity.Sub(requirements.leader.requests)
 	}
 
 	leafDomainState.podCountWithLeader = requirements.requests.CountIn(remainingCapacity.Get())

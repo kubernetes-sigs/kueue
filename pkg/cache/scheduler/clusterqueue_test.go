@@ -128,22 +128,22 @@ func TestClusterQueueUpdate(t *testing.T) {
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj()
 	cases := []struct {
-		name                         string
-		cq                           *kueue.ClusterQueue
-		newcq                        *kueue.ClusterQueue
-		wantLastAssignmentGeneration int64
+		name                              string
+		cq                                *kueue.ClusterQueue
+		newcq                             *kueue.ClusterQueue
+		wantAllocatableResourceGeneration int64
 	}{
 		{
-			name:                         "RGs not change",
-			cq:                           &clusterQueue,
-			newcq:                        clusterQueue.DeepCopy(),
-			wantLastAssignmentGeneration: 1,
+			name:                              "RGs not change",
+			cq:                                &clusterQueue,
+			newcq:                             clusterQueue.DeepCopy(),
+			wantAllocatableResourceGeneration: 1,
 		},
 		{
-			name:                         "RGs changed",
-			cq:                           &clusterQueue,
-			newcq:                        &newClusterQueue,
-			wantLastAssignmentGeneration: 2,
+			name:                              "RGs changed",
+			cq:                                &clusterQueue,
+			newcq:                             &newClusterQueue,
+			wantAllocatableResourceGeneration: 2,
 		},
 	}
 	for _, tc := range cases {
@@ -171,7 +171,7 @@ func TestClusterQueueUpdate(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			if diff := cmp.Diff(
-				tc.wantLastAssignmentGeneration,
+				tc.wantAllocatableResourceGeneration,
 				snapshot.ClusterQueue("eng-alpha").AllocatableResourceGeneration); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
@@ -672,7 +672,7 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
-	if q := cqObj.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(5000) {
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
 		t.Errorf("expected nominal quota 5000 from spec, got %v", q.Nominal)
 	}
 
@@ -689,7 +689,7 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	cqObj = cache.hm.ClusterQueue("cq-eff")
-	if q := cqObj.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
 		t.Errorf("expected nominal quota 10000 from EffectiveQuotas, got %v", q.Nominal)
 	}
 
@@ -703,7 +703,60 @@ func TestClusterQueueEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	cqObj = cache.hm.ClusterQueue("cq-eff")
-	if q := cqObj.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(5000) {
+	if q := cqObj.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(5000)) {
 		t.Errorf("expected nominal quota 5000 after clearing EffectiveQuotas, got %v", q.Nominal)
+	}
+}
+
+// An effective quota past int64 must arrive as the number it is, compare equal
+// when rewritten, and fall back to the spec when cleared.
+func TestClusterQueueEffectiveQuotasPastInt64(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+
+	cqSpec := utiltestingapi.MakeClusterQueue("cq-big").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).Obj()
+	cqEffective := utiltestingapi.MakeClusterQueue("cq-big").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj(),
+		).
+		EffectiveQuotas(
+			*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1E").Obj(),
+		).Obj()
+
+	if err := cache.AddClusterQueue(ctx, cqSpec); err != nil {
+		t.Fatalf("AddClusterQueue() = %v", err)
+	}
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	if err := cache.UpdateClusterQueue(log, cqEffective); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj := cache.hm.ClusterQueue("cq-big")
+	// 1E of CPU is 10^18 cores, which is 10^21 milliCPU and past int64.
+	if got := cqObj.resourceNode.Quotas[fr].Nominal.String(); got != "1000000000000000000000" {
+		t.Errorf("effective quota = %s, want 1000000000000000000000", got)
+	}
+
+	// Rewriting the same effective quota is not a change.
+	genBefore := cqObj.AllocatableResourceGeneration
+	if err := cache.UpdateClusterQueue(log, cqEffective); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj = cache.hm.ClusterQueue("cq-big")
+	if got := cqObj.AllocatableResourceGeneration; got != genBefore {
+		t.Errorf("AllocatableResourceGeneration moved from %d to %d for an unchanged quota", genBefore, got)
+	}
+
+	if err := cache.UpdateClusterQueue(log, cqSpec); err != nil {
+		t.Fatalf("UpdateClusterQueue() = %v", err)
+	}
+	cqObj = cache.hm.ClusterQueue("cq-big")
+	if !cqObj.resourceNode.Quotas[fr].Nominal.Equal(resources.NewAmount(5000)) {
+		t.Errorf("after clearing the effective quota = %s, want 5000",
+			cqObj.resourceNode.Quotas[fr].Nominal)
 	}
 }

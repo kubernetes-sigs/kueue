@@ -55,6 +55,13 @@ const (
 	//
 	// Deprecated: planned to be removed in 0.21. Temporary option while WaitForPodsReady is enabled by default.
 	DisableWaitForPodsReady featuregate.Feature = "DisableWaitForPodsReady"
+
+	// owner: @tenzen-y
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13502-unscheduled-pods-timeout
+	//
+	// Tracks Pod scheduling and enables a separate timeout for unscheduled Pods.
+	WaitForPodsReadyUnscheduledTimeout featuregate.Feature = "WaitForPodsReadyUnscheduledTimeout"
+
 	// owner: @yaroslava-serdiuk
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
 	//
@@ -87,6 +94,12 @@ const (
 	//
 	// Enables clearing ttlSecondsAfterFinished when creating remote batch Jobs.
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster featuregate.Feature = "MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster"
+
+	// owner: @kevin85421
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13243-multikueue-ray-worker-autoscaling
+	//
+	// Enables in-tree autoscaling for MultiKueue-managed Ray workloads.
+	MultiKueueRayInTreeAutoscaling featuregate.Feature = "MultiKueueRayInTreeAutoscaling"
 
 	// owner: @mimowo
 	//
@@ -363,6 +376,14 @@ const (
 	// when preempted pods begin terminating rather than waiting for the grace period.
 	FastQuotaReleaseInPodIntegration featuregate.Feature = "FastQuotaReleaseInPodIntegration"
 
+	// owner: @anguszzzz
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15148
+	// When enabled, the Pod integration finalizes a pod group without creating a
+	// Workload when every pod of the group is terminating and no Workload remains
+	// for the group (introduced in https://github.com/kubernetes-sigs/kueue/pull/15154).
+	FinalizeTerminatingPodGroups featuregate.Feature = "FinalizeTerminatingPodGroups"
+
 	// owner: @ShaanveerS
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7259
@@ -456,6 +477,15 @@ const (
 	// total capacity is admitted even when no single node can hold a Pod, and a
 	// rack of CPU-only nodes passes for a Workload requesting devices.
 	TASNodeFeasibilityForAllLevels featuregate.Feature = "TASNodeFeasibilityForAllLevels"
+
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15373
+	// Check the leader PodSet's own node selector, tolerations and node affinity
+	// when choosing a domain for a PodSet group. Without it TAS filters nodes with
+	// the workers' PodSet alone, so a leader with a different template is admitted
+	// onto a node it cannot run on and stays Pending holding quota.
+	TASLeaderPodSetFeasibility featuregate.Feature = "TASLeaderPodSetFeasibility"
 
 	// owner: @j-skiba
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
@@ -670,9 +700,11 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	UnadmittedWorkloadsExplicitStatus:               {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                     {TopologyAwareScheduling},
 	TASNodeFeasibilityForAllLevels:                  {TopologyAwareScheduling},
+	TASLeaderPodSetFeasibility:                      {TopologyAwareScheduling},
 	TASProfileMixed:                                 {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle:     {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:             {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	MultiKueueRayInTreeAutoscaling:                  {MultiKueue, ElasticJobsViaWorkloadSlices},
 	KueueDRAIntegrationExtendedResource:             {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:         {KueueDRAIntegration},
 	KueueDRAIntegrationConsumableCapacity:           {KueueDRAIntegration},
@@ -706,6 +738,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	DisableWaitForPodsReady: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
+	WaitForPodsReadyUnscheduledTimeout: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	PrioritySortingWithinCohort: {
 		{Version: version.MustParse("0.6"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -720,6 +755,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueRayInTreeAutoscaling: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TopologyAwareScheduling: {
@@ -868,6 +906,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FastQuotaReleaseInPodIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
+	FinalizeTerminatingPodGroups: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
 	RejectUpdatesToCQWithInvalidOnFlavors: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
@@ -916,8 +957,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASNodeFeasibilityForAllLevels: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
+	TASLeaderPodSetFeasibility: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
 	UnadmittedWorkloadsObservability: {
-		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	TASRecomputeAssignmentWithinSchedulingCycle: {
@@ -925,7 +970,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	UnadmittedWorkloadsExplicitStatus: {
-		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	DeferRayServiceFinalizationForRedisCleanup: {

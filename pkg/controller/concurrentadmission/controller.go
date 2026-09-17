@@ -784,7 +784,7 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		}
 		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
 			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if quotaReserved == nil {
+			if quotaReserved == nil || quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation {
 				wlLog.Info("Variant has not been evaluated for admission yet")
 				return nil
 			}

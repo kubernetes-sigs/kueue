@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -70,7 +69,7 @@ func TestWorkloadCmd(t *testing.T) {
 		listPages            []runtime.Object
 		wantOut              string
 		wantOutErr           string
-		wantErr              error
+		wantErr              string
 	}{
 		"should print workload list with namespace filter": {
 			ns: "ns1",
@@ -630,6 +629,44 @@ wl2    rayjob.ray.io             j2         lq2          cq2            PENDING 
 wl3    pytorchjob.kubeflow....   j3         lq3          cq3            PENDING                                   3h
 `,
 		},
+		"should print sorted job types and names for a workload with multiple owners": {
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "pod",
+							Kind:         "Pod",
+							Group:        "",
+						},
+					},
+				},
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-c", "pod-uid-c").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-a", "job-uid-a").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-b", "pod-uid-b").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   JOB TYPE   JOB NAME              LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job, pod   job-a, pod-b, pod-c   lq1          cq1            PENDING                                   60m
+`,
+		},
 		"should print workload list with resource filter": {
 			args: []string{"--for", "job.batch/job-test"},
 			apiResourceLists: []*metav1.APIResourceList{
@@ -958,6 +995,42 @@ kind: WorkloadList
 metadata: {}
 `,
 		},
+		"should fail with invalid status value": {
+			args:    []string{"--status", "unknown"},
+			wantErr: `invalid status value (unknown). Must be "all", "pending", "quotareserved", "admitted" or "finished"`,
+		},
+		"should print not found error and no workloads with missing resource filter target": {
+			args: []string{"--for", "job.batch/missing-job"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.JobList{},
+			},
+			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
+		},
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
@@ -1036,7 +1109,11 @@ metadata: {}
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+			var gotErrStr string
+			if gotErr != nil {
+				gotErrStr = gotErr.Error()
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 

@@ -183,7 +183,7 @@ func (p *listWorkloadPrinter) crdTypes(wl *kueue.Workload) []string {
 		}
 	}
 
-	return crdTypes.UnsortedList()
+	return sets.List(crdTypes)
 }
 
 func (p *listWorkloadPrinter) crdNames(wl *kueue.Workload) []string {
@@ -193,7 +193,7 @@ func (p *listWorkloadPrinter) crdNames(wl *kueue.Workload) []string {
 		crdNames.Insert(ref.Name)
 	}
 
-	return crdNames.UnsortedList()
+	return sets.List(crdNames)
 }
 
 func (p *listWorkloadPrinter) apiResourceType(resource *metav1.APIResource) string {

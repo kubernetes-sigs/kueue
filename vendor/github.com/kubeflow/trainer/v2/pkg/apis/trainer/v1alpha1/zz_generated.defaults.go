@@ -32,6 +32,8 @@ import (
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&ClusterTrainingRuntime{}, func(obj interface{}) { SetObjectDefaults_ClusterTrainingRuntime(obj.(*ClusterTrainingRuntime)) })
 	scheme.AddTypeDefaultingFunc(&ClusterTrainingRuntimeList{}, func(obj interface{}) { SetObjectDefaults_ClusterTrainingRuntimeList(obj.(*ClusterTrainingRuntimeList)) })
+	scheme.AddTypeDefaultingFunc(&OptimizationJob{}, func(obj interface{}) { SetObjectDefaults_OptimizationJob(obj.(*OptimizationJob)) })
+	scheme.AddTypeDefaultingFunc(&OptimizationJobList{}, func(obj interface{}) { SetObjectDefaults_OptimizationJobList(obj.(*OptimizationJobList)) })
 	scheme.AddTypeDefaultingFunc(&TrainJob{}, func(obj interface{}) { SetObjectDefaults_TrainJob(obj.(*TrainJob)) })
 	scheme.AddTypeDefaultingFunc(&TrainJobList{}, func(obj interface{}) { SetObjectDefaults_TrainJobList(obj.(*TrainJobList)) })
 	scheme.AddTypeDefaultingFunc(&TrainingRuntime{}, func(obj interface{}) { SetObjectDefaults_TrainingRuntime(obj.(*TrainingRuntime)) })
@@ -226,6 +228,150 @@ func SetObjectDefaults_ClusterTrainingRuntimeList(in *ClusterTrainingRuntimeList
 	for i := range in.Items {
 		a := &in.Items[i]
 		SetObjectDefaults_ClusterTrainingRuntime(a)
+	}
+}
+
+func SetObjectDefaults_OptimizationJob(in *OptimizationJob) {
+	if in.Spec.TrainJobTemplate.Spec.Initializer != nil {
+		if in.Spec.TrainJobTemplate.Spec.Initializer.Dataset != nil {
+			for i := range in.Spec.TrainJobTemplate.Spec.Initializer.Dataset.Env {
+				a := &in.Spec.TrainJobTemplate.Spec.Initializer.Dataset.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
+			}
+		}
+		if in.Spec.TrainJobTemplate.Spec.Initializer.Model != nil {
+			for i := range in.Spec.TrainJobTemplate.Spec.Initializer.Model.Env {
+				a := &in.Spec.TrainJobTemplate.Spec.Initializer.Model.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
+			}
+		}
+	}
+	if in.Spec.TrainJobTemplate.Spec.Trainer != nil {
+		for i := range in.Spec.TrainJobTemplate.Spec.Trainer.Env {
+			a := &in.Spec.TrainJobTemplate.Spec.Trainer.Env[i]
+			if a.ValueFrom != nil {
+				if a.ValueFrom.FileKeyRef != nil {
+					if a.ValueFrom.FileKeyRef.Optional == nil {
+						var ptrVar1 bool = false
+						a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+					}
+				}
+			}
+		}
+	}
+	for i := range in.Spec.TrainJobTemplate.Spec.RuntimePatches {
+		a := &in.Spec.TrainJobTemplate.Spec.RuntimePatches[i]
+		if a.TrainingRuntimeSpec != nil {
+			if a.TrainingRuntimeSpec.Template != nil {
+				if a.TrainingRuntimeSpec.Template.Spec != nil {
+					for j := range a.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs {
+						b := &a.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs[j]
+						if b.Template != nil {
+							if b.Template.Spec != nil {
+								if b.Template.Spec.Template != nil {
+									if b.Template.Spec.Template.Spec != nil {
+										for k := range b.Template.Spec.Template.Spec.Volumes {
+											c := &b.Template.Spec.Template.Spec.Volumes[k]
+											if c.VolumeSource.ISCSI != nil {
+												if c.VolumeSource.ISCSI.ISCSIInterface == "" {
+													c.VolumeSource.ISCSI.ISCSIInterface = "default"
+												}
+											}
+											if c.VolumeSource.RBD != nil {
+												if c.VolumeSource.RBD.RBDPool == "" {
+													c.VolumeSource.RBD.RBDPool = "rbd"
+												}
+												if c.VolumeSource.RBD.RadosUser == "" {
+													c.VolumeSource.RBD.RadosUser = "admin"
+												}
+												if c.VolumeSource.RBD.Keyring == "" {
+													c.VolumeSource.RBD.Keyring = "/etc/ceph/keyring"
+												}
+											}
+											if c.VolumeSource.AzureDisk != nil {
+												if c.VolumeSource.AzureDisk.CachingMode == nil {
+													ptrVar1 := v1.AzureDataDiskCachingMode(v1.AzureDataDiskCachingReadWrite)
+													c.VolumeSource.AzureDisk.CachingMode = &ptrVar1
+												}
+												if c.VolumeSource.AzureDisk.FSType == nil {
+													var ptrVar1 string = "ext4"
+													c.VolumeSource.AzureDisk.FSType = &ptrVar1
+												}
+												if c.VolumeSource.AzureDisk.ReadOnly == nil {
+													var ptrVar1 bool = false
+													c.VolumeSource.AzureDisk.ReadOnly = &ptrVar1
+												}
+												if c.VolumeSource.AzureDisk.Kind == nil {
+													ptrVar1 := v1.AzureDataDiskKind(v1.AzureSharedBlobDisk)
+													c.VolumeSource.AzureDisk.Kind = &ptrVar1
+												}
+											}
+											if c.VolumeSource.ScaleIO != nil {
+												if c.VolumeSource.ScaleIO.StorageMode == "" {
+													c.VolumeSource.ScaleIO.StorageMode = "ThinProvisioned"
+												}
+												if c.VolumeSource.ScaleIO.FSType == "" {
+													c.VolumeSource.ScaleIO.FSType = "xfs"
+												}
+											}
+										}
+										for k := range b.Template.Spec.Template.Spec.InitContainers {
+											c := &b.Template.Spec.Template.Spec.InitContainers[k]
+											for l := range c.Env {
+												d := &c.Env[l]
+												if d.ValueFrom != nil {
+													if d.ValueFrom.FileKeyRef != nil {
+														if d.ValueFrom.FileKeyRef.Optional == nil {
+															var ptrVar1 bool = false
+															d.ValueFrom.FileKeyRef.Optional = &ptrVar1
+														}
+													}
+												}
+											}
+										}
+										for k := range b.Template.Spec.Template.Spec.Containers {
+											c := &b.Template.Spec.Template.Spec.Containers[k]
+											for l := range c.Env {
+												d := &c.Env[l]
+												if d.ValueFrom != nil {
+													if d.ValueFrom.FileKeyRef != nil {
+														if d.ValueFrom.FileKeyRef.Optional == nil {
+															var ptrVar1 bool = false
+															d.ValueFrom.FileKeyRef.Optional = &ptrVar1
+														}
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func SetObjectDefaults_OptimizationJobList(in *OptimizationJobList) {
+	for i := range in.Items {
+		a := &in.Items[i]
+		SetObjectDefaults_OptimizationJob(a)
 	}
 }
 

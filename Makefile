@@ -70,12 +70,14 @@ CGO_ENABLED ?= 0
 
 YAML_PROCESSOR_LOG_LEVEL ?= info
 
+IMAGE_BUILD_RETRIABLE_ERRORS := context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout|stream error: stream ID [0-9]+; INTERNAL_ERROR|http2: server sent GOAWAY|500 Internal Server Error|i/o timeout
+
 IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
 	--attempts 7 \
 	--delay 2 \
 	--exponential \
 	--stream \
-	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout)' {output}" \
+	--continue-if "grep -qiE '($(IMAGE_BUILD_RETRIABLE_ERRORS))' {output}" \
 	-- env
 
 MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
@@ -113,7 +115,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.19.3
+RELEASE_VERSION=v0.19.4
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)

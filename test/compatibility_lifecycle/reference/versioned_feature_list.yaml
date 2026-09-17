@@ -119,6 +119,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: FinalizeTerminatingPodGroups
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: FinishOrphanedWorkloads
   versionedSpecs:
   - default: true
@@ -283,6 +289,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: MultiKueueRayInTreeAutoscaling
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: MultiKueueRemoteSpecSync
   versionedSpecs:
   - default: true
@@ -487,6 +499,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: TASLeaderPodSetFeasibility
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASMultiLayerTopology
   versionedSpecs:
   - default: false
@@ -581,14 +599,18 @@
   versionedSpecs:
   - default: false
     lockToDefault: false
-    preRelease: Beta
+    preRelease: Alpha
     version: "0.19"
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.19"
+    version: "0.20"
 - name: ValidateRayAndSparkJobUpdates
   versionedSpecs:
   - default: true
@@ -611,6 +633,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WaitForPodsReadyUnscheduledTimeout
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WorkloadIdentifierAnnotations
   versionedSpecs:
   - default: true

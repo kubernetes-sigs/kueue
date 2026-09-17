@@ -724,11 +724,11 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	// carry it over. Any update to the Workload lands here, and on a busy cluster those
 	// arrive constantly, which would otherwise send the scan back to the first flavor every
 	// time. The progress still expires on its own, since it keeps the scheduling cycle it
-	// was recorded in and lastAssignmentOutdated discards it once it is older than that.
+	// was recorded in and flavorScanStateOutdated discards it once it is older than that.
 	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) && cq != nil {
-		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.LastAssignment != nil &&
-			tracked.LastAssignment.MatchesSchedulingShape(wInfo.SchedulingHash) {
-			wInfo.LastAssignment = tracked.LastAssignment.Clone()
+		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.FlavorScanState != nil &&
+			tracked.FlavorScanState.MatchesSchedulingShape(wInfo.SchedulingHash) {
+			wInfo.FlavorScanState = tracked.FlavorScanState.Clone()
 		}
 	}
 	m.addWorkload(wInfo, q)
@@ -912,6 +912,15 @@ type Head struct {
 	IsPreemptor bool
 }
 
+func newHead(wInfo workload.Info, cq *ClusterQueue) Head {
+	head := Head{Info: wInfo}
+	if cq != nil {
+		head.ClusterQueue = cq.GetName()
+		head.IsPreemptor = cq.IsPreemptor(&head.Info)
+	}
+	return head
+}
+
 // Heads returns the heads of the queues, along with their associated ClusterQueue.
 // It blocks if the queues empty until they have elements or the context terminates.
 func (m *Manager) Heads(ctx context.Context) []Head {
@@ -933,8 +942,12 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 	}
 }
 
+// heads returns the heads of the queues and ready second-pass workloads.
 func (m *Manager) heads() []Head {
-	heads := m.secondPassQueue.takeAllReady()
+	var heads []Head
+	for _, wInfo := range m.secondPassQueue.takeAllReady() {
+		heads = append(heads, newHead(wInfo, m.getClusterQueueLockless(wInfo.ClusterQueue)))
+	}
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -945,18 +958,11 @@ func (m *Manager) heads() []Head {
 		if wl == nil {
 			continue
 		}
+		heads = append(heads, newHead(*wl, cq))
 		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		heads = append(heads, Head{
-			Info:        wlCopy,
-			IsPreemptor: cq.IsPreemptor(wl),
-		})
-
 		qKey := m.workloadAssignedQueues[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
-
 		reportLQPendingWorkloads(m, q)
 	}
 	return heads
@@ -1008,7 +1014,7 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 }
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
-// delay.
+// delay. The pass re-reads the live Workload when the delay elapses.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
@@ -1019,8 +1025,10 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
+		nsName := client.ObjectKeyFromObject(w)
+		// The delayed pass outlives the caller's context (it does a client read).
 		m.clock.AfterFunc(delay, func() {
-			m.queueSecondPass(ctx, w, iteration)
+			m.queueSecondPass(context.WithoutCancel(ctx), nsName, iteration)
 		})
 		return true
 	} else if iteration > 0 {
@@ -1033,17 +1041,45 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	return false
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
+// queueSecondPass re-reads the live Workload by key and queues it for a second pass if it still needs one.
+func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, iteration int) {
 	m.Lock()
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
-	wInfo := workload.NewInfo(log, w, m.workloadInfoOptions...)
+	wlKey := workload.NewReference(nsName.Namespace, nsName.Name)
+	var w kueue.Workload
+	// Re-read the live object; the request-time snapshot may be healed or deleted.
+	if err := m.client.Get(ctx, nsName, &w); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.V(3).Info("Workload not found when queuing for second pass; dropping the request", "workload", wlKey)
+			m.secondPassQueue.deleteByKey(wlKey)
+			return
+		}
+		// Keep ownership of the pass: a transient read error retries after backoff.
+		log.Error(err, "Failed to re-read workload for second pass; will retry", "workload", wlKey)
+		m.retrySecondPassRead(ctx, nsName, iteration+1)
+		return
+	}
+	// DeepCopy before AdjustResources; never normalize a shared or persistable object in place.
+	w = *w.DeepCopy()
+	// Normalize like every other queue entry point (limits-to-requests, overhead, LimitRanges).
+	workload.AdjustResources(ctx, m.client, &w)
+	wInfo := workload.NewInfo(log, &w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
-		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
+		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
 		m.Broadcast()
 	}
+}
+
+// retrySecondPassRead re-arms a delayed second pass after a transient re-read failure.
+func (m *Manager) retrySecondPassRead(ctx context.Context, nsName client.ObjectKey, iteration int) {
+	delay := m.secondPassQueue.nextDelay(iteration)
+	// Clock callbacks may not support registering a timer from inside a callback.
+	go m.clock.AfterFunc(delay, func() {
+		m.queueSecondPass(context.WithoutCancel(ctx), nsName, iteration)
+	})
 }
 
 func (m *Manager) resyncClusterQueueGaugeMetricsLocked(cq *ClusterQueue) {
