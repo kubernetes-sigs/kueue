@@ -891,6 +891,10 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		workload   *kueue.Workload
 		compatible bool
 		error      bool
+		// finishedWorkloads maps the name of every workload left with an active
+		// "Finished" condition to its reason, checked by listing workloads after
+		// EnsureWorkloadSlices returns. Nil is treated the same as empty.
+		finishedWorkloads map[string]string
 	}
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -960,6 +964,13 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			t.Fatalf("Failed decoding the apply configuration: %v", err)
 		}
 		return assertStatusConditionPatch(t, subResourceName, wl, wantWorkloadName, activeConditionType, activeConditionReason)
+	}
+
+	// replacementPathClientBuilder registers the Workload status subresource so that
+	// Finish() calls persist for real, letting the "EvictedOriginWithReservedReplacement_*"
+	// cases below assert finished workloads by listing rather than by intercepting patches.
+	replacementPathClientBuilder := func() *fake.ClientBuilder {
+		return testWorkloadClientBuilder().WithStatusSubresource(&kueue.Workload{})
 	}
 
 	tests := map[string]struct {
@@ -1547,7 +1558,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		// to the job reconciler until an admitted replacement takes over its Pods.
 		"EvictedOriginWithReservedReplacement_ReplacementNotAdmitted": {
 			args: args{
-				clnt: testWorkloadClientBuilder().WithObjects(
+				clnt: replacementPathClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
@@ -1577,13 +1588,52 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 					Obj(),
+				finishedWorkloads: map[string]string{},
+			},
+		},
+		// A replacement that is itself evicted has lost its claim on the origin's Pods,
+		// even though it was admitted at some point, so it must not count as having
+		// replaced the origin: the origin is kept unfinished and returned as-is.
+		"EvictedOriginWithReservedReplacement_ReplacementAdmittedButEvicted": {
+			args: args{
+				clnt: replacementPathClientBuilder().WithObjects(
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(fiveMinutesAgo).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+						Obj(),
+					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ResourceVersion("1").
+						Creation(now).
+						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+						Obj()).
+					Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ResourceVersion("1").
+					Creation(fiveMinutesAgo).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
+					Obj(),
+				finishedWorkloads: map[string]string{},
 			},
 		},
 		// Once the replacement is admitted, it takes over the origin's Pods, so the
 		// origin is finished with a "SliceReplaced" reason and the replacement is selected.
 		"EvictedOriginWithReservedReplacement_ReplacementAdmitted": {
 			args: args{
-				clnt: testWorkloadClientBuilder().WithObjects(
+				clnt: replacementPathClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
 						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
@@ -1600,9 +1650,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-							return assertStatusConditionApply(t, subResourceName, applyConf, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
-						},
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					}).
 					Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()},
@@ -1619,6 +1667,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
 					Obj(),
+				finishedWorkloads: map[string]string{testJobObject.Name + "-1": kueue.WorkloadSliceReplaced},
 			},
 		},
 	}
@@ -1635,6 +1684,22 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if gotCompatible != tt.want.compatible {
 				t.Errorf("EnsureWorkloadSlices() compatible = %v, want %v", gotCompatible, tt.want.compatible)
+			}
+			if gotError != nil {
+				return
+			}
+			var workloads kueue.WorkloadList
+			if err := tt.args.clnt.List(ctx, &workloads); err != nil {
+				t.Fatalf("Failed to list workloads: %v", err)
+			}
+			gotFinished := make(map[string]string)
+			for _, wl := range workloads.Items {
+				if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished); cond != nil && cond.Status == metav1.ConditionTrue {
+					gotFinished[wl.Name] = cond.Reason
+				}
+			}
+			if diff := cmp.Diff(tt.want.finishedWorkloads, gotFinished, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("EnsureWorkloadSlices() finished workloads (-want,+got):\n%s", diff)
 			}
 		})
 	}
