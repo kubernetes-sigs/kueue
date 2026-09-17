@@ -43,11 +43,30 @@ runs:
           exit 1
         fi
 
+        # Determine if this version should be marked as "latest".
+        # Only mark as latest if it is the highest semver among all published
+        # non-prerelease releases (including the one we are about to publish).
+        PUBLISHED_VERSIONS=$(gh release list \
+            --repo "$TARGET_REPO" \
+            --json tagName,isDraft,isPrerelease \
+            --jq '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' \
+            --limit 1000)
+        HIGHEST_VERSION=$(printf '%s\n%s\n' "$PUBLISHED_VERSIONS" "$VERSION" \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V \
+            | tail -1)
+        if [ "$VERSION" = "$HIGHEST_VERSION" ]; then
+          LATEST_FLAG="--latest=true"
+        else
+          LATEST_FLAG="--latest=false"
+        fi
+
         # Publish the draft release.
         set +e
         gh release edit "$VERSION" \
           --repo "$TARGET_REPO" \
-          --draft=false
+          --draft=false \
+          $LATEST_FLAG
         EDIT_EXIT=$?
         set -e
 
