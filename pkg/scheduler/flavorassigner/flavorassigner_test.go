@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -3651,7 +3652,7 @@ func TestAssignFlavors(t *testing.T) {
 					resources.NewResourceFormatter(),
 					0,
 				)
-				assignment := flvAssigner.Assign(ctx, nil)
+				assignment := assign(ctx, flvAssigner, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -3845,7 +3846,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			assignment := assign(ctx, flvAssigner, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -3994,7 +3995,7 @@ func TestDeletedFlavors(t *testing.T) {
 
 				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 
-				assignment := flvAssigner.Assign(ctx, nil)
+				assignment := assign(ctx, flvAssigner, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -4167,7 +4168,7 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			assignment := assign(ctx, flvAssigner, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -5343,7 +5344,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
 			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			gotAssignment := assigner.Assign(ctx, nil)
+			gotAssignment := assign(ctx, assigner, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
 				t.Errorf("RepresentativeMode() = %v, want %v", gotAssignment.RepresentativeMode(), tc.wantRepMode)
@@ -5830,7 +5831,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
 				0,
 			)
-			gotAssignment := assigner.Assign(ctx, nil)
+			gotAssignment := assign(ctx, assigner, nil)
 
 			if gotAssignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("gotAssignment.NoFitReason = %q, want %q", gotAssignment.NoFitReason, tc.wantNoFitReason)
@@ -6093,7 +6094,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 			}
 
 			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			assignment := assign(ctx, flvAssigner, nil)
 
 			gotErrors := map[kueue.PodSetReference]error{}
 			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}
@@ -6486,7 +6487,7 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
-			assignment := assigner.Assign(ctx, nil)
+			assignment := assign(ctx, assigner, nil)
 
 			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("RepresentativeMode() = %s, want %s", gotMode, tc.wantMode)
@@ -6566,8 +6567,9 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			flavors := bookmarkTestFlavors()
 
 			// Nomination: quota fits, topology fits, and a placement is produced.
-			nominated := New(wlInfo, cqSnapshot, flavors, false, &testOracle{}, nil,
-				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+			assigner := New(wlInfo, cqSnapshot, flavors, false, &testOracle{}, nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
+			nominated := assign(ctx, assigner, nil)
 			if got := nominated.RepresentativeMode(); got != Fit {
 				t.Fatalf("nomination RepresentativeMode() = %s, want %s", got, Fit)
 			}
@@ -6603,9 +6605,10 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			}
 			wlInfo.NominationMapping = mapping
 
-			recomputed := New(wlInfo, cqSnapshot, flavors, false,
+			assigner = New(wlInfo, cqSnapshot, flavors, false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
-				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
+			recomputed := assign(ctx, assigner, nil)
 
 			recomputedIdx, ok := lastTriedFlavorIdx(recomputed, corev1.ResourceCPU)
 			if !ok {
@@ -6658,7 +6661,8 @@ func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
 					Obj(),
 			)
-			a := New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+			assigner := New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
+			a := assign(ctx, assigner, nil)
 			if got := a.RepresentativeMode(); got != tc.wantMode {
 				t.Errorf("mode=%s, want %s", got, tc.wantMode)
 			}
@@ -6671,4 +6675,16 @@ func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assign(ctx context.Context, a *FlavorAssigner, counts []int32) Assignment {
+	log := log.FromContext(ctx)
+	assignment := a.AssignFlavors(ctx, log, a.oracle, counts)
+	if assignment.RepresentativeMode() != NoFit {
+		a.AssignTopology(ctx, log, &assignment)
+	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		assignment.ResolveNoFitReason(a.cq)
+	}
+	return assignment
 }
