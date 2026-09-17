@@ -1579,8 +1579,8 @@ func TestEnsureWorkloadSlicesEvictedOriginWithReservedReplacement(t *testing.T) 
 			if selected.Name != wantName {
 				t.Errorf("selected %q, want %q", selected.Name, wantName)
 			}
-			if workloadfinish.IsFinished(origin) != admitted {
-				t.Errorf("origin finished = %v, want %v", workloadfinish.IsFinished(origin), admitted)
+			if workload.IsFinished(origin) != admitted {
+				t.Errorf("origin finished = %v, want %v", workload.IsFinished(origin), admitted)
 			}
 		})
 	}
