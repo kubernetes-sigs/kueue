@@ -1,6 +1,9 @@
 ---
 name: kep-general-guidelines
 description: Apply project-wide design guidance when drafting, updating, or reviewing Kueue enhancement proposals (KEPs).
+license: Apache-2.0
+metadata:
+  copyright: The Kubernetes Authors
 ---
 
 # KEP General Guidelines
