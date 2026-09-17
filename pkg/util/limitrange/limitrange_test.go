@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -149,6 +150,7 @@ func TestValidatePodSpec(t *testing.T) {
 	}
 	cases := map[string]struct {
 		summary Summary
+		podSpec *corev1.PodSpec
 		want    field.ErrorList
 	}{
 		"empty": {
@@ -269,10 +271,55 @@ func TestValidatePodSpec(t *testing.T) {
 					Obj(),
 			),
 		},
+		"container under with explicit zero": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("Min", "example.com/mainContainerGpu", "3").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq("example.com/mainContainerGpu", "0").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath.Child("containers").Index(0),
+					[]corev1.ResourceName{"example.com/mainContainerGpu"},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
+			},
+		},
+		"pod under with explicit zero": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "6").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().
+						WithResourceReq(corev1.ResourceCPU, "0").
+						Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(
+					podSpecPath,
+					[]corev1.ResourceName{corev1.ResourceCPU},
+					RequestsMustNotBeBelowLimitRangeMinMessage,
+				),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			result := tc.summary.ValidatePodSpec(podSpec, podSpecPath)
+			features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, true)
+			ps := tc.podSpec
+			if ps == nil {
+				ps = podSpec
+			}
+			result := tc.summary.ValidatePodSpec(ps, podSpecPath)
 			if diff := cmp.Diff(tc.want, result); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}

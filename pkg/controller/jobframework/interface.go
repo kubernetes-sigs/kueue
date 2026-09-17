@@ -110,6 +110,13 @@ type JobWithSkip interface {
 	Skip(ctx context.Context) bool
 }
 
+// JobWithOnHold is an optional interface that should be implemented by generic jobs
+// when the job can request its Workload to be put on hold.
+type JobWithOnHold interface {
+	// IsOnHold returns whether the job should be put on hold.
+	IsOnHold() bool
+}
+
 // JobWithPriorityClass is an optional interface that should be implemented by generic jobs
 // when a custom priority class is needed.
 type JobWithPriorityClass interface {
@@ -127,12 +134,24 @@ type JobWithCustomValidation interface {
 	ValidateOnUpdate(ctx context.Context, oldJob GenericJob) (field.ErrorList, error)
 }
 
+// LoadResult contains the result of loading a job.
+type LoadResult struct {
+	// ShouldFinalize indicates whether the Workload corresponding to the Job should be finalized,
+	// i.e. have "resource-in-use" removed.
+	ShouldFinalize bool
+	// Found indicates whether the Job exists, or at least one member of the composable job exists.
+	Found bool
+}
+
+func NewLoadResult(shouldFinalize bool, found bool) *LoadResult {
+	return &LoadResult{ShouldFinalize: shouldFinalize, Found: found}
+}
+
 // ComposableJob is an optional interface that should be implemented by generic jobs
 // composed of multiple API objects.
 type ComposableJob interface {
-	// Load loads all members of the composable job. If removeFinalizers is true,
-	// workload and job finalizers should be removed.
-	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
+	// Load loads all members of the composable job.
+	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (*LoadResult, error)
 
 	// Run unsuspends all members of the ComposableJob and injects node affinity
 	// with pod set counts extracted from the workload into all members of the job.
@@ -197,14 +216,14 @@ type JobWithManagedBy interface {
 // by generic jobs when custom annotations need to be updated in the API server
 // after changes occur.
 //
-// For example, RayJob may have the "kueue.x-k8s.io/podset-replica-sizes"
-// annotation, which reflects the current replica sizes of the underlying
-// RayCluster. The job reconciler calls GetCustomAnnotations to update
-// such annotations in the API server.
+// For example, RayJob may have the "kueue.x-k8s.io/raycluster-generation"
+// annotation, which reflects the generation of the underlying RayCluster.
+// The job reconciler calls GetCustomAnnotations to update such annotations
+// in the API server.
 type JobWithCustomAnnotations interface {
 	// GetCustomAnnotations returns additional annotations
 	// that should be added to the job.
-	GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error)
+	GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error)
 }
 
 // ElasticWorkloadNameProvider is an optional interface that provides additional

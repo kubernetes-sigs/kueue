@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -128,7 +127,7 @@ func TestPodSets(t *testing.T) {
 				return []kueue.PodSet{
 					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
-						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 						Obj(),
 				}
 			},
@@ -151,7 +150,7 @@ func TestPodSets(t *testing.T) {
 						PodSpec(job.Spec.JAXReplicaSpecs[kftraining.JAXJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 						Obj(),
 				}
 			},

@@ -61,6 +61,7 @@ type ClusterQueuePreemptionApplyConfiguration struct {
 	// the nominal quota of its ClusterQueue, preempt any Workload in the
 	// cohort, irrespective of priority. **Fair Sharing** preempt Workloads
 	// in the cohort that satisfy the Fair Sharing preemptionStrategies.
+	//
 	ReclaimWithinCohort *kueuev1beta2.PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 	// borrowWithinCohort determines whether a pending Workload can preempt
 	// Workloads from other ClusterQueues in the cohort if the workload requires borrowing.
@@ -76,6 +77,7 @@ type ClusterQueuePreemptionApplyConfiguration struct {
 	// - `LowerOrNewerEqualPriority`: only preempt Workloads in the ClusterQueue that
 	// either have a lower priority than the pending workload or equal priority
 	// and are newer than the pending workload.
+	//
 	WithinClusterQueue *kueuev1beta2.PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 }
 

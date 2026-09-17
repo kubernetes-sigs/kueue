@@ -2,6 +2,8 @@
 # see: https://golangci-lint.run/usage/configuration/
 
 version: "2"
+run:
+  allow-parallel-runners: true
 linters:
   enable:
     - copyloopvar
@@ -77,19 +79,22 @@ linters:
       context-background: true
       context-todo: true
   exclusions:
+    generated: strict
+    paths:
+      - zz_generated\..+\.go$
     warn-unused: true
     presets:
       - std-error-handling
     rules:
       - linters:
           - staticcheck
-        text: 'SA1019: j.Status.State is deprecated: the State field is replaced by the Conditions field.'
+        text: 'SA1019: \(github\.com/ray-project/kuberay/ray-operator/apis/ray/v1\.RayClusterStatus\)\.State is deprecated: the State field is replaced by the Conditions field\.'
       - linters:
           - staticcheck
-        text: 'SA1019: j.Status.RayClusterStatus.State is deprecated: the State field is replaced by the Conditions field.'
+        text: 'SA1019: sigs\.k8s\.io/kueue/pkg/features\..* is deprecated: planned to be removed in .*'
       - linters:
           - staticcheck
-        text: 'SA1019: features.* is deprecated: planned to be removed in .*'
+        text: 'SA1019: \(sigs\.k8s\.io/kueue/apis/config/v1beta2\.ClusterProfile\)\.CredentialsProviders is deprecated: Use AccessProviders instead\..*'
       - linters:
           - fatcontext
         path: ^test/*
@@ -114,4 +119,7 @@ formatters:
       max-len: 200
       reformat-tags: false
   exclusions:
+    generated: strict
+    paths:
+      - zz_generated\..+\.go$
     warn-unused: true

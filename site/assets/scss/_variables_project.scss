@@ -22,6 +22,23 @@ $h3-font-size: 1.25rem !default;
 $h4-font-size: 1.1rem !default;
 $h5-font-size: 0.95rem !default;
 
+// Dark color-mode palette (GitHub-Dark). Single source of truth for the
+// dark-mode overrides in _styles_project.scss; the generated Chroma partial
+// (_chroma-dark.scss) mirrors this same palette. If you change the syntax
+// tokens, regenerate Chroma with `hugo gen chromastyles --style=github-dark`.
+$dark-link:           #58a6ff; // links, search-UI accent, Note callouts
+$dark-link-hover:     #79b8ff;
+$dark-code-bg:        #0d1117; // code surface; also search-highlight text
+$dark-code-fg:        #e6edf3; // default code text
+$dark-mark-bg:        #d29922; // search-term highlight background
+$dark-syntax-comment: #8b949e;
+$dark-syntax-punct:   #c9d1d9;
+$dark-syntax-blue:    #79c0ff; // properties, tags, numbers, constants
+$dark-syntax-string:  #a5d6ff; // strings, attribute names
+$dark-syntax-purple:  #d2a8ff; // operators, functions, class names
+$dark-syntax-keyword: #ff7b72; // keywords, at-rules
+$dark-syntax-accent:  #ffa657; // regex/variables; also Warning callouts
+
 // Nav bar colors
 $white: #fff;
 $navbar-dark-color: rgba($primary, 0.8);
@@ -44,15 +61,15 @@ $google_font_family: "Inter:wght@300;400;500;600;700&display=swap" !default;
 // Clean utility classes for the new homepage
 .hero-grid-bg {
   background-image: 
-    radial-gradient(circle at 1px 1px, #e2e8f0 1px, transparent 0),
-    radial-gradient(circle at 1px 1px, #e2e8f0 1px, transparent 0);
+    radial-gradient(circle at 1px 1px, var(--bs-border-color) 1px, transparent 0),
+    radial-gradient(circle at 1px 1px, var(--bs-border-color) 1px, transparent 0);
   background-size: 40px 40px;
   background-position: 0 0, 20px 20px;
 }
 
 .feature-card {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid var(--bs-border-color) !important;
   &:hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
@@ -61,7 +78,7 @@ $google_font_family: "Inter:wght@300;400;500;600;700&display=swap" !default;
 
 .community-card {
   transition: border-color 0.2s ease;
-  border: 1px solid #e2e8f0 !important;
+  border: 1px solid var(--bs-border-color) !important;
   &:hover {
     border-color: $info !important;
   }

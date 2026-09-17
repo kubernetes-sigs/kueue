@@ -5,16 +5,10 @@ clusterloader2.
 
 ## Setup
 
-Install Kueue, configured to use [Plain Pods](https://kueue.sigs.k8s.io/docs/tasks/run_plain_pods/).
-
-e.g.
-```
-wget https://github.com/kubernetes-sigs/kueue/releases/download/v0.6.2/manifests.yaml
-
-# manifest.diff is provided in this directory
-patch manifests.yaml manifest.diff
-kubectl apply --server-side -f manifests.yaml
-```
+Install a current Kueue release with the
+[Plain Pods](https://kueue.sigs.k8s.io/docs/tasks/run/plain_pods/) integration
+enabled. The Kueue resource manifests in these performance tests use the
+`kueue.x-k8s.io/v1beta2` API.
 
 Install `Clusterloader2`:
   * checkout https://github.com/kubernetes/perf-tests

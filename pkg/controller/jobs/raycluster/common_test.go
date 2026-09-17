@@ -32,27 +32,31 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	testingrayjobutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestBuildPodSets(t *testing.T) {
+	collectorImage := "quay.io/kuberay/collector:v1.7.0"
+
 	testCases := map[string]struct {
-		rayClusterSpec *rayv1.RayClusterSpec
-		annotations    map[string]string
-		wantPodSets    []kueue.PodSet
-		wantErr        bool
+		rayClusterSpec              *rayv1.RayClusterSpec
+		annotations                 map[string]string
+		enablePartialScaleUpFeature bool
+		wantPodSets                 []kueue.PodSet
+		wantErr                     error
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -66,7 +70,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -100,7 +104,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "group1",
-						Replicas:  ptr.To[int32](2),
+						Replicas:  new(int32(2)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker1"}},
@@ -109,7 +113,7 @@ func TestBuildPodSets(t *testing.T) {
 					},
 					{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](5),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker2"}},
@@ -181,7 +185,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:  "workers",
-						Replicas:   ptr.To[int32](3),
+						Replicas:   new(int32(3)),
 						NumOfHosts: 2,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -230,7 +234,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](1),
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -306,7 +310,7 @@ func TestBuildPodSets(t *testing.T) {
 					Template: corev1.PodTemplateSpec{},
 				},
 			},
-			wantErr: true,
+			wantErr: errRedisCleanupMissingRayContainer,
 		},
 		"autoscaler sidecar added to head podSet with default resources when in-tree autoscaling is enabled": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -321,7 +325,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](1),
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -396,22 +400,293 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"partial scale up enabled with feature gate and annotation": {
+			enablePartialScaleUpFeature: true,
+			annotations: map[string]string{
+				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+			},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "workers",
+						Replicas:    new(int32(3)),
+						MinReplicas: new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					SetMinimumCount(3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"partial scale up enabled with feature gate and annotation, but no minReplicas set": {
+			enablePartialScaleUpFeature: true,
+			annotations: map[string]string{
+				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+			},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  new(int32(3)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"partial scale up disabled when feature gate is disabled": {
+			enablePartialScaleUpFeature: false,
+			annotations: map[string]string{
+				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+			},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "workers",
+						Replicas:    new(int32(3)),
+						MinReplicas: new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"partial scale up disabled when annotation is not present": {
+			enablePartialScaleUpFeature: true,
+			annotations:                 nil,
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "workers",
+						Replicas:    new(int32(3)),
+						MinReplicas: new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"history server collector added to all podSets with default resources": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HistoryServerOptions: &rayv1.HistoryServerOptions{
+					CollectorOptions: &rayv1.CollectorOptions{
+						Image: &collectorImage,
+					},
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  new(int32(3)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{Image: &collectorImage}),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "worker"},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{Image: &collectorImage}),
+						},
+					}).
+					Obj(),
+			},
+		},
+		"history server collector uses CollectorOptions.Resources override on all podSets": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HistoryServerOptions: &rayv1.HistoryServerOptions{
+					CollectorOptions: &rayv1.CollectorOptions{
+						Image: &collectorImage,
+						Resources: &corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("128Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("400m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
+					},
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{
+								Image: &collectorImage,
+								Resources: &corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("100m"),
+										corev1.ResourceMemory: resource.MustParse("128Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("400m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							}),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "worker"},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{
+								Image: &collectorImage,
+								Resources: &corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("100m"),
+										corev1.ResourceMemory: resource.MustParse("128Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("400m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							}),
+						},
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tc.enablePartialScaleUpFeature)
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
-			if tc.wantErr {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "TopologyRequest")); diff != "" {
@@ -423,13 +698,14 @@ func TestBuildPodSets(t *testing.T) {
 
 func TestUpdatePodSets(t *testing.T) {
 	testCases := map[string]struct {
-		podSets                 []kueue.PodSet
-		object                  client.Object
-		enableInTreeAutoscaling *bool
-		rayClusterName          string
-		rayClusterInClient      *rayv1.RayCluster
-		wantPodSets             []kueue.PodSet
-		wantErr                 bool
+		podSets                              []kueue.PodSet
+		object                               client.Object
+		enableInTreeAutoscaling              *bool
+		enableMultiKueueRayInTreeAutoscaling bool
+		rayClusterName                       string
+		rayClusterInClient                   *rayv1.RayCluster
+		wantPodSets                          []kueue.PodSet
+		wantErr                              error
 	}{
 		"workload slicing disabled - no update": {
 			podSets: []kueue.PodSet{
@@ -457,6 +733,44 @@ func TestUpdatePodSets(t *testing.T) {
 				Obj(),
 			enableInTreeAutoscaling: new(false),
 			rayClusterName:          "raycluster",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+		},
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; its counts are reflected as an annotation by the MultiKueue
+		// workload controller and used as the fallback source.
+		"child raycluster absent - counts fall back to the MultiKueue runtime annotation": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Obj(),
+			enableInTreeAutoscaling:              new(true),
+			enableMultiKueueRayInTreeAutoscaling: true,
+			rayClusterName:                       "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).Obj(),
+			},
+		},
+		"child raycluster absent - runtime annotation is ignored when MultiKueue Ray autoscaling is disabled": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "nonexistent-child",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
@@ -548,13 +862,14 @@ func TestUpdatePodSets(t *testing.T) {
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
 				Obj(),
-			wantErr: true,
+			wantErr: errPodSetNameMismatch,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.MultiKueueRayInTreeAutoscaling, tc.enableMultiKueueRayInTreeAutoscaling)
 
 			scheme := runtime.NewScheme()
 			_ = rayv1.AddToScheme(scheme)
@@ -571,16 +886,8 @@ func TestUpdatePodSets(t *testing.T) {
 
 			gotPodSets, err := UpdatePodSets(t.Context(), tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
 
-			if tc.wantErr {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")); diff != "" {
@@ -595,7 +902,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 		rayClusterSpec *rayv1.RayClusterSpec
 		podSetsInfo    []podset.PodSetInfo
 		wantSpec       *rayv1.RayClusterSpec
-		wantErr        bool
+		wantErr        error
 	}{
 		"basic update with node selector": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -809,16 +1116,8 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := UpdateRayClusterSpecToRunWithPodSetsInfo(utiltesting.NewLogger(t), tc.rayClusterSpec, tc.podSetsInfo)
 
-			if tc.wantErr {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("UpdateRayClusterSpecToRunWithPodSetsInfo() error mismatch (-want +got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantSpec, tc.rayClusterSpec); diff != "" {
@@ -1244,7 +1543,7 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 	testCases := map[string]struct {
 		annotation string
 		wantCounts map[kueue.PodSetReference]int32
-		wantErr    bool
+		wantErr    error
 	}{
 		"empty annotation": {
 			annotation: "",
@@ -1265,63 +1564,26 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 		},
 		"invalid json": {
 			annotation: `invalid`,
-			wantErr:    true,
+			wantErr:    errUnmarshalPodSetReplicaSizes,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			got, err := ParsePodSetReplicaSizes(tc.annotation)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("ParsePodSetReplicaSizes() error = %v, wantErr %v", err, tc.wantErr)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("ParsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
 			}
-			if !tc.wantErr {
-				if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
-					t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
-				}
-			}
-		})
-	}
-}
-
-func TestSerializePodSetCounts(t *testing.T) {
-	testCases := map[string]struct {
-		podSets  []kueue.PodSet
-		wantJSON string
-	}{
-		"single podset": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-			},
-			wantJSON: `[{"name":"head","count":1}]`,
-		},
-		"multiple podsets": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-				{Name: "worker", Count: 5},
-			},
-			wantJSON: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
-		},
-		"empty podsets": {
-			podSets:  []kueue.PodSet{},
-			wantJSON: `[]`,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got, err := SerializePodSetCounts(tc.podSets)
-			if err != nil {
-				t.Fatalf("SerializePodSetCounts() unexpected error: %v", err)
-			}
-			if string(got) != tc.wantJSON {
-				t.Errorf("SerializePodSetCounts() = %s, want %s", string(got), tc.wantJSON)
+			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
+				t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
 func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
+	rayClusterGetErr := errors.New("failed to get RayCluster")
+
 	testCases := map[string]struct {
 		annotations      map[string]string
 		podSets          []kueue.PodSet
@@ -1330,7 +1592,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 		createRayCluster bool
 		standalone       bool
 		wantAnnotation   map[string]string
-		wantErr          bool
+		wantErr          error
 	}{
 		"workload slicing disabled returns nil": {
 			annotations: map[string]string{},
@@ -1354,8 +1616,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"standalone raycluster does not track its own generation": {
@@ -1370,14 +1631,11 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			standalone:       true,
-			wantAnnotation: map[string]string{
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
-			},
+			wantAnnotation:   nil,
 		},
 		"returns annotations even when counts match existing annotation": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
@@ -1387,14 +1645,12 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"updated when counts differ": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
@@ -1404,11 +1660,13 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
-		"raycluster not found returns annotations with empty generation": {
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; the generation annotation is maintained by the MultiKueue
+		// workload controller there and must not be clobbered with an empty value.
+		"raycluster not found preserves the generation annotation": {
 			annotations: map[string]string{
 				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
@@ -1418,10 +1676,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			},
 			rayClusterName:  "nonexistent-raycluster",
 			registerRayType: true,
-			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
-			},
+			wantAnnotation:  nil,
 		},
 		"other get error returns error": {
 			annotations: map[string]string{
@@ -1431,7 +1686,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 			},
 			rayClusterName: "test-raycluster",
-			wantErr:        true,
+			wantErr:        rayClusterGetErr,
 		},
 	}
 
@@ -1446,7 +1701,16 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				_ = rayv1.AddToScheme(scheme)
 			}
 
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, ok := obj.(*rayv1.RayCluster); ok && errors.Is(tc.wantErr, rayClusterGetErr) {
+							return rayClusterGetErr
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				})
 
 			var jobObject client.Object
 			if tc.createRayCluster {
@@ -1470,15 +1734,9 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				jobObject = &corev1.ConfigMap{ObjectMeta: *obj}
 			}
 
-			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.podSets, tc.rayClusterName)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("GetWorkloadslicingCustomAnnotations() expected error but got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("GetWorkloadslicingCustomAnnotations() unexpected error: %v", err)
+			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.rayClusterName)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("GetWorkloadslicingCustomAnnotations() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantAnnotation, got); diff != "" {
 				t.Errorf("GetWorkloadslicingCustomAnnotations() mismatch (-want +got):\n%s", diff)

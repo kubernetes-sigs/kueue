@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -134,7 +135,7 @@ func NewClusterQueueReconciler(
 	}
 	return &ClusterQueueReconciler{
 		client:                client,
-		logName:               "cluster-queue-reconciler",
+		logName:               "clusterqueue-reconciler",
 		qManager:              qMgr,
 		cache:                 cache,
 		nonCQObjectUpdateCh:   make(chan event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], updateChBuffer),
@@ -198,8 +199,15 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				if err := r.client.Update(ctx, &cqObj); err != nil {
 					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
+				// The finalizer is gone and the object will be garbage-collected, so
+				// there is no point refreshing its status (the ClusterQueue is also
+				// being removed from the cache).
+				return ctrl.Result{}, nil
 			}
-			return ctrl.Result{}, nil
+			// The finalizer is still held because workloads are reserving quota, i.e.
+			// the ClusterQueue is terminating but not yet empty. Fall through to refresh
+			// the status counters and set the Active=Terminating condition instead of
+			// returning early and leaving stale status behind.
 		}
 	}
 
@@ -319,6 +327,21 @@ func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.
 	}
 }
 
+func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.Cohort) {
+	var cohortName kueue.CohortReference
+	switch {
+	case newCohort != nil:
+		cohortName = kueue.CohortReference(newCohort.Name)
+	case oldCohort != nil:
+		cohortName = kueue.CohortReference(oldCohort.Name)
+	default:
+		return
+	}
+	r.nonCQObjectUpdateCh <- event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]{
+		Object: slices.Values(r.cache.ClusterQueuesUsingCohort(cohortName)),
+	}
+}
+
 // Event handlers return true to signal the controller to reconcile the
 // ClusterQueue associated with the event.
 
@@ -374,7 +397,8 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 		return true
 	}
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
-	specUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec)
+	specOrQuotaUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) ||
+		!equality.Semantic.DeepEqual(resourcegroups.EffectiveResourceGroups(e.ObjectOld), resourcegroups.EffectiveResourceGroups(e.ObjectNew))
 
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
@@ -387,7 +411,7 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 	if err := r.cache.UpdateClusterQueue(log, e.ObjectNew); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(context.Background(), e.ObjectNew, specUpdated); err != nil {
+	if err := r.qManager.UpdateClusterQueue(e.ObjectNew, specOrQuotaUpdated); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 
@@ -503,6 +527,8 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
 
+// updateCqStatusIfChanged recomputes the ClusterQueue status from the queue manager and the cache,
+// and writes it to the API server only when it differs from the current status.
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	ctx context.Context,
 	cq *kueue.ClusterQueue,
@@ -550,7 +576,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	} else {
 		cq.Status.FairSharing = nil
 	}
-	if !equality.Semantic.DeepEqual(cq.Status, oldStatus) {
+	if !equality.Semantic.DeepEqual(&cq.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cq)
 	}
 	return nil

@@ -17,15 +17,54 @@ limitations under the License.
 package tas
 
 import (
+	"fmt"
+	"time"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
-func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
+// SetupControllersOption configures TAS controller setup.
+type SetupControllersOption func(*setupControllersOptions)
+
+type setupControllersOptions struct {
+	podUsageOpts []podUsageOption
+	customLabels *metrics.CustomLabels
+}
+
+// WithCustomLabels sets the labels the ungater's scheduling-gate-removal metric is recorded with.
+func WithCustomLabels(cl *metrics.CustomLabels) SetupControllersOption {
+	return func(o *setupControllersOptions) {
+		o.customLabels = cl
+	}
+}
+
+// WithRequeueBatchInterval overrides the interval at which freed non-TAS
+// capacity triggers requeue of inadmissible workloads. Defaults to 10s.
+func WithRequeueBatchInterval(d time.Duration) SetupControllersOption {
+	return func(o *setupControllersOptions) {
+		o.podUsageOpts = append(o.podUsageOpts, withRequeueBatchInterval(d))
+	}
+}
+
+func SetupControllers(
+	mgr ctrl.Manager,
+	queues *qcache.Manager,
+	cache *schdcache.Cache,
+	cfg *configapi.Configuration,
+	roleTracker *roletracker.RoleTracker,
+	opts ...SetupControllersOption,
+) (string, error) {
+	var options setupControllersOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	recorder := mgr.GetEventRecorder(TASResourceFlavorController)
 	topologyRec := newTopologyReconciler(mgr.GetClient(), queues, cache, roleTracker)
 	if ctrlName, err := topologyRec.setupWithManager(mgr, cfg); err != nil {
@@ -35,7 +74,7 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 	if ctrlName, err := rfRec.setupWithManager(mgr, cache, cfg); err != nil {
 		return ctrlName, err
 	}
-	topologyUngater := newTopologyUngater(mgr.GetClient(), roleTracker)
+	topologyUngater := newTopologyUngater(mgr.GetClient(), roleTracker, options.customLabels)
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
@@ -43,9 +82,15 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 	if ctrlName, err := nodeRec.SetupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), cache, roleTracker)
-	if ctrlName, err := nonTasUsageController.SetupWithManager(mgr); err != nil {
+	podUsageController := newPodUsageReconciler(mgr.GetClient(), queues, cache, roleTracker, options.podUsageOpts...)
+	if ctrlName, err := podUsageController.SetupWithManager(mgr); err != nil {
 		return ctrlName, err
+	}
+	if err := mgr.Add(podUsageController); err != nil {
+		return TASPodUsageController, fmt.Errorf(
+			"unable to add pod usage requeue drainer: %w",
+			err,
+		)
 	}
 	return "", nil
 }

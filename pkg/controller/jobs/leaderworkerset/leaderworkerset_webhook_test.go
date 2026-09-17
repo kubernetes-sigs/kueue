@@ -36,6 +36,7 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -189,7 +190,8 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			builder := utiltesting.NewClientBuilder()
@@ -204,6 +206,7 @@ func TestDefault(t *testing.T) {
 			}
 
 			w := &Webhook{
+				integrationManager:         integrationManager,
 				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				queues:                     queueManager,
@@ -411,7 +414,7 @@ func TestValidateCreate(t *testing.T) {
 					Key("kueue.x-k8s.io/podset-slice-size"), "must be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
 			}.ToAggregate(),
 		},
-		"invalid slice topology request - grouping requested together with slicing": {
+		"valid slice topology request - grouping requested together with slicing": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -436,16 +439,30 @@ func TestValidateCreate(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-size' is specified"),
-				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.leaderTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
-				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-size' is specified"),
-				field.Forbidden(field.NewPath("spec.leaderWorkerTemplate.workerTemplate.metadata.annotations").
-					Key("kueue.x-k8s.io/podset-group-name"), "may not be set when 'kueue.x-k8s.io/podset-slice-required-topology' is specified"),
-			}.ToAggregate(),
+		},
+		"valid slice topology request - grouping with unsliced leader and sliced workers": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetGroupName:                  "groupname",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				Size(5).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetGroupName:                       "groupname",
+							kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+							kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+							kueue.PodSetSliceSizeAnnotation:             "2",
+						},
+					},
+				}).
+				Obj(),
 		},
 		"valid PodSet group name request": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -468,6 +485,34 @@ func TestValidateCreate(t *testing.T) {
 				}).
 				Obj(),
 			wantErr: nil,
+		},
+		"invalid PodSet group name request - pod-index-offset set alongside podset-group-name": {
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetGroupName:                  "groupname",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+						},
+					},
+				}).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetGroupName:                  "groupname",
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+							kueue.PodIndexOffsetAnnotation:         "1",
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/pod-index-offset]",
+				},
+			}.ToAggregate(),
 		},
 		"invalid PodSet group name request - value is a number": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -874,14 +919,15 @@ func TestValidateCreate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "pod"))
 			for _, integration := range tc.integrations {
-				jobframework.EnableIntegrationsForTest(t, integration)
+				integrationManager.EnableIntegration(integration)
 			}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
-			w := &Webhook{client: client}
+			w := &Webhook{integrationManager: integrationManager, client: client}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := w.ValidateCreate(ctx, tc.lws)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
@@ -959,6 +1005,61 @@ func TestValidateUpdate(t *testing.T) {
 					Field: replicasPath.String(),
 				},
 			}.ToAggregate(),
+		},
+		"change size when managed": {
+			featureGates: map[featuregate.Feature]bool{features.LWSImmutableGroupSize: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Size(2).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Size(10).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: leaderWorkerTemplateSizePath.String(),
+				},
+			}.ToAggregate(),
+		},
+		"change size when managed and the feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.LWSImmutableGroupSize: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Size(2).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Size(10).
+				Obj(),
+		},
+		"same size when managed": {
+			featureGates: map[featuregate.Feature]bool{features.LWSImmutableGroupSize: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Size(2).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Size(2).
+				Obj(),
+		},
+		"change size when unmanaged": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Size(2).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Size(10).
+				Obj(),
 		},
 		"change queue name when replicas ready": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1534,17 +1635,32 @@ func TestValidateUpdate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			integrationManager := newTestIntegrationManager(t)
 			for _, integration := range tc.integrations {
-				jobframework.EnableIntegrationsForTest(t, integration)
+				integrationManager.EnableIntegration(integration)
 			}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			wh := &Webhook{}
+			wh := &Webhook{integrationManager: integrationManager}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
+			warns, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("Unexpected warnings (-want,+got):\n%s", diff)
+			}
 		})
 	}
+}
+
+func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
+	t.Helper()
+	manager := jobframework.NewIntegrationManager()
+	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{RegisterIntegration, pod.RegisterIntegration} {
+		if err := registerIntegration(manager); err != nil {
+			t.Fatalf("RegisterIntegration() error = %v", err)
+		}
+	}
+	return manager
 }

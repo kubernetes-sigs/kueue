@@ -52,16 +52,16 @@ func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj c
 		elected:         mgr.Elected(),
 		client:          mgr.GetClient(),
 		delegate:        reconciler,
-		object:          obj,
+		objectPrototype: obj,
 		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
 	}
 }
 
 type leaderAwareReconciler struct {
-	elected  <-chan struct{}
-	client   client.Client
-	delegate reconcile.Reconciler
-	object   client.Object
+	elected         <-chan struct{}
+	client          client.Client
+	delegate        reconcile.Reconciler
+	objectPrototype client.Object
 	// the duration used by non-leading replicas to requeue events,
 	// so no events are missed over the period it takes for
 	// leader election to fail over a new replica.
@@ -76,7 +76,10 @@ func (r *leaderAwareReconciler) Reconcile(ctx context.Context, request reconcile
 		// The manager has been elected leader, delegate reconciliation to the provided reconciler.
 		return r.delegate.Reconcile(ctx, request)
 	default:
-		if err := r.client.Get(ctx, request.NamespacedName, r.object); err != nil {
+		// The client writes what it read into the object it is given, and the decorated controllers
+		// run with more than one worker, so the prototype is copied rather than reused.
+		object := r.objectPrototype.DeepCopyObject().(client.Object)
+		if err := r.client.Get(ctx, request.NamespacedName, object); err != nil {
 			// Discard request if not found, to prevent from re-enqueueing indefinitely.
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}

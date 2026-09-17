@@ -229,10 +229,14 @@ func addVolumes(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 
 		if v, ok := volumeMap[m.Name]; ok {
 			if _, ok := addedVolumeMap[m.Name]; !ok {
-				_ = addVolume(pod, v)
+				if err := addVolume(pod, v); err != nil {
+					return err
+				}
 				addedVolumeMap[m.Name] = v
 			}
-			_ = addVolumeMount(pod, m)
+			if err := addVolumeMount(pod, m); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

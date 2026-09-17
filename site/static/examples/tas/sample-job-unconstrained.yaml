@@ -5,8 +5,8 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: tas-user-queue
 spec:
-  parallelism: 10
-  completions: 10
+  parallelism: 6
+  completions: 6
   completionMode: Indexed
   template:
     metadata:

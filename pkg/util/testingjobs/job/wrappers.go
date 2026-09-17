@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -45,7 +44,7 @@ func MakeJob(name, ns string) *JobWrapper {
 			Annotations: make(map[string]string, 1),
 		},
 		Spec: batchv1.JobSpec{
-			Parallelism: ptr.To[int32](1),
+			Parallelism: new(int32(1)),
 			Suspend:     new(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -101,6 +100,11 @@ func (j *JobWrapper) Finalizers(finalizers ...string) *JobWrapper {
 
 func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	j.Spec.BackoffLimit = new(limit)
+	return j
+}
+
+func (j *JobWrapper) TTLSecondsAfterFinished(seconds int32) *JobWrapper {
+	j.Spec.TTLSecondsAfterFinished = new(seconds)
 	return j
 }
 

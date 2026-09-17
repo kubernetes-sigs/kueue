@@ -24,10 +24,10 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -45,7 +45,15 @@ func TestSyncAdmittedCondition(t *testing.T) {
 		wantChange       bool
 		wantAdmittedTime int32
 	}{
-		"empty": {},
+		"empty": {
+			wantConditions: utiltesting.ExplicitStatusConditions(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+				ObservedGeneration: 1,
+			}),
+			wantChange: utiltesting.WantChangeWithExplicitStatus(false),
+		},
 		"reservation no checks": {
 			conditions: []metav1.Condition{
 				{
@@ -84,12 +92,19 @@ func TestSyncAdmittedCondition(t *testing.T) {
 					Status: metav1.ConditionTrue,
 				},
 			},
-			wantConditions: []metav1.Condition{
+			wantConditions: append([]metav1.Condition{
 				{
 					Type:   kueue.WorkloadQuotaReserved,
 					Status: metav1.ConditionTrue,
 				},
+			}, utiltesting.UnadmittedConditions(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+				ObservedGeneration: 1,
 			},
+			)...),
+			wantChange: utiltesting.WantChangeWithObservability(false),
 		},
 		"reservation, checks ready": {
 			checkStates: []kueue.AdmissionCheckState{
@@ -144,7 +159,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "NoReservation",
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
 					ObservedGeneration: 1,
 				},
 			},
@@ -181,7 +196,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "UnsatisfiedChecks",
+					Reason:             UnadmittedWorkloadReasonWithFallback(kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks, "UnsatisfiedChecks"),
 					ObservedGeneration: 1,
 				},
 			},
@@ -210,7 +225,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "NoReservationUnsatisfiedChecks",
+					Reason:             UnadmittedWorkloadReasonWithFallback(kueue.WorkloadAdmittedReasonNoReservation, "NoReservationUnsatisfiedChecks"),
 					ObservedGeneration: 1,
 				},
 			},
@@ -228,7 +243,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "NoReservation",
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
 					ObservedGeneration: 1,
 				},
 			},
@@ -248,7 +263,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "NoReservation",
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
 					ObservedGeneration: 1,
 				},
 			},
@@ -261,8 +276,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
 						Name:                   kueue.DefaultPodSetName,
-						Count:                  ptr.To[int32](1),
-						DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
+						Count:                  new(int32(1)),
+						DelayedTopologyRequest: new(kueue.DelayedTopologyRequestStatePending),
 					},
 				},
 			},
@@ -286,7 +301,7 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
-					Reason:             "PendingDelayedTopologyRequests",
+					Reason:             kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests,
 					ObservedGeneration: 1,
 				},
 				{
@@ -302,8 +317,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
 						Name:                   kueue.DefaultPodSetName,
-						Count:                  ptr.To[int32](1),
-						DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
+						Count:                  new(int32(1)),
+						DelayedTopologyRequest: new(kueue.DelayedTopologyRequestStatePending),
 					},
 				},
 			},
@@ -332,10 +347,11 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				{
 					Type:               kueue.WorkloadAdmitted,
 					Status:             metav1.ConditionFalse,
+					Reason:             UnadmittedWorkloadReasonWithFallback(kueue.WorkloadAdmittedReasonPendingDelayedTopologyRequests, ""),
 					ObservedGeneration: 1,
 				},
 			},
-			wantChange: false,
+			wantChange: utiltesting.WantChangeWithObservability(false),
 		},
 		"reservation, checks not ready with observability": {
 			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
@@ -466,24 +482,20 @@ func TestSyncAdmittedCondition(t *testing.T) {
 			},
 			wantChange: true,
 		},
-		"no reservation, no condition initially with observability (explicit status initialization disabled)": {
-			featureGates: map[featuregate.Feature]bool{features.UnadmittedWorkloadsObservability: true},
+		"no reservation, no condition initially": {
 			checkStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "check1",
 					State: kueue.CheckStatePending,
 				},
 			},
-			wantChange: false,
-		},
-		"no reservation, no condition initially (explicit status initialization disabled)": {
-			checkStates: []kueue.AdmissionCheckState{
-				{
-					Name:  "check1",
-					State: kueue.CheckStatePending,
-				},
-			},
-			wantChange: false,
+			wantConditions: utiltesting.ExplicitStatusConditions(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+				ObservedGeneration: 1,
+			}),
+			wantChange: utiltesting.WantChangeWithExplicitStatus(false),
 		},
 	}
 
@@ -551,7 +563,7 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(time.Time{}),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(time.Time{}),
@@ -562,7 +574,7 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(60 * time.Second)),
@@ -573,19 +585,19 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 				{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](120),
+					RequeueAfterSeconds: new(int32(120)),
 				},
 				{
 					Name:                "check3",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](30),
+					RequeueAfterSeconds: new(int32(30)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(120 * time.Second)),
@@ -602,13 +614,13 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](90),
+					RequeueAfterSeconds: new(int32(90)),
 				},
 				{
 					Name:                "check3",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(time.Time{}),
-					RequeueAfterSeconds: ptr.To[int32](180),
+					RequeueAfterSeconds: new(int32(180)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),
@@ -619,13 +631,13 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 				{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime.Add(30 * time.Second)),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),

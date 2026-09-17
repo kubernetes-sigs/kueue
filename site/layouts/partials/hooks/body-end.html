@@ -1,10 +1,14 @@
 <div id="pagefind-search-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:9999;overflow-y:auto;">
-  <div style="max-width:740px;margin:60px auto;padding:24px;background-color:#ffffff;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+  <div style="max-width:740px;margin:60px auto;padding:24px;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.2);">
     <div id="pagefind-modal-search"></div>
   </div>
 </div>
 
-<script src="/pagefind/pagefind-ui.js"></script>
+{{- $bundlePath := "/pagefind/" -}}
+{{- with .Page.Param "docs_minor" -}}
+  {{- $bundlePath = printf "/%s/pagefind/" . -}}
+{{- end -}}
+<script src="{{ $bundlePath }}pagefind-ui.js"></script>
 <script>
 window.addEventListener('DOMContentLoaded', function() {
   var overlay = document.getElementById('pagefind-search-overlay');
@@ -43,7 +47,7 @@ window.addEventListener('DOMContentLoaded', function() {
 
   if (document.getElementById("pagefind-sidebar-search")) {
     try {
-      new PagefindUI({ element: "#pagefind-sidebar-search", showImages: false, resetStyles: false });
+      new PagefindUI({ element: "#pagefind-sidebar-search", bundlePath: {{ $bundlePath }}, baseUrl: "/", showImages: false, resetStyles: false });
     } catch (e) {
       console.error("Failed to initialize sidebar search", e);
     }
@@ -51,7 +55,7 @@ window.addEventListener('DOMContentLoaded', function() {
 
   if (document.getElementById("pagefind-modal-search")) {
     try {
-      new PagefindUI({ element: "#pagefind-modal-search", showImages: false });
+      new PagefindUI({ element: "#pagefind-modal-search", bundlePath: {{ $bundlePath }}, baseUrl: "/", showImages: false });
     } catch (e) {
       console.error("Failed to initialize modal search", e);
     }

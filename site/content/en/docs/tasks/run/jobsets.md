@@ -67,16 +67,30 @@ The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-evi
               priorityClassName: high-priority
 ```
 
-## Example JobSet
+### d. Topology-Aware Scheduling
 
-{{< include "examples/jobs/sample-jobset.yaml" "yaml" >}}
+{{% alert title="Note" color="primary" %}}
+The following examples require your cluster to be configured for Topology-Aware Scheduling. This includes having appropriate labels on your nodes, a configured `Topology` object, and a `ResourceFlavor` referencing that topology. Please refer to the [Topology-Aware Scheduling guide](/docs/concepts/topology_aware_scheduling) for full cluster setup instructions before running these examples.
+{{% /alert %}}
 
-You can run this JobSet with the following commands:
+You can use [Topology-Aware Scheduling (TAS)](/docs/concepts/topology_aware_scheduling) to schedule `ReplicatedJobs` within specific topology domains (like racks or zones) to minimize network latency. Kueue supports three TAS placement scenarios for JobSets using annotations on the Pod template:
 
-```sh
-# To monitor the queue and admission of the jobs, you can run this example multiple times:
-kubectl create -f sample-jobset.yaml
-```
+**1. Same-domain placement (Just PodSet TAS)**
+Force the entire `ReplicatedJob` to be scheduled in a single topology domain.
+
+{{< include "examples/jobs/sample-jobset-tas-required.yaml" "yaml" >}}
+
+**2. Sliced placement (Just PodSet-Slice TAS)**
+Split the `ReplicatedJob` into smaller slices, where each slice must fit in a single topology domain, but different slices can be in different domains.
+
+{{< include "examples/jobs/sample-jobset-tas-sliced.yaml" "yaml" >}}
+
+**3. Combined constraint (Both PodSet and PodSet-Slice TAS)**
+Force the entire `ReplicatedJob` into a larger domain (e.g. block), but allow it to be sliced across smaller domains (e.g. rack) within that block. *(Note: This is different from Kueue's Multi-Layer Topology feature, which uses the `podset-slice-required-topology-constraints` annotation).*
+
+{{< include "examples/jobs/sample-jobset-tas-combined.yaml" "yaml" >}}
+
+
 
 ## Multikueue
 Check [the Multikueue](docs/tasks/run/multikueue) for details on running Jobsets in MultiKueue environment.

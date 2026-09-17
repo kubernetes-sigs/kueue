@@ -76,24 +76,6 @@ func TestSatisfiesPreemptionPolicy(t *testing.T) {
 			policy:    kueue.PreemptionPolicyLowerOrNewerEqualPriority,
 			want:      true, // candidate is newer
 		},
-		"LowerOrNewerEqualPriority with SchedulerTimestampPreemptionBuffer: preemptor has same priority, older timestamp (within 5min buffer)": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerTimestampPreemptionBuffer: true,
-			},
-			preemptor: preemptor.Clone().Priority(10).Creation(now).Obj(),
-			candidate: candidate.Clone().Priority(10).Creation(nowPlus1Min).Obj(),
-			policy:    kueue.PreemptionPolicyLowerOrNewerEqualPriority,
-			want:      false, // candidate is newer but within buffer
-		},
-		"LowerOrNewerEqualPriority with SchedulerTimestampPreemptionBuffer: preemptor has same priority, older timestamp (outside 5min buffer)": {
-			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerTimestampPreemptionBuffer: true,
-			},
-			preemptor: preemptor.Clone().Priority(10).Creation(now).Obj(),
-			candidate: candidate.Clone().Priority(10).Creation(nowPlus6Min).Obj(),
-			policy:    kueue.PreemptionPolicyLowerOrNewerEqualPriority,
-			want:      true, // candidate is newer and outside buffer
-		},
 		"PreemptionPolicyAny": {
 			preemptor: preemptor.Clone().Priority(10).Creation(now).Obj(),
 			candidate: candidate.Clone().Priority(10).Creation(nowPlus6Min).Obj(),

@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
 
@@ -93,12 +92,12 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		if req.BackoffLimit != nil {
 			jt.Spec.BackoffLimit = req.BackoffLimit
 		} else if len(req.Image) > 0 {
-			jt.Spec.BackoffLimit = ptr.To[int32](0)
+			jt.Spec.BackoffLimit = new(int32(0))
 		}
 		if len(req.Image) > 0 {
 			spec := &jt.Spec.Template.Spec
 			spec.RestartPolicy = corev1.RestartPolicyNever
-			spec.TerminationGracePeriodSeconds = ptr.To[int64](0)
+			spec.TerminationGracePeriodSeconds = new(int64(0))
 			spec.Containers = []corev1.Container{
 				{
 					Name:  "c",

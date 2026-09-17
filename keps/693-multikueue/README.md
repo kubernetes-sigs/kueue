@@ -159,7 +159,7 @@ deployments with very high job throughput (above 1M jobs per day).
   files from the controller pod's filesystem (e.g. the projected service account
   token). This is mitigated by:
   * Gating safe path validation behind the `MultiKueueKubeConfigPathValidation` feature
-    gate (Alpha, default disabled). When the gate is on, only
+    gate (Beta, default enabled). When the gate is on, only
     paths under the hardcoded prefix `/etc/multikueue/kubeconfigs/` are
     accepted. When disabled, the controller falls back to the legacy
     behavior of allowing any path.

@@ -83,7 +83,7 @@
                   <div class="d-flex justify-content-between align-items-center mb-3">
                     <div>
                       {{ if eq .type "case-study" }}
-                        <span style="display: inline-block; padding: 3px 10px; background-color: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                        <span class="chip-green" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
                           {{ if and .links.video (not .links.article) }}
                             <!-- Video Case Study -->
                             <i class="fas fa-video me-1"></i> {{ T "talks_filter_case_studies" }}
@@ -93,11 +93,11 @@
                           {{ end }}
                         </span>
                       {{ else if eq .type "tutorial" }}
-                        <span style="display: inline-block; padding: 3px 10px; background-color: #faf5ff; color: #7c3aed; border: 1px solid #e9d5ff; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                        <span class="chip-purple" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
                           <i class="fas fa-graduation-cap me-1"></i> {{ T "talks_filter_tutorials" }}
                         </span>
                       {{ else }}
-                        <span style="display: inline-block; padding: 3px 10px; background-color: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
+                        <span class="chip-sky" style="display: inline-block; padding: 3px 10px; border-radius: 50rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;">
                           <i class="fas fa-video me-1"></i> {{ T "talks_filter_videos" }}
                         </span>
                       {{ end }}
@@ -141,7 +141,7 @@
 
 
                         {{ range .presenters }}
-                          <span style="display: inline-block; padding: 2px 8px; background-color: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.7rem; font-weight: 500;">
+                          <span class="chip-neutral" style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 500;">
                             <i class="fas fa-user text-muted me-1" style="font-size: 0.65rem;"></i>
                             {{ .name }}
                             {{ if .company }}

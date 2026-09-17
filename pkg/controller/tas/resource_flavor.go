@@ -65,7 +65,7 @@ var _ predicate.TypedPredicate[*kueue.ResourceFlavor] = (*rfReconciler)(nil)
 
 func newRfReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder events.EventRecorder, roleTracker *roletracker.RoleTracker) *rfReconciler {
 	return &rfReconciler{
-		logName:      TASResourceFlavorController,
+		logName:      "tas-resourceflavor-reconciler",
 		client:       c,
 		queues:       queues,
 		cache:        cache,
@@ -93,7 +93,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("ResourceFlavor").GroupKind().String()],
 		}).
-		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASResourceFlavorController)).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, "tas-resourceflavor-reconciler")).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.ResourceFlavor{}, cfg))
 }
 
@@ -182,6 +182,15 @@ func (r *rfReconciler) Delete(event event.TypedDeleteEvent[*kueue.ResourceFlavor
 func (r *rfReconciler) Update(event event.TypedUpdateEvent[*kueue.ResourceFlavor]) bool {
 	switch {
 	case ptr.Equal(event.ObjectOld.Spec.TopologyName, event.ObjectNew.Spec.TopologyName):
+		if event.ObjectNew.Spec.TopologyName != nil &&
+			(!equality.Semantic.DeepEqual(event.ObjectOld.Spec.Tolerations, event.ObjectNew.Spec.Tolerations) ||
+				!equality.Semantic.DeepEqual(event.ObjectOld.Spec.NodeTaints, event.ObjectNew.Spec.NodeTaints) ||
+				!equality.Semantic.DeepEqual(event.ObjectOld.Spec.NodeLabels, event.ObjectNew.Spec.NodeLabels)) {
+			log := r.logger().WithValues("flavor", event.ObjectNew.Name)
+			log.V(2).Info("TAS ResourceFlavor tolerations, nodeTaints or nodeLabels updated")
+			r.cache.AddOrUpdateResourceFlavor(log, event.ObjectNew)
+			return true
+		}
 		return false
 	case event.ObjectOld.Spec.TopologyName == nil:
 		return true

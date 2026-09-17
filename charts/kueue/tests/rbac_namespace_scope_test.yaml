@@ -1,0 +1,55 @@
+suite: test RBAC namespace scope
+templates:
+  - kueueviz/clusterrole.yaml
+  - kueueviz/cluster-role-binding.yaml
+  - rbac/manager_secrets_role.yaml
+  - rbac/manager_secrets_role_binding.yaml
+tests:
+  - it: should omit namespace from the KueueViz ClusterRole
+    template: kueueviz/clusterrole.yaml
+    release:
+      namespace: custom-namespace
+    set:
+      enableKueueViz: true
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - notExists:
+          path: metadata.namespace
+
+  - it: should omit namespace from the KueueViz ClusterRoleBinding
+    template: kueueviz/cluster-role-binding.yaml
+    release:
+      namespace: custom-namespace
+    set:
+      enableKueueViz: true
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - notExists:
+          path: metadata.namespace
+      - equal:
+          path: subjects[0].namespace
+          value: custom-namespace
+
+  - it: should retain namespace on a Role
+    template: rbac/manager_secrets_role.yaml
+    release:
+      namespace: custom-namespace
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace
+
+  - it: should retain namespace on a RoleBinding
+    template: rbac/manager_secrets_role_binding.yaml
+    release:
+      namespace: custom-namespace
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: metadata.namespace
+          value: custom-namespace

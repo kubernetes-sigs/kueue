@@ -19,6 +19,7 @@ package raycluster
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -30,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,12 +39,14 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -116,7 +120,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		var jobQueueName kueue.LocalQueueName = "test-queue"
-		createdJob.Labels = map[string]string{constants.QueueLabel: string(jobQueueName)}
+		createdJob.Labels = map[string]string{controllerconstants.QueueLabel: string(jobQueueName)}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -269,9 +273,9 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		ginkgo.By("checking the workload is created when queue name is set")
 		jobQueueName := "test-queue"
 		if createdJob.Labels == nil {
-			createdJob.Labels = map[string]string{constants.QueueLabel: jobQueueName}
+			createdJob.Labels = map[string]string{controllerconstants.QueueLabel: jobQueueName}
 		} else {
-			createdJob.Labels[constants.QueueLabel] = jobQueueName
+			createdJob.Labels[controllerconstants.QueueLabel] = jobQueueName
 		}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -305,6 +309,8 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
+		featureGates    map[featuregate.Feature]bool
+		podsScheduled   *metav1.Condition
 		beforeJobStatus *rayv1.RayClusterStatus
 		beforeCondition *metav1.Condition
 		jobStatus       rayv1.RayClusterStatus
@@ -315,7 +321,14 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(instanceKey, "default").Obj()
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
+		fwk.StartManager(
+			ctx,
+			cfg,
+			managerSetup(
+				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}}),
+				jobframework.WithCache(schdcache.New(k8sClient)),
+			),
+		)
 
 		ginkgo.By("Create a resource flavor")
 		util.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -338,10 +351,11 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec podsReadyTestSpec) {
+			features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), podsReadyTestSpec.featureGates)
 			ginkgo.By("Create a job")
 			job := testingraycluster.MakeCluster(jobName, ns.Name).Obj()
 			jobQueueName := "test-queue"
-			job.Labels = map[string]string{constants.QueueLabel: jobQueueName}
+			job.Labels = map[string]string{controllerconstants.QueueLabel: jobQueueName}
 			util.MustCreate(ctx, k8sClient, job)
 			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 			createdJob := &rayv1.RayCluster{}
@@ -377,6 +391,10 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			if podsReadyTestSpec.podsScheduled != nil {
+				util.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.podsScheduled)
+			}
 
 			if podsReadyTestSpec.beforeJobStatus != nil {
 				ginkgo.By("Update the job status to simulate its initial progress towards completion")
@@ -415,6 +433,36 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		},
 
+		ginkgo.Entry("Unscheduled Pods", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			podsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForScheduling,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
+		ginkgo.Entry("Scheduling observation ignored with feature disabled", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+			podsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			wantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
 		ginkgo.Entry("No progress", podsReadyTestSpec{
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -922,7 +970,8 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		ginkgo.By("raycluster-b's workload remains pending with unreserved quota")
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
-			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayClusterA.Namespace), client.MatchingLabels{constants.JobUIDLabel: string(testRayClusterB.UID)})).Should(gomega.Succeed())
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(testRayClusterA.Namespace), client.MatchingLabels{controllerconstants.JobUIDLabel: string(testRayClusterB.UID)})).
+				Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			testRayClusterBWorkload = &workloads.Items[0]
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, testRayClusterBWorkload)
@@ -943,5 +992,222 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayClusterB), testRayClusterB)).Should(gomega.Succeed())
 			g.Expect(ptr.Deref(testRayClusterB.Spec.Suspend, false)).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should ungate chain pods after the origin workload slice is deleted", framework.SlowSpec, func() {
+		// Reproduces the stranded-pod bug: after a scale-up the origin (root) slice
+		// can be garbage-collected (e.g. a RayService rollout deletes the old
+		// RayCluster and its Workloads), while a still-gated pod keeps pointing at
+		// the gone origin name. The ungater must recover the owning job from the
+		// pod and ungate against the surviving active slice, rather than bailing on
+		// the missing origin.
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(localQueue.Name).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(new(true)).
+			ScaleFirstWorkerGroup(1).
+			Obj()
+
+		ginkgo.By("creating and admitting the raycluster's origin workload slice")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+		var originSlice *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			originSlice = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(originSlice)).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		originSliceName := originSlice.Name
+
+		ginkgo.By("scaling up the worker replicas to create a second (active) slice")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		var activeSlice *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
+			activeSlice = nil
+			for i := range workloads.Items {
+				if !workloadfinish.IsFinished(&workloads.Items[i]) {
+					activeSlice = &workloads.Items[i]
+				}
+			}
+			g.Expect(activeSlice).ShouldNot(gomega.BeNil())
+			g.Expect(activeSlice.Name).ShouldNot(gomega.Equal(originSliceName))
+			g.Expect(workload.IsAdmitted(activeSlice)).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("deleting the origin slice to emulate a RayService rollout GC of the old RayCluster's workloads")
+		util.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
+
+		ginkgo.By("creating a still-gated pod that points at the now-deleted origin slice, owned by the RayCluster")
+		gatedPod := testingpod.MakePod("worker-0", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, originSliceName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
+			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[1].Name)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		gatedPod.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion:         rayv1.SchemeGroupVersion.String(),
+			Kind:               "RayCluster",
+			Name:               testRayCluster.Name,
+			UID:                testRayCluster.UID,
+			Controller:         new(true),
+			BlockOwnerDeletion: new(true),
+		}}
+		util.MustCreate(ctx, k8sClient, gatedPod)
+
+		ginkgo.By("the ungater removes the elastic scheduling gate despite the origin slice being gone")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got corev1.Pod
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gatedPod), &got)).To(gomega.Succeed())
+			g.Expect(got.Spec.SchedulingGates).ShouldNot(gomega.ContainElement(
+				corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should track chain pods across origin slice deletion with Concurrent Admission", framework.SlowSpec, func() {
+		fwk.StopManager(ctx)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
+		waitForPodsReady := &configapi.WaitForPodsReady{
+			Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+			UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
+			BlockAdmission:     new(false),
+		}
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetupWithConfig(
+			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+			jobframework.WithWaitForPodsReady(waitForPodsReady),
+		))
+		ginkgo.DeferCleanup(fwk.StopManager, ctx)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+			clusterQueue.Spec.ConcurrentAdmissionPolicy = utiltestingapi.MakeClusterQueue(clusterQueue.Name).
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				Obj().Spec.ConcurrentAdmissionPolicy
+			g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(localQueue.Name).
+			Request(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			WithEnableAutoscaling(new(true)).
+			ScaleFirstWorkerGroup(1).
+			Obj()
+
+		ginkgo.By("creating and admitting the raycluster's origin workload slice")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+		var originSlice *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			originSlice = util.FindConcurrentAdmissionParent(workloads.Items)
+			g.Expect(originSlice).ShouldNot(gomega.BeNil())
+			g.Expect(workload.IsAdmitted(originSlice)).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		originSliceName := originSlice.Name
+
+		ginkgo.By("scaling up the worker replicas to create a second (active) slice")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		var activeSlice *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			activeSlice = util.FindConcurrentAdmissionParent(util.FindNonFinishedWorkloads(workloads.Items))
+			g.Expect(activeSlice).ShouldNot(gomega.BeNil())
+			g.Expect(activeSlice.Name).ShouldNot(gomega.Equal(originSliceName))
+			g.Expect(workload.IsAdmitted(activeSlice)).Should(gomega.BeTrue())
+			g.Expect(util.FindConcurrentAdmissionVariants(workloads.Items)).To(gomega.ContainElement(gomega.Satisfy(func(wl kueue.Workload) bool {
+				return workload.IsAdmitted(&wl) && !workloadfinish.IsFinished(&wl)
+			})))
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(originSlice), originSlice)).To(gomega.Succeed())
+			g.Expect(workloadfinish.IsFinished(originSlice)).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("tracking incomplete scheduling from a pod linked to the finished origin")
+		scheduledWorker := testingpod.MakePod("worker-1", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, originSliceName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
+			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[1].Name)).
+			Obj()
+		util.MustCreate(ctx, k8sClient, scheduledWorker)
+		util.BindPodWithNode(ctx, k8sClient, "node-a", scheduledWorker)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(activeSlice), activeSlice)).To(gomega.Succeed())
+			g.Expect(activeSlice.Status.Conditions).To(utiltesting.HaveConditionStatusAndReason(
+				kueue.WorkloadPodsScheduled, metav1.ConditionFalse, kueue.WorkloadWaitForScheduling))
+			g.Expect(activeSlice.Status.Conditions).To(utiltesting.HaveConditionStatusAndReason(
+				kueue.WorkloadPodsReady, metav1.ConditionFalse, kueue.WorkloadWaitForScheduling))
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(originSlice), originSlice)).To(gomega.Succeed())
+			g.Expect(apimeta.FindStatusCondition(originSlice.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("deleting the origin slice to emulate a RayService rollout GC of the old RayCluster's workloads")
+		util.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
+
+		ginkgo.By("creating a still-gated pod that points at the now-deleted origin slice, owned by the RayCluster")
+		gatedPod := testingpod.MakePod("worker-0", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, originSliceName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
+			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[1].Name)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		gatedPod.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion:         rayv1.SchemeGroupVersion.String(),
+			Kind:               "RayCluster",
+			Name:               testRayCluster.Name,
+			UID:                testRayCluster.UID,
+			Controller:         new(true),
+			BlockOwnerDeletion: new(true),
+		}}
+		util.MustCreate(ctx, k8sClient, gatedPod)
+
+		ginkgo.By("the ungater removes the elastic scheduling gate despite the origin slice being gone")
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got corev1.Pod
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gatedPod), &got)).To(gomega.Succeed())
+			g.Expect(got.Spec.SchedulingGates).ShouldNot(gomega.ContainElement(
+				corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("observing all required pods scheduled through events linked to the deleted origin")
+		headPod := testingpod.MakePod("head", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, originSliceName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
+			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[0].Name)).
+			Obj()
+		util.MustCreate(ctx, k8sClient, headPod)
+		util.BindPodWithNode(ctx, k8sClient, "node-a", headPod, gatedPod)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(activeSlice), activeSlice)).To(gomega.Succeed())
+			g.Expect(activeSlice.Status.Conditions).To(utiltesting.HaveConditionStatusAndReason(
+				kueue.WorkloadPodsScheduled, metav1.ConditionTrue, kueue.WorkloadAllRequiredPodsScheduled))
+			g.Expect(activeSlice.Status.Conditions).To(utiltesting.HaveConditionStatusAndReason(
+				kueue.WorkloadPodsReady, metav1.ConditionFalse, kueue.WorkloadWaitForStart))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("keeping scheduling observations off Concurrent Admission variants")
+		gomega.Consistently(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			for _, wl := range util.FindConcurrentAdmissionVariants(workloads.Items) {
+				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil(), "variant %s", wl.Name)
+			}
+		}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 })

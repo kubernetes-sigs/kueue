@@ -23,7 +23,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -77,34 +76,12 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 }
 
 func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
-	j.GenericLauncher()
-	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker] = &kfmpi.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
-		Template: corev1.PodTemplateSpec{
-			Spec: corev1.PodSpec{
-				RestartPolicy: corev1.RestartPolicyNever,
-				Containers: []corev1.Container{
-					{
-						Name:    "mpijob",
-						Image:   utiltestingjobs.TestDefaultContainerImage,
-						Command: []string{},
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{},
-							Limits:   corev1.ResourceList{},
-						},
-					},
-				},
-				NodeSelector: map[string]string{},
-			},
-		},
-	}
-
-	return j
+	return j.GenericLauncher().GenericWorker()
 }
 
 func (j *MPIJobWrapper) GenericLauncher() *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = &kfmpi.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+	return j.GenericReplicaSpec(kfmpi.MPIReplicaTypeLauncher, &kfmpi.ReplicaSpec{
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: corev1.RestartPolicyNever,
@@ -122,7 +99,36 @@ func (j *MPIJobWrapper) GenericLauncher() *MPIJobWrapper {
 				NodeSelector: map[string]string{},
 			},
 		},
-	}
+	})
+}
+
+func (j *MPIJobWrapper) GenericWorker() *MPIJobWrapper {
+	return j.GenericReplicaSpec(kfmpi.MPIReplicaTypeWorker, &kfmpi.ReplicaSpec{
+		Replicas: new(int32(1)),
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{
+						Name:    "mpijob",
+						Image:   utiltestingjobs.TestDefaultContainerImage,
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
+					},
+				},
+				NodeSelector: map[string]string{},
+			},
+		},
+	})
+}
+
+// GenericReplicaSpec stores spec under replicaType, keeping a nil spec as a nil
+// map entry rather than dropping the key.
+func (j *MPIJobWrapper) GenericReplicaSpec(replicaType kfmpi.MPIReplicaType, spec *kfmpi.ReplicaSpec) *MPIJobWrapper {
+	j.Spec.MPIReplicaSpecs[replicaType] = spec
 	return j
 }
 

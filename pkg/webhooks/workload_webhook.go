@@ -66,8 +66,10 @@ func (w *WorkloadWebhook) Default(ctx context.Context, wl *kueue.Workload) error
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Applying defaults")
 
-	// drop minCounts if PartialAdmission is not enabled
-	if !features.Enabled(features.PartialAdmission) {
+	// Drop minCounts unless a feature that honors them is enabled for this Workload: classic
+	// PartialAdmission, or elastic partial scale-up (KEP-12100) for elastic jobs. minCounts of a
+	// disabled feature must not reach the scheduler.
+	if !workload.MinCountsUsable(wl) {
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
@@ -84,28 +86,19 @@ var _ admission.Validator[*kueue.Workload] = &WorkloadWebhook{}
 func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating create")
-	return warningsForWorkload(wl), ValidateWorkload(wl, nil).ToAggregate()
+	return nil, ValidateWorkload(wl, nil).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
-	return warningsForWorkload(newWL), ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
-}
-
-// slated to become a hard validation error in a future release (see https://github.com/kubernetes-sigs/kueue/pull/13061#issuecomment-4979676077 for more context).
-func warningsForWorkload(wl *kueue.Workload) admission.Warnings {
-	var warnings admission.Warnings
-	specPath := field.NewPath("spec")
-	for i := range wl.Spec.PodSets {
-		tr := wl.Spec.PodSets[i].TopologyRequest
-		if tr != nil && tr.SubGroupCount != nil && *tr.SubGroupCount < 0 {
-			path := specPath.Child("podSets").Index(i).Child("topologyRequest", "subGroupCount")
-			warnings = append(warnings, fmt.Sprintf("%s: negative value %d is deprecated and will be rejected in a future release", path, *tr.SubGroupCount))
-		}
+	if reservesQuotaWithoutAdmission(oldWL) && reservesQuotaWithoutAdmission(newWL) {
+		// An update that introduces this is refused and says so, so the one
+		// worth a trace is the one that was already like this and goes through.
+		log.V(3).Info("Workload already reserves quota with no admission recorded, letting the update through so it can converge")
 	}
-	return warnings
+	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
@@ -129,17 +122,22 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		}
 	}
 
-	if variableCountPodSets > 1 {
+	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
+	// so both checks below are skipped for them.
+	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		workloadslicing.Enabled(obj)
+
+	if variableCountPodSets > 1 && !elasticPartialScaleUp {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
 	statusPath := field.NewPath("status")
 	if workload.HasQuotaReservation(obj) {
-		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
+		allErrs = append(allErrs, validateAdmission(obj, oldObj, statusPath.Child("admission"))...)
 	}
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
@@ -169,6 +167,12 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
+	// validate metadata labels and annotations
+	if features.Enabled(features.WorkloadValidationForPodSetMetadata) {
+		allErrs = append(allErrs, metav1validation.ValidateLabels(ps.Template.Labels, path.Child("template", "metadata", "labels"))...)
+		allErrs = append(allErrs, apivalidation.ValidateAnnotations(ps.Template.Annotations, path.Child("template", "metadata", "annotations"))...)
+	}
+
 	// validate initContainers
 	icPath := path.Child("template", "spec", "initContainers")
 	for ci := range ps.Template.Spec.InitContainers {
@@ -184,6 +188,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		resPath := path.Child("template", "spec", "resources")
 		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Requests, resPath.Child("requests"))...)
 		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Limits, resPath.Child("limits"))...)
+	}
+
+	if features.Enabled(features.TASValidateWorkloadSliceSize) {
+		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
 
 	return allErrs
@@ -271,8 +279,24 @@ func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) f
 	return allErrors
 }
 
-func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
+// reservesQuotaWithoutAdmission reports a Workload carrying the QuotaReserved
+// condition with no status.admission.
+func reservesQuotaWithoutAdmission(wl *kueue.Workload) bool {
+	return wl != nil && workload.HasQuotaReservation(wl) && wl.Status.Admission == nil
+}
+
+// validateAdmission is reached on the QuotaReserved condition rather than on the
+// field, so it has to answer for a Workload that carries one without the other.
+func validateAdmission(obj, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
 	admission := obj.Status.Admission
+	if admission == nil {
+		// One that was already like this goes through, so it can converge and be
+		// removed, the way validateReclaimablePods lets a stale count through.
+		if reservesQuotaWithoutAdmission(oldObj) {
+			return nil
+		}
+		return field.ErrorList{field.Required(path, "must be set while the QuotaReserved condition is true")}
+	}
 	var allErrs field.ErrorList
 
 	names := sets.New[kueue.PodSetReference]()
@@ -414,7 +438,7 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 		}
 		oldCount, found := knowPodSets[newCount.Name]
 		if found && newCount.Count < oldCount.Count && !scaledDownPodSets.Has(newCount.Name) {
-			ret = append(ret, field.Invalid(basePath.Key(string(newCount.Name)).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
+			ret = append(ret, field.Invalid(basePath.Key(string(newCount.Name)).Child("count"), newCount.Count, fmt.Sprintf("cannot be less than %d", oldCount.Count)))
 		}
 	}
 
@@ -480,5 +504,38 @@ func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, statusPath *field
 		}
 	}
 
+	return allErrs
+}
+
+// validateTASSliceSize enforces basic topology-slice invariants:
+// - legacy fields must appear together (required-topology <-> slice-size)
+// - slice sizes must be strictly positive (legacy and multi-layer constraints)
+// Kept in the Workload webhook as defense-in-depth for direct Workload writes,
+// including cases where CRDs or producer-side validators are older or bypassed.
+func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
+	if tr == nil {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+	if tr.PodSetSliceRequiredTopology != nil {
+		switch {
+		case tr.PodSetSliceSize == nil:
+			allErrs = append(allErrs, field.Required(path.Child("podSetSliceSize"), "must be set when podSetSliceRequiredTopology is specified"))
+		case *tr.PodSetSliceSize <= 0:
+			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, "must be greater than 0"))
+		}
+	}
+
+	if tr.PodSetSliceRequiredTopology == nil && tr.PodSetSliceSize != nil {
+		allErrs = append(allErrs, field.Forbidden(path.Child("podSetSliceSize"), "may not be set when podSetSliceRequiredTopology is not specified"))
+	}
+
+	for i := range tr.PodsetSliceRequiredTopologyConstraints {
+		if tr.PodsetSliceRequiredTopologyConstraints[i].Size <= 0 {
+			allErrs = append(allErrs,
+				field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(i).Child("size"), tr.PodsetSliceRequiredTopologyConstraints[i].Size, "must be greater than 0"))
+		}
+	}
 	return allErrs
 }

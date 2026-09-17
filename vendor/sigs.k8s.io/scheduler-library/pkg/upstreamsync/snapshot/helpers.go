@@ -29,20 +29,20 @@ import (
 
 // addPodToNode adds a new pod to the specific node and returns the corresponding revert function
 func addPodToNode(ctx context.Context, schedulerSnapshot *upstreamsync.MutatingSnapshot, pod *v1.Pod, nodeName string) (func(), error) {
+	logger := klog.FromContext(ctx)
 	clonedPod := pod.DeepCopy()
 	clonedPod.Spec.NodeName = nodeName
 	podInfo, err := framework.NewPodInfo(clonedPod)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod info: %w", err)
 	}
-	err = schedulerSnapshot.AddPod(klog.FromContext(ctx), podInfo)
+	err = schedulerSnapshot.AddPod(logger, podInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add pod to snapshot: %w", err)
 	}
 
 	revertFn := func() {
 		if _, err := removePodFromNode(ctx, schedulerSnapshot, podInfo.Pod); err != nil {
-			logger := klog.FromContext(ctx)
 			logger.Error(err, "revert addPodToNode failed")
 		}
 	}
@@ -52,16 +52,16 @@ func addPodToNode(ctx context.Context, schedulerSnapshot *upstreamsync.MutatingS
 
 // removePodFromNode removes a pod from a specific node and returns the corresponding revert function.
 func removePodFromNode(ctx context.Context, schedulerSnapshot *upstreamsync.MutatingSnapshot, pod *v1.Pod) (func(), error) {
+	logger := klog.FromContext(ctx)
 	podInfo, err := framework.NewPodInfo(pod.DeepCopy())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create pod info: %w", err)
 	}
-	err = schedulerSnapshot.RemovePod(klog.FromContext(ctx), podInfo)
+	err = schedulerSnapshot.RemovePod(logger, podInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to remove pod from snapshot: %w", err)
 	}
 
-	logger := klog.FromContext(ctx)
 	revertFn := func() {
 		if _, err := addPodToNode(ctx, schedulerSnapshot, pod, pod.Spec.NodeName); err != nil {
 			logger.Error(err, "revert removePodFromNode failed")
@@ -96,6 +96,9 @@ func createPodFromTemplate(template *v1.PodTemplateSpec, index int) *v1.Pod {
 }
 
 // scheduleOnePod simulates a single scheduling cycle for a pod against the assumed placement.
+// On success it returns the revert function undoing the changes the cycle made to the snapshot;
+// on a scheduling failure the returned function is nil and the reason is carried by the result's
+// Status. The pod is left untouched: it is up to the caller to reflect suggestedHost on it.
 func scheduleOnePod(ctx context.Context, profiles *upstreamsync.ProfileMap, sched *upstreamsync.Scheduler, pod *v1.Pod) (*upstreamsync.AlgorithmResult, func(), error) {
 	schedFramework, err := profiles.FrameworkForPod(pod)
 	if err != nil {
@@ -115,14 +118,9 @@ func scheduleOnePod(ctx context.Context, profiles *upstreamsync.ProfileMap, sche
 	}
 	algRes, revertFn := sched.SchedulePod(ctx, schedFramework, pendingPod)
 
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to simulate scheduling for pod %s: %w", klog.KObj(pod), err)
-	}
-
 	if !algRes.Status.IsSuccess() {
 		return &algRes, nil, nil
 	}
 
-	pod.Spec.NodeName = algRes.ScheduleResult.SuggestedHost
 	return &algRes, revertFn, nil
 }

@@ -148,7 +148,7 @@ podSetUpdates:
 This snippet in ProvisioningRequestConfig instructs Kueue to update the Job's
 PodTemplate, after provisioning, to target the newly provisioned nodes which
 have the label: `autoscaling.cloud-provider.com/provisioning-request` with the
-value coming from the [ProvisiongClassDetails](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1/types.go#L169) map, under the "RequestKey" key.
+value coming from the [ProvisioningClassDetails](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1/types.go#L169) map, under the "RequestKey" key.
 
 Note that, this assumes the provisioning class (which can be cloud-provider
 specific) supports setting unique node label on the newly provisioned nodes.

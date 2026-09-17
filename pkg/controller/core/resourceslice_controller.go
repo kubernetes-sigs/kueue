@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,43 +33,59 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 type ResourceSliceReconciler struct {
-	qManager    *qcache.Manager
-	drivers     sets.Set[string]
-	roleTracker *roletracker.RoleTracker
+	qManager       *qcache.Manager
+	cache          *schdcache.Cache
+	drivers        sets.Set[string]
+	quotaResources sets.Set[corev1.ResourceName]
+	roleTracker    *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*ResourceSliceReconciler)(nil)
 
-func NewResourceSliceReconciler(qManager *qcache.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) *ResourceSliceReconciler {
+func NewResourceSliceReconciler(qManager *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) *ResourceSliceReconciler {
 	drivers := sets.New[string]()
+	quotaResources := sets.New[corev1.ResourceName]()
+
 	if cfg.Resources != nil {
 		for _, m := range cfg.Resources.DeviceClassMappings {
 			for _, s := range m.Sources {
-				if s.Counter != nil {
-					drivers.Insert(s.Counter.Driver)
-				}
-				if s.Capacity != nil {
-					drivers.Insert(s.Capacity.Driver)
+				if driver := sourceDriver(s); driver != "" {
+					drivers.Insert(driver)
+					quotaResources.Insert(m.Name)
 				}
 			}
 		}
 	}
 	return &ResourceSliceReconciler{
-		qManager:    qManager,
-		drivers:     drivers,
-		roleTracker: roleTracker,
+		qManager:       qManager,
+		cache:          cache,
+		drivers:        drivers,
+		quotaResources: quotaResources,
+		roleTracker:    roleTracker,
 	}
+}
+
+func sourceDriver(s configapi.DeviceClassSourceConfig) string {
+	if s.Counter != nil {
+		return s.Counter.Driver
+	}
+	if s.Capacity != nil {
+		return s.Capacity.Driver
+	}
+	return ""
 }
 
 func (r *ResourceSliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Reconcile ResourceSlice", "resourceSlice", req.NamespacedName)
-	cqNames := sets.New(r.qManager.GetClusterQueueNames()...)
-	qcache.NotifyRetryInadmissible(r.qManager, cqNames)
+	if cqNames := r.cache.ClusterQueuesForResources(r.quotaResources); cqNames.Len() > 0 {
+		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
+	}
 	return ctrl.Result{}, nil
 }
 

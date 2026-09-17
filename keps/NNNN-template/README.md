@@ -13,7 +13,7 @@ template.
 
 Ensure the TOC is wrapped with
   <code>&lt;!-- toc --&rt;&lt;!-- /toc --&rt;</code>
-tags, and then generate with `hack/update-toc.sh`.
+tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hack/tools/mdtoc/generate.sh`.
 -->
 
 <!-- toc -->

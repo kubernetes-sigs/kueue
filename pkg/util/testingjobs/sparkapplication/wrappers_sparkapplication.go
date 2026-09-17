@@ -18,7 +18,6 @@ import (
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -54,7 +53,7 @@ func MakeSparkApplication(name, ns string) *SparkApplicationWrapper {
 					ServiceAccount: new("spark-operator-spark"),
 				},
 				CoreRequest:         new("100m"),
-				Instances:           ptr.To[int32](1),
+				Instances:           new(int32(1)),
 				DeleteOnTermination: new(false),
 			},
 		},

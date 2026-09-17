@@ -1,0 +1,6 @@
+# Alpha CRDs for Kueue.
+# This kustomization builds the alpha-level CRDs (e.g. DynamicQuotaOrchestrator and CapacityProvider)
+# that are opt-in and not installed by default.
+resources:
+- bases/kueue.x-k8s.io_dynamicquotaorchestrators.yaml
+- bases/kueue.x-k8s.io_capacityproviders.yaml

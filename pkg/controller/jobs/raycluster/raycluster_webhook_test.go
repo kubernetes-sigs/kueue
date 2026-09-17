@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -37,6 +38,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestValidateDefault(t *testing.T) {
@@ -110,6 +112,7 @@ func TestValidateDefault(t *testing.T) {
 			}
 
 			wh := &RayClusterWebhook{
+				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageAll,
 				queues:                     queueManager,
 				cache:                      cqCache,
@@ -149,9 +152,49 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(
 					field.NewPath("spec", "enableInTreeAutoscaling"),
 					new(true),
-					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+					fmt.Sprintf("a kueue-managed RayCluster can use autoscaling only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 				),
 			}.ToAggregate(),
+		},
+		"invalid MultiKueue elastic autoscaling when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(1, 1, 5).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					field.NewPath("spec", "enableInTreeAutoscaling"),
+					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic RayCluster requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
+				),
+			}.ToAggregate(),
+		},
+		"valid MultiKueue elastic autoscaling when feature gate is enabled": {
+			// The autoscaler runs on the worker and its resizes are written back
+			// to the manager, so a range (minReplicas < maxReplicas) is allowed.
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: true, features.WorkloadIdentifierAnnotations: false},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(1, 1, 5).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: nil,
+		},
+		"valid managed - elastic MultiKueue job without auto scaler": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ManagedBy(kueue.MultiKueueControllerName).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: nil,
 		},
 		"invalid managed - too many worker groups": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -569,9 +612,12 @@ func TestValidateCreate(t *testing.T) {
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, result := wh.ValidateCreate(ctx, tc.job)
+			warns, result := wh.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
-				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("ValidateCreate() errors mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("ValidateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -579,15 +625,29 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayv1.RayCluster
-		newJob    *rayv1.RayCluster
-		manageAll bool
-		wantErr   error
+		oldJob         *rayv1.RayCluster
+		newJob         *rayv1.RayCluster
+		manageAll      bool
+		defaultLqExist bool
+		featureGates   map[featuregate.Feature]bool
+		wantErr        error
 	}{
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Obj(),
 			newJob: testingrayutil.MakeCluster("job", "ns").
+				Obj(),
+			wantErr: nil,
+		},
+		"queue name unchanged while unsuspended": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Label("test-label", "test-value").
 				Obj(),
 			wantErr: nil,
 		},
@@ -615,6 +675,79 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"queue name removal is rejected when the job is unsuspended and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"queue name removal is allowed when the job is unsuspended and ValidateRayAndSparkJobUpdates is disabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
+			wantErr:      nil,
+		},
+		"queue name removal is rejected when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue(string(constants.DefaultLocalQueueName)).
+				Suspend(true).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				Obj(),
+			defaultLqExist: true,
+			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "", "queue-name must not be empty in namespace with default queue"),
+			}.ToAggregate(),
+		},
+		"queue name removal is allowed when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is disabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue(string(constants.DefaultLocalQueueName)).
+				Suspend(true).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				Obj(),
+			defaultLqExist: true,
+			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
+			wantErr:        nil,
+		},
+		"queue name removal is allowed when the job is suspended in a namespace without a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(true).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr:      nil,
+		},
+		"prebuilt workload name change is not validated when the job is unmanaged and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				PrebuiltWorkloadLabel("wl1").
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				PrebuiltWorkloadLabel("wl2").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr:      nil,
+		},
 		"priorityClassName is mutable": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
@@ -629,13 +762,28 @@ func TestValidateUpdate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cli := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue(
+					string(constants.DefaultLocalQueueName), "ns").ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("Failed to add the default LocalQueue: %v", err)
+				}
+			}
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				queues:                     queueManager,
+				cache:                      cqCache,
 			}
-			ctx, _ := utiltesting.ContextWithLog(t)
-			_, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
+			warnings, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
-				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warnings); diff != "" {
+				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

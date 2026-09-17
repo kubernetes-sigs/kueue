@@ -36,7 +36,7 @@ aliases:
 
 Make sure the following conditions are met:
 
-- A Kubernetes cluster with version 1.29 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
+- A Kubernetes cluster is running; Version 1.34 or newer version is recommended as only such versions are officially supported and tested. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The kubectl command-line tool has communication with your cluster.
 
 Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
@@ -145,7 +145,7 @@ wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "versi
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
    `controller_manager_config.yaml` data entry. The entry represents
-   the default [KueueConfiguration](/docs/reference/kueue-config.v1beta1).
+   the default [KueueConfiguration](/docs/reference/kueue-config.v1beta2).
    The contents of the ConfigMap are similar to the following:
 
 ```yaml
@@ -172,7 +172,8 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      timeout: 10m
+      timeout: 30m
+      recoveryTimeout: 5m
     integrations:
       frameworks:
       - "batch/job"
@@ -300,7 +301,6 @@ spec:
 {{< feature-gates-table stage="alpha-beta" >}}
 
 {{% alert title="Note" color="primary" %}}
-The SchedulerLongRequeueInterval and SchedulerTimestampPreemptionBuffer features are available starting from versions 0.15.6 and 0.16.3.
 The ShortWorkloadNames features are available starting from versions 0.15.7 and 0.16.4.
 {{% /alert %}}
 
@@ -312,5 +312,5 @@ The ShortWorkloadNames features are available starting from versions 0.15.7 and 
 
 - Follow the [Quick Start](/docs/getting-started/quick-start) guide to run your first Job with Kueue.
 
-- Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for `Configuration`
+- Read the [API reference](/docs/reference/kueue-config.v1beta2/#Configuration) for `Configuration`
 

@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -121,13 +120,13 @@ func TestPodSets(t *testing.T) {
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 					RequiredTopologyRequest("cloud.com/rack").
-					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 					Obj(),
 				*utiltestingapi.MakePodSet("aw-1", 4).
 					PodSpec(pytorchJobTAS.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+					PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 					Obj(),
 			},
 

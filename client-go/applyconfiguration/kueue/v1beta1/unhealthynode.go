@@ -22,6 +22,7 @@ package v1beta1
 // with apply.
 type UnhealthyNodeApplyConfiguration struct {
 	// name is the name of the unhealthy node.
+	//
 	Name *string `json:"name,omitempty"`
 }
 

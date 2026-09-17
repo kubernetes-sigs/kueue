@@ -21,10 +21,13 @@ import (
 	stderrors "errors"
 	"fmt"
 	"maps"
+	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -34,11 +37,11 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -53,7 +56,9 @@ import (
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -69,13 +74,34 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	testCases := map[string]struct {
 		workload            kueue.Workload
 		waitForPodsReady    *waitForPodsReadyConfig
+		featureGates        map[featuregate.Feature]bool
 		wantUnderlyingCause kueue.EvictionUnderlyingCause
 		wantRecheckAfter    time.Duration
 	}{
 		"workload without Admitted condition; not counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{},
 		},
+		"gate off ignores an expired scheduling deadline from a previous configuration": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), minuteAgo).
+				AdmittedAt(true, minuteAgo).
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, LastTransitionTime: metav1.NewTime(minuteAgo)}).
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForScheduling, LastTransitionTime: metav1.NewTime(minuteAgo.Add(time.Second))}).
+				Obj(),
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(time.Second)},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
 		"workload with Admitted=True, no PodsReady; counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -93,6 +119,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantRecheckAfter:    4 * time.Minute,
 		},
 		"workload with Admitted=True, no PodsReady, but no timeout configured; not counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -107,6 +136,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 		},
 		"workload with Admitted=True, no PodsReady; timeout exceeded": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -124,6 +156,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantRecheckAfter:    0,
 		},
 		"with reason WorkloadWaitForPodsReadyStart; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -147,6 +182,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantRecheckAfter:    4 * time.Minute,
 		},
 		"with reason PodsReady; workload with Admitted=True, PodsReady=False; counting since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -170,6 +208,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantRecheckAfter:    4 * time.Minute,
 		},
 		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -188,11 +229,14 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:    &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
+			waitForPodsReady:    &waitForPodsReadyConfig{recoveryTimeout: new(3 * time.Minute)},
 			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
 			wantRecheckAfter:    3 * time.Minute,
 		},
 		"workload with Admitted=True, PodsReady=False, Reason=WorkloadWaitForPodsReadyRecovery, recoveryTimeout not configured": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -214,6 +258,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			waitForPodsReady: &waitForPodsReadyConfig{recoveryTimeout: nil},
 		},
 		"workload with Admitted=Unknown; not counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -229,6 +276,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 		"workload with Admitted=False, not counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -244,6 +294,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
 		"workload with Admitted=True, PodsReady=True; not counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
 			workload: kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
@@ -263,11 +316,566 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			},
 			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute},
 		},
+		"PodsReady=False/WaitForScheduling with a delayed observation; counting unscheduledTimeout since admission": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    0,
+		},
+		"PodsReady=False/WaitForScheduling with a current PodsScheduled=False; unscheduledTimeout exceeded": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    0,
+		},
+		"PodsReady=False/WaitForScheduling with a current PodsScheduled=False; the scheduling deadline is capped at admitted.LastTransitionTime + timeout": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-30 * time.Second)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-30 * time.Second)),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(6 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    time.Minute,
+		},
+		"PodsReady=False/WaitForScheduling with a current PodsScheduled=False; unscheduledTimeout not configured; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		"PodsReady=False/WaitForScheduling without PodsScheduled; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		"PodsReady=False/WaitForScheduling with a PodsScheduled=False left over from a previous admission; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-10 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		"PodsReady=False/WaitForScheduling with a PodsScheduled=False transitioned in the same second as the admission; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		"PodsReady=False/WaitForScheduling with a PodsScheduled=False reset by the tracker; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-2 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    2 * time.Minute,
+		},
+		"PodsReady=False/WaitForScheduling with a current PodsScheduled=Unknown; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-2 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionUnknown,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    2 * time.Minute,
+		},
+		"PodsReady=False/WaitForScheduling with a current PodsScheduled=True; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-2 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    2 * time.Minute,
+		},
+		"PodsReady=False/WaitForStart with a current PodsScheduled=False; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    time.Minute,
+		},
+		"without PodsReady with a current PodsScheduled=False; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    time.Minute,
+		},
+		"with the legacy reason PodsReady and a current PodsScheduled=False; counting timeout since admitted.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-4 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             "PodsReady",
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    time.Minute,
+		},
+		"PodsReady=False/WaitForRecovery with a current PodsScheduled=False; counting recoveryTimeout since PodsReady.LastTransitionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-10 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForRecovery,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-9 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 5 * time.Minute, recoveryTimeout: new(3 * time.Minute), unscheduledTimeout: new(2 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
+			wantRecheckAfter:    2 * time.Minute,
+		},
+		"PodsReady=False/WaitForRecovery with a current PodsScheduled=False; recoveryTimeout not configured; not counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-10 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForRecovery,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-9 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+		},
+		"PodsReady=True with a current PodsScheduled=False; not counting": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-10 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionTrue,
+							Reason:             kueue.WorkloadStarted,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(now.Add(-9 * time.Minute)),
+						},
+					},
+				},
+			},
+			waitForPodsReady: &waitForPodsReadyConfig{timeout: 5 * time.Minute, unscheduledTimeout: new(2 * time.Minute)},
+		},
+		"PodsReady=False/WaitForScheduling with a current PodsScheduled=False and the maximum durations; no overflow": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsScheduled,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForScheduling,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: math.MaxInt64, unscheduledTimeout: new(time.Duration(math.MaxInt64))},
+			wantUnderlyingCause: kueue.WorkloadWaitForScheduling,
+			wantRecheckAfter:    math.MaxInt64 - 3*time.Minute,
+		},
+		"PodsReady=False/WaitForStart with the maximum timeout; no overflow": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			workload: kueue.Workload{
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now.Add(-3 * time.Minute)),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: math.MaxInt64},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    math.MaxInt64 - 3*time.Minute,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady, clock: fakeClock}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			underlyingCause, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
 
 			if tc.wantRecheckAfter != recheckAfter {
@@ -402,10 +1010,14 @@ var (
 		cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt"),
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
-)
 
-var (
-	errTest = stderrors.New("test error")
+	pendingWorkloadsCmpOpts = cmp.Options{
+		cmpopts.IgnoreFields(workload.Info{},
+			"Obj", "FlavorScanState", "LocalQueueFSUsage", "SecondPassIteration",
+			"LastEvaluatedGeneration", "SchedulingHash", "NominationMapping",
+		),
+		cmp.Comparer(resources.Equal),
+	}
 )
 
 type reconcileTestCase struct {
@@ -426,7 +1038,11 @@ type reconcileTestCase struct {
 	patchErr                  error
 	listErr                   error
 	wantDRAResourceTotal      *int64
+	wantAbsentDRAResources    []corev1.ResourceName
 	wantWorkloadsInQueue      *int
+	wantWorkloadInHeap        *bool
+	wantWorkloadInadmissible  *bool
+	wantPendingWorkloads      map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info
 	wantWorkload              *kueue.Workload
 	wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
 	wantError                 error
@@ -469,7 +1085,7 @@ func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
 	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
 
-	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	if got := reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: oldWl,
 		ObjectNew: newWl,
 	}); !got {
@@ -525,14 +1141,14 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
 	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
 
-	if err := qManager.AddOrUpdateWorkload(log, oldWl); err != nil {
+	if err := qManager.AddOrUpdateWorkload(ctx, log, oldWl); err != nil {
 		t.Fatalf("AddOrUpdateWorkload() error = %v", err)
 	}
 	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 1 {
 		t.Fatalf("expected one pending workload before update, got %d", len(pending))
 	}
 
-	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	if got := reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: oldWl,
 		ObjectNew: newWl,
 	}); !got {
@@ -544,7 +1160,127 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 	}
 }
 
+func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+
+	makeWl := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Queue("lq").
+			Active(true).
+			Request(corev1.ResourceCPU, "4")
+	}
+	// A reserved Workload's requests are read back from the admission rather than
+	// from the PodSets, so the assignment carries them to keep the fixtures
+	// realistic for the transitions under test.
+	makeAdmission := func() *kueue.Admission {
+		return utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
+			Obj()
+	}
+	pending := makeWl().Obj()
+	quotaReserved := makeWl().
+		ReserveQuotaAt(makeAdmission(), now).
+		Obj()
+	admitted := makeWl().
+		ReserveQuotaAt(makeAdmission(), now).
+		AdmittedAt(true, now).
+		Obj()
+	deactivatedAdmitted := makeWl().
+		Active(false).
+		ReserveQuotaAt(makeAdmission(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	cases := map[string]struct {
+		oldWl *kueue.Workload
+		newWl *kueue.Workload
+		// wantFolded is whether the penalty must end up in the consumed
+		// history; wantPending is whether its record must remain pending.
+		// A dropped record (deactivation) is neither folded nor pending.
+		wantFolded  bool
+		wantPending bool
+	}{
+		"Pending to Admitted settles the entry penalty": {
+			oldWl:      pending,
+			newWl:      admitted,
+			wantFolded: true,
+		},
+		"QuotaReserved to Admitted settles the entry penalty": {
+			oldWl:      quotaReserved,
+			newWl:      admitted,
+			wantFolded: true,
+		},
+		"Pending to QuotaReserved does not settle the entry penalty": {
+			oldWl:       pending,
+			newWl:       quotaReserved,
+			wantPending: true,
+		},
+		"Admitted to Admitted does not settle the entry penalty again": {
+			oldWl:       admitted,
+			newWl:       admitted,
+			wantPending: true,
+		},
+		"deactivation in the same event does not settle and keeps the record": {
+			// The reservation is still held, so the penalty may yet settle if
+			// the Workload is reactivated in place.
+			oldWl:       quotaReserved,
+			newWl:       deactivatedAdmitted,
+			wantPending: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			afsConfig := &configapi.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+			}
+			cl := utiltesting.NewClientBuilder().Build()
+			recorder := &utiltesting.EventRecorder{}
+			cqCache := schdcache.New(cl, schdcache.WithAdmissionFairSharing(afsConfig))
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithAdmissionFairSharing(afsConfig))
+
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+				Active(metav1.ConditionTrue).
+				Obj()
+			setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+			setupLocalQueue(ctx, t, cl, qManager, lq, false)
+			if err := cqCache.AddLocalQueue(lq); err != nil {
+				t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+			}
+
+			// Seed the per-Workload penalty record the scheduler would have
+			// pushed at assume time; the settlement folds exactly this record.
+			seeded := afs.CalculateEntryPenalty(workload.NewInfo(log, tc.newWl).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
+			if len(seeded) == 0 {
+				t.Fatal("the seeded penalty is empty, so the settlement would subtract nothing and every case would pass")
+			}
+			qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(tc.newWl)), seeded, time.Now())
+
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: tc.oldWl.DeepCopy(),
+				ObjectNew: tc.newWl.DeepCopy(),
+			})
+
+			if hasPending := qManager.AfsUsageLedger.HasPendingPenalty(lqKey); hasPending != tc.wantPending {
+				t.Errorf("HasPendingPenalty() = %t, want %t", hasPending, tc.wantPending)
+			}
+			entry, _ := qManager.AfsUsageLedger.Get(lqKey)
+			cpu := entry.Resources[corev1.ResourceCPU]
+			if folded := !cpu.IsZero(); folded != tc.wantFolded {
+				t.Errorf("penalty folded into consumed usage = %t, want %t (consumed: %v)", folded, tc.wantFolded, entry.Resources)
+			}
+		})
+	}
+}
+
 func TestReconcile(t *testing.T) {
+	errTest := stderrors.New("test error")
+	_, log := utiltesting.ContextWithLog(t)
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
@@ -777,6 +1513,37 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		// The state a Workload reaches once a max-execution-time deactivation has been carried
+		// out: inactive, evicted, and with the DeactivationTarget already consumed. Re-targeting
+		// it here would re-emit the warning on every reconcile.
+		"should not re-target an already deactivated workload that exceeded the maximum execution time": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				AdmittedAt(true, now.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated due to exceeding the maximum execution time",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				AdmittedAt(true, now.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated due to exceeding the maximum execution time",
+				}).
+				Obj(),
+		},
 		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -857,7 +1624,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -880,7 +1647,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -909,7 +1676,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -936,7 +1703,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -1576,7 +2343,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1614,7 +2381,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1646,7 +2413,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1684,7 +2451,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1786,12 +2553,19 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
+					WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							if tc.patchErr != nil {
 								return tc.patchErr
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+							return client.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if tc.patchErr != nil {
+								return tc.patchErr
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResourceName, applyConf, opts...)
 						},
 						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 							if tc.listErr != nil {
@@ -1841,9 +2615,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 					setupLocalQueue(ctx, t, cl, qManager, tc.lq, tc.shouldDeleteLQ)
 				}
 
-				if testWl != nil && testWl.Namespace == "ns" &&
-					len(testWl.Spec.PodSets) > 0 &&
-					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
+				if needsDRAMapperSetup(tc, testWl) {
 					draConfig := []configapi.DeviceClassMapping{
 						{
 							Name:             corev1.ResourceName("foo"),
@@ -1851,7 +2623,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						},
 						{
 							Name:             corev1.ResourceName("gpu"),
-							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+							DeviceClassNames: []corev1.ResourceName{"gpu.example.com", "gpu-class"},
 						},
 					}
 					draMapper := dra.NewResourceMapper()
@@ -1920,10 +2692,23 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
 
+				if tc.wantPendingWorkloads != nil {
+					gotPendingWorkloads := make(map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info)
+					for _, cqName := range qManager.GetClusterQueueNames() {
+						for _, wlInfo := range qManager.PendingWorkloadsInfo(cqName) {
+							if gotPendingWorkloads[cqName] == nil {
+								gotPendingWorkloads[cqName] = make(map[workload.Reference]*workload.Info)
+							}
+							gotPendingWorkloads[cqName][workload.Key(wlInfo.Obj)] = wlInfo
+						}
+					}
+					if diff := cmp.Diff(tc.wantPendingWorkloads, gotPendingWorkloads, pendingWorkloadsCmpOpts...); diff != "" {
+						t.Errorf("unexpected pending workloads (-want,+got):\n%s", diff)
+					}
+				}
+
 				// For DRA tests, verify that workloads are properly queued/cached
-				if tc.featureGates[features.KueueDRAIntegration] && testWl != nil &&
-					len(testWl.Spec.PodSets) > 0 &&
-					len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
+				if needsDRAQueueVerification(tc, testWl) {
 					workloadKey := client.ObjectKeyFromObject(testWl)
 
 					if cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl)); found {
@@ -1942,12 +2727,13 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						for _, wlInfo := range pendingWorkloads {
 							if wlInfo.Obj.Name == workloadKey.Name && wlInfo.Obj.Namespace == workloadKey.Namespace {
 								foundInQueue = true
-								if len(tc.resourceClaimTemplates) > 0 && wlInfo.TotalRequests != nil {
+								if wlInfo.TotalRequests != nil && (tc.wantDRAResourceTotal != nil || len(tc.wantAbsentDRAResources) > 0) {
 									t.Logf("DRA workload found in queue with TotalRequests: %+v", wlInfo.TotalRequests)
 
 									if tc.wantDRAResourceTotal != nil {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											if gpuVal, hasGPU := wlInfo.TotalRequests[0].Requests["gpu"]; hasGPU {
+											gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu")
+											if gpuVal > 0 {
 												if gpuVal != *tc.wantDRAResourceTotal {
 													t.Errorf("Expected gpu resource total to be %d, got %d", *tc.wantDRAResourceTotal, gpuVal)
 												}
@@ -1958,12 +2744,37 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 											t.Errorf("Expected TotalRequests with DRA resources, but TotalRequests is empty")
 										}
 									}
+									for _, resName := range tc.wantAbsentDRAResources {
+										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
+											var found bool
+											wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ int64) {
+												if name == resName {
+													found = true
+												}
+											})
+											if found {
+												t.Errorf("Expected resource %q to be absent from queued TotalRequests", resName)
+											}
+										}
+									}
 								}
 								break
 							}
 						}
-						if tc.wantWorkloadsInQueue != nil && !foundInQueue {
+						if tc.wantWorkloadsInQueue != nil && *tc.wantWorkloadsInQueue > 0 && !foundInQueue {
 							t.Errorf("DRA workload not found in queue - expected to be queued for processing")
+						}
+
+						wlRef := workload.Key(testWl)
+						if tc.wantWorkloadInHeap != nil || tc.wantWorkloadInadmissible != nil {
+							inHeap := workloadRefInDump(qManager.Dump(), cqName, wlRef)
+							inInadmissible := workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef)
+							if tc.wantWorkloadInHeap != nil && inHeap != *tc.wantWorkloadInHeap {
+								t.Errorf("Expected workload in heap=%v, got %v", *tc.wantWorkloadInHeap, inHeap)
+							}
+							if tc.wantWorkloadInadmissible != nil && inInadmissible != *tc.wantWorkloadInadmissible {
+								t.Errorf("Expected workload in inadmissible=%v, got %v", *tc.wantWorkloadInadmissible, inInadmissible)
+							}
 						}
 					} else {
 						t.Errorf("LocalQueue not found in queue manager - DRA workload should have been queued")
@@ -2091,7 +2902,9 @@ func TestReconcileSyncAdmissionChecks(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+			})
 
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}
@@ -2161,6 +2974,40 @@ func setupLocalQueue(ctx context.Context, t *testing.T, cl client.Client, qManag
 	}
 }
 
+func needsDRAMapperSetup(tc reconcileTestCase, testWl *kueue.Workload) bool {
+	if testWl == nil || testWl.Namespace != "ns" || len(testWl.Spec.PodSets) == 0 {
+		return false
+	}
+	if len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 {
+		return true
+	}
+	if tc.featureGates[features.KueueDRAIntegrationExtendedResource] {
+		for _, obj := range tc.additionalObjects {
+			if _, ok := obj.(*resourcev1.DeviceClass); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func needsDRAQueueVerification(tc reconcileTestCase, testWl *kueue.Workload) bool {
+	if !tc.featureGates[features.KueueDRAIntegration] || testWl == nil || len(testWl.Spec.PodSets) == 0 {
+		return false
+	}
+	return len(testWl.Spec.PodSets[0].Template.Spec.ResourceClaims) > 0 ||
+		len(tc.resourceClaimTemplates) > 0 ||
+		tc.wantDRAResourceTotal != nil ||
+		len(tc.wantAbsentDRAResources) > 0 ||
+		tc.wantWorkloadsInQueue != nil ||
+		tc.wantWorkloadInHeap != nil ||
+		tc.wantWorkloadInadmissible != nil
+}
+
+func workloadRefInDump(dump map[kueue.ClusterQueueReference][]workload.Reference, cqName kueue.ClusterQueueReference, wlRef workload.Reference) bool {
+	return slices.Contains(dump[cqName], wlRef)
+}
+
 func setupDRACache(objs []client.Object) *dra.ExtendedResourceCache {
 	draCache := dra.NewExtendedResourceCache()
 	for _, obj := range objs {
@@ -2183,7 +3030,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 	// With halfLifeTime == samplingInterval the entry penalty is half of the
 	// request, so the 4 CPU workload settles a 2 CPU penalty.
 	cases := map[string]struct {
-		initialEntry        *queueafs.ConsumedResourcesEntry
+		initialEntry        *queueafs.UsageLedgerEntry
 		wantCPUMilli        int64
 		wantStatusAccounted bool
 		// wantLastUpdate defaults to now when zero.
@@ -2196,7 +3043,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			wantStatusAccounted: false,
 		},
 		"folds into an existing entry and preserves StatusAccounted": {
-			initialEntry: &queueafs.ConsumedResourcesEntry{
+			initialEntry: &queueafs.UsageLedgerEntry{
 				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 				LastUpdate:      now,
 				StatusAccounted: true,
@@ -2210,7 +3057,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			// usage is kept verbatim and only the 2 CPU penalty folds in (8+2=10),
 			// instead of the negative-elapsed path inflating it. The stored
 			// timestamp stays monotonic at the later value rather than rewinding.
-			initialEntry: &queueafs.ConsumedResourcesEntry{
+			initialEntry: &queueafs.UsageLedgerEntry{
 				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 				LastUpdate:      now.Add(5 * time.Minute),
 				StatusAccounted: true,
@@ -2247,16 +3094,21 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 
 			lqKey := utilqueue.KeyFromWorkload(wl)
 			if tc.initialEntry != nil {
-				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {
+				qManager.AfsUsageLedger.Update(lqKey, func(queueafs.UsageLedgerEntry, bool) queueafs.UsageLedgerEntry {
 					return *tc.initialEntry
 				})
 			}
+			// The settlement folds this Workload's recorded penalty, so seed the
+			// push the scheduler would have done at assume time: half of the 4 CPU
+			// request under halfLifeTime == samplingInterval.
+			qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(wl)),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
 
 			reconciler.updateAfsConsumedUsage(log, wl)
 
-			gotEntry, found := qManager.AfsConsumedResources.Get(lqKey)
+			gotEntry, found := qManager.AfsUsageLedger.Get(lqKey)
 			if !found {
-				t.Fatal("expected an AfsConsumedResources entry after settlement")
+				t.Fatal("expected an AfsUsageLedger entry after settlement")
 			}
 			gotCPU := gotEntry.Resources[corev1.ResourceCPU]
 			if gotCPU.MilliValue() != tc.wantCPUMilli {
@@ -2273,5 +3125,170 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 				t.Errorf("unexpected StatusAccounted: want %t, got %t", tc.wantStatusAccounted, gotEntry.StatusAccounted)
 			}
 		})
+	}
+}
+
+// setupAfsPenaltyTest builds the shared fixture for the AFS penalty-lifecycle
+// tests: an active ClusterQueue "cq" with LocalQueue ns/lq registered in both
+// caches, and a reconciler with AFS enabled and a fake clock at now.
+func setupAfsPenaltyTest(t *testing.T, now time.Time) (*qcache.Manager, *WorkloadReconciler, context.Context, logr.Logger) {
+	t.Helper()
+	afsConfig := &configapi.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+	}
+	fakeClock := testingclock.NewFakeClock(now)
+	cl := utiltesting.NewClientBuilder().Build()
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock),
+		qcache.WithAdmissionFairSharing(afsConfig),
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{},
+		WithAdmissionFairSharing(afsConfig), WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler.clock = fakeClock
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	setupLocalQueue(ctx, t, cl, qManager, lq, false)
+	if err := cqCache.AddLocalQueue(lq); err != nil {
+		t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+	}
+	return qManager, reconciler, ctx, log
+}
+
+// A Workload deleted between its penalty push and its settlement must have its
+// pending penalty dropped, not settled: the penalty never reaches the consumed
+// history, and it stops inflating the LocalQueue's fair-sharing usage.
+func TestDeleteSubtractsPendingAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	qManager, reconciler, _, _ := setupAfsPenaltyTest(t, now)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		SimpleReserveQuota("cq", "rf", now).
+		Obj()
+	lqKey := utilqueue.KeyFromWorkload(wl)
+	qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(wl)),
+		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
+
+	reconciler.handleDelete(t.Context(), event.TypedDeleteEvent[*kueue.Workload]{Object: wl})
+
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("deleting a quota-reserved workload left its entry penalty pending: %v",
+			qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+	if entry, found := qManager.AfsUsageLedger.Get(lqKey); found {
+		if gotCPU := entry.Resources[corev1.ResourceCPU]; !gotCPU.IsZero() {
+			t.Errorf("deletion settled the penalty into consumed usage instead of dropping it: got %s CPU", gotCPU.String())
+		}
+	}
+}
+
+// Transitions that make settlement unreachable must drop the pending record,
+// while eviction on the same LocalQueue keeps it (penalty policy unchanged).
+func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	makeWl := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Queue("lq").
+			Request(corev1.ResourceCPU, "4")
+	}
+	quotaReserved := makeWl().SimpleReserveQuota("cq", "rf", now).Obj()
+
+	cases := map[string]struct {
+		oldWl *kueue.Workload
+		newWl *kueue.Workload
+		// wantPendingOn maps a LocalQueue key to whether a penalty must still
+		// be pending there after the update.
+		wantPendingOn map[utilqueue.LocalQueueReference]bool
+	}{
+		"moving to another LocalQueue drops the record under the previous one": {
+			oldWl: makeWl().Obj(),
+			newWl: makeWl().Queue("lq2").Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{
+				"ns/lq": false, "ns/lq2": false,
+			},
+		},
+		"deactivation with the reservation gone drops the record": {
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Active(false).Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
+		},
+		"deactivation that keeps the reservation keeps the record": {
+			// Reactivated in place, the Workload can reach Admitted without a
+			// new scheduler assume, so its penalty must still be settleable.
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Active(false).SimpleReserveQuota("cq", "rf", now).Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
+		},
+		"finishing without admission drops the record": {
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Finished().Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
+		},
+		"eviction back to pending on the same LocalQueue keeps the record": {
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			qManager, reconciler, _, _ := setupAfsPenaltyTest(t, now)
+			qManager.AfsUsageLedger.PushPenalty("ns/lq", queueafs.WorkloadReference(workload.Key(tc.oldWl)),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
+
+			reconciler.handleUpdate(t.Context(), event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: tc.oldWl.DeepCopy(),
+				ObjectNew: tc.newWl.DeepCopy(),
+			})
+
+			for lqKey, wantPending := range tc.wantPendingOn {
+				if got := qManager.AfsUsageLedger.HasPendingPenalty(lqKey); got != wantPending {
+					t.Errorf("HasPendingPenalty(%q) = %t, want %t (peek: %v)",
+						lqKey, got, wantPending, qManager.AfsUsageLedger.PeekPenalty(lqKey))
+				}
+			}
+			// The subtraction must not materialize an entry for an untracked queue.
+			if _, found := qManager.AfsUsageLedger.Get("ns/lq2"); found {
+				t.Error("the update created a ledger entry for a LocalQueue that had none")
+			}
+		})
+	}
+}
+
+// Settling twice for the same Workload must fold its penalty exactly once: the
+// first settlement consumes the record, so the second finds nothing to fold.
+func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	qManager, reconciler, _, log := setupAfsPenaltyTest(t, now)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		SimpleReserveQuota("cq", "rf", now).
+		AdmittedAt(true, now).
+		Obj()
+	lqKey := utilqueue.KeyFromWorkload(wl)
+	qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(wl)),
+		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
+
+	reconciler.updateAfsConsumedUsage(log, wl)
+	reconciler.updateAfsConsumedUsage(log, wl)
+
+	entry, found := qManager.AfsUsageLedger.Get(lqKey)
+	if !found {
+		t.Fatal("expected an AfsUsageLedger entry after settlement")
+	}
+	if gotCPU := entry.Resources[corev1.ResourceCPU]; gotCPU.MilliValue() != 2_000 {
+		t.Errorf("consumed CPU after settling twice = %dm, want 2000m (folded once)", gotCPU.MilliValue())
+	}
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }

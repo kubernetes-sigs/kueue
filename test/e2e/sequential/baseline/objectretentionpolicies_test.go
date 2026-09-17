@@ -23,13 +23,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -71,7 +69,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 			Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 			RecoveryTimeout: nil,
 			RequeuingStrategy: &configapi.RequeuingStrategy{
-				Timestamp:          ptr.To(configapi.EvictionTimestamp),
+				Timestamp:          new(configapi.EvictionTimestamp),
 				BackoffBaseSeconds: new(int32(1)),
 				BackoffLimitCount:  new(int32(1)),
 			},
@@ -108,7 +106,6 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 
 		ginkgo.By("Enable ObjectRetentionPolicies feature gate", func() {
 			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
-				cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 				cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: util.TinyTimeout},
@@ -143,7 +140,6 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 
 	ginkgo.BeforeAll(func() {
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
-			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
 					AfterFinished:           &metav1.Duration{Duration: util.TinyTimeout},
@@ -277,7 +273,6 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 
 	ginkgo.BeforeAll(func() {
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
-			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
 					AfterDeactivatedByKueue: &metav1.Duration{Duration: util.TinyTimeout},
@@ -288,7 +283,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          ptr.To(configapi.EvictionTimestamp),
+					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(1)),
 					BackoffLimitCount:  new(int32(1)),
 				},

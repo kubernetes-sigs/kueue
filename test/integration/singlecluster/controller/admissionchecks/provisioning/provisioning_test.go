@@ -180,6 +180,41 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 
+		ginkgo.It("Should not create a provisioning request when all admitted PodSet counts are zero", framework.SlowSpec, func() {
+			zeroCountAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("ps1").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "0").
+						Count(0).
+						Obj(),
+					utiltestingapi.MakePodSetAssignment("ps2").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "0").
+						Count(0).
+						Obj(),
+				).
+				Obj()
+
+			ginkgo.By("Setting a quota reservation with zero admitted counts", func() {
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, zeroCountAdmission)
+			})
+
+			ginkgo.By("Checking the admission check is ready because no request is needed", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					check := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(check).NotTo(gomega.BeNil())
+					g.Expect(check.State).To(gomega.Equal(kueue.CheckStateReady))
+					g.Expect(check.Message).To(gomega.Equal(provisioning.NoRequestNeeded))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking no provisioning request is created", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should create provisioning requests after quota is reserved and preserve it when reservation is lost", framework.SlowSpec, func() {
 			ginkgo.By("Setting the quota reservation to the workload", func() {
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)

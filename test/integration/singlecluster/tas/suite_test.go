@@ -19,6 +19,7 @@ package tas
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -40,6 +41,7 @@ import (
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -51,8 +53,6 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	// Cleanup after https://github.com/kubernetes-sigs/kueue/issues/8653
-	qManager *qcache.Manager
 )
 
 func TestAPIs(t *testing.T) {
@@ -92,6 +92,9 @@ func managerSetupWithConfig(
 
 		cacheOptions := []schdcache.Option{
 			schdcache.WithResourceTransformations(resourceTransformations),
+			// Nil unless the caller opts in, which keeps fair sharing off for the
+			// suites that do not configure it.
+			schdcache.WithFairSharing(fairsharing.Enabled(controllersCfg.FairSharing)),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
@@ -100,7 +103,6 @@ func managerSetupWithConfig(
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
-		qManager = queues
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,
@@ -111,7 +113,7 @@ func managerSetupWithConfig(
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
-		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil, tas.WithRequeueBatchInterval(time.Second))
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 		err = pod.SetupWebhook(mgr, jobframework.WithQueues(queues))
@@ -136,6 +138,7 @@ func managerSetupWithConfig(
 			mgr.GetClient(),
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
+			scheduler.WithFairSharing(controllersCfg.FairSharing),
 		)
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

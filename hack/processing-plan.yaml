@@ -36,6 +36,34 @@ files:
           labels:
           {{- include "kueue.labels" . | nindent 4 }}
         indentation: 2
+  - path: ./config/components/crd/alpha/bases/*.yaml
+    outputDir: ./charts/kueue/templates/crd/
+    removeComments: true
+    excludes:
+      - kustomization.yaml
+    continueOnError: true
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata.annotations
+        value: |
+          {{- if .Values.enableCertManager }}
+          cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
+          {{- end }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.enableAlphaAPIs }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
   - path: ./config/components/rbac/*.yaml
     outputDir: ./charts/kueue/templates/rbac
     removeComments: true
@@ -58,6 +86,16 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
+      # Webhook configurations are named after the release, so the names the manager role
+      # grants must be prefixed to match; CRD names must not be, hence onItemCondition.
+      # addKeyIfMissing bypasses a precheck that cannot parse the trailing []; onFileCondition
+      # then stops that bypass adding an empty rules list to the bindings and service account.
+      - type: APPEND
+        key: .rules.[].resourceNames.[]
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.rules != null'
+        onItemCondition: '.resourceNames != null and (.resources.[0] == "mutatingwebhookconfigurations" or .resources.[0] == "validatingwebhookconfigurations")'
+        addKeyIfMissing: true
     postOperations:
       - type: INSERT_TEXT
         key: .metadata.labels
@@ -370,12 +408,38 @@ files:
           {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+  - path: ./config/components/map/manifests.yaml
+    outputDir: ./charts/kueue/templates/map/
+    removeComments: true
+    continueOnError: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: APPEND
+        key: .spec.policyName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "MutatingAdmissionPolicyBinding"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+            {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.enableMutatingAdmissionPolicy (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy") }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
   - path: ./config/components/kueueviz/*.yaml
     outputDir: ./charts/kueue/templates/kueueviz
     removeComments: true
     excludes:
       - kustomization.yaml
-      - frontend-configmap.yaml
     continueOnError: true
     operations:
       - type: UPDATE
@@ -441,6 +505,10 @@ files:
       - type: DELETE
         key: .spec.template.spec.containers.[].securityContext
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: UPDATE
+        key: .data
+        value: '{"env.js": "window.env = {\n  VITE_WEBSOCKET_URL: \"{{ $backendUrl }}\",\n  REACT_APP_WEBSOCKET_URL: \"{{ $backendUrl }}\"\n};\n"}'
+        onFileCondition: '.kind == "ConfigMap"'
     postOperations:
       - type: INSERT_TEXT
         key: .spec
@@ -492,22 +560,36 @@ files:
       - type: INSERT_TEXT
         key: .spec
         value: |
-          {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- if $hasTls }}
           tls:
             - hosts:
                 - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
-              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+              {{- with $tlsSecretName }}
+              secretName: '{{ . }}'
+              {{- end }}
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         key: .spec
         value: |
-          {{- if .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          {{- $tlsEnabled := .Values.kueueViz.frontend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- if $hasTls }}
           tls:
             - hosts:
                 - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
-              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName }}'
+              {{- with $tlsSecretName }}
+              secretName: '{{ . }}'
+              {{- end }}
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
@@ -610,8 +692,27 @@ files:
             - apiGroups: ["authentication.k8s.io"]
               resources: ["tokenreviews"]
               verbs: ["create"]
+            - apiGroups: ["authorization.k8s.io"]
+              resources: ["subjectaccessreviews"]
+              verbs: ["create"]
           {{- end }}
         onFileCondition: '.kind == "ClusterRole"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- /* Path routing serves the dashboard and the backend from one origin, so the
+                 frontend is given no URL and falls back to the origin the page came from. */}}
+          {{- $backendUrl := "" }}
+          {{- if not .Values.kueueViz.ingress.enabled }}
+          {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- $scheme := ternary "wss" "ws" $hasTls }}
+          {{- $backendUrl = printf "%s://%s" $scheme (.Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local") }}
+          {{- end }}
+        onFileCondition: '.kind == "ConfigMap"'
       - type: INSERT_TEXT
         position: START
         value: |
@@ -625,7 +726,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         position: END
@@ -635,7 +736,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
         position: END

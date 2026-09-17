@@ -733,12 +733,12 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 		},
 		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
-		// returns Unlimited (math.MaxInt64 sentinel). calculateLendable then aggregates
-		// potentialAvailable and lendable["cpu"] saturates to Unlimited (MaxInt64).
-		// The ratio float64(b.Int64())*1000/float64(lr.Int64()) evaluates to a tiny
+		// is exact past int64. calculateLendable then aggregates potentialAvailable
+		// and lendable["cpu"] carries the whole of it.
+		// b.PerThousandOf(lr) divides the exact operands and evaluates to a tiny
 		// positive finite number; math.Ceil rounds it up to 1. This test pins that
 		// behaviour and guards against NaN/Inf regressions.
-		"borrowing against unlimited lendable capacity (exabyte-scale quota)": {
+		"borrowing against an exabyte-scale lendable quota": {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000), // 1 CPU
 			},
@@ -755,7 +755,7 @@ func TestDominantResourceShare(t *testing.T) {
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").
-						// "1E" CPU overflows int64 milliCPU → AmountFromQuantity returns Unlimited.
+						// "1E" CPU is past int64 in milliCPU and is charged as the number it is.
 						ResourceQuotaWrapper("cpu").NominalQuota("1E").Append().
 						Obj(),
 				).Obj(),
@@ -763,7 +763,8 @@ func TestDominantResourceShare(t *testing.T) {
 				{
 					Name:     "cq",
 					NodeType: nodeTypeCq,
-					// ratio = float64(1000)*1000/float64(MaxInt64) ≈ 1.09e-13; math.Ceil → 1.
+					// ratio = 1000*1000/10^21 = 1e-15, the whole 1E quota being lendable;
+					// math.Ceil → 1.
 					DrValue:   1,
 					DrName:    corev1.ResourceCPU,
 					Borrowing: true,
@@ -811,15 +812,15 @@ func TestDominantResourceShare(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().AmountQuantity(fr.Resource, v)
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
 
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission.Obj(), now).Obj()
 
-				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				cache.AddOrUpdateWorkload(t.Context(), log, wl)
+				snapshot.AddWorkload(workload.NewInfo(log, wl))
 				i++
 			}
 
@@ -960,14 +961,14 @@ func TestIsBorrowingOn(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
+				quantity := resources.NewResourceFormatter().AmountQuantity(fr.Resource, v)
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "default-namespace").
 					ReserveQuotaAt(admission.Obj(), now).Obj()
-				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				cache.AddOrUpdateWorkload(t.Context(), log, wl)
+				snapshot.AddWorkload(workload.NewInfo(log, wl))
 				i++
 			}
 
@@ -978,6 +979,33 @@ func TestIsBorrowingOn(t *testing.T) {
 			}
 			if got := drs.IsBorrowingOn(tc.requestedFRs); got != tc.wantBorrowingOnRequested {
 				t.Errorf("IsBorrowingOn() = %v, want %v", got, tc.wantBorrowingOnRequested)
+			}
+		})
+	}
+}
+
+func TestZeroWeightBorrows(t *testing.T) {
+	cases := map[string]struct {
+		drs  DRS
+		want bool
+	}{
+		"zero weight and borrowing returns true": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			want: true,
+		},
+		"zero weight and not borrowing returns false": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 0},
+			want: false,
+		},
+		"non-zero weight and borrowing returns false": {
+			drs:  DRS{fairWeight: 1, unweightedRatio: 100},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.drs.ZeroWeightBorrows(); got != tc.want {
+				t.Errorf("ZeroWeightBorrows() = %v, want %v", got, tc.want)
 			}
 		})
 	}

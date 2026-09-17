@@ -19,12 +19,16 @@ package core
 import (
 	"time"
 
+	resourcev1 "k8s.io/api/resource/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/dqo"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -41,12 +45,13 @@ const (
 
 // SetupControllersOpts holds optional dependencies for SetupControllers.
 type SetupControllersOpts struct {
-	RoleTracker            *roletracker.RoleTracker
-	PreemptionExpectations *expectations.Store
-	CustomLabels           *metrics.CustomLabels
-	DRAMapper              *dra.ResourceMapper
-	DRABackedResources     *dra.ExtendedResourceCache
-	ResourceFormatter      *resources.ResourceFormatter
+	RoleTracker               *roletracker.RoleTracker
+	PreemptionExpectations    *expectations.Store
+	CustomLabels              *metrics.CustomLabels
+	DRAMapper                 *dra.ResourceMapper
+	DRABackedResources        *dra.ExtendedResourceCache
+	ResourceFormatter         *resources.ResourceFormatter
+	ResourceSliceAPIAvailable bool
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -97,6 +102,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	)
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
+	cohortRec.AddUpdateWatcher(cqRec)
 	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ClusterQueue", err
 	}
@@ -113,6 +119,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithDRAMapper(opts.DRAMapper),
 		WithDRABackedResources(opts.DRABackedResources),
 		WithResourceFormatter(opts.ResourceFormatter),
+		WithResourceSliceAPIAvailable(opts.ResourceSliceAPIAvailable),
 	)
 	if features.Enabled(features.KueueDRAIntegration) {
 		qManager.SetDRAReconcileChannel(workloadRec.GetDRAReconcileChannel())
@@ -122,10 +129,17 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "Workload", err
 	}
 
-	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) || features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
-		rsRec := NewResourceSliceReconciler(qManager, cfg, opts.RoleTracker)
+	if opts.ResourceSliceAPIAvailable {
+		rsRec := NewResourceSliceReconciler(qManager, cc, cfg, opts.RoleTracker)
 		if err := rsRec.SetupWithManager(mgr, cfg); err != nil {
 			return "ResourceSlice", err
+		}
+	}
+
+	if features.Enabled(features.DynamicQuotaOrchestration) {
+		dqoRec := dqo.NewReconciler(mgr.GetClient(), dqo.WithRoleTracker(opts.RoleTracker))
+		if err := dqoRec.SetupWithManager(mgr); err != nil {
+			return "DynamicQuotaOrchestrator", err
 		}
 	}
 
@@ -146,6 +160,9 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 	if cfg.RecoveryTimeout != nil && cfg.RecoveryTimeout.Duration > 0 {
 		result.recoveryTimeout = &cfg.RecoveryTimeout.Duration
 	}
+	if waitforpodsready.PodsScheduledTrackingEnabled(cfg) {
+		result.unscheduledTimeout = &cfg.UnscheduledTimeout.Duration
+	}
 	if cfg.RequeuingStrategy != nil {
 		result.requeuingBackoffBaseSeconds = *cfg.RequeuingStrategy.BackoffBaseSeconds
 		result.requeuingBackoffLimitCount = cfg.RequeuingStrategy.BackoffLimitCount
@@ -163,4 +180,16 @@ func workloadRetention(cfg *configapi.ObjectRetentionPolicies) *workloadRetentio
 	return &workloadRetentionConfig{
 		afterFinished: &cfg.Workloads.AfterFinished.Duration,
 	}
+}
+
+// ServerSupportsResourceSlice checks if the server supports the ResourceSlice API (resource.k8s.io/v1).
+func ServerSupportsResourceSlice(mgr manager.Manager) error {
+	gvk, err := apiutil.GVKForObject(&resourcev1.ResourceSlice{}, mgr.GetScheme())
+	if err != nil {
+		return err
+	}
+	if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+		return err
+	}
+	return nil
 }

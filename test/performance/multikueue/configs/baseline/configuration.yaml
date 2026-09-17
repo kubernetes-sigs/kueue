@@ -1,0 +1,20 @@
+# Executable inputs for the MultiKueue control-plane performance baseline.
+# Keep all limits and controller settings explicit so production-default changes
+# cannot silently change the calibrated scenario.
+workloadCount: 1000
+workerClusters: 3
+# A single generator avoids overflowing cold API-server watch buffers while
+# still building an admission backlog well before MultiKueue finishes.
+creationWorkers: 1
+cpuRequest: 1m
+localClientQPS: 1000
+localClientBurst: 1000
+remoteClientQPS: 1000
+remoteClientBurst: 1000
+workloadConcurrency: 10
+dispatcher: kueue.x-k8s.io/multikueue-dispatcher-all-at-once
+gcInterval: 1m
+workerLostTimeout: 15m
+eventsBatchPeriod: 1s
+# Safety bound for a hung run, not a performance threshold.
+timeout: 10m

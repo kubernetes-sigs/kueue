@@ -31,7 +31,6 @@ const ResourceFlavorDetail = () => {
 
   useEffect(() => {
     if (flavorData && flavorData.name) {
-      console.log("Received flavor data:", flavorData);
       setFlavor(flavorData);
     }
   }, [flavorData]);

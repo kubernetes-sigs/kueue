@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
-	resourceapi "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,7 +41,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			defaultFlavor *kueue.ResourceFlavor
 			gpuFlavor     *kueue.ResourceFlavor
 			ns            *corev1.Namespace
-			deviceClass   *resourceapi.DeviceClass
+			deviceClass   *resourcev1.DeviceClass
 			rct           *resourcev1.ResourceClaimTemplate
 
 			cqs []*kueue.ClusterQueue
@@ -97,7 +96,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
-			deviceClass = &resourceapi.DeviceClass{
+			deviceClass = &resourcev1.DeviceClass{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "gpu.example.com",
 				},
@@ -297,7 +296,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			defaultFlavor *kueue.ResourceFlavor
 			gpuFlavor     *kueue.ResourceFlavor
 			ns            *corev1.Namespace
-			deviceClass   *resourceapi.DeviceClass
+			deviceClass   *resourcev1.DeviceClass
 			rct           *resourcev1.ResourceClaimTemplate
 
 			cqs []*kueue.ClusterQueue
@@ -330,7 +329,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
-			deviceClass = &resourceapi.DeviceClass{
+			deviceClass = &resourcev1.DeviceClass{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "gpu.example.com",
 				},

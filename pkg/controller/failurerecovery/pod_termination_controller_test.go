@@ -30,6 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -143,125 +144,77 @@ func TestUpdateEventFilter(t *testing.T) {
 	}
 }
 
-func TestNodeEventsPredicateCreate(t *testing.T) {
-	cases := map[string]struct {
-		node       *corev1.Node
-		wantResult bool
-	}{
-		"node has unreachable taint": {
-			node: testingnode.MakeNode("node").
-				Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
-				Obj(),
-			wantResult: true,
-		},
-		"node has no taints": {
-			node:       testingnode.MakeNode("node").Obj(),
-			wantResult: false,
-		},
-		"node has an unrelated taint only": {
-			node: testingnode.MakeNode("node").
-				Taints(corev1.Taint{Key: corev1.TaintNodeNotReady}).
-				Obj(),
-			wantResult: false,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			p := &nodeEventsPredicate{}
-			gotResult := p.Create(event.TypedCreateEvent[*corev1.Node]{Object: tc.node})
-
-			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
-				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestNodeEventsPredicateUpdate(t *testing.T) {
-	nodeWithoutTaint := testingnode.MakeNode("node").
-		Obj()
+func TestNodeEventsPredicate(t *testing.T) {
+	nodeWithoutTaint := testingnode.MakeNode("node").Obj()
 	nodeWithUnreachableTaint := testingnode.MakeNode("node").
 		Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
 		Obj()
+	nodeWithNotReadyTaint := testingnode.MakeNode("node").
+		Taints(corev1.Taint{Key: corev1.TaintNodeNotReady}).
+		Obj()
 
 	cases := map[string]struct {
-		oldNode    *corev1.Node
-		newNode    *corev1.Node
+		invoke     func(p predicate.TypedPredicate[*corev1.Node]) bool
 		wantResult bool
 	}{
-		"no taint to no taint": {
-			oldNode:    nodeWithoutTaint,
-			newNode:    nodeWithoutTaint,
-			wantResult: false,
-		},
-		"no taint to unreachable taint": {
-			oldNode:    nodeWithoutTaint,
-			newNode:    nodeWithUnreachableTaint,
+		"create node with unreachable taint": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Create(event.TypedCreateEvent[*corev1.Node]{Object: nodeWithUnreachableTaint})
+			},
 			wantResult: true,
 		},
-		"unreachable taint to unreachable taint": {
-			oldNode:    nodeWithUnreachableTaint,
-			newNode:    nodeWithUnreachableTaint,
+		"create node with no taints": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Create(event.TypedCreateEvent[*corev1.Node]{Object: nodeWithoutTaint})
+			},
 			wantResult: false,
 		},
-		"unreachable taint to no taint": {
-			oldNode:    nodeWithUnreachableTaint,
-			newNode:    nodeWithoutTaint,
+		"create node with an unrelated taint only": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Create(event.TypedCreateEvent[*corev1.Node]{Object: nodeWithNotReadyTaint})
+			},
 			wantResult: false,
 		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			p := &nodeEventsPredicate{}
-			gotResult := p.Update(event.TypedUpdateEvent[*corev1.Node]{ObjectOld: tc.oldNode, ObjectNew: tc.newNode})
-
-			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
-				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestNodeEventsPredicateDelete(t *testing.T) {
-	cases := map[string]struct {
-		node       *corev1.Node
-		wantResult bool
-	}{
-		"node has unreachable taint": {
-			node: testingnode.MakeNode("node").
-				Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
-				Obj(),
+		"update no taint to no taint": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Update(event.TypedUpdateEvent[*corev1.Node]{ObjectOld: nodeWithoutTaint, ObjectNew: nodeWithoutTaint})
+			},
 			wantResult: false,
 		},
-		"node has no taints": {
-			node:       testingnode.MakeNode("node").Obj(),
+		"update no taint to unreachable taint": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Update(event.TypedUpdateEvent[*corev1.Node]{ObjectOld: nodeWithoutTaint, ObjectNew: nodeWithUnreachableTaint})
+			},
+			wantResult: true,
+		},
+		"update unreachable taint to unreachable taint": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Update(event.TypedUpdateEvent[*corev1.Node]{ObjectOld: nodeWithUnreachableTaint, ObjectNew: nodeWithUnreachableTaint})
+			},
 			wantResult: false,
 		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			p := &nodeEventsPredicate{}
-			gotResult := p.Delete(event.TypedDeleteEvent[*corev1.Node]{Object: tc.node})
-
-			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
-				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestNodeEventsPredicateGeneric(t *testing.T) {
-	cases := map[string]struct {
-		node       *corev1.Node
-		wantResult bool
-	}{
-		"node has unreachable taint": {
-			node: testingnode.MakeNode("node").
-				Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).
-				Obj(),
+		"update unreachable taint to no taint": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Update(event.TypedUpdateEvent[*corev1.Node]{ObjectOld: nodeWithUnreachableTaint, ObjectNew: nodeWithoutTaint})
+			},
+			wantResult: false,
+		},
+		"delete node with unreachable taint": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Delete(event.TypedDeleteEvent[*corev1.Node]{Object: nodeWithUnreachableTaint})
+			},
+			wantResult: false,
+		},
+		"delete node with no taints": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Delete(event.TypedDeleteEvent[*corev1.Node]{Object: nodeWithoutTaint})
+			},
+			wantResult: false,
+		},
+		"generic node with unreachable taint": {
+			invoke: func(p predicate.TypedPredicate[*corev1.Node]) bool {
+				return p.Generic(event.TypedGenericEvent[*corev1.Node]{Object: nodeWithUnreachableTaint})
+			},
 			wantResult: false,
 		},
 	}
@@ -269,7 +222,7 @@ func TestNodeEventsPredicateGeneric(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			p := &nodeEventsPredicate{}
-			gotResult := p.Generic(event.TypedGenericEvent[*corev1.Node]{Object: tc.node})
+			gotResult := tc.invoke(p)
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected predicate result (-want/+got):\n%s", diff)

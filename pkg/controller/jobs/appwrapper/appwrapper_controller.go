@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -56,8 +55,8 @@ var (
 var _ admission.Defaulter[*awv1beta2.AppWrapper] = &jobframework.BaseWebhook[*awv1beta2.AppWrapper]{}
 var _ admission.Validator[*awv1beta2.AppWrapper] = &jobframework.BaseWebhook[*awv1beta2.AppWrapper]{}
 
-func init() {
-	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+func RegisterIntegration(m *jobframework.IntegrationManager) error {
+	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		NewJob:            NewJob,
 		GVK:               gvk,
 		NewReconciler:     NewReconciler,
@@ -66,7 +65,7 @@ func init() {
 		SetupIndexes:      SetupIndexes,
 		AddToScheme:       awv1beta2.AddToScheme,
 		MultiKueueAdapter: &multiKueueAdapter{},
-	}))
+	})
 }
 
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;watch;update;patch

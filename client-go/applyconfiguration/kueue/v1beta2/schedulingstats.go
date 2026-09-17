@@ -22,6 +22,7 @@ package v1beta2
 // with apply.
 type SchedulingStatsApplyConfiguration struct {
 	// evictions tracks eviction statistics by reason and underlyingCause.
+	//
 	Evictions []WorkloadSchedulingStatsEvictionApplyConfiguration `json:"evictions,omitempty"`
 }
 

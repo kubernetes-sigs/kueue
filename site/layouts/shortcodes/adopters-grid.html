@@ -31,15 +31,15 @@
           
           <!-- Custom Pastel Badges (Inline styled for absolute rendering reliability) -->
           {{ if eq .type "End User" }}
-            <span style="display: inline-block; padding: 2px 8px; background-color: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
+            <span class="chip-sky" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
               {{ T "adopters_badge_end_user" }}
             </span>
           {{ else if eq .type "Provider" }}
-            <span style="display: inline-block; padding: 2px 8px; background-color: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
+            <span class="chip-green" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
               {{ T "adopters_badge_provider" }}
             </span>
           {{ else }}
-            <span style="display: inline-block; padding: 2px 8px; background-color: #f8fafc; color: #475569; border: 1px solid #e2e8f0; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
+            <span class="chip-neutral" style="display: inline-block; padding: 2px 8px; border-radius: 50rem; font-size: 0.65rem; font-weight: 600; font-family: monospace; white-space: nowrap;">
               {{ T .type | default .type }}
             </span>
           {{ end }}
@@ -53,7 +53,7 @@
         <!-- Integrations (Tech Stack Pills) -->
         <div class="d-flex flex-wrap gap-1.5 mb-3">
           {{ range .integrations }}
-            <span style="display: inline-block; padding: 2px 6px; background-color: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.65rem; font-family: monospace; font-weight: 500;">
+            <span class="chip-neutral" style="display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-family: monospace; font-weight: 500;">
               {{ . }}
             </span>
           {{ end }}

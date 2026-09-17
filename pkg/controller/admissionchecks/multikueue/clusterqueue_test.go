@@ -17,6 +17,7 @@ limitations under the License.
 package multikueue
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -32,9 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -453,9 +455,9 @@ func TestCQReconcile(t *testing.T) {
 				WithStatusSubresource(tc.cq).
 				Build()
 
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, recorder)
+			cRec := newClustersReconciler(c, TestNamespace, withAdapters(adapters), withEventRecorder(recorder))
 			cRec.rootContext = ctx
 			for worker, wState := range tc.workers {
 				workerClient := NewNeverCachingClient(utiltesting.NewClientBuilder().
@@ -521,6 +523,30 @@ func TestCQReconcile(t *testing.T) {
 				t.Errorf("Unexpected status condition (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestCQReconciler_UpdateQuotaAutomationCondition(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq1").Obj()
+	c := utiltesting.NewClientBuilder().WithObjects(cq).WithStatusSubresource(cq).Build()
+	reconciler := &cqReconciler{client: c}
+	message := strings.Repeat("a", 32*1024+1)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	if err := reconciler.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", message); err != nil {
+		t.Fatalf("updating quota automation condition: %v", err)
+	}
+
+	gotCQ := &kueue.ClusterQueue{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(cq), gotCQ); err != nil {
+		t.Fatalf("getting ClusterQueue: %v", err)
+	}
+	gotCondition := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
+	if gotCondition == nil {
+		t.Fatal("expected quota automation condition")
+	}
+	if diff := cmp.Diff(api.TruncateConditionMessage(message), gotCondition.Message); diff != "" {
+		t.Errorf("unexpected condition message (-want/+got):\n%s", diff)
 	}
 }
 

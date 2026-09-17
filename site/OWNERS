@@ -1,6 +1,23 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
-approvers:
-- moficodes
-- kannon92
+filters:
+  # Catch-all (required when using filters)
+  ".*":
+    approvers:
+      - moficodes
+      - kannon92
 
+
+  "^content/(en|zh-CN)/v.*$":
+    approvers:
+      - release-team
+
+  "^static/v.*$":
+    approvers:
+      - release-team
+
+  "^hugo\\.toml$":
+    approvers:
+      - hugo-approvers
+      - infra-approvers
+      - release-team

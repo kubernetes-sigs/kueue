@@ -91,8 +91,7 @@ func (c *Configuration) Validate() field.ErrorList {
 // If the path is empty, it returns the default configuration.
 func Load(path string) (*Configuration, error) {
 	if path == "" {
-		cfg := Default()
-		return &cfg, nil
+		return new(Default()), nil
 	}
 
 	data, err := os.ReadFile(path)

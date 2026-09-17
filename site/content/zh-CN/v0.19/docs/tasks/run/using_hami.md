@@ -66,7 +66,7 @@ Kueue 将计算 `nvidia.com/total-gpumem: 2048`（1024 × 2）。
 配置你的 ClusterQueue 以跟踪 vGPU 实例计数和总资源：
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: vgpu-cluster-queue

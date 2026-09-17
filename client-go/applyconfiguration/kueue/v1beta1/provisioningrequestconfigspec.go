@@ -30,8 +30,10 @@ import (
 type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	// provisioningClassName describes the different modes of provisioning the resources.
 	// Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
+	//
 	ProvisioningClassName *string `json:"provisioningClassName,omitempty"`
 	// parameters contains all other parameters classes may require.
+	//
 	Parameters map[string]kueuev1beta1.Parameter `json:"parameters,omitempty"`
 	// managedResources contains the list of resources managed by the autoscaling.
 	//
@@ -42,6 +44,7 @@ type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	//
 	// If none of the workloads podsets is requesting at least a managed resource,
 	// the workload is considered ready.
+	//
 	ManagedResources []v1.ResourceName `json:"managedResources,omitempty"`
 	// retryStrategy defines strategy for retrying ProvisioningRequest.
 	// If null, then the default configuration is applied with the following parameter values:
@@ -51,9 +54,11 @@ type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	//
 	// To switch off retry mechanism
 	// set retryStrategy.backoffLimitCount to 0.
+	//
 	RetryStrategy *ProvisioningRequestRetryStrategyApplyConfiguration `json:"retryStrategy,omitempty"`
 	// podSetUpdates specifies the update of the workload's PodSetUpdates which
 	// are used to target the provisioned nodes.
+	//
 	PodSetUpdates *ProvisioningRequestPodSetUpdatesApplyConfiguration `json:"podSetUpdates,omitempty"`
 	// podSetMergePolicy specifies the policy for merging PodSets before being passed
 	// to the cluster autoscaler.
@@ -61,6 +66,7 @@ type ProvisioningRequestConfigSpecApplyConfiguration struct {
 	// The possible policies are:
 	// - `IdenticalPodTemplates`: Merges only identical PodTemplates.
 	// - `IdenticalWorkloadSchedulingRequirements`: Merges PodTemplates with identical fields that are considered when defining the workload scheduling requirements.
+	//
 	PodSetMergePolicy *kueuev1beta1.ProvisioningRequestConfigPodSetMergePolicy `json:"podSetMergePolicy,omitempty"`
 }
 

@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -70,6 +71,8 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
+		integrationManager := jobcontrollers.NewIntegrationManager()
+		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -87,16 +90,6 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		podReconciler, err := statefulset.NewPodReconciler(
-			ctx,
-			mgr.GetClient(),
-			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorder(constants.JobControllerName),
-			opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = podReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient())
@@ -134,7 +127,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-		jobframework.EnableIntegration(statefulset.FrameworkName)
+		integrationManager.EnableIntegration(statefulset.FrameworkName)
 
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

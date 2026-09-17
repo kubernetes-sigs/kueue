@@ -17,8 +17,11 @@ limitations under the License.
 package resource
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -35,7 +38,7 @@ func mergeResourceList(a, b corev1.ResourceList, f resolveConflict) corev1.Resou
 		if va, exists := ret[k]; !exists {
 			ret[k] = vb.DeepCopy()
 		} else if f != nil {
-			ret[k] = f(va, vb)
+			ret[k] = f(va, vb).DeepCopy()
 		}
 	}
 	return ret
@@ -82,36 +85,33 @@ func QuantityToFloat(q *resource.Quantity) float64 {
 	if q == nil || q.IsZero() {
 		return 0
 	}
-	if i64, isInt := q.AsInt64(); isInt {
-		return float64(i64)
-	}
-	return float64(q.MilliValue()) / 1000
+	return q.AsApproximateFloat64()
 }
 
-// MulByFloat multiplies every element in q by f.
-// Leverages k8s.io/apimachinery/pkg/api/resource package to provide precision to 3 decimal places
-// It expects f value to be in range [0,1], otherwise an overflow can happen.
+// Decimal multiplication grows the scale on every call, and callers re-multiply
+// the same value indefinitely, so results are rounded back to a fixed scale.
+const mulByFloatScale = 9
+
+// MulByFloat multiplies every element in q by f, which must be finite.
+// Uses arbitrary-precision decimals so that results below one milli-unit are not
+// truncated to zero and large quantities cannot overflow int64. Results are rounded
+// down so that repeatedly scaling a value by a factor below 1 decays it to zero
+// rather than settling on a non-zero fixed point.
 func MulByFloat(q corev1.ResourceList, f float64) corev1.ResourceList {
-	ret := q.DeepCopy()
-	for k, v := range ret {
-		scaledV := float64(v.MilliValue()) * f
-		ret[k] = *resource.NewMilliQuantity(int64(scaledV), resource.DecimalSI)
+	if q == nil {
+		return nil
+	}
+	factor, ok := new(inf.Dec).SetString(strconv.FormatFloat(f, 'f', -1, 64))
+	if !ok {
+		panic(fmt.Sprintf("MulByFloat called with a non-finite factor: %v", f))
+	}
+	ret := make(corev1.ResourceList, len(q))
+	for k, v := range q {
+		scaled := new(inf.Dec).Mul(v.AsDec(), factor)
+		scaled.Round(scaled, mulByFloatScale, inf.RoundDown)
+		ret[k] = *resource.NewDecimalQuantity(*scaled, resource.DecimalSI)
 	}
 	return ret
-}
-
-func IsZero(rl corev1.ResourceList) bool {
-	if len(rl) != 0 {
-		return false
-	}
-
-	for _, qty := range rl {
-		if !qty.IsZero() {
-			return false
-		}
-	}
-
-	return true
 }
 
 // IsExtendedResourceName returns true if the resource name is an extended resource.
@@ -132,4 +132,13 @@ func isNativeResource(name corev1.ResourceName) bool {
 
 func isHugePageResourceName(name corev1.ResourceName) bool {
 	return strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix)
+}
+
+// MultiplyQuantity returns the product of two resource.Quantity values with arbitrary precision.
+func MultiplyQuantity(value, mul resource.Quantity) resource.Quantity {
+	value = value.DeepCopy()
+	mul = mul.DeepCopy()
+	product := inf.Dec{}
+	product.Mul(value.AsDec(), mul.AsDec())
+	return *resource.NewDecimalQuantity(product, value.Format)
 }

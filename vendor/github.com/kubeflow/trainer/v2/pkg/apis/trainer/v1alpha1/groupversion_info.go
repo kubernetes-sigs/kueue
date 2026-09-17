@@ -47,6 +47,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&ClusterTrainingRuntimeList{},
 		&TrainingRuntime{},
 		&TrainingRuntimeList{},
+		&OptimizationJob{},
+		&OptimizationJobList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil

@@ -30,8 +30,10 @@ type PriorityClassRefApplyConfiguration struct {
 	// group is the API group of the PriorityClass object.
 	// Use "kueue.x-k8s.io" for WorkloadPriorityClass.
 	// Use "scheduling.k8s.io" for Pod PriorityClass.
+	//
 	Group *kueuev1beta2.PriorityClassGroup `json:"group,omitempty"`
 	// kind is the kind of the PriorityClass object.
+	//
 	Kind *kueuev1beta2.PriorityClassKind `json:"kind,omitempty"`
 	// name is the name of the PriorityClass the Workload is associated with.
 	// If specified, indicates the workload's priority.
@@ -40,6 +42,7 @@ type PriorityClassRefApplyConfiguration struct {
 	// the highest priority. Any other name must be defined by creating a
 	// PriorityClass object with that name. If not specified, the workload
 	// priority will be default or zero if there is no default.
+	//
 	Name *string `json:"name,omitempty"`
 }
 

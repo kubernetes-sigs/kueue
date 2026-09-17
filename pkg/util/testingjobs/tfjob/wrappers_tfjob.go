@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
@@ -74,7 +73,7 @@ func (j *TFJobWrapper) TFReplicaSpecs(replicaSpecs ...TFReplicaSpecRequirement) 
 
 func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
@@ -92,7 +91,7 @@ func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 	}
 
 	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
@@ -110,7 +109,7 @@ func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 	}
 
 	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",

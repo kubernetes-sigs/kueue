@@ -215,14 +215,16 @@ necessary to implement this enhancement.
 - Feature gate `WorkloadPriorityClassDefaulting` disabled by default.
 - Unit and integration tests.
 
-**Beta:**
+**Beta (v0.20):**
 - Feature gate enabled by default.
 - Address feedback from Alpha usage.
-- Re-evaluate whether defaulting should move from the Job webhook to the
-  Workload level based on user feedback and integration complexity.
+- The Job-webhook defaulting approach is retained for Beta, consistent with
+  `LocalQueueDefaulting`.
 
 **GA:**
 - Feature gate locked to true.
+- Re-evaluate whether defaulting should move from the Job webhook to the
+  Workload level based on user feedback and integration complexity.
 
 ## Alternatives
 

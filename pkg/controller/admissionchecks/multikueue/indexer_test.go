@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -48,7 +49,7 @@ func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
 
-	utilruntime.Must(jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+	utilruntime.Must(jobs.NewIntegrationManager().ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {
 			return cb.AddToScheme(scheme)
 		}

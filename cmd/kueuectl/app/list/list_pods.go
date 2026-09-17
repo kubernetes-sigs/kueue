@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -40,16 +41,14 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-
-	// Ensure linking of the job controllers.
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var (
 	podLong = templates.LongDesc(`
-		Lists all pods that matches the given criteria: should be part 
+		Lists all pods that match the given criteria: should be part 
 		of the specified Job kind, belonging to the specified namespace, 
-		matching the label selector or the field selector.)
+		matching the label selector or the field selector.
 
 		The --for=pod/pod-name option allows to find pods from the same 
 		pod group as the specified pod, including that pod itself. 
@@ -77,6 +76,7 @@ type PodOptions struct {
 	ForGVK                 schema.GroupVersionKind
 	ForObject              *unstructured.Unstructured
 	PodLabelSelector       string
+	IntegrationManager     *jobframework.IntegrationManager
 
 	Clientset k8s.Interface
 
@@ -85,8 +85,9 @@ type PodOptions struct {
 
 func NewPodOptions(streams genericiooptions.IOStreams) *PodOptions {
 	return &PodOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
-		IOStreams:  streams,
+		PrintFlags:         genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		IntegrationManager: jobs.NewIntegrationManager(),
+		IOStreams:          streams,
 	}
 }
 
@@ -138,7 +139,7 @@ func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	}
 
 	outputOption := ptr.Deref(o.PrintFlags.OutputFormat, "")
-	if outputOption == "" || strings.Contains(outputOption, "wide") {
+	if outputOption == "" || outputOption == "wide" {
 		o.ServerPrint = true
 	}
 
@@ -229,7 +230,7 @@ func (o *PodOptions) getForObject(infos []*resource.Info) (*unstructured.Unstruc
 
 // getPodLabelSelector returns the podLabels used as a standard selector for jobs
 func (o *PodOptions) getPodLabelSelector() (string, error) {
-	cbs, ok := jobframework.GetIntegrationByGVK(o.ForGVK)
+	cbs, ok := o.IntegrationManager.GetIntegrationByGVK(o.ForGVK)
 	if !ok {
 		return "", nil
 	}
@@ -276,9 +277,19 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 		return err
 	}
 
-	for _, pod := range infos {
-		if err = printer.PrintObj(pod.Object, tabWriter); err != nil {
+	if o.shouldPrintPodList() && len(infos) > 0 {
+		podList, err := podListFromInfos(infos)
+		if err != nil {
 			return err
+		}
+		if err = printer.PrintObj(podList, tabWriter); err != nil {
+			return err
+		}
+	} else {
+		for _, pod := range infos {
+			if err = printer.PrintObj(pod.Object, tabWriter); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -291,6 +302,28 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	}
 
 	return nil
+}
+
+func (o *PodOptions) shouldPrintPodList() bool {
+	outputFormat := ptr.Deref(o.PrintFlags.OutputFormat, "")
+	return outputFormat == "json" || outputFormat == "yaml"
+}
+
+func podListFromInfos(infos []*resource.Info) (*unstructured.UnstructuredList, error) {
+	podList := &unstructured.UnstructuredList{
+		Items: make([]unstructured.Unstructured, len(infos)),
+	}
+	podList.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("PodList"))
+
+	for i, info := range infos {
+		pod, ok := info.Object.(*unstructured.Unstructured)
+		if !ok {
+			return nil, fmt.Errorf("unexpected type %T", info.Object)
+		}
+		podList.Items[i] = *pod
+	}
+
+	return podList, nil
 }
 
 func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {

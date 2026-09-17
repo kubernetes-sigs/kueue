@@ -37,20 +37,33 @@ func (fr FlavorResource) String() string {
 
 type FlavorResourceQuantities map[FlavorResource]Amount
 
+// MarshalJSON writes the int64 projection of each amount, clamped at the ends.
+// It is a diagnostic shape rather than a round trip: two amounts that differ
+// only past int64 marshal to the same number, and unmarshalling does not
+// recover either. Nothing reads it back to reconstruct accounting.
 func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 	temp := make(map[string]int64, len(frq))
 	for flavorResource, num := range frq {
-		temp[flavorResource.String()] = num.Int64()
+		temp[flavorResource.String()] = num.asSaturatedInt64()
 	}
 	return json.Marshal(temp)
 }
 
-func (frq FlavorResourceQuantities) FlattenFlavors() MapRequests {
-	result := MapRequests{}
-	for key, val := range frq {
-		result[key.Resource] += val.Int64()
+// ToResourceList sums the flavors of each resource and converts each total
+// once, so the scale is applied before any narrowing.
+func (frq FlavorResourceQuantities) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
+	if len(frq) == 0 {
+		return nil
 	}
-	return result
+	exact := make(map[corev1.ResourceName]Amount, len(frq))
+	for fr, amount := range frq {
+		exact[fr.Resource] = exact[fr.Resource].Add(amount)
+	}
+	out := make(corev1.ResourceList, len(exact))
+	for name, amount := range exact {
+		out[name] = formatter.AmountQuantity(name, amount)
+	}
+	return out
 }
 
 // Clone returns a shallow copy of the map.

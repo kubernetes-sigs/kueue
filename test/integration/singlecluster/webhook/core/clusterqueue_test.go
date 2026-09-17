@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -26,7 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -36,8 +36,9 @@ import (
 )
 
 const (
-	resourcesMaxItems = 64
-	flavorsMaxItems   = 64
+	resourcesMaxItems      = 64
+	flavorsMaxItems        = 64
+	resourceGroupsMaxItems = 16
 )
 
 // defaultFlavorFungibility matches ClusterQueue defaulting (see apis defaulting).
@@ -79,7 +80,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
-						StopPolicy:        ptr.To(kueue.None),
+						StopPolicy:        new(kueue.None),
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyNever,
@@ -103,7 +104,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 							BorrowWithinCohort: &kueue.BorrowWithinCohort{
 								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-								MaxPriorityThreshold: ptr.To[int32](100),
+								MaxPriorityThreshold: new(int32(100)),
 							},
 						},
 					},
@@ -115,14 +116,14 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
-						StopPolicy:        ptr.To(kueue.None),
+						StopPolicy:        new(kueue.None),
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 							BorrowWithinCohort: &kueue.BorrowWithinCohort{
 								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-								MaxPriorityThreshold: ptr.To[int32](100),
+								MaxPriorityThreshold: new(int32(100)),
 							},
 						},
 					},
@@ -144,7 +145,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
-						StopPolicy:        ptr.To(kueue.None),
+						StopPolicy:        new(kueue.None),
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -532,7 +533,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 							ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 							BorrowWithinCohort: &kueue.BorrowWithinCohort{
 								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-								MaxPriorityThreshold: ptr.To[int32](10),
+								MaxPriorityThreshold: new(int32(10)),
 							},
 						},
 					},
@@ -651,6 +652,103 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				utiltesting.BeForbiddenError()),
+		)
+	})
+
+	ginkgo.When("Updating a ClusterQueue status", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		maxResourceGroups := make([]kueue.ResourceGroup, resourceGroupsMaxItems)
+		for i := range maxResourceGroups {
+			maxResourceGroups[i] = utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+			)
+		}
+		moreThanMaxResourceGroups := append(slices.Clone(maxResourceGroups), utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", resourceGroupsMaxItems)).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		))
+
+		ginkgo.DescribeTable("Validate status.effectiveQuotas on update",
+			func(eq *kueue.EffectiveQuotaStatus, matcher types.GomegaMatcher) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updateCQ kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
+					updateCQ.Status.EffectiveQuotas = eq
+					err := k8sClient.Status().Update(ctx, &updateCQ)
+					g.Expect(err).Should(matcher)
+					if err == nil {
+						var gotCQ kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &gotCQ)).Should(gomega.Succeed())
+						g.Expect(gotCQ.Status.EffectiveQuotas).Should(gomega.BeComparableTo(eq))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						utiltestingapi.ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("f0").
+								Resource(corev1.ResourceCPU, "1").
+								Obj(),
+						),
+					).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with maximum number of resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(maxResourceGroups...).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef apiGroup pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					APIGroup("Invalid_APIGroup").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef kind pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Kind("123Invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef name pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Name("@invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with more than 16 resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(moreThanMaxResourceGroups...).
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject flavor resource count mismatch with coveredResources",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						kueue.ResourceGroup{
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj(),
+							},
+						},
+					).
+					Obj(),
+				utiltesting.BeInvalidError()),
 		)
 	})
 })

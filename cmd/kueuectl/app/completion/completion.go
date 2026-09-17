@@ -30,6 +30,20 @@ import (
 
 const completionLimit = 100
 
+// SingleArg wraps a completion function so that it offers no suggestions once
+// a positional argument has already been provided. Use it for commands that
+// accept exactly one positional argument, such as stop and resume. Do not use
+// it for flag completion: there, args holds the positional arguments already
+// typed, which are unrelated to the flag value being completed.
+func SingleArg(fn func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective)) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		return fn(cmd, args, toComplete)
+	}
+}
+
 func NamespaceNameFunc(clientGetter clientgetter.ClientGetter) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		clientSet, err := clientGetter.K8sClientSet()
@@ -139,10 +153,6 @@ func WorkloadNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *bool
 
 func ClusterQueueNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
 		clientSet, err := clientGetter.KueueClientSet()
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError
@@ -177,10 +187,6 @@ func ClusterQueueNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *
 
 func LocalQueueNameFunc(clientGetter clientgetter.ClientGetter, activeStatus *bool) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
 		clientSet, err := clientGetter.KueueClientSet()
 		if err != nil {
 			return []string{}, cobra.ShellCompDirectiveError

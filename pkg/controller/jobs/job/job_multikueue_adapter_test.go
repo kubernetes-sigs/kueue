@@ -88,6 +88,61 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"sync does not propagate ttl seconds after finished to remote job when clearing is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: true,
+				features.WorkloadIdentifierAnnotations:                                    false,
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			wantWorkerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
+		"sync propagates ttl seconds after finished to remote job when clearing is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: false,
+				features.WorkloadIdentifierAnnotations:                                    false,
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "job1", Namespace: TestNamespace}, "wl1", "origin1")
+				return err
+			},
+
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					Obj(),
+			},
+			wantWorkerJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					TTLSecondsAfterFinished(0).
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					Obj(),
+			},
+		},
 		"sync intermediate status from remote job": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersJobs: []batchv1.Job{
@@ -255,12 +310,16 @@ func TestMultiKueueAdapter(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			managerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+			})
 			managerBuilder = managerBuilder.WithLists(&batchv1.JobList{Items: tc.managersJobs})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
-			workerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			workerBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+			})
 			workerBuilder = workerBuilder.WithLists(&batchv1.JobList{Items: tc.workerJobs})
 			workerClient := workerBuilder.Build()
 

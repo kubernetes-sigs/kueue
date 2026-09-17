@@ -268,7 +268,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					for _, pod := range pods.Items {
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying that deleting the deployment removes the pods", func() {

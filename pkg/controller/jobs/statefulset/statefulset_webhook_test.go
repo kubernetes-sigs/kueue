@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -152,7 +153,8 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			builder := utiltesting.NewClientBuilder().WithObjects(tc.initObjs...)
@@ -167,6 +169,7 @@ func TestDefault(t *testing.T) {
 			}
 
 			w := &Webhook{
+				integrationManager:         integrationManager,
 				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				queues:                     queueManager,
@@ -364,10 +367,11 @@ func TestValidateCreate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
-			w := &Webhook{client: client}
+			w := &Webhook{integrationManager: integrationManager, client: client}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := w.ValidateCreate(ctx, tc.sts)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
@@ -1045,21 +1049,42 @@ func TestValidateUpdate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.integrations...))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.integrations...))
 
 			client := utiltesting.NewClientBuilder(awv1beta2.AddToScheme, leaderworkersetv1.AddToScheme).
 				WithRuntimeObjects(tc.objs...).
 				Build()
 
 			wh := &Webhook{
-				client: client,
+				integrationManager: integrationManager,
+				client:             client,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
+			warns, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("Unexpected warnings (-want,+got):\n%s", diff)
+			}
 		})
 	}
+}
+
+func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
+	t.Helper()
+	manager := jobframework.NewIntegrationManager()
+	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{
+		RegisterIntegration,
+		appwrapper.RegisterIntegration,
+		leaderworkerset.RegisterIntegration,
+		pod.RegisterIntegration,
+	} {
+		if err := registerIntegration(manager); err != nil {
+			t.Fatalf("RegisterIntegration() error = %v", err)
+		}
+	}
+	return manager
 }

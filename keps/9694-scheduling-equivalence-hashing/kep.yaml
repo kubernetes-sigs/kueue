@@ -1,0 +1,31 @@
+title: Scheduling Equivalence Hashing
+kep-number: 9694
+authors:
+  - "@tenzen-y"
+  - "@mwielgus"
+  - "@sohankunkerkar"
+  - "@kshalot"
+status: implemented
+creation-date: 2026-08-07
+reviewers:
+  - "@mimowo"
+  - "@apullo777"
+  - "@kshalot"
+  - "@amy"
+approvers:
+  - "@mimowo"
+
+stage: beta
+
+latest-milestone: "v0.20"
+
+milestone:
+  beta: "v0.17"
+
+feature-gates:
+  - name: SchedulingEquivalenceHashing
+  - name: SchedulingEquivalenceHashingIgnorePodSetName
+disable-supported: true
+
+metrics:
+  - kueue_pending_scheduling_hashes

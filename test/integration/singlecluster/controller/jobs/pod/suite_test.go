@@ -33,10 +33,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -89,15 +91,22 @@ func managerSetup(
 			qcache.WithExcludedResourcePrefixes(configuration.Resources.ExcludeResourcePrefixes),
 		)
 	}
-	queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
+	customLabels := metrics.NewCustomLabels(configuration.Metrics.CustomLabels)
+	queueOptions = append(queueOptions,
+		qcache.WithPreemptionExpectations(preemptionExpectations),
+		qcache.WithCustomLabels(customLabels),
+	)
+	opts = append(opts, jobframework.WithCustomLabels(customLabels))
 	return func(ctx context.Context, mgr manager.Manager) {
+		integrationManager := jobcontrollers.NewIntegrationManager()
+		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
+		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
 		opts = append(opts, jobframework.WithCache(cCache))
 
 		podReconciler, err := pod.NewReconciler(
@@ -122,7 +131,7 @@ func managerSetup(
 			opts...)
 		err = jobReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		jobframework.EnableIntegration(job.FrameworkName)
+		integrationManager.EnableIntegration(job.FrameworkName)
 
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
@@ -134,7 +143,7 @@ func managerSetup(
 			queues,
 			cCache,
 			configuration,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, CustomLabels: customLabels},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
@@ -146,7 +155,7 @@ func managerSetup(
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		if setupTASControllers {
-			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil, tas.WithCustomLabels(customLabels))
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -160,6 +169,7 @@ func managerSetup(
 				mgr.GetClient(),
 				mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
+				scheduler.WithCustomLabels(customLabels),
 			)
 			err := sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

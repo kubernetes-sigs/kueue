@@ -93,11 +93,16 @@ logical name as the quota key, which may result in incorrect quota accounting.
 
 DRA resources are tracked in `ClusterQueue` quotas just like CPU or memory.
 The administrator includes the DRA resource name in `coveredResources` and
-sets a `nominalQuota`. When a workload is admitted, Kueue charges quota based
-on the `count` value in each device request (default 1 when omitted).
+sets a `nominalQuota`. Kueue supports three quota accounting modes:
 
-For example, a `ClusterQueue` with `example.com/gpu: 8` allows up to 8
-concurrent device allocations across all workloads using that queue.
+- **Device count** (default): Charges the `count` value from the device
+  request (default 1 when omitted). A `ClusterQueue` with `example.com/gpu: 8`
+  allows up to 8 concurrent device allocations.
+- **Counter-based**: Charges the device's `consumesCounters` value (e.g.,
+  GPU memory). See [Counter-based quota](#counter-based-quota-for-partitionable-devices).
+- **Capacity-based**: Charges the workload's `capacity.requests` value
+  rounded per the device's `RequestPolicy`. See
+  [Capacity-based quota](#capacity-based-quota-for-shared-devices-consumable-capacity).
 
 ## Admission and scheduling gap
 
@@ -167,6 +172,85 @@ that map the same `DeviceClass` to multiple resource names.
 For setup instructions, see
 [Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra/#set-up-counter-based-quota-partitionable-devices).
 
+## Counter-based vs capacity-based quota
+
+Both modes track quota by actual resource consumption rather than device count,
+but they serve different device types:
+
+| | Counter-based (PD) | Capacity-based (CC) |
+|---|---|---|
+| **Device type** | Partitioned devices (e.g., NVIDIA MIG) | Shared devices (e.g., GPU time-slicing, MPS) |
+| **Charge source** | Device's `consumesCounters` | Workload's `capacity.requests` |
+| **Who decides consumption** | Driver (fixed per partition) | User (variable per workload) |
+| **Upstream K8s feature** | KEP-4815 (`DRAPartitionableDevices`) | KEP-5075 (`DRAConsumableCapacity`) |
+
+If your GPUs use hardware partitioning (MIG), use counter-based quota. If
+your GPUs allow software-level sharing where workloads request variable
+amounts of capacity, use capacity-based quota.
+
+A cluster can use both modes simultaneously with different DeviceClasses
+using the same DRA driver. One DeviceClass with counter sources for
+partitioned devices and another with capacity sources for shared devices.
+Counter and capacity sources cannot be mixed within the same DeviceClass
+mapping.
+
+## Capacity-based quota for shared devices (consumable capacity)
+
+{{< feature-state state="alpha" for_version="v0.19" >}}
+
+Some devices allow multiple workloads to share them simultaneously using
+software-level sharing mechanisms such as GPU time-slicing or MPS. These
+devices publish a `Capacity` field on each device in `ResourceSlice` objects
+(defined by [KEP-5075](https://github.com/kubernetes/enhancements/issues/5075))
+instead of using `consumesCounters`. Workloads specify how much capacity they
+need via `capacity.requests` on the device request.
+
+Kueue can track quota using these capacity dimensions so that the total
+consumed capacity across all sharing workloads does not exceed the device's
+published capacity.
+
+This behavior is controlled by the `KueueDRAIntegrationConsumableCapacity`
+feature gate (Alpha, disabled by default in v0.19).
+
+A `DeviceClass` uses either device-count quota (no `sources`), counter-based
+quota (with `counter` sources), or capacity-based quota (with `capacity`
+sources). Counter and capacity sources cannot be mixed in the same mapping.
+
+### How it works
+
+1. The administrator configures a `capacity` source entry in
+   `deviceClassMappings` that specifies which capacity dimension to track,
+   which DRA driver to query, and a CEL expression to scope eligible devices.
+
+2. When a workload is submitted, Kueue reads the workload's
+   `capacity.requests` from the `ExactDeviceRequest` for the configured
+   dimension. If `capacity.requests` is omitted, Kueue uses the device's
+   `RequestPolicy.Default` or the full `Capacity.Value` as the charge.
+
+3. Kueue rounds the request per the device's `RequestPolicy` (`ValidValues`
+   or `ValidRange` with `Step`) to prevent quota gaming where a small request
+   consumes more actual capacity after rounding by the kube-scheduler.
+
+4. For each matched device, Kueue computes the charge independently using
+   the device's own Default and policy, then takes the **maximum** across
+   all devices. This ensures quota is never undercharged even if the
+   `deviceSelector` matches heterogeneous devices.
+
+5. The `ClusterQueue` quota is set in capacity units (e.g., `800Gi` for GPU
+   memory) instead of device count.
+
+### Prerequisites
+
+- Kubernetes 1.36 or later with the `DRAConsumableCapacity` feature gate
+  enabled (beta, enabled by default in Kubernetes 1.36).
+- A DRA driver that publishes `Capacity` and `AllowMultipleAllocations` on
+  devices in `ResourceSlice` objects.
+- The `KueueDRAIntegrationConsumableCapacity` feature gate enabled in Kueue
+  Configuration.
+
+For setup instructions, see
+[Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra/#set-up-capacity-based-quota-consumable-capacity).
+
 ## Limitations
 
 The following limitations apply:
@@ -186,9 +270,3 @@ The following limitations apply:
   may result in incorrect topology assignments for DRA devices.
 - **No support for DRADeviceTaints or DRAPrioritizedLists**: These Kubernetes
   DRA features are not factored into Kueue's quota decisions.
-- **No GPU time-slicing or MPS**: Software-based GPU sharing mechanisms
-  are not yet supported in Kueue. These require
-  [KEP-5075 (Consumable Capacity)](https://github.com/kubernetes/enhancements/issues/5075)
-  (beta in Kubernetes 1.36) and
-  [KEP-5691 (Restricted Sharing)](https://github.com/kubernetes/enhancements/issues/5691)
-  integration, which is planned for a future Kueue release.

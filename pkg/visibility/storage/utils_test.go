@@ -17,7 +17,13 @@ limitations under the License.
 package storage
 
 import (
+	"testing"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type req struct {
@@ -29,4 +35,34 @@ type req struct {
 type resp struct {
 	wantErr              error
 	wantPendingWorkloads []visibility.PendingWorkload
+}
+
+func TestNewPendingWorkloadPriority(t *testing.T) {
+	// A Workload created when there was no global default priority class and
+	// the pod had no priority class keeps a nil Spec.Priority. The endpoint
+	// must resolve it to the default rather than dereferencing a nil pointer.
+	noPriority := utiltestingapi.MakeWorkload("a", "ns").Obj()
+	noPriority.Spec.Priority = nil
+
+	cases := map[string]struct {
+		wl           *kueue.Workload
+		wantPriority int32
+	}{
+		"a Workload with no priority resolves to the default": {
+			wl:           noPriority,
+			wantPriority: constants.DefaultPriority,
+		},
+		"an explicit priority is preserved": {
+			wl:           utiltestingapi.MakeWorkload("a", "ns").Priority(100).Obj(),
+			wantPriority: 100,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := newPendingWorkload(&workload.Info{Obj: tc.wl}, 0, 0)
+			if got.Priority != tc.wantPriority {
+				t.Errorf("Priority = %d, want %d", got.Priority, tc.wantPriority)
+			}
+		})
+	}
 }

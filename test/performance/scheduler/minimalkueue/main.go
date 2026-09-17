@@ -38,16 +38,8 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/controller/tas"
-	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/scheduler"
-	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/test/performance/framework/controllers"
 )
 
 var (
@@ -185,62 +177,8 @@ func run() int {
 		cancel()
 	}()
 
-	// Setup core indexers
-	err = indexer.Setup(ctx, mgr.GetFieldIndexer())
-	if err != nil {
-		log.Error(err, "Indexer setup")
-		return 1
-	}
-
-	// Setup TAS indexers if enabled
-	if *enableTAS {
-		err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		if err != nil {
-			log.Error(err, "TAS indexer setup")
-			return 1
-		}
-	}
-
-	cCache := schdcache.New(mgr.GetClient())
-
-	// setup inadmissible workload requeuer
-	requeuer := qcache.NewRequeuer()
-	if err := mgr.Add(requeuer); err != nil {
-		log.Error(err, "Unable to add workloadRequeuer to manager")
-		return 1
-	}
-
-	preemptionExpectations := preemptexpectations.New()
-	queueOptions := qcache.WithPreemptionExpectations(preemptionExpectations)
-	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions)
-
-	go queues.CleanUpOnContext(ctx)
-	go cCache.CleanUpOnContext(ctx)
-
-	// Setup core controllers
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations}); err != nil {
-		log.Error(err, "Unable to create core controller", "controller", failedCtrl)
-		return 1
-	}
-
-	// Setup TAS controllers if enabled
-	if *enableTAS {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil); err != nil {
-			log.Error(err, "Unable to create TAS controller", "controller", failedCtrl)
-			return 1
-		}
-	}
-
-	sched := scheduler.New(
-		queues,
-		cCache,
-		mgr.GetClient(),
-		mgr.GetEventRecorder(constants.AdmissionName),
-		scheduler.WithPreemptionExpectations(preemptionExpectations),
-	)
-
-	if err := mgr.Add(sched); err != nil {
-		log.Error(err, "Unable to add scheduler to manager")
+	if err := controllers.Setup(ctx, mgr, &configapi.Configuration{}, *enableTAS); err != nil {
+		log.Error(err, "Unable to set up controllers and scheduler")
 		return 1
 	}
 

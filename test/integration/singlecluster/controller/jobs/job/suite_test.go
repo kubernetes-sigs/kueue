@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -69,6 +70,8 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
+		integrationManager := jobcontrollers.NewIntegrationManager()
+		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
 		reconciler, err := job.NewReconciler(
 			ctx,
 			mgr.GetClient(),
@@ -86,7 +89,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
-		jobframework.EnableIntegration(job.FrameworkName)
+		integrationManager.EnableIntegration(job.FrameworkName)
 	}
 }
 
@@ -103,16 +106,21 @@ func managerAndControllersSetup(
 		mgr.GetScheme().Default(configuration)
 
 		lqMetrics := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
+		customLabels := metrics.NewCustomLabels(configuration.Metrics.CustomLabels)
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.WithLocalQueueMetrics(lqMetrics))
+		cCache := schdcache.New(mgr.GetClient(),
+			schdcache.WithLocalQueueMetrics(lqMetrics),
+			schdcache.WithCustomLabels(customLabels),
+		)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithLocalQueueMetrics(lqMetrics),
+			qcache.WithCustomLabels(customLabels),
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-		opts = append(opts, jobframework.WithCache(cCache))
+		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithCustomLabels(customLabels))
 		managerSetup(opts...)(ctx, mgr)
 
 		failedCtrl, err := core.SetupControllers(
@@ -120,12 +128,12 @@ func managerAndControllersSetup(
 			queues,
 			cCache,
 			configuration,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, CustomLabels: customLabels},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		if setupTASControllers {
-			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil, tas.WithCustomLabels(customLabels))
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
@@ -133,13 +141,14 @@ func managerAndControllersSetup(
 		}
 
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-			failedCtrl, err = elasticjobs.SetupWithManager(mgr, configuration, nil)
+			failedCtrl, err = elasticjobs.SetupWithManager(mgr, configuration, nil, customLabels)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "ElasticJobUngater controller", failedCtrl)
 		}
 
 		if enableScheduler {
 			sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorder(constants.AdmissionName),
-				scheduler.WithPreemptionExpectations(preemptionExpectations))
+				scheduler.WithPreemptionExpectations(preemptionExpectations),
+				scheduler.WithCustomLabels(customLabels))
 			err = sched.Start(ctx)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}

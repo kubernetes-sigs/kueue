@@ -55,10 +55,30 @@ The `levels` field has the following constraints:
 
 - **Minimum items**: 1
 - **Maximum items**: 16
-- **Immutability**: The field cannot be changed after creation
+- **Mutability**: The field can only be changed when `kubernetes.io/hostname`
+  is the lowest (last) level both before and after the change; otherwise it is
+  immutable
 - **Uniqueness**: Each level must have a unique `nodeLabel`
 - **Hostname restriction**: The `kubernetes.io/hostname` label can only be used
   at the lowest (last) level
+
+### Changing the levels of a Topology in use
+
+When `kubernetes.io/hostname` is the lowest level, levels above it can be
+renamed, reordered, added or removed while workloads are admitted: their
+recorded usage is keyed by hostname and is preserved across the change, and
+already admitted workloads are not evicted. Pending workloads are automatically
+retried against the new levels. Keep in mind:
+
+- **When adding a level, label all nodes first, then add the level.** The
+  scheduler only considers nodes that carry the labels of every topology level,
+  so nodes missing the new label are excluded (together with their usage) until
+  they are labeled, which temporarily shrinks the available capacity.
+- **Removing a level makes it unschedulable for workloads that request it.**
+  Workloads with a required or preferred topology request for a removed level
+  can no longer be nominated (or re-nominated, for example during failed node
+  replacement) until the level is restored. Already admitted workloads keep
+  running; admission-time constraints are not re-validated retroactively.
 
 ## Referencing a Topology from a ResourceFlavor
 
@@ -80,8 +100,9 @@ When a ResourceFlavor references a Topology:
 
 - **At least one nodeLabel is required**: The ResourceFlavor must have at least
   one entry in `.spec.nodeLabels`.
-- **Spec becomes immutable**: Once a ResourceFlavor has a `topologyName` set,
-  the entire `.spec` field cannot be modified.
+- **Restricted mutability**: Once a ResourceFlavor has a `topologyName` set,
+  the `.spec.nodeLabels` and `.spec.topologyName` fields cannot be modified.
+  The `.spec.nodeTaints` and `.spec.tolerations` fields can still be updated.
 
 ## What's next?
 

@@ -27,6 +27,12 @@ type CohortStatusApplyConfiguration struct {
 	// when participating in Fair Sharing.
 	// The is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	FairSharing *FairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
+	// effectiveQuotas is used for scheduling instead of spec.resourceGroups when
+	// present.
+	//
+	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+	// feature gate is disabled.
+	EffectiveQuotas *EffectiveQuotaStatusApplyConfiguration `json:"effectiveQuotas,omitempty"`
 }
 
 // CohortStatusApplyConfiguration constructs a declarative configuration of the CohortStatus type for use with
@@ -40,5 +46,13 @@ func CohortStatus() *CohortStatusApplyConfiguration {
 // If called multiple times, the FairSharing field is set to the value of the last call.
 func (b *CohortStatusApplyConfiguration) WithFairSharing(value *FairSharingStatusApplyConfiguration) *CohortStatusApplyConfiguration {
 	b.FairSharing = value
+	return b
+}
+
+// WithEffectiveQuotas sets the EffectiveQuotas field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EffectiveQuotas field is set to the value of the last call.
+func (b *CohortStatusApplyConfiguration) WithEffectiveQuotas(value *EffectiveQuotaStatusApplyConfiguration) *CohortStatusApplyConfiguration {
+	b.EffectiveQuotas = value
 	return b
 }

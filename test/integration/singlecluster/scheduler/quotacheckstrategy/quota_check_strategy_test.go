@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 			ginkgo.By("Verifying the entry penalty does not include the undeclared resource")
 			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
 			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.Peek(lqKey)
+				penalty := qManager.AfsUsageLedger.PeekPenalty(lqKey)
 				g.Expect(penalty).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

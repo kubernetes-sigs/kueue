@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
 									RestartPolicy:                 corev1.RestartPolicyNever,
-									TerminationGracePeriodSeconds: ptr.To[int64](1),
+									TerminationGracePeriodSeconds: new(int64(1)),
 									Containers: []corev1.Container{
 										{
 											Name:    "c",
@@ -583,7 +583,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 
 			highCreatedWorkload := &kueue.Workload{}
-			highWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: ns.Name}
+			highWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("Checking that the high-priority workload is created and admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -909,7 +909,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			ginkgo.By("scaling up parallelism from 2 to 3", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(elasticJob), elasticJob)).Should(gomega.Succeed())
-					elasticJob.Spec.Parallelism = ptr.To[int32](3)
+					elasticJob.Spec.Parallelism = new(int32(3))
 					g.Expect(k8sClient.Update(ctx, elasticJob)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1031,7 +1031,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			ginkgo.By("scaling parallelism 4 -> 1: quota converges to the single running pod (200m)", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(elasticJob), elasticJob)).Should(gomega.Succeed())
-					elasticJob.Spec.Parallelism = ptr.To[int32](1)
+					elasticJob.Spec.Parallelism = new(int32(1))
 					g.Expect(k8sClient.Update(ctx, elasticJob)).Should(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

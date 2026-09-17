@@ -25,10 +25,12 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -41,6 +43,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
+// TestUpdateCqStatusIfChanged verifies the recomputed ClusterQueue status and that the status is
+// written to the API server only when it changes.
 func TestUpdateCqStatusIfChanged(t *testing.T) {
 	cqName := "test-cq"
 	lqName := "test-lq"
@@ -61,6 +65,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 		newWl               *kueue.Workload
 		wantCqStatus        kueue.ClusterQueueStatus
 		wantError           error
+		wantStatusUpdates   int
 	}{
 		"empty ClusterQueueStatus": {
 			insertCqIntoCache:   true,
@@ -79,6 +84,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"same condition status": {
 			insertCqIntoCache:   true,
@@ -105,6 +111,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"same condition status with different reason and message": {
 			insertCqIntoCache:   true,
@@ -131,6 +138,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"different condition status": {
 			insertCqIntoCache:   true,
@@ -157,6 +165,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"different pendingWorkloads with same condition status": {
 			insertCqIntoCache:   true,
@@ -176,6 +185,34 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			newMessage:         "Can admit new workloads",
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items) + 1),
+				Conditions: []metav1.Condition{{
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Ready",
+					Message:            "Can admit new workloads",
+					ObservedGeneration: 1,
+				}},
+			},
+			wantStatusUpdates: 1,
+		},
+		"status unchanged": {
+			insertCqIntoCache:   true,
+			insertCqIntoManager: true,
+			cqStatus: kueue.ClusterQueueStatus{
+				PendingWorkloads: int32(len(defaultWls.Items)),
+				Conditions: []metav1.Condition{{
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Ready",
+					Message:            "Can admit new workloads",
+					ObservedGeneration: 1,
+				}},
+			},
+			newConditionStatus: metav1.ConditionTrue,
+			newReason:          "Ready",
+			newMessage:         "Can admit new workloads",
+			wantCqStatus: kueue.ClusterQueueStatus{
+				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:               kueue.ClusterQueueActive,
 					Status:             metav1.ConditionTrue,
@@ -205,7 +242,9 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				ClusterQueue(cqName).Obj()
 			ctx, log := utiltesting.ContextWithLog(t)
 
+			var statusUpdates int
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: utiltesting.CountSubResourceUpdates(&statusUpdates)}).
 				Build()
 			cqCache := schdcache.New(cl)
 			options := qcache.WithPreemptionExpectations(preemptexpectations.New())
@@ -224,16 +263,16 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				t.Fatalf("Inserting localQueue in manager: %v", err)
 			}
 			for _, wl := range defaultWls.Items {
-				cqCache.AddOrUpdateWorkload(log, &wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
 			}
 			r := &ClusterQueueReconciler{
 				client:   cl,
-				logName:  "cluster-queue-reconciler",
+				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
 			}
 			if tc.newWl != nil {
-				if err := r.qManager.AddOrUpdateWorkload(log, tc.newWl); err != nil {
+				if err := r.qManager.AddOrUpdateWorkload(ctx, log, tc.newWl); err != nil {
 					t.Fatalf("Failed to add or update workload : %v", err)
 				}
 			}
@@ -248,44 +287,68 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {
 				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
 			}
+			if statusUpdates != tc.wantStatusUpdates {
+				t.Errorf("unexpected number of status updates: want %d, got %d", tc.wantStatusUpdates, statusUpdates)
+			}
 		})
 	}
 }
 
-func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
-	testCases := map[string]struct {
-		cqName string
-		wlName string
+// TestClusterQueueReconcile exercises ClusterQueueReconciler.Reconcile for a
+// ClusterQueue that is being deleted, covering both the empty case (finalizer
+// removed, ClusterQueue garbage-collected) and the terminating-but-not-empty case
+// (finalizer held, status kept accurate).
+func TestClusterQueueReconcile(t *testing.T) {
+	const cqName = "cq"
+	now := time.Now()
+
+	cases := map[string]struct {
+		// workload holds quota in the ClusterQueue; whether it still reserves quota
+		// after the ClusterQueue is deleted decides if the finalizer is released.
+		workload      *kueue.Workload
+		wantDeleted   bool
+		wantActive    metav1.ConditionStatus
+		wantReason    string
+		wantReserving int32
 	}{
-		"finished workload should not block deletion": {
-			cqName: "cq",
-			wlName: "wl",
+		"finished workload does not block deletion: finalizer removed and ClusterQueue deleted": {
+			workload: utiltestingapi.MakeWorkload("wl", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: cqName,
+			}, now).FinishedAt(now).Obj(),
+			wantDeleted: true,
+		},
+		"reserving workload keeps ClusterQueue terminating: status refreshed to Active=Terminating": {
+			workload: utiltestingapi.MakeWorkload("wl", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: cqName,
+			}, now).Obj(),
+			wantActive:    metav1.ConditionFalse,
+			wantReason:    kueue.ClusterQueueActiveReasonTerminating,
+			wantReserving: 1,
 		},
 	}
 
-	for name, tc := range testCases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			now := time.Now()
 
-			cq := utiltestingapi.MakeClusterQueue(tc.cqName).Obj()
+			cq := utiltestingapi.MakeClusterQueue(cqName).Generation(1).Obj()
 			cq.Finalizers = []string{kueue.ResourceInUseFinalizerName}
 
-			cl := utiltesting.NewClientBuilder().WithObjects(cq).Build()
+			cl := utiltesting.NewClientBuilder().WithObjects(cq).WithStatusSubresource(cq).Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue in cache: %v", err)
 			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
 
-			finishedWl := utiltestingapi.MakeWorkload(tc.wlName, "").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: kueue.ClusterQueueReference(tc.cqName),
-			}, now).FinishedAt(now).Obj()
-			cqCache.AddOrUpdateWorkload(log, finishedWl)
+			cqCache.AddOrUpdateWorkload(t.Context(), log, tc.workload)
 
 			r := &ClusterQueueReconciler{
 				client:   cl,
-				logName:  "cluster-queue-reconciler",
+				logName:  "clusterqueue-reconciler",
 				cache:    cqCache,
 				qManager: qManager,
 			}
@@ -294,15 +357,40 @@ func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
 				t.Fatalf("Failed to delete ClusterQueue: %v", err)
 			}
 
-			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: tc.cqName}})
-			if err != nil {
+			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: cqName}}); err != nil {
 				t.Fatalf("Reconcile failed: %v", err)
 			}
 
 			got := &kueue.ClusterQueue{}
-			err = cl.Get(ctx, types.NamespacedName{Name: tc.cqName}, got)
-			if !apierrors.IsNotFound(err) {
-				t.Fatalf("Expected ClusterQueue to be deleted after finalizer removal, but got: %v", err)
+			err := cl.Get(ctx, types.NamespacedName{Name: cqName}, got)
+
+			if tc.wantDeleted {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("Expected ClusterQueue to be deleted after finalizer removal, but got: %v", err)
+				}
+				return
+			}
+
+			// The ClusterQueue is terminating but not empty, so the finalizer is held
+			// and the object still exists.
+			if err != nil {
+				t.Fatalf("Terminating ClusterQueue should still exist while the finalizer is held: %v", err)
+			}
+
+			// Regression guard: before the fix, Reconcile returned early in the
+			// finalizer-held deletion branch and never refreshed status, leaving the
+			// Active condition and workload counters frozen at their pre-deletion values.
+			// The fix falls through to updateCqStatusIfChanged so the terminating
+			// ClusterQueue reports accurate status.
+			active := apimeta.FindStatusCondition(got.Status.Conditions, kueue.ClusterQueueActive)
+			if active == nil {
+				t.Fatalf("Active condition not set: status was not refreshed while the CQ was terminating")
+			}
+			if active.Status != tc.wantActive || active.Reason != tc.wantReason {
+				t.Errorf("Active condition = %s/%q, want %s/%q", active.Status, active.Reason, tc.wantActive, tc.wantReason)
+			}
+			if got.Status.ReservingWorkloads != tc.wantReserving {
+				t.Errorf("ReservingWorkloads = %d, want %d", got.Status.ReservingWorkloads, tc.wantReserving)
 			}
 		})
 	}
@@ -624,7 +712,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			}
 
 			wl := workloadForReservation("name", tc.queue.Status.FlavorsReservation)
-			cqCache.AddOrUpdateWorkload(log, wl)
+			cqCache.AddOrUpdateWorkload(t.Context(), log, wl)
 
 			cqCache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(tc.queue.Name))
 			gotMetrics := allMetricsForQueue(tc.queue.Name)
@@ -634,7 +722,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 			if tc.updatedQueue != nil {
 				wl := workloadForReservation("name", tc.updatedQueue.Status.FlavorsReservation)
-				cqCache.AddOrUpdateWorkload(log, wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, wl)
 				if err := cqCache.UpdateClusterQueue(log, tc.updatedQueue); err != nil {
 					t.Fatalf("Updating clusterQueue in cache: %v", err)
 				}

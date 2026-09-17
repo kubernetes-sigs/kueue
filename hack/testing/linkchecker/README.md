@@ -36,27 +36,27 @@ Website changes under `site/` or `netlify.toml` trigger a Netlify deploy preview
 /test pull-kueue-verify-website-links-preview-main
 ```
 
-The presubmit is **optional and non-blocking**. It waits for a fresh same-commit Netlify preview, then runs the same link checker against:
+The presubmit is **optional**. It waits for a fresh same-commit Netlify preview, then runs the same link checker against:
 
 ```text
 https://deploy-preview-<PR>--kubernetes-sigs-kueue.netlify.app/
 ```
 
-The job skips (and passes) when:
+The job skips (and passes) when the PR does not modify `site/` or `netlify.toml`.
 
-- the PR does not modify `site/`
-- Netlify did not publish a preview
-- the preview is not ready within the bounded wait
-- GitHub API or tooling is unavailable
+The job fails when:
 
-Broken links on a resolved preview **fail** the job.
+- Netlify reports a preview failure
+- no preview is available after the bounded wait
+- the GitHub API or required tooling is unavailable
+- a resolved preview contains broken links
 
 ## CI integration
 
 | Job | Type | Dashboard |
 |-----|------|-----------|
 | `periodic-kueue-verify-website-links-main` | Daily periodic | [TestGrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-verify-website-links-main) |
-| `pull-kueue-verify-website-links-preview-main` | Presubmit (auto-runs on `site/` changes, optional) | [TestGrid](https://testgrid.k8s.io/sig-scheduling#pull-kueue-verify-website-links-preview-main) |
+| `pull-kueue-verify-website-links-preview-main` | Presubmit (auto-runs on `site/` or `netlify.toml` changes, optional) | [TestGrid](https://testgrid.k8s.io/sig-scheduling#pull-kueue-verify-website-links-preview-main) |
 
 Prow job definitions live in [kubernetes/test-infra](https://github.com/kubernetes/test-infra/tree/master/config/jobs/kubernetes-sigs/kueue).
 
@@ -67,7 +67,7 @@ Prow job definitions live in [kubernetes/test-infra](https://github.com/kubernet
 | `LINK_CHECK_URL` | `verify.sh` | Base URL to crawl |
 | `PULL_NUMBER` | `verify-preview.sh` | PR number (set by Prow) |
 | `PULL_PULL_SHA` | `verify-preview.sh` | Head commit SHA (set by Prow) |
-| `PULL_BASE_SHA` | `verify-preview.sh` | Merge base SHA for `site/` diff detection |
+| `PULL_BASE_SHA` | `verify-preview.sh` | Base commit SHA used for merge-base diff detection under `site/` and `netlify.toml` |
 | `GH_TOKEN` | `verify-preview.sh` | Optional GitHub API token (raises rate limits) |
 | `PREVIEW_WAIT_ATTEMPTS` | `verify-preview.sh` | Poll attempts for `deploy/netlify` (default: 20) |
 | `PREVIEW_WAIT_DELAY` | `verify-preview.sh` | Seconds between polls (default: 30) |

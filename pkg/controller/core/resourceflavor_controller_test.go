@@ -27,7 +27,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -372,58 +371,6 @@ func TestCqHandlerGeneric(t *testing.T) {
 				cmpopts.EquateEmpty(),
 			); diff != "" {
 				t.Errorf("enqueued requests mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestResourceFlavors(t *testing.T) {
-	makeCQ := func(groups ...[]string) *kueue.ClusterQueue {
-		w := utiltestingapi.MakeClusterQueue("cq")
-		for _, flavors := range groups {
-			fqs := make([]kueue.FlavorQuotas, len(flavors))
-			for i, f := range flavors {
-				fqs[i] = *utiltestingapi.MakeFlavorQuotas(f).Resource(corev1.ResourceCPU, "10").Obj()
-			}
-			w = w.ResourceGroup(fqs...)
-		}
-		return w.Obj()
-	}
-
-	cases := map[string]struct {
-		cq   *kueue.ClusterQueue
-		want []kueue.ResourceFlavorReference
-	}{
-		"empty resource groups": {
-			cq:   makeCQ(),
-			want: nil,
-		},
-		"single group single flavor": {
-			cq:   makeCQ([]string{"flavor-a"}),
-			want: []kueue.ResourceFlavorReference{"flavor-a"},
-		},
-		"single group multiple flavors": {
-			cq:   makeCQ([]string{"flavor-a", "flavor-b"}),
-			want: []kueue.ResourceFlavorReference{"flavor-a", "flavor-b"},
-		},
-		"multiple groups": {
-			cq:   makeCQ([]string{"flavor-a"}, []string{"flavor-b"}),
-			want: []kueue.ResourceFlavorReference{"flavor-a", "flavor-b"},
-		},
-		"duplicate flavor across groups": {
-			cq:   makeCQ([]string{"flavor-a"}, []string{"flavor-a"}),
-			want: []kueue.ResourceFlavorReference{"flavor-a"},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := sets.List(resourceFlavors(tc.cq))
-
-			if diff := cmp.Diff(tc.want, got,
-				cmpopts.EquateEmpty(),
-			); diff != "" {
-				t.Errorf("resourceFlavors mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

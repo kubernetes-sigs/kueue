@@ -50,7 +50,7 @@ func (l *LazyRequests) ensureWritable() {
 		case !isEmpty(l.base):
 			l.cached = l.base.Clone()
 		default:
-			l.cached = CreateEmpty()
+			l.cached = NewRequests()
 		}
 	}
 }

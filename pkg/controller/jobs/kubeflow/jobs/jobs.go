@@ -16,11 +16,27 @@ limitations under the License.
 
 package jobs
 
-// Reference the job framework integration packages to ensure linking.
 import (
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/paddlejob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 )
+
+// RegisterIntegrations registers all built-in Kubeflow job integrations with manager.
+func RegisterIntegrations(manager *jobframework.IntegrationManager) error {
+	for _, register := range []func(*jobframework.IntegrationManager) error{
+		jaxjob.RegisterIntegration,
+		paddlejob.RegisterIntegration,
+		pytorchjob.RegisterIntegration,
+		tfjob.RegisterIntegration,
+		xgboostjob.RegisterIntegration,
+	} {
+		if err := register(manager); err != nil {
+			return err
+		}
+	}
+	return nil
+}
