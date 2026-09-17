@@ -952,7 +952,10 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			}
 			return nil, false
 		})
-		if pa, found := reducer.Reduce(); found {
+		// A live predecessor is already running these MinCounts, so admitting them would change
+		// nothing. With no predecessor they are just the size the job last ran at, which it needs back.
+		mustGrow := replaceableWorkloadSlice != nil
+		if pa, found := reducer.Reduce(mustGrow); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
 	}
