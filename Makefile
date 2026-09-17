@@ -368,7 +368,7 @@ clean-release-artifacts:
 	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-manifests
-prepare-manifests:
+prepare-manifests: kustomize
 	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
