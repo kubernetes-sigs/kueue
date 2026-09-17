@@ -489,7 +489,7 @@ Requested functionalities from the community can be satisfied with the following
              maxTimeFromCreationDuration: "1h"
    ```
 6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
-   Use a configuration with two rules: candidates within the same ClusterQueue (`WithinClusterQueue`) compare priorities using `Boosted` mode, while cross-queue candidates (`WithinParentCohort` or `WithinCohortTree`) compare priorities using `Vanilla` mode.
+   Use a configuration with two rules: candidates within the same ClusterQueue (`WithinClusterQueue`) compare priorities using `Boosted` mode, while cross-queue candidates (`WithinParentCohort` or `WithinCohortTree`) compare priorities using `Base` mode.
 
    ```yaml
    spec:
@@ -508,13 +508,15 @@ Requested functionalities from the community can be satisfied with the following
          candidateSelectors:
            - scope: "WithinParentCohort"
              priority:
-               mode: "Vanilla"
+               mode: "Base"
                comparison: "LessThan"
    ```
 
 ### Notes
 
 There are many possible extensions of the proposed selectors in the rules. For now, we propose to support only those that seem most common and natural, but the design allows for extensibility.
+
+This KEP also introduces an alternative approach of the hero jobs handling that [Dynamic Quota Orchestration KEP](../12382-dynamic-quota-orchestration/README.md), as both are aimed alpha in the same release, we will collect user feedback and decide which appoach should be assumed the recommended one in the future.
 
 ### Constraints
 
@@ -840,15 +842,15 @@ type PriorityConstraint struct {
 
 // PriorityMode defines whether raw or boosted priority is used in candidate comparison.
 // Possible values are:
-// - "Vanilla": uses the raw priority value as assigned in the Workload resource.
+// - "Base": uses the raw priority value as assigned in the Workload resource.
 // - "Boosted": uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled).
 //
-// +kubebuilder:validation:Enum=Vanilla;Boosted
+// +kubebuilder:validation:Enum=Base;Boosted
 type PriorityMode string
 
 const (
-  // Vanilla uses the raw priority value as assigned in the Workload resource.
-  Vanilla PriorityMode = "Vanilla"
+  // Base uses the raw priority value as assigned in the Workload resource.
+  Base PriorityMode = "Base"
   // Boosted uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled).
   Boosted PriorityMode = "Boosted"
 )
