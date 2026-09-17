@@ -216,6 +216,18 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 		)
 	}
 
+	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) &&
+		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName &&
+		!features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+		allErrors = append(
+			allErrors,
+			field.Forbidden(
+				specPath.Child("enableInTreeAutoscaling"),
+				fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic RayCluster requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
+			),
+		)
+	}
+
 	return allErrors
 }
 
