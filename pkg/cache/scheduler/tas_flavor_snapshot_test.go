@@ -2532,6 +2532,63 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 		}
 	}
 }
+
+func TestBuildPodRequirementsMergesTolerations(t *testing.T) {
+	tolerateGPU := corev1.Toleration{Key: "example.com/gpu", Operator: corev1.TolerationOpExists}
+	tolerateDrain := corev1.Toleration{Key: "example.com/drain", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+	cases := map[string]struct {
+		flavorTolerations   []corev1.Toleration
+		templateTolerations []corev1.Toleration
+		podSetUpdates       []*kueue.PodSetUpdate
+		want                []corev1.Toleration
+	}{
+		"flavor toleration joins the template's": {
+			flavorTolerations:   []corev1.Toleration{tolerateGPU},
+			templateTolerations: []corev1.Toleration{tolerateDrain},
+			want:                []corev1.Toleration{tolerateDrain, tolerateGPU},
+		},
+		"toleration on both the template and the flavor appears once": {
+			flavorTolerations:   []corev1.Toleration{tolerateGPU},
+			templateTolerations: []corev1.Toleration{tolerateGPU},
+			want:                []corev1.Toleration{tolerateGPU},
+		},
+		"toleration from an admission check and the flavor appears once": {
+			flavorTolerations: []corev1.Toleration{tolerateGPU},
+			podSetUpdates:     []*kueue.PodSetUpdate{{Name: "main", Tolerations: []corev1.Toleration{tolerateGPU}}},
+			want:              []corev1.Toleration{tolerateGPU},
+		},
+		"no flavor tolerations": {
+			templateTolerations: []corev1.Toleration{tolerateDrain},
+			want:                []corev1.Toleration{tolerateDrain},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			flavor := flavorInformation{TopologyName: "dummy", Tolerations: tc.flavorTolerations}
+			snapshot := newTASFlavorSnapshot(log, flavor, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+			podSet := &kueue.PodSet{
+				Name:     "main",
+				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Tolerations: tc.templateTolerations}},
+			}
+			info, reason := podSetInfo(TASPodSetRequests{PodSet: podSet, PodSetUpdates: tc.podSetUpdates})
+			if reason != "" {
+				t.Fatalf("podSetInfo() = %q, want no reason", reason)
+			}
+			got, reason := snapshot.buildPodRequirements(info, podSet)
+			if reason != "" {
+				t.Fatalf("buildPodRequirements() = %q, want no reason", reason)
+			}
+			if diff := cmp.Diff(tc.want, got.Tolerations); diff != "" {
+				t.Errorf("unexpected tolerations (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(got.Tolerations, got.PodTemplate.Spec.Tolerations); diff != "" {
+				t.Errorf("template tolerations differ from the field form (-field,+template):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestValidateSpreadingLevels(t *testing.T) {
 	const (
 		blockLabel = "cloud.com/block"
