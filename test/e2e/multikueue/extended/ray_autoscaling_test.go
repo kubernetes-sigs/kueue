@@ -37,43 +37,12 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-const rayActorNamespace = "kueue-e2e"
-
 type rayAutoscalingTestContext struct {
 	managerNs         *corev1.Namespace
 	managerCq         *kueue.ClusterQueue
 	managerLq         *kueue.LocalQueue
 	multiKueueAc      *kueue.AdmissionCheck
 	kubernetesClients kubernetesClientsMap
-}
-
-func createDetachedActorScript(actorName, resourceName string) string {
-	return fmt.Sprintf(`import ray
-
-ray.init(namespace=%q)
-
-@ray.remote(num_cpus=0, resources={%q: 1})
-class Actor:
-    pass
-
-try:
-    ray.get_actor(%q)
-except ValueError:
-    Actor.options(name=%q, lifetime="detached").remote()
-`, rayActorNamespace, resourceName, actorName, actorName)
-}
-
-func terminateDetachedActorScript(actorName string) string {
-	return fmt.Sprintf(`import ray
-
-ray.init(namespace=%q)
-try:
-    actor = ray.get_actor(%q)
-except ValueError:
-    pass
-else:
-    ray.kill(actor)
-`, rayActorNamespace, actorName)
 }
 
 func liveRayWorkloadSlice(g gomega.Gomega, c client.Client, ns, sliceName string) *kueue.Workload {
@@ -142,10 +111,12 @@ func runRayClusterAutoscalingTest(
 	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
 
 	ginkgo.By("Creating two detached actors so the autoscaler scales up to two workers", func() {
-		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
-			[]string{"python", "-c", createDetachedActorScript(actorA, workerResource)})
-		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
-			[]string{"python", "-c", createDetachedActorScript(actorB, workerResource)})
+		util.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
+		)
+		util.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorB, workerResource,
+		)
 	})
 
 	var upSliceName string
@@ -184,10 +155,12 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Terminating both actors so the autoscaler scales back down to zero workers", func() {
-		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
-			[]string{"python", "-c", terminateDetachedActorScript(actorA)})
-		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
-			[]string{"python", "-c", terminateDetachedActorScript(actorB)})
+		util.TerminateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA,
+		)
+		util.TerminateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorB,
+		)
 	})
 
 	ginkgo.By("Checking the scale-down is reflected on the manager and worker", func() {
@@ -225,8 +198,9 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Creating one detached actor so the autoscaler scales back up to one worker", func() {
-		util.ExecuteCommandInRayClusterHead(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey,
-			[]string{"python", "-c", createDetachedActorScript(actorC, workerResource)})
+		util.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorC, workerResource,
+		)
 	})
 
 	ginkgo.By("Checking the second scale-up is reflected on the manager and worker", func() {
