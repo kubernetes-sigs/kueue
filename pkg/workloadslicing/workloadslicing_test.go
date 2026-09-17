@@ -1466,19 +1466,19 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					testWorkload.Clone().
 						Name(testJobObject.Name+"-1").
 						ResourceVersion("100").
-						Creation(fiveMinutesAgo.Add(100*time.Millisecond)).
+						Creation(fiveMinutesAgo).
 						PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 1}).
 						Obj(),
 					testWorkload.Clone().
 						Name(testJobObject.Name+"-2").
 						ResourceVersion("101").
-						Creation(fiveMinutesAgo.Add(101*time.Millisecond)).
+						Creation(fiveMinutesAgo.Add(time.Second)).
 						PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 2}).
 						Obj(),
 					testWorkload.Clone().
 						Name(testJobObject.Name+"-3").
 						ResourceVersion("102").
-						Creation(fiveMinutesAgo.Add(102*time.Millisecond)).
+						Creation(fiveMinutesAgo.Add(2*time.Second)).
 						PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 3}).
 						Obj()).
 					Build(),
@@ -1491,7 +1491,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				workload: testWorkload.Clone().
 					Name(testJobObject.Name + "-3").
 					ResourceVersion("102").
-					Creation(fiveMinutesAgo.Add(102 * time.Millisecond)).
+					Creation(fiveMinutesAgo.Add(2 * time.Second)).
 					PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 3}).
 					Obj(),
 				finishedWorkloads: map[string]string{
