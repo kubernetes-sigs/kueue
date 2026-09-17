@@ -8033,6 +8033,65 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			}
 		})
 
+		ginkgo.It("should ungate late and recreated pods referencing a replaced slice", func() {
+			ginkgo.By("admitting the original slice")
+			original := utiltestingapi.MakeWorkload("original", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet("workers", 1).
+					Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj()
+			util.MustCreate(ctx, k8sClient, original)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, original)
+
+			newPod := func(name string) *corev1.Pod {
+				return testingpod.MakePod(name, ns.Name).
+					Annotation(kueue.WorkloadAnnotation, original.Name).
+					Annotation(kueue.WorkloadSliceNameAnnotation, original.Name).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Label(constants.PodSetLabel, "workers").
+					Request(corev1.ResourceCPU, "1").TopologySchedulingGate().Obj()
+			}
+			expectUngated := func(pod *corev1.Pod) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(pod.Spec.NodeSelector).NotTo(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("ungating the first worker using the original admission")
+			first := newPod("first")
+			util.MustCreate(ctx, k8sClient, first)
+			expectUngated(first)
+
+			ginkgo.By("admitting the replacement slice and finishing the original")
+			replacement := utiltestingapi.MakeWorkload("replacement", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(constants.ElasticJobAnnotation, "true").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(original))).
+				Annotation(kueue.WorkloadSliceNameAnnotation, original.Name).
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj()
+			util.MustCreate(ctx, k8sClient, replacement)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(original), original)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(original.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("creating a worker after the replacement has been admitted")
+			second := newPod("second")
+			util.MustCreate(ctx, k8sClient, second)
+			expectUngated(second)
+
+			ginkgo.By("recreating the worker without another Workload admission event")
+			gomega.Expect(k8sClient.Delete(ctx, second, client.GracePeriodSeconds(0))).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, second, false)
+			recreated := newPod("recreated")
+			util.MustCreate(ctx, k8sClient, recreated)
+			expectUngated(recreated)
+		})
+
 		ginkgo.It("should grow an elastic workload to exactly fill topology capacity", func() {
 			var wl1 *kueue.Workload
 
