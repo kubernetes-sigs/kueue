@@ -26,10 +26,7 @@ integrations:
   - "ray.io/raycluster"
   - "pod"
 featureGates:
-  LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
-  ConcurrentAdmission: true
-  MultiKueueManagerQuotaAutomation: true
   MultiKueueRayInTreeAutoscaling: true
 tls:
   minVersion: "VersionTLS12"
