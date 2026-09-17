@@ -381,7 +381,7 @@ Key properties (framework-agnostic):
 
 - **One Job maps to one stable Workload.** The Workload is created and admitted once; scaling is a patch to `spec.podSets[].count`, so no new Workloads are created on scale events.
 - **The job framework writes the target and reads admission.** The framework patches a PodSet `count` (the desired target) and reads the admitted count from `status.admission`. It can create at most `min(target, admitted)` pods, so it never produces excess pending pods.
-- **Works with partial admission.** Partial admission is a general Kueue capability (not specific to resize), and in-place resize integrates with it on scale-up: `minCount` is kept a fixed per-Job property, set once and never mutated per scale event, and the scheduler's `PodSetReducer` searches `[max(minCount, admitted+1), count]` for the maximum fit. The lower bound keeps the search space monotonic and guarantees growth past the currently-admitted count.
+- **Partial admission support.** In-place resize can work with partial admission for scale-up scenarios. However, partial admission is not universally supported across all elastic job types. For jobs that do support partial admission, `minCount` remains a fixed per-Job property set at creation time, and the scheduler's `PodSetReducer` searches `[max(minCount, admitted+1), count]` for the maximum fit during scale-up. Jobs that do not support partial admission should not set `minCount`, ensuring the Workload is either fully admitted or not admitted at all.
 
 #### Consumer: Spark on Kubernetes
 
@@ -393,6 +393,47 @@ Spark on Kubernetes is the motivating consumer of this capability. The WorkloadS
 
 In-place resize maps onto Spark cleanly: one SparkApplication maps to one Workload (with `driver` and `executor` PodSets); the driver patches the executor PodSet `count` from its dynamic-allocation target and reads the admitted count, capping executor pods at `min(target, admitted)`; and on scale-down the driver floors the patched count at the executors still occupying resources while idle ones await `executorIdleTimeout`.
 
+**Workload lifecycle during scaling:**
+
+- **Scale-up (spec.count > status.admission.count):** When the Spark driver increases `spec.podSets[executor].count` above the currently admitted count, the WorkloadReconciler detects this via the `Update` event and re-enqueues the Workload into the active scheduling queue (even though it is already admitted). The scheduler recalculates the delta (`spec.count - admitted.count`) and attempts to admit the additional resources. If resources are available, the scheduler updates `status.admission` to reflect the new admitted count (partial or full); if resources are unavailable, the Workload is moved to the `inadmissibleWorkloads` set and will be reconsidered when quota is released or the queue configuration changes. Throughout this process, the Workload remains in `Admitted` status and `Job.spec.suspend` remains `false`—the job continues running with its currently admitted resources while waiting for the scale-up to complete.
+
+  Because Kueue itself writes `status.admission`, every admission update—including a partial one—re-triggers the `Update` event and is re-evaluated against the still-outstanding `spec.count`: as long as `spec.count > status.admission.count`, the Workload keeps getting re-enqueued, and if no further quota is available yet it lands back in `inadmissibleWorkloads`. This repeats automatically, without any further action from the driver, until the full target is admitted or the driver lowers `spec.count`.
+
+  The sequence diagram below walks through this: the driver asks for 10 executors while 5 are admitted; the scheduler can only fit 2 more right away, so it partially admits up to 7 and the still-unsatisfied Workload (`spec.count=10 > admission.count=7`) is re-enqueued and then parked in `inadmissibleWorkloads` when no further quota is immediately available; once some other Workload releases quota, `QueueAssociatedInadmissibleWorkloadsAfter` moves it back to the active queue on its own, where it is admitted the rest of the way to 10. If the scheduler cannot fit even the first 2 (e.g., no quota is free at all), the same flow applies directly from `admission.count=5`, skipping the intermediate partial-admission step.
+
+  ```mermaid
+  sequenceDiagram
+      autonumber
+      participant Drv as Spark Driver
+      participant WLR as WorkloadReconciler
+      participant Q as Active Queue
+      participant Sch as Scheduler
+      participant Inad as inadmissibleWorkloads
+
+      Note over Drv,Inad: spec.count=5, admission.count=5 (stable)
+      Drv->>WLR: patch spec.podSets[executor].count=10
+      WLR->>Q: spec.count(10) > admission.count(5): re-enqueue
+      Q->>Sch: schedule, delta=10-5=5
+      Sch->>WLR: partial fit, admission.count=7
+      WLR->>Q: spec.count(10) > admission.count(7): re-enqueue
+      Q->>Sch: schedule, delta=10-7=3
+      Sch-->>Inad: NoFit, move to inadmissibleWorkloads
+      Note over Inad: waits, no driver action needed
+      Note over Inad: quota freed by another workload
+      Inad->>Q: QueueAssociatedInadmissibleWorkloadsAfter: re-queued
+      Q->>Sch: schedule, delta=3
+      Sch->>WLR: full fit, admission.count=10
+      WLR->>WLR: spec.count(10) == admission.count(10): stable
+  ```
+
+  **Difference from WorkloadSlices:** with WorkloadSlices, a scale-up that cannot be fully admitted creates a *new* slice Workload sized to the requested target; if that slice cannot be admitted either, it simply waits—it does not grow, and no smaller intermediate amount is ever admitted, because the old slice (sized to the previous, smaller target) is left holding the currently-admitted quota. Getting to a higher admitted count after that requires the job framework to notice and create yet another, larger slice. With WorkloadResize there is only ever one Workload, so partial admission and automatic retry from `inadmissibleWorkloads` both operate directly on it: quota freed elsewhere is picked up without the driver or job framework doing anything beyond the original `spec.count` patch.
+
+- **Scale-down (spec.count < status.admission.count):** When the driver reduces `spec.podSets[executor].count` below the admitted count, the WorkloadReconciler immediately updates `status.admission` to match the new `spec.count`, proportionally reducing the admitted resources and releasing the freed quota back to the ClusterQueue. This converges the admitted state to the target without re-scheduling. The Workload remains `Admitted` and `Job.spec.suspend` remains `false`.
+
+  *Example:* A SparkApplication has 10 executors admitted (`spec.count=10`, `status.admission.count=10`). The Spark driver's dynamic allocation determines that 5 executors are idle and reduces `spec.count` to 5. The WorkloadReconciler detects this change and immediately updates `status.admission.count` to 5, releasing quota for 5 executors back to the ClusterQueue. The Workload is not re-enqueued into the scheduling queue. The driver terminates the 5 idle executor pods, and the job continues running with 5 executors.
+
+- **No-op (spec.count == status.admission.count):** When the counts are equal, the Workload is stable and not re-enqueued; it stays out of the scheduling queue.
+
 ##### Workload discovery, authorization, and conflict handling
 
 Because the resizing entity is the in-job Spark driver rather than spark-operator, the KEP defines how the driver finds, is authorized for, and safely updates its Workload:
@@ -400,7 +441,12 @@ Because the resizing entity is the in-job Spark driver rather than spark-operato
 - **Discovery.** The Kueue SparkApplication integration creates and admits the Workload before the driver starts, and labels it `kueue.x-k8s.io/job-uid=<SparkApplication UID>`. The driver resolves that UID from its own pod's controlling owner reference (under Spark Operator the driver pod's controller owner is the SparkApplication), then locates the single Workload via a label-scoped list+watch on that `job-uid`.
 - **Authorization (RBAC).** The driver runs under the Spark integration's ServiceAccount, which is granted `get`/`list`/`watch`/`patch` on `workloads.kueue.x-k8s.io` scoped to the application namespace. It has no permission to create or delete Workloads or to write Workload `status`.
 - **Ownership / single-writer per field.** The two sides write disjoint fields, so there is no write-write contention on the same field: Kueue is the sole writer of `status.admission` (the admitted count) and of the Workload lifecycle (create/finish/delete); the driver only writes `spec.podSets[executor].count`.
-- **Conflict handling.** Spec and status are distinct fields, so a driver `count` patch and a concurrent Kueue `status.admission` update do not clobber each other. If the driver's cached Workload is stale, the merge patch still only changes `count`; the driver refreshes its cache from the patch response and the watch stream, then reconciles again. Kueue re-evaluates admission on the observed `count`, so a transiently stale write self-corrects on the next cycle.
+
+- **Conflict handling.** The driver uses a JSON Merge Patch targeting only the `spec.podSets[executor].count` field. Because `spec` and `status` are distinct fields, a driver `count` patch and a concurrent Kueue `status.admission` update do not clobber each other. If the driver's cached Workload is stale, the merge patch still only changes `count` and does not affect other PodSets or spec fields. The driver refreshes its Workload cache from the patch response and the watch stream after each update. Kueue re-evaluates admission on the observed `count` change, so a transiently stale write self-corrects on the next reconciliation cycle.
+
+#### Adopting WorkloadResize in other job runtimes
+
+For `batch/Job`, the only change needed is in Kueue's own Job integration reconciler (`pkg/controller/jobframework`): in `EnsureWorkloadSlices` (or the equivalent reconciliation path), mirror the latest `Job.spec.parallelism` into the Workload's `spec.podSets[0].count`.
 
 ### Long-term Direction: Slices vs. In-place Resize
 
@@ -422,7 +468,7 @@ Kueue intentionally supports two elastic mechanisms during Alpha so we can valid
 - Pros:
   - Transparent to the job runtime: Kueue drives per-replica admission via scheduling gates, so frameworks whose controller already owns the pods (batch/Job, RayCluster) need no Kueue awareness inside the running job.
 - Cons:
-  - Produces a new Workload object per scale-up; for jobs that scale frequently (e.g. Spark dynamic allocation), pressure on etcd/apiserver is significant.
+  - Produces a new Workload object per scale-up; for jobs that scale frequently (e.g. Spark dynamic allocation), pressure on etcd/API server is significant.
   - The job side is not aware of how much quota has been admitted, so it keeps creating pods up to its own target; the pods beyond the admitted amount will be pending/gated.
   - If a job framework does want to watch the Workload, it is harder to do so: the Workload is not stable — each scale-up creates a new slice Workload (with a different name) that replaces the old one, so there is no single long-lived Workload to track.
 
@@ -430,7 +476,8 @@ Kueue intentionally supports two elastic mechanisms during Alpha so we can valid
 
 - Pros:
   - Exposes the Workload itself as the scaling surface (in-place `spec.podSets[].count` mutation), which is flexible in two directions: a runtime that wants to drive its own Workload — such as the Spark driver — can do so directly and easily; and jobs that do not want to be Workload-aware are still supported.
-  - Exactly one stable Workload per job: the API-server/etcd footprint stays low even under frequent scaling, and because the Workload is long-lived with a stable name, a job framework that wants to watch workload can track it easily.
+  - Exactly one stable Workload per job: the API server/etcd footprint stays low even under frequent scaling, and because the Workload is long-lived with a stable name, a job framework that wants to watch the Workload can track it easily.
+  - The runtime can read `status.admission` to know exactly how much quota has been admitted, avoiding creating excess pending pods. This is how the Spark driver caps executor creation at `min(target, admitted)`.
 - Cons:
   - Making a runtime operate its Workload directly (read admission, patch the count) requires custom integration work; that customization has a cost.
 
