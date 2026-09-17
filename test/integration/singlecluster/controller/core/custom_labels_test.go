@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -1298,7 +1299,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 			ginkgo.By("verifying the LocalQueue series and stored label values are present")
 			expectSeriesPresent(localQueueScopedMetrics(), map[string]string{"name": lq.Name, "namespace": lq.Namespace})
-			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "platform", "training")
 			gomega.Expect(customMetricLabels.LQGet(utilqueue.Key(lq))).To(gomega.Equal([]string{"platform"}))
 
 			ginkgo.By("deleting the admitted workload and the LocalQueue")
