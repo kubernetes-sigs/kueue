@@ -1269,11 +1269,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// buildPodRequirements only knows the PodSet, so the caller's question is carried
 	// over rather than overwritten.
 	podRequirements.SimulateEmpty = simulateEmpty
-	// The scheduler library consumes the requirements as a Pod, so the template must
-	// carry the merged constraints rather than the bare PodSet template: the flavor's
-	// tolerations and the nodeSelector and tolerations set by admission checks.
-	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
-	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
 	requirements.podRequirements = podRequirements
 	if s.leafIsNode() && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.Obj.UID != "" {
 		requirements.matchKey = &podSetMatchKey{
@@ -1295,15 +1290,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			return nil, nil, reason
 		}
 		leaderPodRequirements.SimulateEmpty = simulateEmpty
-		// The scheduler-library filters with the Pod template alone, so the merged
-		// PodSetUpdates have to be written onto it, and the flavor's tolerations, which
-		// only the field form carries, with them.
-		if err := podset.Merge(s.log, &leaderPodRequirements.PodTemplate.ObjectMeta,
-			&leaderPodRequirements.PodTemplate.Spec, leaderInfo); err != nil {
-			return nil, nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s",
-				leaderTasPodSetRequests.PodSet.Name, err.Error())
-		}
-		leaderPodRequirements.PodTemplate.Spec.Tolerations = leaderPodRequirements.Tolerations
 		requirements.leader.podRequirements = &leaderPodRequirements
 	}
 
@@ -2253,8 +2239,9 @@ func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string)
 	return info, ""
 }
 
-// buildPodRequirements turns a PodSet into the node filters TAS applies to it.
-// A non-empty second return value is the reason the PodSet cannot be placed.
+// buildPodRequirements turns a PodSet into the node filters TAS applies to it, in the
+// field form the default simulator reads and in the Pod template the scheduler library
+// reads. A non-empty second return value is the reason the PodSet cannot be placed.
 func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
 	var podRequirements simulator.PodRequirements
 	podRequirements.Tolerations = append(info.Tolerations, s.tolerations...)
@@ -2289,7 +2276,12 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 		}
 	}
 
+	// The template must carry the same constraints as the field form rather than the
+	// bare PodSet template: the flavor's tolerations and the nodeSelector and
+	// tolerations set by admission checks.
 	podRequirements.PodTemplate = podSet.Template.DeepCopy()
+	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
+	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
 	return podRequirements, ""
 }
 
