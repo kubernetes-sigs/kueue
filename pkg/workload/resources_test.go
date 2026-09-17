@@ -583,6 +583,135 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 	}
 }
 
+func TestUseLimitsAsMissingRequestsInPod(t *testing.T) {
+	cases := map[string]struct {
+		pod  corev1.PodSpec
+		want corev1.PodSpec
+	}{
+		"container request below pod-level limit: pod-level request follows the container aggregate": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Resources: &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			want: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Resources: &corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				},
+			},
+		},
+		"container limit only: pod-level request follows the container's own limit-defaulted request": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Resources: &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			want: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{
+						Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					}},
+				},
+				Resources: &corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				},
+			},
+		},
+		"no container request or limit: pod-level request falls back to the pod-level limit": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{{}},
+				Resources:  &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			want: corev1.PodSpec{
+				Containers: []corev1.Container{{}},
+				Resources: &corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+		},
+		"explicit pod-level request is left untouched": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+			want: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+				},
+			},
+		},
+		"two container requests sum below the pod-level limit": {
+			pod: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}}},
+				},
+				Resources: &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")}},
+			},
+			want: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}}},
+				},
+				Resources: &corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+				},
+			},
+		},
+		"init container request exceeds the regular container aggregate": {
+			pod: corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}}},
+				},
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Resources: &corev1.ResourceRequirements{Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}},
+			},
+			want: corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}}},
+				},
+				Containers: []corev1.Container{
+					{Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}}},
+				},
+				Resources: &corev1.ResourceRequirements{
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pod := tc.pod.DeepCopy()
+			UseLimitsAsMissingRequestsInPod(pod)
+			if diff := cmp.Diff(&tc.want, pod); diff != "" {
+				t.Errorf("Unexpected pod spec (-want,+got): %s", diff)
+			}
+		})
+	}
+}
+
 func TestValidateResources(t *testing.T) {
 	cases := map[string]struct {
 		workloadInfo *Info

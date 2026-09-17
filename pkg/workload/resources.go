@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -60,7 +61,13 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 	// Pod-level resources (KEP-2837) are an optional pointer, only set when the
 	// PodLevelResources feature is enabled and used.
 	if pod.Resources != nil {
-		pod.Resources.Requests = resource.MergeResourceListKeepFirst(pod.Resources.Requests, pod.Resources.Limits)
+		// The API server defaults a missing pod-level request to the aggregate
+		// of the (now container-defaulted) container requests, not to the
+		// pod-level limit. The limit only supplies the default for resources
+		// no container contributes to.
+		aggregatedContainerRequests := resourcehelpers.AggregateContainerRequests(&corev1.Pod{Spec: *pod}, resourcehelpers.PodResourcesOptions{})
+		requests := resource.MergeResourceListKeepFirst(pod.Resources.Requests, aggregatedContainerRequests)
+		pod.Resources.Requests = resource.MergeResourceListKeepFirst(requests, pod.Resources.Limits)
 	}
 }
 
