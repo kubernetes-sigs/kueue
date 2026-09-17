@@ -17,10 +17,13 @@ limitations under the License.
 package resources
 
 import (
+	"encoding/json"
+	"math"
 	"sync"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func TestResourceFormatterIsolation(t *testing.T) {
@@ -71,4 +74,135 @@ func TestNilResourceFormatterUsesDefaultFormatting(t *testing.T) {
 	if got := quantity.String(); got != "10468982784" {
 		t.Errorf("nil formatter returned %q, want 10468982784", got)
 	}
+}
+
+// CPU ceilings in milli: MaxInt64 cores is the largest a Quantity carries.
+const (
+	cpuCeiling      = "9223372036854775807000"
+	cpuPastCeiling  = "9223372036854775807001"
+	cpuBelowCeiling = "9223372036854775806999"
+)
+
+func TestAmountQuantity(t *testing.T) {
+	f := NewResourceFormatter()
+
+	cases := map[string]struct {
+		name      corev1.ResourceName
+		amount    Amount
+		want      string
+		wantExact bool
+	}{
+		"whole cores in milli":                  {name: corev1.ResourceCPU, amount: NewAmount(2000), want: "2", wantExact: true},
+		"a fraction of a core":                  {name: corev1.ResourceCPU, amount: NewAmount(1500), want: "1500m", wantExact: true},
+		"the largest int64 milli":               {name: corev1.ResourceCPU, amount: NewAmount(math.MaxInt64), want: "9223372036854775807m", wantExact: true},
+		"one milli past the largest":            {name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775808m", wantExact: true},
+		"10P of cpu past int64":                 {name: corev1.ResourceCPU, amount: cpuAmount("10P"), want: "10P", wantExact: true},
+		"a milli past 10P":                      {name: corev1.ResourceCPU, amount: bigAmount(t, "10000000000000000001"), want: "10000000000000000001m", wantExact: true},
+		"1E of cpu past int64":                  {name: corev1.ResourceCPU, amount: cpuAmount("1E"), want: "1E", wantExact: true},
+		"sixteen of the largest int64":          {name: corev1.ResourceCPU, amount: bigAmount(t, "147573952589676412912"), want: "147573952589676412912m", wantExact: true},
+		"a milli below the cpu ceiling":         {name: corev1.ResourceCPU, amount: bigAmount(t, cpuBelowCeiling), want: "9223372036854775806999m", wantExact: true},
+		"the cpu ceiling":                       {name: corev1.ResourceCPU, amount: bigAmount(t, cpuCeiling), want: "9223372036854775807", wantExact: true},
+		"a milli past the cpu ceiling":          {name: corev1.ResourceCPU, amount: bigAmount(t, cpuPastCeiling), want: "9223372036854775807", wantExact: false},
+		"far past the cpu ceiling":              {name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775807000000"), want: "9223372036854775807", wantExact: false},
+		"the negative cpu ceiling":              {name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuCeiling), want: "-9223372036854775807", wantExact: true},
+		"a milli past the negative cpu ceiling": {name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuPastCeiling), want: "-9223372036854775807", wantExact: false},
+		"sixteen of the largest negative":       {name: corev1.ResourceCPU, amount: bigAmount(t, "-147573952589676412912"), want: "-147573952589676412912m", wantExact: true},
+
+		"whole devices":               {name: "example.com/gpu", amount: NewAmount(8), want: "8", wantExact: true},
+		"the largest int64 device":    {name: "example.com/gpu", amount: NewAmount(math.MaxInt64), want: "9223372036854775807", wantExact: true},
+		"one past the largest device": {name: "example.com/gpu", amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
+		"the largest negative device": {name: "example.com/gpu", amount: NewAmount(-math.MaxInt64), want: "-9223372036854775807", wantExact: true},
+		// MinInt64 fits an int64 and is one past the magnitude a Quantity carries.
+		"the smallest int64 device": {name: "example.com/gpu", amount: NewAmount(math.MinInt64), want: "-9223372036854775807", wantExact: false},
+		// In milli this is nine million cores, which a Quantity holds.
+		"the smallest int64 milli of cpu": {name: corev1.ResourceCPU, amount: NewAmount(math.MinInt64), want: "-9223372036854775808m", wantExact: true},
+		"far past in the negative":        {name: "example.com/gpu", amount: bigAmount(t, "-18446744073709551614"), want: "-9223372036854775807", wantExact: false},
+		"memory past int64":               {name: corev1.ResourceMemory, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			q := f.AmountQuantity(tc.name, tc.amount)
+			if got := q.String(); got != tc.want {
+				t.Errorf("String() = %s, want %s", got, tc.want)
+			}
+			if got := f.AmountQuantityString(tc.name, tc.amount); got != tc.want {
+				t.Errorf("AmountQuantityString() = %s, want %s", got, tc.want)
+			}
+			// The Quantity must be the number, not only a string that reads back as itself.
+			want := tc.amount
+			if !tc.wantExact {
+				want = quantityCeiling(t, tc.name, tc.amount.Sign())
+			}
+			if back := AmountFromQuantity(tc.name, q); !back.Equal(want) {
+				t.Errorf("came back as %s, want %s", back, want)
+			}
+			// What is written has to read back as the same number.
+			b, err := json.Marshal(q)
+			if err != nil {
+				t.Fatalf("Marshal() = %v", err)
+			}
+			var read resource.Quantity
+			if err := json.Unmarshal(b, &read); err != nil {
+				t.Fatalf("Unmarshal(%s) = %v", b, err)
+			}
+			if read.Cmp(q) != 0 {
+				t.Errorf("round trip of %s came back as %s", q.String(), read.String())
+			}
+		})
+	}
+}
+
+// quantityCeiling is the amount a capped value lands on, in the unit it is accounted in.
+func quantityCeiling(t *testing.T, name corev1.ResourceName, sign int) Amount {
+	t.Helper()
+	digits := "9223372036854775807"
+	if name == corev1.ResourceCPU {
+		digits = cpuCeiling
+	}
+	if sign < 0 {
+		digits = "-" + digits
+	}
+	return bigAmount(t, digits)
+}
+
+// Capping a milli past a whole core would make an increase read as a decrease.
+func TestAmountQuantityIsMonotonic(t *testing.T) {
+	f := NewResourceFormatter()
+
+	steps := []Amount{
+		NewAmount(math.MaxInt64),
+		bigAmount(t, "9223372036854775808"),
+		cpuAmount("10P"),
+		bigAmount(t, "10000000000000000001"),
+		cpuAmount("1E"),
+		bigAmount(t, cpuBelowCeiling),
+		bigAmount(t, cpuCeiling),
+		bigAmount(t, cpuPastCeiling),
+	}
+	for i := 1; i < len(steps); i++ {
+		if steps[i].Cmp(steps[i-1]) <= 0 {
+			t.Fatalf("the fixture is not increasing at %d: %s then %s", i, steps[i-1], steps[i])
+		}
+		prev := f.AmountQuantity(corev1.ResourceCPU, steps[i-1])
+		next := f.AmountQuantity(corev1.ResourceCPU, steps[i])
+		if next.Cmp(prev) < 0 {
+			t.Errorf("%s reports %s, less than %s reports for %s",
+				steps[i], next.String(), prev.String(), steps[i-1])
+		}
+	}
+}
+
+func TestAmountQuantityKeepsTheRegisteredFormat(t *testing.T) {
+	f := NewResourceFormatter()
+	f.RegisterBinaryFormattedResource("example.com/memory")
+
+	q := f.AmountQuantity("example.com/memory", NewAmount(2*1024*1024*1024))
+	if got := q.String(); got != "2Gi" {
+		t.Errorf("String() = %s, want 2Gi", got)
+	}
+}
+
+func cpuAmount(s string) Amount {
+	return AmountFromQuantity(corev1.ResourceCPU, resource.MustParse(s))
 }

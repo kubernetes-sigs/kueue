@@ -34,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -103,6 +104,7 @@ type JobReconciler struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	waitForPodsReady             bool
+	waitForPodsReadyConfig       *configapi.WaitForPodsReady
 	labelKeysToCopy              sets.Set[string]
 	annotationsToCopy            sets.Set[string]
 	clock                        clock.Clock
@@ -116,10 +118,20 @@ func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
 	return r.roleTracker
 }
 
+// CustomLabels returns the configured custom metric labels for integrations that report their own metric.
+func (r *JobReconciler) CustomLabels() *metrics.CustomLabels {
+	return r.customLabels
+}
+
+func (r *JobReconciler) podsScheduledTrackingEnabled() bool {
+	return waitforpodsready.PodsScheduledTrackingEnabled(r.waitForPodsReadyConfig)
+}
+
 type Options struct {
 	ManageJobsWithoutQueueName   bool
 	ManagedJobsNamespaceSelector labels.Selector
 	WaitForPodsReady             bool
+	WaitForPodsReadyConfig       *configapi.WaitForPodsReady
 	KubeServerVersion            *kubeversion.ServerVersionFetcher
 	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
 	EnabledFrameworks            sets.Set[string]
@@ -169,6 +181,7 @@ func WithManagedJobsNamespaceSelector(ls labels.Selector) Option {
 func WithWaitForPodsReady(cfg *configapi.WaitForPodsReady) Option {
 	return func(o *Options) {
 		o.WaitForPodsReady = waitforpodsready.Enabled(cfg)
+		o.WaitForPodsReadyConfig = cfg
 	}
 }
 
@@ -299,6 +312,7 @@ func NewReconciler(
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		waitForPodsReady:             options.WaitForPodsReady,
+		waitForPodsReadyConfig:       options.WaitForPodsReadyConfig,
 		labelKeysToCopy:              options.LabelKeysToCopy,
 		annotationsToCopy:            options.AnnotationsToCopy,
 		clock:                        options.Clock,
@@ -317,7 +331,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
-	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
+	loadResult, err := r.loadJob(ctx, &req.NamespacedName, job)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -328,8 +342,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	if shouldFinalize {
-		if err := r.finalize(ctx, req.NamespacedName, job); err != nil {
+	if loadResult.ShouldFinalize {
+		if err := r.finalize(ctx, req.NamespacedName, job, loadResult.Found); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -560,7 +574,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
+		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
 			var prevPodsReadyReason string
@@ -705,38 +719,31 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-// loadJob retrieves and loads the specified job resource into memory.
-// Returns true if the job should be finalized and an error if loading fails.
-func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (bool, error) {
+// loadJob loads a job from the Kubernetes cluster and determines
+// if it is deleted or should be treated as absent.
+func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, job GenericJob) (*LoadResult, error) {
 	if cJob, isComposable := job.(ComposableJob); isComposable {
 		return cJob.Load(ctx, r.client, key)
 	}
 	obj := job.Object()
 	if err := r.client.Get(ctx, *key, obj); err != nil {
 		if client.IgnoreNotFound(err) != nil {
-			return false, err
+			return nil, err
 		}
-		return true, nil
+		return NewLoadResult(true, false), nil
 	}
-	return !obj.GetDeletionTimestamp().IsZero(), nil
+	return NewLoadResult(!obj.GetDeletionTimestamp().IsZero(), true), nil
 }
 
 // finalize removes finalizers from workloads and the job itself,
 // ensuring proper cleanup during object deletion.
-func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob) error {
-	// Remove workloads finalizer
-	if err := r.finalizeWorkloads(ctx, key, job); client.IgnoreNotFound(err) != nil {
-		return err
-	}
-
-	// Remove job finalizer
-	if !job.Object().GetDeletionTimestamp().IsZero() {
-		if err := r.finalizeJob(ctx, job); client.IgnoreNotFound(err) != nil {
+func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob, jobFound bool) error {
+	if jobFound {
+		if err := client.IgnoreNotFound(r.finalizeJob(ctx, job)); err != nil {
 			return err
 		}
 	}
-
-	return nil
+	return r.finalizeWorkloads(ctx, key, job, jobFound)
 }
 
 // getWorkloads retrieves a list of workloads associated with the specified job.
@@ -762,14 +769,23 @@ func (r *JobReconciler) getWorkloads(ctx context.Context, key types.NamespacedNa
 }
 
 // finalizeWorkloads removes finalizers from workloads associated with the specified job.
-func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob) error {
+// When jobNotFound is false (job exists but has deletionTimestamp), only workloads that
+// themselves have a deletionTimestamp are processed. This avoids a deadlock with Kubernetes
+// foreground cascading deletion: the GC sets deletionTimestamp on the workload
+// (blockOwnerDeletion=true via SetControllerReference) and waits for it to disappear
+// before removing the foregroundDeletion finalizer from the job.
+func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.NamespacedName, job GenericJob, jobFound bool) error {
 	workloads, err := r.getWorkloads(ctx, key, job)
 	if err != nil {
 		return err
 	}
 	for i := range workloads {
 		wl := &workloads[i]
-		if err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl)); err != nil {
+		if jobFound && wl.DeletionTimestamp.IsZero() {
+			continue
+		}
+		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
+		if client.IgnoreNotFound(err) != nil {
 			return err
 		}
 	}
@@ -1044,6 +1060,17 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		if workloadslicing.Enabled(object) && workloadslicing.ScaledUp(wl) {
 			log.V(3).Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
 			return wl, nil
+		}
+
+		if features.Enabled(features.MultiKueueRayInTreeAutoscaling) && workloadslicing.Enabled(object) {
+			resizePending, err := hasPendingElasticResize(ctx, r.client, job, wl)
+			if err != nil {
+				return nil, err
+			}
+			if resizePending {
+				log.V(3).Info("WorkloadSlice: skip in-sync check during resize handover")
+				return wl, nil
+			}
 		}
 
 		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
@@ -1369,14 +1396,20 @@ func priorityStateEqual(wl *kueue.Workload, ref *kueue.PriorityClassRef, priorit
 
 func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob) (match *kueue.Workload, toDelete []*kueue.Workload, err error) {
 	object := job.Object()
+	gvk := job.GVK()
 
 	workloads := &kueue.WorkloadList{}
-	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()), OwnerReferenceIndexFieldMatcher(job.GVK(), object.GetName())); err != nil {
+	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()), OwnerReferenceIndexFieldMatcher(gvk, object.GetName())); err != nil {
 		return nil, nil, err
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
+		if owner := metav1.GetControllerOfNoCopy(w); !ownerMatchesJob(owner, gvk, object.GetName()) {
+			log.V(2).Info("Skipping workload not controlled by the job", "workload", klog.KObj(w))
+			continue
+		}
 		isEquivalent, err := EquivalentToWorkload(ctx, c, job, w)
 		if err != nil {
 			return nil, nil, err
@@ -1389,6 +1422,14 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	}
 
 	return match, toDelete, nil
+}
+
+// ownerMatchesJob reports whether owner identifies the job by Kind, APIVersion and name.
+func ownerMatchesJob(owner *metav1.OwnerReference, gvk schema.GroupVersionKind, name string) bool {
+	return owner != nil &&
+		owner.Kind == gvk.Kind &&
+		owner.APIVersion == gvk.GroupVersion().String() &&
+		owner.Name == name
 }
 
 func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *kueue.Workload, object client.Object) error {
@@ -1409,6 +1450,30 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 		}
 	}
 	return nil
+}
+
+// hasPendingElasticResize reports whether the elastic job's pod sets have the
+// same keys as its pinned workload slice but at least one count differs.
+// For worker-side autoscaling (e.g. the Ray autoscaler resizing the worker copy
+// directly), the workload is owned by the manager cluster, so the resize is only
+// complete once the manager updates the worker's workload slice to match. Until
+// then the count mismatch on a MultiKueue-dispatched copy (identified by the
+// origin label) is expected, not out-of-sync. A change that alters the pod set
+// structure (different keys) is not a resize and still fails the in-sync check.
+func hasPendingElasticResize(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+	if job.Object().GetLabels()[kueue.MultiKueueOriginLabel] == "" {
+		return false, nil
+	}
+	jobPodSets, err := JobPodSets(ctx, job, c)
+	if err != nil {
+		return false, err
+	}
+	jobCounts := workload.ExtractPodSetCounts(jobPodSets)
+	wlCounts := workload.ExtractPodSetCountsFromWorkload(wl)
+	if !jobCounts.HasSamePodSetKeys(wlCounts) {
+		return false, nil
+	}
+	return !jobCounts.EqualTo(wlCounts), nil
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
@@ -1440,7 +1505,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
+	info, err := getPodSetsInfoFromStatus(ctx, c, wl, false)
 	if err != nil {
 		return nil
 	}
@@ -1473,13 +1538,13 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	return runningPodSets
 }
 
-// EquivalentToWorkload checks if the job corresponds to the workload
+// EquivalentToWorkload checks if the job corresponds to the workload.
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
 	// A Workload without a controller owner reference cannot belong to this job.
 	// The owner index that selects candidates matches any owner reference, not only
 	// controller ones, so wl may reach here with no controller owner.
-	if owner == nil || owner.Name != job.Object().GetName() {
+	if owner == nil || !ownerMatchesJob(owner, job.GVK(), job.Object().GetName()) {
 		return false, nil
 	}
 
@@ -1541,7 +1606,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
+	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl, r.podsScheduledTrackingEnabled())
 	if err != nil {
 		return err
 	}
@@ -1881,7 +1946,7 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
+func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload, annotateWorkload bool) ([]podset.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -1893,7 +1958,8 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if err != nil {
 			return nil, err
 		}
-		if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
+		if (annotateWorkload && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout)) || features.Enabled(features.TopologyAwareScheduling) ||
+			features.Enabled(features.SchedulerLibraryIntegration) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
 		if workloadslicing.IsElasticWorkload(w) {
@@ -1990,10 +2056,10 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 	return err
 }
 
-func generatePodsReadyCondition(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
+func generatePodsReadyCondition(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload, clock clock.Clock, podsScheduledTracking bool) metav1.Condition {
 	log := ctrl.LoggerFrom(ctx)
 	const (
-		notReadyMsg           = "Not all pods are ready or succeeded"
+		notReadyMsg           = workload.PodsNotReadyMessage
 		waitingForRecoveryMsg = "At least one pod has failed, waiting for recovery"
 		readyMsg              = "All pods reached readiness and the workload is running"
 	)
@@ -2025,10 +2091,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 
 	switch {
 	case podsReadyCond == nil:
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForStart,
-			notReadyMsg,
-			clock)
+		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
 
 	case podsReadyCond.Status == metav1.ConditionTrue:
 		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
@@ -2043,12 +2106,19 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 			clock)
 
 	default:
-		// handles both "WaitForPodsStart" and the old "PodsReady" reasons
-		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
-			kueue.WorkloadWaitForStart,
-			notReadyMsg,
-			clock)
+		return waitForSchedulingOrStartPodsReadyCondition(wl, clock, podsScheduledTracking)
 	}
+}
+
+func waitForSchedulingOrStartPodsReadyCondition(wl *kueue.Workload, clock clock.Clock, podsScheduledTracking bool) metav1.Condition {
+	reason := kueue.WorkloadWaitForStart
+	if podsScheduledTracking && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
+		admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+		if cur := workload.CurrentPodsScheduledCondition(wl, admittedAt); cur != nil && cur.Status == metav1.ConditionFalse {
+			reason = kueue.WorkloadWaitForScheduling
+		}
+	}
+	return workload.CreatePodsReadyCondition(metav1.ConditionFalse, reason, workload.PodsNotReadyMessage, clock)
 }
 
 // GetPodSetsInfoFromWorkload retrieve the podSetsInfo slice from the

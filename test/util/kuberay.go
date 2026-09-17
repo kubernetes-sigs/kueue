@@ -20,9 +20,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	kuberayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -42,6 +46,43 @@ func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey cl
 		return nil, fmt.Errorf("expected exactly one head Pod for RayCluster %s, got %d", rayClusterKey, len(pods.Items))
 	}
 	return &pods.Items[0], nil
+}
+
+// ExecuteCommandInRayClusterHead waits for the RayCluster head to become ready,
+// then executes the command in its head Pod.
+func ExecuteCommandInRayClusterHead(
+	ctx context.Context,
+	c client.Client,
+	cfg *rest.Config,
+	restClient *rest.RESTClient,
+	rayClusterKey client.ObjectKey,
+	command []string,
+) {
+	ginkgo.GinkgoHelper()
+	var headPod *corev1.Pod
+	gomega.Eventually(func(g gomega.Gomega) {
+		rayCluster := &rayv1.RayCluster{}
+		g.Expect(c.Get(ctx, rayClusterKey, rayCluster)).To(gomega.Succeed())
+		g.Expect(apimeta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
+
+		pod, err := GetRayClusterHeadPod(ctx, c, rayClusterKey)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+		headPod = pod
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+
+	gomega.Eventually(func(g gomega.Gomega) {
+		_, stderr, err := KExecute(
+			ctx,
+			cfg,
+			restClient,
+			headPod.Namespace,
+			headPod.Name,
+			headPod.Spec.Containers[0].Name,
+			command,
+		)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
 // GetRayClusterWorkerPods returns the worker Pods associated with the RayCluster

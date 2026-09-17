@@ -7,15 +7,19 @@
 /kind documentation
 /kind feature
 /kind kep
+-->
 
-Optionally choose one or more of the following kinds:
+
+<!-- Optionally choose one or more of the following kinds:
 /kind api-change
 /kind deprecation
 /kind failing-test
 /kind flake
 /kind regression
+-->
 
-Consider setting the area:
+
+<!-- Consider setting the area:
 /area tas
 /area was
 /area integrations
@@ -26,7 +30,10 @@ Consider setting the area:
 /area website
 -->
 
+
 #### What this PR does / why we need it?
+
+
 <!--
 Use `Fixes #123` for an issue addressed by this PR; it will be closed when the PR merges.
 Use `Related:` or `Part of:` to reference an issue without closing it.
@@ -35,7 +42,9 @@ Fixes #
 
 #### Useful notes for your reviewer
 
+
 #### Release note
+
 <!-- Describe the behavior change accurately from the user's perspective. Hints:
 - Do not leave this block blank.
 - Use "NONE" when there is no user-facing change.

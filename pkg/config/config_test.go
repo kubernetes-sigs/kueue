@@ -40,8 +40,8 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -222,6 +222,7 @@ waitForPodsReady:
   timeout: 50s
   blockAdmission: true
   recoveryTimeout: 3m
+  unscheduledTimeout: 30s
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10
@@ -479,7 +480,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -499,7 +499,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -537,9 +536,8 @@ objectRetentionPolicies:
 						},
 					},
 				},
-				VisibilityServer:     defaultVisibility,
-				WaitForPodsReady:     defaultWaitForPodsReady,
-				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
+				VisibilityServer: defaultVisibility,
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -560,7 +558,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -598,7 +595,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -621,7 +617,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -642,7 +637,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -671,9 +665,10 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					BlockAdmission:  new(true),
-					Timeout:         metav1.Duration{Duration: 50 * time.Second},
-					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
+					BlockAdmission:     new(true),
+					Timeout:            metav1.Duration{Duration: 50 * time.Second},
+					RecoveryTimeout:    &metav1.Duration{Duration: 3 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          new(configapi.CreationTimestamp),
 						BackoffLimitCount:  new(int32(10)),
@@ -681,7 +676,6 @@ objectRetentionPolicies:
 						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -710,7 +704,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -734,7 +727,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -783,7 +775,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -829,7 +820,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -870,7 +860,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -891,7 +880,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -947,7 +935,6 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
-				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
@@ -1053,8 +1040,7 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady:     defaultWaitForPodsReady,
-				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
+				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1103,8 +1089,7 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady:     defaultWaitForPodsReady,
-				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
+				WaitForPodsReady: defaultWaitForPodsReady,
 
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
@@ -1117,7 +1102,7 @@ webhook:
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1285,7 +1270,6 @@ func TestEncode(t *testing.T) {
 					},
 					"timeout": "30m0s",
 				},
-				"quotaReleaseStrategy": "OnTerminating",
 			},
 		},
 	}
@@ -1323,8 +1307,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 
 		"waitforpodsready.Enabled() is false when DisableWaitForPodsReady feature gate is enabled": {
 			cfg: &configapi.Configuration{
-				WaitForPodsReady:     defaultWaitForPodsReady,
-				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.DisableWaitForPodsReady: true,
@@ -1334,8 +1317,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 
 		"waitforpodsready.Enabled() is true when DisableWaitForPodsReady feature gate is disabled": {
 			cfg: &configapi.Configuration{
-				WaitForPodsReady:     defaultWaitForPodsReady,
-				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
+				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.DisableWaitForPodsReady: false,
@@ -1557,6 +1539,67 @@ namespace: kueue-system
 			}
 			if diff := cmp.Diff(tc.wantPod, got); diff != "" {
 				t.Errorf("Unexpected pod after transform (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSetLeaderElectionConfig(t *testing.T) {
+	testCases := map[string]struct {
+		qps       float32
+		burst     int32
+		wantQPS   float32
+		wantBurst int
+	}{
+		"configured qps and burst are kept in a dedicated bucket": {
+			qps:       20,
+			burst:     30,
+			wantQPS:   20,
+			wantBurst: 30,
+		},
+		"negative qps disables client-side throttling for the lease client too": {
+			qps:     -1,
+			burst:   30,
+			wantQPS: -1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// Mirror cmd/kueue/main.go: one explicit RateLimiter shared by every controller client.
+			sharedLimiter := flowcontrol.NewTokenBucketRateLimiter(tc.qps, int(tc.burst))
+			kubeConfig := &rest.Config{
+				Host:        "https://kueue.test",
+				RateLimiter: sharedLimiter,
+			}
+			cfg := &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   new(tc.qps),
+					Burst: new(tc.burst),
+				},
+			}
+			options := ctrl.Options{LeaderElection: true}
+
+			SetLeaderElectionConfig(&options, kubeConfig, cfg)
+
+			got := options.LeaderElectionConfig
+			if got == nil {
+				t.Fatal("LeaderElectionConfig is nil; the lease client would share the manager rest config")
+			}
+			if got == kubeConfig {
+				t.Error("LeaderElectionConfig is the manager rest config, want a copy")
+			}
+			if got.RateLimiter != nil {
+				t.Errorf("LeaderElectionConfig.RateLimiter = %v, want nil so the lease client builds its own limiter", got.RateLimiter)
+			}
+			if got.QPS != tc.wantQPS || got.Burst != tc.wantBurst {
+				t.Errorf("LeaderElectionConfig QPS/Burst = %v/%v, want %v/%v", got.QPS, got.Burst, tc.wantQPS, tc.wantBurst)
+			}
+			if got.Host != kubeConfig.Host {
+				t.Errorf("LeaderElectionConfig.Host = %q, want %q", got.Host, kubeConfig.Host)
+			}
+			if kubeConfig.RateLimiter != sharedLimiter {
+				t.Errorf("manager rest config was modified: %+v", kubeConfig)
 			}
 		})
 	}

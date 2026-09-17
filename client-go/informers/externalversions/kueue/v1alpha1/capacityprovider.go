@@ -34,11 +34,39 @@ import (
 )
 
 // CapacityProviderInformer provides access to a shared informer and lister for
-// CapacityProviders.
+// CapacityProviders. Prefer using the type-safe variant (see [TypedCapacityProviderInformer]).
 type CapacityProviderInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1alpha1.CapacityProviderLister
 }
+
+// TypedCapacityProviderInformer provides access to a shared informer and lister for
+// CapacityProviders, including the type-safe TypedInformer variant.
+// It is a superset of CapacityProviderInformer.
+type TypedCapacityProviderInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() CapacityProviderIndexInformer
+	Lister() kueuev1alpha1.CapacityProviderLister
+}
+
+// CapacityProviderIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type CapacityProviderIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1alpha1.CapacityProvider]
+
+// CapacityProviderHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for CapacityProvider.
+type CapacityProviderHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1alpha1.CapacityProvider]
+
+// CapacityProviderDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for CapacityProvider.
+type CapacityProviderDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1alpha1.CapacityProvider]
+
+// CapacityProviderFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for CapacityProvider.
+type CapacityProviderFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1alpha1.CapacityProvider]
+
+// CapacityProviderIndexers is a specialization of [cache.TypedIndexers] for CapacityProvider.
+type CapacityProviderIndexers = cache.TypedIndexers[*apiskueuev1alpha1.CapacityProvider]
+
+// DeletedCapacityProvider is a specialization of [cache.DeletedObject] for CapacityProvider.
+type DeletedCapacityProvider = cache.DeletedObject[*apiskueuev1alpha1.CapacityProvider]
 
 type capacityProviderInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,25 +76,49 @@ type capacityProviderInformer struct {
 // NewCapacityProviderInformer constructs a new informer for CapacityProvider type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedCapacityProviderInformer]).
 func NewCapacityProviderInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewCapacityProviderInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedCapacityProviderInformer constructs a new informer for CapacityProvider type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedCapacityProviderInformer(client versioned.Interface, resyncPeriod time.Duration, indexers CapacityProviderIndexers) CapacityProviderIndexInformer {
+	return NewTypedCapacityProviderInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredCapacityProviderInformer constructs a new informer for CapacityProvider type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredCapacityProviderInformer]).
 func NewFilteredCapacityProviderInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewCapacityProviderInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedCapacityProviderInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredCapacityProviderInformer constructs a new informer for CapacityProvider type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredCapacityProviderInformer(client versioned.Interface, resyncPeriod time.Duration, indexers CapacityProviderIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) CapacityProviderIndexInformer {
+	return NewTypedCapacityProviderInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewCapacityProviderInformerWithOptions constructs a new informer for CapacityProvider type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedCapacityProviderInformerWithOptions]).
 func NewCapacityProviderInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedCapacityProviderInformerWithOptions(client, options)
+}
+
+// NewTypedCapacityProviderInformerWithOptions constructs a new informer for CapacityProvider type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedCapacityProviderInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) CapacityProviderIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1alpha1", Resource: "capacityproviders"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.CapacityProvider](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -99,17 +151,57 @@ func NewCapacityProviderInformerWithOptions(client versioned.Interface, options 
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *capacityProviderInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewCapacityProviderInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedCapacityProviderInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *capacityProviderInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1alpha1.CapacityProvider{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *capacityProviderInformer) TypedInformer() CapacityProviderIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.CapacityProvider](f.factory.InformerFor(&apiskueuev1alpha1.CapacityProvider{}, f.defaultInformer))
 }
 
 func (f *capacityProviderInformer) Lister() kueuev1alpha1.CapacityProviderLister {
 	return kueuev1alpha1.NewCapacityProviderLister(f.Informer().GetIndexer())
+}
+
+// ToTypedCapacityProviderInformer converts an untyped informer into a TypedCapacityProviderInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *CapacityProvider. If that is not the case, calling type-safe methods of the returned
+// TypedCapacityProviderInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedCapacityProviderInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedCapacityProviderInformer(informer CapacityProviderInformer) TypedCapacityProviderInformer {
+	if informer, ok := informer.(TypedCapacityProviderInformer); ok {
+		return informer
+	}
+	return &capacityProviderTypedInformerAdapter{informer}
+}
+
+type capacityProviderTypedInformerAdapter struct {
+	CapacityProviderInformer
+}
+
+func (a *capacityProviderTypedInformerAdapter) TypedInformer() CapacityProviderIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.CapacityProvider](a.Informer())
+}
+
+// ToCapacityProviderIndexInformer converts an untyped informer into a CapacityProviderIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *CapacityProvider. If that is not the case, calling type-safe methods of the returned
+// CapacityProviderIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a CapacityProviderIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToCapacityProviderIndexInformer(informer cache.SharedIndexInformer) CapacityProviderIndexInformer {
+	if informer, ok := informer.(CapacityProviderIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.CapacityProvider](informer)
 }

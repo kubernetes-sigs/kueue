@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/dqo"
-	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -169,13 +168,13 @@ func (c *clusterQueue) updateClusterQueue(
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
-		if c.HasParent() {
+		if c.HasParent() && !hierarchy.HasCycle(c.Parent()) {
 			// clusterQueue will be updated as part of tree update.
 			if err := updateCohortTreeResources(c.Parent()); err != nil {
 				return err
 			}
 		} else {
-			// since ClusterQueue has no parent, it won't be updated
+			// since ClusterQueue has no parent (or parent cohort hierarchy has a cycle), it won't be updated
 			// as part of tree update.
 			updateClusterQueueResourceNode(c)
 		}
@@ -265,7 +264,8 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 		len(c.multiKueueAdmissionChecks) > 1 ||
 		len(c.perFlavorMultiKueueAdmissionChecks) > 0 ||
 		// provisioning requests should not be used on manager cluster with multikueue
-		(len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0) {
+		(len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0) ||
+		(c.HasParent() && hierarchy.HasCycle(c.Parent())) {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -297,7 +297,8 @@ func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
 	}
 	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))
 	for _, w := range c.Workloads {
-		c.addOrUpdateWorkload(log, w.Obj)
+		wi := workload.NewInfo(log, w.Obj, append(slices.Clone(c.workloadInfoOptions), workload.WithEffectivePodSpecs(w.EffectivePodSpecs))...)
+		c.addOrUpdateWorkload(log, wi)
 	}
 	c.isTASSynced = true
 }
@@ -360,6 +361,11 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 					messages = append(messages, fmt.Sprintf("there is no Topology %q for TAS flavor %q", topology, tasFlavor))
 				}
 			}
+		}
+
+		if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonCohortCycleDetected)
+			messages = append(messages, fmt.Sprintf("Cohort %q has a cycle in hierarchy", c.Parent().GetName()))
 		}
 
 		if len(reasons) == 0 {
@@ -487,12 +493,12 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 	}
 }
 
-func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
+func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
+	w := wi.Obj
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
-	wi := workload.NewInfo(log, w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
 		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)
@@ -585,6 +591,9 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 }
 
 func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
+	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
+		return
+	}
 	drs := dominantResourceShare(c, nil)
 	weightedShare := drs.PreciseWeightedShare()
 	if weightedShare == math.Inf(1) {
@@ -598,12 +607,20 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.ResourceUsage().Assigned
-	for fr, q := range frUsage {
-		if op == add {
-			addUsage(c, fr, q)
-		}
-		if op == subtract {
-			removeUsage(c, fr, q)
+	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
+		// Keep the ClusterQueue's usage current while the invalid hierarchy is
+		// present. Ancestor usage is rebuilt from ClusterQueues once the cycle is resolved.
+		// addUsage/removeUsage are recursive through parentHRN() and would infinite-loop
+		// on a cyclic cohort hierarchy.
+		updateFlavorUsage(frUsage, c.resourceNode.Usage, op)
+	} else {
+		for fr, q := range frUsage {
+			if op == add {
+				addUsage(c, fr, q)
+			}
+			if op == subtract {
+				removeUsage(c, fr, q)
+			}
 		}
 	}
 	c.updateWorkloadTASUsage(log, wi, op)
@@ -665,9 +682,12 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 }
 
 func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op usageOp) {
-	sign := int64(op.asSignedOne())
 	for fr, q := range newUsage {
-		oldUsage[fr] = oldUsage[fr].AddInt64(utilmath.SaturatingMul(sign, q.Int64()))
+		if op == add {
+			oldUsage[fr] = oldUsage[fr].Add(q)
+		} else {
+			oldUsage[fr] = oldUsage[fr].Sub(q)
+		}
 	}
 }
 

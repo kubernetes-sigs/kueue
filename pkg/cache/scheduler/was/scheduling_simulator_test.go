@@ -20,6 +20,7 @@ package was
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -80,11 +82,58 @@ func TestNodePortsFeasibility(t *testing.T) {
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj()
 
+	// No Workload annotation, so nothing can preempt it.
+	unmanagedPod := testingpod.MakePod("unmanaged-pod", "default").
+		UID("uid-2").
+		NodeName("node1").
+		StatusPhase(corev1.PodRunning).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj()
+
 	tests := map[string]struct {
-		addExistingPod bool
-		candidateSpec  corev1.PodSpec
-		wantFeasible   map[string]bool
+		addExistingPod  bool
+		addUnmanagedPod bool
+		simulateEmpty   bool
+		candidateSpec   corev1.PodSpec
+		wantFeasible    map[string]bool
 	}{
+		// Preemption cannot remove a Pod that no Workload owns, so it still holds
+		// its host port even when the caller assumes every Workload is gone.
+		"hostPort held by a Pod outside any Workload still excludes the node": {
+			addUnmanagedPod: true,
+			simulateEmpty:   true,
+			candidateSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "busybox",
+					Ports: []corev1.ContainerPort{{
+						ContainerPort: 8080,
+						HostPort:      8080,
+						Protocol:      corev1.ProtocolTCP,
+					}},
+				}},
+			},
+			wantFeasible: map[string]bool{"node2": true},
+		},
+		// TAS asks this while deciding whether preemption could help. The Pod
+		// holding the port is one of the Workloads that would be preempted, so
+		// it must not count against the candidate.
+		"hostPort conflict is ignored when the cluster is assumed empty": {
+			addExistingPod: true,
+			simulateEmpty:  true,
+			candidateSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "busybox",
+					Ports: []corev1.ContainerPort{{
+						ContainerPort: 8080,
+						HostPort:      8080,
+						Protocol:      corev1.ProtocolTCP,
+					}},
+				}},
+			},
+			wantFeasible: map[string]bool{"node1": true, "node2": true},
+		},
 		"hostPort conflict excludes node with occupied port": {
 			addExistingPod: true,
 			candidateSpec: corev1.PodSpec{
@@ -99,6 +148,24 @@ func TestNodePortsFeasibility(t *testing.T) {
 				}},
 			},
 
+			wantFeasible: map[string]bool{"node2": true},
+		},
+		// The simulator builds one profile, so a candidate naming a profile it does not
+		// build is judged by that profile rather than failing the whole check.
+		"another scheduler name does not change hostPort feasibility": {
+			addExistingPod: true,
+			candidateSpec: corev1.PodSpec{
+				SchedulerName: "secondary-scheduler",
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "busybox",
+					Ports: []corev1.ContainerPort{{
+						ContainerPort: 8080,
+						HostPort:      8080,
+						Protocol:      corev1.ProtocolTCP,
+					}},
+				}},
+			},
 			wantFeasible: map[string]bool{"node2": true},
 		},
 		"different hostPort has no conflict": {
@@ -166,16 +233,27 @@ func TestNodePortsFeasibility(t *testing.T) {
 				sim.TrackPod(ctx, existingPod)
 			}
 			snapshot, err := sim.Snapshot(ctx, nodes, nil)
+			if tc.addUnmanagedPod {
+				sim.TrackPod(ctx, unmanagedPod)
+			}
+      
 			if err != nil {
 				t.Fatalf("CreateSnapshot failed: %v", err)
 			}
 
 			stats := &simulator.NodeExclusionStats{}
+			podTemplate := &corev1.PodTemplateSpec{Spec: tc.candidateSpec}
+			origSpec := *tc.candidateSpec.DeepCopy()
 			results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
-				PodTemplate: &corev1.PodTemplateSpec{Spec: tc.candidateSpec},
+				PodTemplate:   podTemplate,
+				SimulateEmpty: tc.simulateEmpty,
 			}, stats)
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes failed: %v", err)
+			}
+
+			if diff := cmp.Diff(origSpec, podTemplate.Spec); diff != "" {
+				t.Errorf("PodTemplate.Spec was rewritten (-want,+got):\n%s", diff)
 			}
 
 			gotNames := make(map[string]bool)
@@ -254,6 +332,23 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 			t.Errorf("Unexpected feasible nodes (-want,+got):\n%s", diff)
 		}
 	})
+}
+
+// TestRepeatedSnapshots guards the informer factory against being shared across
+// snapshots: the framework registers a DRA index on the factory it is given.
+func TestRepeatedSnapshots(t *testing.T) {
+	ctx := klog.NewContext(t.Context(), logr.Discard())
+
+	sim, err := NewWASSimulator(ctx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulator failed: %v", err)
+	}
+
+	for i := range 3 {
+		if _, err := sim.Snapshot(ctx, nil); err != nil {
+			t.Fatalf("Snapshot %d failed: %v", i, err)
+		}
+	}
 }
 
 func TestPreemptWorkload(t *testing.T) {
@@ -699,5 +794,78 @@ func TestPreemptVirtualPods(t *testing.T) {
 
 	if checkFeasible() {
 		t.Errorf("Expected node1 to be unfeasible after preemption was reverted")
+// TestPreemptWorkloadReleasesPodsOnEveryNode checks that PreemptWorkload releases
+// every Pod of the victim, not just the first, and that the revert puts all of them
+// back. TestPreemptWorkload covers one Pod on one node; a real victim spans many.
+func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
+	ctx := t.Context()
+	for _, nNodes := range []int{2, 3, 5} {
+		t.Run(fmt.Sprintf("%d-nodes", nNodes), func(t *testing.T) {
+			var nodes []*corev1.Node
+			var cands []simulator.Candidate
+			for i := range nNodes {
+				name := fmt.Sprintf("n%d", i)
+				n := testingnode.MakeNode(name).
+					Label(corev1.LabelHostname, name).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).Ready().Obj()
+				nodes = append(nodes, n)
+				cands = append(cands, &testCandidate{node: n, id: utiltas.TopologyDomainID(name)})
+			}
+			sim, err := NewWASSimulator(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			victim := client.ObjectKey{Namespace: "default", Name: "victim"}
+			// One Pod per node, each holding the same host port, so every node is
+			// blocked until the whole victim is released.
+			for i := range nodes {
+				sim.TrackPod(ctx, testingpod.MakePod(fmt.Sprintf("victim-%d", i), victim.Namespace).
+					UID(fmt.Sprintf("uid-%d", i)).
+					Annotation(kueue.WorkloadAnnotation, victim.Name).
+					NodeName(nodes[i].Name).
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj())
+			}
+			snap, err := sim.Snapshot(ctx, nodes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			probe := testingpod.MakePod("probe", "default").Obj()
+			probe.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}}
+			feasible := func() []string {
+				var stats simulator.NodeExclusionStats
+				got, err := snap.FindFeasibleNodes(ctx, slices.Values(cands),
+					&simulator.PodRequirements{PodTemplate: &corev1.PodTemplateSpec{ObjectMeta: probe.ObjectMeta, Spec: probe.Spec}}, &stats)
+				if err != nil {
+					t.Fatal(err)
+				}
+				names := make([]string, 0, len(got))
+				for _, c := range got {
+					names = append(names, c.GetNode().Name)
+				}
+				slices.Sort(names)
+				return names
+			}
+			if got := feasible(); len(got) != 0 {
+				t.Fatalf("before preemption: want no feasible node, got %v", got)
+			}
+			revert, err := snap.PreemptWorkload(ctx, victim)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := feasible(); len(got) != nNodes {
+				t.Errorf("after preempting the victim: want all %d nodes free, got %v", nNodes, got)
+			}
+			if err := revert(); err != nil {
+				t.Fatal(err)
+			}
+			if got := feasible(); len(got) != 0 {
+				t.Errorf("after revert: want no feasible node, got %v", got)
+			}
+		})
 	}
 }

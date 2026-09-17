@@ -31,7 +31,7 @@ import (
 // `runtimeRef` API in TrainJob. This resource is a namespaced-scoped and can be referenced
 // by TrainJob that created in the *same* namespace as the TrainingRuntime.
 type TrainingRuntimeApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata of the TrainingRuntime.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec of the TrainingRuntime.

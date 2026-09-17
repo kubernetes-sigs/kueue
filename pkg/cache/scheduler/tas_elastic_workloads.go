@@ -20,7 +20,6 @@ import (
 	"context"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -38,7 +37,7 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	ctx context.Context,
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
 ) elasticPlacementResult {
 	if workers.PreviousAssignment == nil {
@@ -83,7 +82,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	leader *TASPodSetRequests,
 	prevAssignment *utiltas.TopologyAssignment,
 	previousCount int32,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 	opts *findTopologyAssignmentsOption,
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
@@ -107,7 +106,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 		placementLeader = nil
 	}
 
-	deltaAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload)
+	deltaAssignments, deltaLeafAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
 		return elasticPlacementResult{applied: true, assignments: result}
@@ -122,12 +121,12 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 			result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: leaderPrevAssignment}
 		} else {
 			result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: deltaAssignments[leader.PodSet.Name]}
-			addAssumedUsage(assumedUsage, deltaAssignments[leader.PodSet.Name], leader)
+			addAssumedUsageForCycle(assumedUsage, deltaAssignments[leader.PodSet.Name], deltaLeafAssignments[leader.PodSet.Name], leader)
 		}
 	}
 
 	// Add only delta to avoid double-counting previous pods.
-	addAssumedUsage(assumedUsage, deltaAssignment, &workers)
+	addAssumedUsageForCycle(assumedUsage, deltaAssignment, deltaLeafAssignments[workers.PodSet.Name], &workers)
 	return elasticPlacementResult{applied: true, assignments: result}
 }
 
@@ -136,7 +135,7 @@ func (s *TASFlavorSnapshot) handleScaleDown(
 	workers TASPodSetRequests,
 	leader *TASPodSetRequests,
 	prevAssignment *utiltas.TopologyAssignment,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 ) elasticPlacementResult {
 	truncatedAssignment := utiltas.TruncateAssignment(prevAssignment, workers.Count)
 	return s.finalizeElasticAssignment(workers, truncatedAssignment, leader, assumedUsage)
@@ -149,7 +148,7 @@ func (s *TASFlavorSnapshot) finalizeElasticAssignment(
 	workers TASPodSetRequests,
 	workersAssignment *utiltas.TopologyAssignment,
 	leader *TASPodSetRequests,
-	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
+	assumedUsage *assumedUsage,
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: workersAssignment}

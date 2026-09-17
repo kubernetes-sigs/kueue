@@ -190,6 +190,15 @@ Create a resource
         </td>
     </tr>
     <tr>
+        <td colspan="2">--proxy-url string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Proxy URL to use for requests to the API server</p>
+        </td>
+    </tr>
+    <tr>
         <td colspan="2">--request-timeout string&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Default: &#34;0&#34;</td>
     </tr>
     <tr>

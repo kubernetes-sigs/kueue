@@ -2107,6 +2107,155 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 
+		ginkgo.When("Non-hostname topology evaluates feasibility and capacity per node", func() {
+			var nodes []corev1.Node
+
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASNodeFeasibilityForAllLevels, true)
+				// Rack r1 has a large tainted node and a small untainted one;
+				// rack r2 has two small untainted nodes.
+				nodes = []corev1.Node{
+					*testingnode.MakeNode("vh-r1-n1").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
+						Taints(corev1.Taint{Key: "gpu", Value: "true", Effect: corev1.TaintEffectNoSchedule}).
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("4"),
+							corev1.ResourceMemory: resource.MustParse("4Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("vh-r1-n2").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("4Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("vh-r2-n1").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("4Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("vh-r2-n2").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("4Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+				}
+				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+				topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
+				util.MustCreate(ctx, k8sClient, topology)
+
+				tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+					NodeLabel("node-group", "tas").
+					TopologyName("default").Obj()
+				util.MustCreate(ctx, k8sClient, tasFlavor)
+
+				clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj()
+				util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+				localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+				for _, node := range nodes {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			ginkgo.It("should not admit a workload which fits a rack's aggregate but no feasible node", func() {
+				// The only node with 2 CPU is tainted; every other node has 1 CPU.
+				wl := utiltestingapi.MakeWorkload("wl-no-single-node", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+						Obj()).
+					Request(corev1.ResourceCPU, "2").Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.It("should admit a workload on the feasible node of a partially tainted rack", func() {
+				wl := utiltestingapi.MakeWorkload("wl-feasible-node", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+						Obj()).
+					Request(corev1.ResourceCPU, "1").Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				ginkgo.By("verifying the assignment stays at the topology's levels", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updated)).To(gomega.Succeed())
+						g.Expect(updated.Status.Admission).NotTo(gomega.BeNil())
+						g.Expect(updated.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+						assignment := utiltas.InternalFrom(updated.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+						g.Expect(assignment.Levels).To(gomega.Equal([]string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("should admit pods across a rack's nodes when no single node fits all of them", func() {
+				// Two 1-CPU pods only fit together in rack r2, one per node.
+				wl := utiltestingapi.MakeWorkload("wl-spread-in-rack", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("main", 2).
+						RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+						Obj()).
+					Request(corev1.ResourceCPU, "1").Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				expected := utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+					Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+					Domains: []utiltas.TopologyDomainAssignment{{Count: 2, Values: []string{"b1", "r2"}}},
+				})
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updated)).To(gomega.Succeed())
+					g.Expect(updated.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(updated.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+					g.Expect(updated.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.BeComparableTo(expected))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.When("Nodes are created before test with the hostname being the lowest level", func() {
 			var (
 				nodes            []corev1.Node
@@ -3174,6 +3323,88 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
 						g.Expect(wl1.Status.UnhealthyNodes).ToNot(gomega.ContainElement(kueue.UnhealthyNode{Name: nodeName}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("should mark the node by its hostname label when the label differs from the Node name", func() {
+				var wl1 *kueue.Workload
+				const hostname = "x1"
+				var renamedNode *corev1.Node
+
+				ginkgo.By("replacing node x1 with a Node whose name differs from its hostname label", func() {
+					nodeToReplace := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: hostname}, nodeToReplace)).Should(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToReplace, true)
+					renamedNode = testingnode.MakeNode("node-"+hostname).
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r2").
+						Label(corev1.LabelHostname, hostname).
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj()
+					util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*renamedNode})
+					ginkgo.DeferCleanup(func() {
+						util.ExpectObjectToBeDeleted(ctx, k8sClient, renamedNode, true)
+					})
+				})
+
+				ginkgo.By("creating a workload", func() {
+					wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							// requiring the same block makes sure that no replacement is possible
+							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted with the hostname label in its TopologyAssignment", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(wl1.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+						utiltas.V1Beta2From(&utiltas.TopologyAssignment{
+							Levels: []string{corev1.LabelHostname},
+							Domains: []utiltas.TopologyDomainAssignment{
+								{Count: 1, Values: []string{"x3"}},
+								{Count: 1, Values: []string{hostname}},
+							},
+						}),
+					))
+				})
+
+				ginkgo.By("making the Node NotReady 30s in the past", func() {
+					util.SetNodeCondition(ctx, k8sClient, renamedNode, &corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+					})
+				})
+
+				ginkgo.By("verify the workload records the hostname label in unhealthyNodes", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: hostname}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("node recovers", func() {
+					util.SetNodeCondition(ctx, k8sClient, renamedNode, &corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(time.Now()),
+					})
+				})
+
+				ginkgo.By("verify the node is removed from unhealthyNodes", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.UnhealthyNodes).ToNot(gomega.ContainElement(kueue.UnhealthyNode{Name: hostname}))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -8660,12 +8891,72 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			}
 		})
 
-		ginkgo.It("should place scaled-up workload in same topology domain as original", func() {
+		ginkgo.It("should ungate late and recreated pods referencing a replaced slice", func() {
+			ginkgo.By("admitting the original slice")
+			original := utiltestingapi.MakeWorkload("original", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet("workers", 1).
+					Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj()
+			util.MustCreate(ctx, k8sClient, original)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, original)
+
+			newPod := func(name string) *corev1.Pod {
+				return testingpod.MakePod(name, ns.Name).
+					Annotation(kueue.WorkloadAnnotation, original.Name).
+					Annotation(kueue.WorkloadSliceNameAnnotation, original.Name).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Label(constants.PodSetLabel, "workers").
+					Request(corev1.ResourceCPU, "1").TopologySchedulingGate().Obj()
+			}
+			expectUngated := func(pod *corev1.Pod) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(pod.Spec.NodeSelector).NotTo(gomega.BeEmpty())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("ungating the first worker using the original admission")
+			first := newPod("first")
+			util.MustCreate(ctx, k8sClient, first)
+			expectUngated(first)
+
+			ginkgo.By("admitting the replacement slice and finishing the original")
+			replacement := utiltestingapi.MakeWorkload("replacement", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(constants.ElasticJobAnnotation, "true").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(original))).
+				Annotation(kueue.WorkloadSliceNameAnnotation, original.Name).
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).Obj()
+			util.MustCreate(ctx, k8sClient, replacement)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(original), original)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(original.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("creating a worker after the replacement has been admitted")
+			second := newPod("second")
+			util.MustCreate(ctx, k8sClient, second)
+			expectUngated(second)
+
+			ginkgo.By("recreating the worker without another Workload admission event")
+			gomega.Expect(k8sClient.Delete(ctx, second, client.GracePeriodSeconds(0))).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, second, false)
+			recreated := newPod("recreated")
+			util.MustCreate(ctx, k8sClient, recreated)
+			expectUngated(recreated)
+		})
+
+		ginkgo.It("should grow an elastic workload to exactly fill topology capacity", func() {
 			var wl1 *kueue.Workload
 
 			ginkgo.By("create initial workload with 2 pods using unconstrained topology", func() {
 				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(constants.ElasticJobAnnotation, "true").
 					Obj()
 				wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 					Request(corev1.ResourceCPU, "1").
@@ -8709,13 +9000,16 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			var wl2 *kueue.Workload
-			ginkgo.By("create a replacement workload slice with more pods", func() {
+			// The three nodes have 24 CPUs total. Counting the old two-Pod slice
+			// twice would incorrectly reject a replacement that exactly fits.
+			ginkgo.By("create a replacement workload slice requesting all 24 CPUs", func() {
 				wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(constants.ElasticJobAnnotation, "true").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(wl1))).
 					Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
 					Obj()
-				wl2.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+				wl2.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 24).
 					Request(corev1.ResourceCPU, "1").
 					UnconstrainedTopologyRequest().
 					Image("image").
@@ -8737,6 +9031,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					newAssignment := wl2.Status.Admission.PodSetAssignments[0].TopologyAssignment
 					g.Expect(newAssignment.Slices).ShouldNot(gomega.BeEmpty())
 					g.Expect(originalAssignment.Slices).ShouldNot(gomega.BeEmpty())
+					g.Expect(assignedPodCount(newAssignment)).To(gomega.Equal(int32(24)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

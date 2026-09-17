@@ -30,6 +30,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -1181,6 +1182,7 @@ func TestNewInfo(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			info := NewInfo(log, &tc.workload, tc.infoOptions...)
+			tc.wantInfo.EffectivePodSpecs = effectivePodSpecs(&tc.workload, AdjustmentInputs{})
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
@@ -1376,7 +1378,13 @@ func TestSetConditionAndUpdate(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -1451,7 +1459,13 @@ func TestUpdateReclaimablePods(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -1635,15 +1649,15 @@ func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
 
 func TestAssignmentClusterQueueState(t *testing.T) {
 	cases := map[string]struct {
-		state              *AssignmentClusterQueueState
+		state              *FlavorScanState
 		wantPendingFlavors bool
 	}{
 		"no info": {
 			wantPendingFlavors: false,
 		},
 		"all done": {
-			state: &AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			state: &FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    -1,
 						corev1.ResourceMemory: -1,
@@ -1656,8 +1670,8 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: false,
 		},
 		"some pending": {
-			state: &AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			state: &FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    0,
 						corev1.ResourceMemory: -1,
@@ -1670,8 +1684,8 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 			wantPendingFlavors: true,
 		},
 		"all pending": {
-			state: &AssignmentClusterQueueState{
-				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+			state: &FlavorScanState{
+				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    1,
 						corev1.ResourceMemory: 0,
@@ -3709,7 +3723,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 			}
 			// A recomputed hash must describe the inputs the Info now holds.
 			if !tc.wantReuse {
-				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests)
+				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests, tc.info.EffectivePodSpecs)
 				if tc.info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, does not describe the Info's own inputs (%q)", tc.info.SchedulingHash, want)
 				}
@@ -4306,6 +4320,176 @@ func TestTotalExecutionTime(t *testing.T) {
 				if *got != *tc.want {
 					t.Errorf("TotalExecutionTime() = %v, want %v", *got, *tc.want)
 				}
+			}
+		})
+	}
+}
+
+func TestHasPodsScheduledCondition(t *testing.T) {
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"no conditions": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+		},
+		"only another condition": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+				Obj(),
+		},
+		"scheduled": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionTrue}).
+				Obj(),
+			want: true,
+		},
+		"not scheduled": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse}).
+				Obj(),
+			want: true,
+		},
+		"unknown": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionUnknown}).
+				Obj(),
+			want: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := HasPodsScheduledCondition(tc.workload); got != tc.want {
+				t.Errorf("HasPodsScheduledCondition() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCurrentPodsScheduledCondition(t *testing.T) {
+	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+	admittedAt := fakeClock.Now()
+	later := admittedAt.Add(time.Second)
+
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     *metav1.Condition
+	}{
+		"no condition": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).Obj(),
+		},
+		"other conditions only": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart}).Obj(),
+		},
+		"false and waiting for scheduling, observed after the admission": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(later),
+				}).Obj(),
+			want: &metav1.Condition{
+				Type:               kueue.WorkloadPodsScheduled,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForScheduling,
+				ObservedGeneration: 1,
+				LastTransitionTime: metav1.NewTime(later),
+			},
+		},
+		"true and all required pods scheduled, observed after the admission": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(later),
+				}).Obj(),
+			want: &metav1.Condition{
+				Type:               kueue.WorkloadPodsScheduled,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+				ObservedGeneration: 1,
+				LastTransitionTime: metav1.NewTime(later),
+			},
+		},
+		"transitioned before the admission": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(admittedAt.Add(-time.Second)),
+				}).Obj(),
+		},
+		"transitioned in the same second as the admission": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadAllRequiredPodsScheduled,
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(admittedAt),
+				}).Obj(),
+		},
+		"an observation of an older generation is still valid": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(2).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(later),
+				}).Obj(),
+			want: &metav1.Condition{
+				Type:               kueue.WorkloadPodsScheduled,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadWaitForScheduling,
+				ObservedGeneration: 1,
+				LastTransitionTime: metav1.NewTime(later),
+			},
+		},
+		"unknown status": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionUnknown,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(later),
+				}).Obj(),
+		},
+		"false with an unexpected reason": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionFalse,
+					Reason:             "SomethingElse",
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(later),
+				}).Obj(),
+		},
+		"true with the reason of the false status": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsScheduled,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadWaitForScheduling,
+					ObservedGeneration: 1,
+					LastTransitionTime: metav1.NewTime(later),
+				}).Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := CurrentPodsScheduledCondition(tc.workload, admittedAt)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected condition (-want,+got):\n%s", diff)
 			}
 		})
 	}

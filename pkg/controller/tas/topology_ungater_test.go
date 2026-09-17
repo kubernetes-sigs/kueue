@@ -17,6 +17,7 @@ limitations under the License.
 package tas
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"strconv"
@@ -27,22 +28,28 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	jsoniter "github.com/json-iterator/go"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -50,6 +57,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -2979,7 +2987,9 @@ func TestReconcile(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+			})
 			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
@@ -3003,7 +3013,7 @@ func TestReconcile(t *testing.T) {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			topologyUngater := newTopologyUngater(kClient, nil)
+			topologyUngater := newTopologyUngater(kClient, nil, nil)
 			key := client.ObjectKeyFromObject(&tc.workloads[0])
 			request := reconcile.Request{NamespacedName: key}
 			if len(tc.expectUIDs) > 0 {
@@ -3063,7 +3073,9 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
-		isGroup            bool
+		isGroup bool
+		// cqTeam is the ClusterQueue team label the recorded series should carry.
+		cqTeam             string
 		pods               []corev1.Pod
 		workloads          []kueue.Workload
 		wantPods           []corev1.Pod
@@ -3221,6 +3233,44 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			wantMetricsSeconds: 2,
 			wantErr:            nil,
 		},
+		"one workload with one pod; the series carries the admitting ClusterQueue's custom label": {
+			isGroup: false,
+			cqTeam:  "red",
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(cqName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, rfName, "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now.Add(-2*time.Second),
+					).
+					AdmittedAt(true, now.Add(-2*time.Second)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", corev1.NamespaceDefault).
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantMetricsCount:   1,
+			wantMetricsSeconds: 2,
+			wantErr:            nil,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -3234,7 +3284,9 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				WithLists(&corev1.PodList{Items: tc.pods}).
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
 				WithStatusSubresource(&kueue.Workload{}).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 
 			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
@@ -3245,7 +3297,15 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 
 			kClient := clientBuilder.Build()
 
-			topologyUngater := newTopologyUngater(kClient, nil, WithClock(testingclock.NewFakeClock(now)))
+			var customLabels *metrics.CustomLabels
+			if tc.cqTeam != "" {
+				features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+				customLabels = metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+				t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+				customLabels.CQStore(cqName, map[string]string{"team": tc.cqTeam}, nil)
+			}
+
+			topologyUngater := newTopologyUngater(kClient, nil, customLabels, WithClock(testingclock.NewFakeClock(now)))
 
 			key := client.ObjectKeyFromObject(&tc.workloads[0])
 			request := reconcile.Request{NamespacedName: key}
@@ -3267,8 +3327,13 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
 			}
 
+			labelValues := []string{kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup), roletracker.RoleStandalone}
+			if tc.cqTeam != "" {
+				labelValues = append(labelValues, tc.cqTeam)
+			}
+
 			count, err := testutil.GetHistogramMetricCount(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup), roletracker.RoleStandalone),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(labelValues...),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric count: %v", err)
@@ -3278,7 +3343,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 
 			seconds, err := testutil.GetHistogramMetricValue(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup), roletracker.RoleStandalone),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(labelValues...),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric seconds: %v", err)
@@ -3341,6 +3406,235 @@ func TestIsTAS(t *testing.T) {
 			got := tas.IsTAS(tc.pod)
 			if got != tc.want {
 				t.Errorf("IsTAS() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestElasticTopologyRegrowth(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+	for name, staleRequest := range map[string]bool{
+		"reconcile the latest slice": false,
+		"reconcile the origin slice": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+			kc := utiltesting.NewClientBuilder().
+				WithStatusSubresource(&kueue.Workload{}).
+				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
+				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).Build()
+			r := newTopologyUngater(kc, nil, nil)
+			h := podHandler{expectationsStore: r.expectationsStore}
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
+			var previous *kueue.Workload
+			survivors := map[string]string{}
+			for step, count := range []int32{2, 4, 2, 6} {
+				name := fmt.Sprintf("slice-%d", step)
+				if previous != nil {
+					previous.Status.Conditions = append(
+						previous.Status.Conditions,
+						metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "Scaled", LastTransitionTime: metav1.Now()},
+					)
+					if err := kc.Status().Update(ctx, previous); err != nil {
+						t.Fatal(err)
+					}
+				}
+				wl := utiltestingapi.MakeWorkload(name, "ns").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+					ControllerReference(gvk, "elastic", "job-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, int(count)).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(count).
+						Assignment(corev1.ResourceCPU, "flavor", fmt.Sprint(count)).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, count).Obj()).Obj()).
+						Obj()).Obj(), time.Now()).
+					AdmittedAt(true, time.Now()).Obj()
+				wl.CreationTimestamp = metav1.NewTime(time.Unix(int64(step), 0))
+				if err := kc.Create(ctx, wl); err != nil {
+					t.Fatal(err)
+				}
+				for i := range int32(6) {
+					key := client.ObjectKey{Namespace: "ns", Name: fmt.Sprintf("pod-%d", i)}
+					p := &corev1.Pod{}
+					err := kc.Get(ctx, key, p)
+					if i >= count {
+						if err == nil {
+							if err := kc.Delete(ctx, p); err != nil {
+								t.Fatal(err)
+							}
+							delete(survivors, key.Name)
+						}
+						continue
+					}
+					if err != nil {
+						p = testingpod.MakePod(key.Name, "ns").
+							Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+							Annotation(kueue.WorkloadAnnotation, name).
+							Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
+							Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+							Label(batchv1.JobCompletionIndexAnnotation, fmt.Sprint(i)).
+							TopologySchedulingGate().
+							Obj()
+						p.UID = types.UID(fmt.Sprintf("%d-%d", step, i))
+						if err := kc.Create(ctx, p); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				requestName := name
+				if staleRequest {
+					requestName = "slice-0"
+				}
+				req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: requestName}}
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("resize to %d: %v", count, err)
+				}
+				for i := range count {
+					p := &corev1.Pod{}
+					if err := kc.Get(ctx, client.ObjectKey{Namespace: "ns", Name: fmt.Sprintf("pod-%d", i)}, p); err != nil {
+						t.Fatal(err)
+					}
+					if utilpod.HasGate(p, kueue.TopologySchedulingGate) {
+						t.Fatalf("resize to %d left %s gated", count, p.Name)
+					}
+					if old, ok := survivors[p.Name]; ok && old != string(p.UID)+p.Spec.NodeSelector[corev1.LabelHostname] {
+						t.Fatalf("survivor changed: %s", p.Name)
+					}
+					survivors[p.Name] = string(p.UID) + p.Spec.NodeSelector[corev1.LabelHostname]
+					h.Update(ctx, event.UpdateEvent{ObjectNew: p}, q)
+				}
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("resize to %d: observed pod updates did not clear expectations: %v", count, err)
+				}
+				previous = wl
+			}
+		})
+	}
+}
+
+func TestTopologyUngaterElasticSlice(t *testing.T) {
+	now := time.Now()
+	makeSlice := func(name string, count int32) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "ns").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+			PodSets(*utiltestingapi.MakePodSet("workers", int(count)).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				utiltestingapi.MakePodSetAssignment("workers").Count(count).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, count).Obj()).Obj()).Obj(),
+			).Obj(), now).AdmittedAt(true, now)
+	}
+
+	for name, tc := range map[string]struct {
+		deleteOrigin bool
+		deletePod    bool
+		podReference string
+		replacement  *kueue.Workload
+		wantUngated  bool
+	}{
+		"deleted Pod clears chain expectations": {
+			deletePod:    true,
+			podReference: "replacement",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"late pod references original slice": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"original slice has been deleted": {
+			deleteOrigin: true,
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"pod references replacement but keeps chain identity": {
+			podReference: "replacement",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
+			wantUngated:  true,
+		},
+		"finished replacement cannot ungate": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Finished().Obj(),
+		},
+		"evicted replacement cannot ungate": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).EvictedAt(now).Obj(),
+		},
+		"quota reservation without admission cannot ungate": {
+			podReference: "origin",
+			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).AdmittedAt(false, now).Obj(),
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			g := gomega.NewWithT(t)
+
+			// The finished origin and its replacement share the Pod event key.
+			origin := makeSlice("origin", 1).Finished().Obj()
+			replacement := tc.replacement.DeepCopy()
+			running := testingpod.MakePod("running", "ns").UID("running-uid").
+				Annotation(kueue.WorkloadAnnotation, "origin").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+				Label(constants.PodSetLabel, "workers").NodeSelector(corev1.LabelHostname, "node").Obj()
+
+			builder := utiltesting.NewClientBuilder()
+			g.Expect(indexer.SetupIndexes(ctx, utiltesting.AsIndexer(builder))).To(gomega.Succeed())
+			builder.WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName)
+			builder.WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName)
+			builder.WithObjects(running, replacement).WithStatusSubresource(&kueue.Workload{})
+			if !tc.deleteOrigin {
+				builder.WithObjects(origin)
+			}
+			c := builder.Build()
+			r := newTopologyUngater(c, nil, nil)
+
+			// Admission is processed before the additional Pod exists.
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+
+			late := testingpod.MakePod("late", "ns").UID("late-uid").
+				Annotation(kueue.WorkloadAnnotation, tc.podReference).Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Label(constants.PodSetLabel, "workers").TopologySchedulingGate().Obj()
+			g.Expect(c.Create(ctx, late)).To(gomega.Succeed())
+
+			// Reconcile the request produced by the real Pod event handler.
+			h := podHandler{expectationsStore: r.expectationsStore}
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
+			h.Create(ctx, event.CreateEvent{Object: late}, q)
+			g.Eventually(q.Len, 5*time.Second, 10*time.Millisecond).Should(gomega.Equal(1))
+			req, shutdown := q.Get()
+			g.Expect(shutdown).To(gomega.BeFalse())
+			_, err = r.Reconcile(ctx, req)
+			q.Done(req)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+
+			updated := &corev1.Pod{}
+			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(late), updated)).To(gomega.Succeed())
+			if tc.wantUngated {
+				// Expectations must remain pending until the update or deletion is observed.
+				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeFalse())
+				if tc.deletePod {
+					h.Delete(ctx, event.DeleteEvent{Object: updated}, q)
+				} else {
+					h.Update(ctx, event.UpdateEvent{ObjectOld: late, ObjectNew: updated}, q)
+				}
+				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeTrue())
+				_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+
+			g.Expect(req.Name).To(gomega.Equal("origin"))
+			g.Expect(utilpod.HasGate(updated, kueue.TopologySchedulingGate)).To(gomega.Equal(!tc.wantUngated))
+			if tc.wantUngated {
+				g.Expect(updated.Spec.NodeSelector[corev1.LabelHostname]).To(gomega.Equal("node"))
 			}
 		})
 	}

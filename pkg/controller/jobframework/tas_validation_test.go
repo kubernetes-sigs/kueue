@@ -159,6 +159,44 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			},
 			wantErrNum: 1,
 		},
+		"valid: offset absent": {
+			annotations: map[string]string{},
+			wantErrNum:  0,
+		},
+		"valid: non-negative integer offset": {
+			annotations: map[string]string{
+				kueue.PodIndexOffsetAnnotation: "1",
+			},
+			wantErrNum: 0,
+		},
+		"invalid: unparseable offset": {
+			annotations: map[string]string{
+				kueue.PodIndexOffsetAnnotation: "invalid",
+			},
+			wantErrNum: 1,
+		},
+		"invalid: negative offset": {
+			annotations: map[string]string{
+				kueue.PodIndexOffsetAnnotation: "-1",
+			},
+			wantErrNum: 1,
+		},
+		"invalid: offset set together with podset-group-name": {
+			annotations: map[string]string{
+				kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetGroupName:                   "group",
+				kueue.PodIndexOffsetAnnotation:          "1",
+			},
+			wantErrNum: 1, // offset forbidden when podset-group-name is set
+		},
+		"invalid: unparseable offset together with podset-group-name": {
+			annotations: map[string]string{
+				kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetGroupName:                   "group",
+				kueue.PodIndexOffsetAnnotation:          "invalid",
+			},
+			wantErrNum: 1, // forbidden check short-circuits the value check
+		},
 	}
 
 	for name, tc := range testCases {

@@ -27,6 +27,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -64,6 +65,56 @@ func expectHistogramSampleSum(t *testing.T, vec *prometheus.HistogramVec, expect
 
 	if got := dto.GetHistogram().GetSampleSum(); got != expected {
 		t.Errorf("got %v want %v", got, expected)
+	}
+}
+
+func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	// The recorded values must match the vector, which the custom label widens when the gate is on.
+	cases := map[string]struct {
+		gate       bool
+		entries    []configapi.ControllerMetricsCustomLabel
+		stored     map[string]string
+		wantCustom []string
+	}{
+		"custom metric labels disabled": {
+			entries: []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+		},
+		// Gate on, no entries: the store is still nil.
+		"enabled with none configured": {gate: true},
+		"cluster queue without a stored value": {
+			gate:       true,
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			wantCustom: []string{"custom_team", ""},
+		},
+		"cluster queue with a stored value": {
+			gate:       true,
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			stored:     map[string]string{"team": "red"},
+			wantCustom: []string{"custom_team", "red"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, tc.gate)
+			cl := NewCustomLabels(tc.entries)
+			// cl is nil when the gate is off.
+			InitMetricVectors(cl)
+			t.Cleanup(func() { InitMetricVectors(nil) })
+			if tc.stored != nil {
+				cl.CQStore("cq", tc.stored, nil)
+			}
+			RecordPodSchedulingGateRemovalSeconds("wl", "cq", false, time.Second, cl.CQGet("cq"), nil)
+			if got := testutil.CollectAndCount(PodSchedulingGateRemovalSeconds); got != 1 {
+				t.Fatalf("recorded metrics = %d, want 1", got)
+			}
+			expectFilteredMetricsCount(t, PodSchedulingGateRemovalSeconds, 1,
+				append([]string{
+					"name", "wl",
+					"cluster_queue", "cq",
+					"is_group", "false",
+				}, tc.wantCustom...)...,
+			)
+		})
 	}
 }
 
@@ -419,6 +470,27 @@ func TestClearMultiKueueClusterQueueMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq2", "worker1", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected cq2 to still report worker1 as active, got %v", got)
+	}
+}
+
+func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPodsReadyTimeout, leaderTracker)
+
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, roletracker.RoleLeader)); got != 2 {
+		t.Errorf("expected 2 evictions by preemption for evict-worker1, got %v", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPodsReadyTimeout, roletracker.RoleLeader)); got != 1 {
+		t.Errorf("expected 1 eviction by PodsReadyTimeout for evict-worker1, got %v", got)
+	}
+
+	// A nil tracker must be reported as standalone and not panic.
+	ReportMultiKueueWorkloadEvicted("evict-cq2", "evict-worker2", kueue.WorkloadEvictedByPreemption, nil)
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq2", "evict-worker2", kueue.WorkloadEvictedByPreemption, roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected 1 eviction for evict-worker2 with standalone role, got %v", got)
 	}
 }
 
