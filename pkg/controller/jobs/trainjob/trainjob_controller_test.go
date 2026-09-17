@@ -17,6 +17,7 @@ limitations under the License.
 package trainjob
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -504,6 +506,44 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantReturn: true,
 		},
+		"should report no change when the kueue RuntimePatch is already cleared": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
+		"should report no change when there is no kueue RuntimePatch": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("user-provided-1").Obj(),
+						).
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(
+							testingtrainjob.MakeReplicatedJobPatch("user-provided-1").Obj(),
+						).
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
 	}
 
 	for name, tc := range cases {
@@ -511,14 +551,144 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			kTrainJob := (*TrainJob)(tc.trainJob)
 			ret := kTrainJob.RestorePodSetsInfo([]podset.PodSetInfo{})
 			if ret != tc.wantReturn {
-				t.Errorf("RunWithPodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
+				t.Errorf("RestorePodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
 			}
 			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob, tjobCmpOpts); diff != "" {
-				t.Errorf("RunWithPodSetsInfo() mismatch (-want,+got):\n%s", diff)
+				t.Errorf("RestorePodSetsInfo() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
+
+func TestStop(t *testing.T) {
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns")
+	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		EmptyMetadata().
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj()).
+		Obj()
+	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+		EmptyMetadata().
+		Obj()
+	userPatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj()).
+		Obj()
+
+	cases := map[string]struct {
+		trainJob *kftrainerapi.TrainJob
+		// wantTrainJob is the expected in-memory TrainJob after Stop returns.
+		wantTrainJob *kftrainerapi.TrainJob
+		// wantStoppedNow is the value the job framework uses to decide whether to
+		// emit a Stopped event, so it must be true only on the reconcile that
+		// actually suspended the TrainJob.
+		wantStoppedNow bool
+		// wantPatches is the number of PATCH requests Stop is expected to issue.
+		wantPatches     int
+		wantErrContains string
+	}{
+		"should suspend a running trainjob and report it as stopped now": {
+			trainJob: testTrainJob.Clone().
+				Suspend(false).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch}).
+				Obj(),
+			wantStoppedNow: true,
+			wantPatches:    2,
+		},
+		"should restore without reporting stopped now when the trainjob is already suspended": {
+			trainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch}).
+				Obj(),
+			wantStoppedNow: false,
+			wantPatches:    1,
+		},
+		"should send no patch when the trainjob is already suspended and restored": {
+			trainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch}).
+				Obj(),
+			wantStoppedNow: false,
+			wantPatches:    0,
+		},
+		"should report stopped now when the jobs are still active": {
+			trainJob: testTrainJob.Clone().
+				Suspend(false).
+				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch}).
+				Obj(),
+			wantStoppedNow:  true,
+			wantPatches:     1,
+			wantErrContains: "jobs are still active",
+		},
+		"should fail when the kueue runtime patch is missing": {
+			trainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				Suspend(true).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch}).
+				Obj(),
+			wantStoppedNow:  false,
+			wantPatches:     0,
+			wantErrContains: "error restoring info to the trainjob",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			patches := 0
+			kClient := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).
+				WithObjects(tc.trainJob).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						patches++
+						return clnt.Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+
+			kTrainJob := (*TrainJob)(tc.trainJob)
+			stoppedNow, err := kTrainJob.Stop(ctx, kClient, []podset.PodSetInfo{}, jobframework.StopReasonWorkloadEvicted, "by test")
+
+			switch {
+			case tc.wantErrContains == "" && err != nil:
+				t.Errorf("unexpected Stop() error: %v", err)
+			case tc.wantErrContains != "" && err == nil:
+				t.Errorf("expected Stop() to fail with an error containing %q", tc.wantErrContains)
+			case tc.wantErrContains != "" && !strings.Contains(err.Error(), tc.wantErrContains):
+				t.Errorf("Stop() error = %v, want it to contain %q", err, tc.wantErrContains)
+			}
+			if stoppedNow != tc.wantStoppedNow {
+				t.Errorf("Stop() unexpected stoppedNow. got: %v. want: %v", stoppedNow, tc.wantStoppedNow)
+			}
+			if patches != tc.wantPatches {
+				t.Errorf("Stop() issued %d patch requests. want: %d", patches, tc.wantPatches)
+			}
+			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob, tjobCmpOpts); diff != "" {
+				t.Errorf("Stop() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 	// Create and refererence a fake ClusterTrainingRuntime

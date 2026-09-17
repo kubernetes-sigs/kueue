@@ -338,6 +338,7 @@ func getChildJobSetWithoutKueuePatch(ctx context.Context, c client.Client, t *Tr
 }
 
 func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
+	stoppedNow := false
 	if !t.IsSuspended() {
 		if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
 			t.Suspend()
@@ -345,26 +346,30 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		}); err != nil {
 			return false, fmt.Errorf("error suspending trainjob: %w", err)
 		}
+		stoppedNow = true
 	}
 
 	if t.IsActive() {
-		return false, errors.New("jobs are still active")
+		return stoppedNow, errors.New("jobs are still active")
 	}
 
-	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
-		if !t.RestorePodSetsInfo(podSetsInfo) {
-			return false, errors.New("error restoring info to the trainjob")
-		}
-		return true, nil
-	}); err != nil {
-		return false, err
+	if getKueueRuntimePatch(t) == nil {
+		return stoppedNow, errors.New("error restoring info to the trainjob")
 	}
-	return true, nil
+	// RestorePodSetsInfo reports whether it changed anything, so clientutil.Patch
+	// issues no request for a TrainJob that was already restored by an earlier
+	// reconcile.
+	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
+		return t.RestorePodSetsInfo(podSetsInfo), nil
+	}); err != nil {
+		return stoppedNow, err
+	}
+	return stoppedNow, nil
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 	kueueRuntimePatch := getKueueRuntimePatch(t)
-	if kueueRuntimePatch == nil {
+	if kueueRuntimePatch == nil || kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs == nil {
 		return false
 	}
 	kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = nil
