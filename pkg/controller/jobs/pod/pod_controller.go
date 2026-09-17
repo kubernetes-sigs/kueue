@@ -1614,6 +1614,8 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 			return nil, fmt.Errorf("getting related workload for the pod group: %w", err)
 		}
 
+		// A Workload that shares the pod group name may belong to another job.
+		// Whether it can be finalized is checked separately by CanFinalizeWorkload.
 		workloads.Items = []kueue.Workload{*workload}
 		return workloads, nil
 	}
@@ -1628,7 +1630,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 }
 
 func (p *Pod) CanFinalizeWorkload(wl *kueue.Workload) bool {
-	if !features.Enabled(features.PodIntegrationValidateGroupOwner) {
+	if !features.Enabled(features.PodIntegrationValidateGroupOwner) || !p.isGroup {
 		return true
 	}
 

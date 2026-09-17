@@ -897,6 +897,10 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 		}
 		if jobFinalizer, ok := job.(JobWithCustomWorkloadFinalization); ok &&
 			!jobFinalizer.CanFinalizeWorkload(wl) {
+			ctrl.LoggerFrom(ctx).V(2).Info(
+				"Workload cannot be finalized by the job",
+				"workload", klog.KObj(wl),
+			)
 			continue
 		}
 		if isComposable && !jobFound && wl.DeletionTimestamp.IsZero() && !workloadfinish.IsFinished(wl) {
