@@ -98,7 +98,6 @@ func TestReconcileGenericJob(t *testing.T) {
 	// No pod set assignments, so equivalence compares against the workload spec.
 	reservedIn := &kueue.Admission{ClusterQueue: "cq"}
 	reservedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	admittedAt := time.Now().Truncate(time.Hour)
 
 	elasticJob := baseJob.Clone().
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -397,11 +396,9 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantEvents: nil,
 		},
-		"running elastic job refreshes admitted workload slice metadata": {
+		"running admitted elastic job does not refresh PodSets or emit another admission event": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: true,
-				features.TopologyAwareScheduling:      false,
-				features.AssignQueueLabelsForPods:     false,
 			},
 			req: baseReq,
 			job: baseJob.Clone().
@@ -419,9 +416,9 @@ func TestReconcileGenericJob(t *testing.T) {
 						utiltestingapi.MakeAdmission("default-cq").
 							PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
 							Obj(),
-						admittedAt,
+						reservedAt,
 					).
-					AdmittedAt(true, admittedAt).
+					AdmittedAt(true, reservedAt).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -434,24 +431,12 @@ func TestReconcileGenericJob(t *testing.T) {
 						utiltestingapi.MakeAdmission("default-cq").
 							PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
 							Obj(),
-						admittedAt,
+						reservedAt,
 					).
-					AdmittedAt(true, admittedAt).
+					AdmittedAt(true, reservedAt).
 					Obj(),
 			},
-			wantPodSets: []podset.PodSetInfo{
-				{
-					Name:  "main",
-					Count: 1,
-					Annotations: map[string]string{
-						kueue.WorkloadSliceNameAnnotation: "job-test-job-root",
-					},
-					Labels: map[string]string{
-						kueueconstants.PodSetLabel: "main",
-					},
-					NodeSelector: map[string]string{},
-				},
-			},
+			wantEvents: nil,
 		},
 		"MultiKueue worker pod label is propagated to PodTemplate if workload has Multikueue origin label": {
 			req: baseReq,
