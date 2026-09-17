@@ -390,10 +390,9 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		ginkgo.By("Manually creating the Pod a real StatefulSet controller would create, before Kueue processes it")
 		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
 		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
-			OwnerReference(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
 			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
 			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
-			Gate(constants.SchedulingGateName).
 			KueueFinalizer().
 			Obj()
 		util.MustCreate(ctx, k8sClient, pod)
@@ -426,10 +425,9 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 
 		ginkgo.By("Manually creating the Pod a real StatefulSet controller would create, before Kueue processes it")
 		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
-			OwnerReference(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
+			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
 			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
 			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
-			Gate(constants.SchedulingGateName).
 			KueueFinalizer().
 			Obj()
 		util.MustCreate(ctx, k8sClient, pod)
@@ -443,7 +441,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(kueue.WorkloadAnnotation))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 })
 
