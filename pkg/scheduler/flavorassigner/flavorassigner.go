@@ -648,7 +648,6 @@ type FlavorAssigner struct {
 	cq                *schdcache.ClusterQueueSnapshot
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
-	oracle            preemptionOracle
 
 	// replaceWorkloadSlice identifies the workload slice that will be replaced by this workload.
 	// It must be considered during flavor computation and included in the preemption targets.
@@ -672,7 +671,6 @@ func New(
 	cq *schdcache.ClusterQueueSnapshot,
 	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
 	enableFairSharing bool,
-	oracle preemptionOracle,
 	preemptWorkloadSlice *workload.Info,
 	quotaCheckStrategy configapi.QuotaCheckStrategy,
 	resourceFormatter *resources.ResourceFormatter,
@@ -683,7 +681,6 @@ func New(
 		cq:                   cq,
 		resourceFlavors:      resourceFlavors,
 		enableFairSharing:    enableFairSharing,
-		oracle:               oracle,
 		replaceWorkloadSlice: preemptWorkloadSlice,
 		quotaCheckStrategy:   quotaCheckStrategy,
 		resourceFormatter:    resourceFormatter,
