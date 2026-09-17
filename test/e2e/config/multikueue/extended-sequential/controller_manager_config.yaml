@@ -23,12 +23,8 @@ clientConnection:
 integrations:
   frameworks:
   - "batch/job"
-  - "ray.io/rayjob"
   - "ray.io/raycluster"
-  - "ray.io/rayservice"
   - "pod"
-  - "deployment"
-  - "statefulset"
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
