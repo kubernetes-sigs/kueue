@@ -223,18 +223,67 @@ group-pod-2   1/1     Running   0          <unknown>
 					Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
 				},
 			},
+			// The API server cannot select on annotations, so it returns every pod in the
+			// namespace and the non-members are dropped client-side.
 			pods: []corev1.Pod{
 				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Obj(),
 				*basePod.Clone().Name("group-pod-2").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("other-group-pod").GroupNameAnnotation("other-group").Obj(),
+				*basePod.Clone().Name("standalone-pod").Obj(),
 			},
 			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
 			args:       []string{"--for", "pod/group-pod-1"},
 			wantPodsQuery: map[string]string{
+				"labelSelector": "",
 				"fieldSelector": "",
 			},
 			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
 group-pod-1   1/1     Running   0          <unknown>
 group-pod-2   1/1     Running   0          <unknown>
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation with json output",
+			job: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "group-pod-1",
+					Namespace:   metav1.NamespaceDefault,
+					Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("other-group-pod").GroupNameAnnotation("other-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "-o", "json"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "",
+			},
+			wantPodListNames: []string{"group-pod-1"},
+			podListFormat:    "json",
+		}, {
+			name: "no pods of a pod group identified by annotation",
+			job: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{Kind: "Pod"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "group-pod-1",
+					Namespace:   metav1.NamespaceDefault,
+					Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("other-group-pod").GroupNameAnnotation("other-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "",
+			},
+			wantOut: "",
+			wantOutErr: `No resources found in default namespace.
 `,
 		}, {
 			name: "list a standalone pod by name",
@@ -917,10 +966,11 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Value
 	mockRestClient := &restfake.RESTClient{
 		NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 		Client: restfake.CreateHTTPClient(func(request *http.Request) (*http.Response, error) {
-			isPodListRequest := request.URL.Path == fmt.Sprintf("%s/pods", reqPathPrefix) &&
-				strings.Contains(request.Header.Get("Accept"), "as=Table")
+			// When --for points to a Pod both requests share a path, so they are told
+			// apart by the metadata.name field selector only the --for lookup sends.
+			isForObjectRequest := request.URL.Query().Get("fieldSelector") == fmt.Sprintf("metadata.name=%s", tc.job.(metav1.Object).GetName())
 			switch {
-			case !isPodListRequest && request.URL.Path == fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
+			case isForObjectRequest && request.URL.Path == fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     getDefaultHeader(),
@@ -929,7 +979,7 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Value
 			case request.URL.Path == fmt.Sprintf("%s/pods", reqPathPrefix):
 				*gotPodsQuery = request.URL.Query()
 				var podRespBody io.ReadCloser
-				if isPodListRequest {
+				if strings.Contains(request.Header.Get("Accept"), "as=Table") {
 					if len(podList.Items) == 0 {
 						podRespBody = emptyTableObjBody(codec)
 					} else {

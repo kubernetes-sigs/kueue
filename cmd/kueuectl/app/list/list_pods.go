@@ -43,7 +43,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
-	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 var (
@@ -79,6 +79,7 @@ type PodOptions struct {
 	ForObject              *unstructured.Unstructured
 	PodLabelSelector       string
 	PodFieldSelector       string
+	PodAnnotationSelector  *podAnnotationSelector
 	IntegrationManager     *jobframework.IntegrationManager
 
 	Clientset k8s.Interface
@@ -113,7 +114,7 @@ func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.
 			if o.ForObject == nil {
 				return nil
 			}
-			if len(o.PodLabelSelector) == 0 && len(o.PodFieldSelector) == 0 {
+			if len(o.PodLabelSelector) == 0 && len(o.PodFieldSelector) == 0 && o.PodAnnotationSelector == nil {
 				return fmt.Errorf("unsupported kind: %s", o.ForObject.GetKind())
 			}
 			return o.Run(clientGetter)
@@ -189,30 +190,61 @@ func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 		return err
 	}
 
-	standalone, err := o.isStandalonePod()
-	if err != nil {
+	if err := o.completePodSelectors(); err != nil {
 		return err
-	}
-	if standalone {
-		// A Pod without a group name has no label shared with other members,
-		// so a label selector cannot find it. Select it by name instead.
-		o.PodLabelSelector = ""
-		o.PodFieldSelector = fmt.Sprintf("metadata.namespace=%s,metadata.name=%s", o.ForObject.GetNamespace(), o.ForObject.GetName())
 	}
 
 	return nil
 }
 
-// isStandalonePod reports whether --for points to a Pod that is not part of a pod group.
-func (o *PodOptions) isStandalonePod() (bool, error) {
+// completePodSelectors adjusts the selectors when --for points to a Pod. A pod group that
+// keys its members by a label is already covered by getPodLabelSelector; the other two
+// cases are not.
+func (o *PodOptions) completePodSelectors() error {
 	if o.ForGVK != corev1.SchemeGroupVersion.WithKind("Pod") {
-		return false, nil
+		return nil
 	}
 	var pod corev1.Pod
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.ForObject.UnstructuredContent(), &pod); err != nil {
-		return false, fmt.Errorf("failed to convert unstructured object: %w", err)
+		return fmt.Errorf("failed to convert unstructured object: %w", err)
 	}
-	return !utilpod.IsPodGroup(&pod), nil
+
+	if pod.Labels[podconstants.GroupNameLabel] != "" {
+		return nil
+	}
+
+	// The group name may live in an annotation instead. It is read directly rather than
+	// through utilpod.GetPodGroupName because that helper consults the
+	// WorkloadIdentifierAnnotations feature gate, and this runs in the kueuectl binary,
+	// whose gates are unrelated to those of the cluster that wrote the annotation.
+	if groupName := pod.Annotations[podconstants.GroupNameAnnotation]; groupName != "" {
+		// Label selectors cannot match annotations, so the members are listed without a
+		// pod group selector and filtered client-side instead.
+		o.PodLabelSelector = ""
+		o.PodAnnotationSelector = &podAnnotationSelector{
+			key:   podconstants.GroupNameAnnotation,
+			value: groupName,
+		}
+		return nil
+	}
+
+	// A Pod without a group name has no label shared with other members,
+	// so a label selector cannot find it. Select it by name instead.
+	o.PodLabelSelector = ""
+	o.PodFieldSelector = fmt.Sprintf("metadata.namespace=%s,metadata.name=%s", pod.Namespace, pod.Name)
+
+	return nil
+}
+
+// podAnnotationSelector identifies the pods of a group whose name lives in an annotation,
+// which the API server cannot select on.
+type podAnnotationSelector struct {
+	key   string
+	value string
+}
+
+func (s *podAnnotationSelector) matches(annotations map[string]string) bool {
+	return annotations[s.key] == s.value
 }
 
 // getForObjectInfos builds and executes a dynamic client query for a resource specified in --for
@@ -409,7 +441,67 @@ func (o *PodOptions) getPodsInfos(clientGetter clientgetter.ClientGetter) ([]*re
 		return nil, err
 	}
 
+	if o.PodAnnotationSelector != nil {
+		return filterPodsByAnnotation(infos, o.PodAnnotationSelector)
+	}
+
 	return infos, nil
+}
+
+// filterPodsByAnnotation drops the pods that do not carry the selector's annotation.
+//
+// With server-side printing each info holds a Table whose rows embed the pod metadata, so
+// the rows are filtered in place; otherwise each info holds a single pod.
+func filterPodsByAnnotation(infos []*resource.Info, selector *podAnnotationSelector) ([]*resource.Info, error) {
+	filtered := make([]*resource.Info, 0, len(infos))
+
+	for _, info := range infos {
+		obj, ok := info.Object.(*unstructured.Unstructured)
+		if !ok {
+			return nil, fmt.Errorf("unexpected type %T", info.Object)
+		}
+
+		if obj.GetKind() != "Table" {
+			if selector.matches(obj.GetAnnotations()) {
+				filtered = append(filtered, info)
+			}
+			continue
+		}
+
+		if err := filterTableRowsByAnnotation(obj, selector); err != nil {
+			return nil, err
+		}
+		filtered = append(filtered, info)
+	}
+
+	return filtered, nil
+}
+
+func filterTableRowsByAnnotation(table *unstructured.Unstructured, selector *podAnnotationSelector) error {
+	rows, found, err := unstructured.NestedSlice(table.Object, "rows")
+	if err != nil {
+		return fmt.Errorf("failed to read table rows: %w", err)
+	}
+	if !found {
+		return nil
+	}
+
+	filtered := make([]any, 0, len(rows))
+	for _, row := range rows {
+		rowMap, ok := row.(map[string]any)
+		if !ok {
+			return fmt.Errorf("unexpected table row type %T", row)
+		}
+		annotations, _, err := unstructured.NestedStringMap(rowMap, "object", "metadata", "annotations")
+		if err != nil {
+			return fmt.Errorf("failed to read table row annotations: %w", err)
+		}
+		if selector.matches(annotations) {
+			filtered = append(filtered, row)
+		}
+	}
+
+	return unstructured.SetNestedSlice(table.Object, filtered, "rows")
 }
 
 func (o *PodOptions) transformRequests(req *rest.Request) {
