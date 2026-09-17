@@ -194,18 +194,19 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 }
 
 func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
+	changed := raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
 	if expected := j.expectedPodSetsCount(); len(podSetsInfo) != expected {
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
 			"expectedCount", expected,
 			"gotCount", len(podSetsInfo),
 		)
-		return raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
+		return changed
 	}
 
 	// RayCluster pod sets come first, the optional submitter pod set is last.
 	rayClusterLen := raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)
-	changed := raycluster.RestorePodSetsInfo(ctx, j.Spec.RayClusterSpec, podSetsInfo[:rayClusterLen])
+	changed = raycluster.RestorePodSetsInfo(ctx, j.Spec.RayClusterSpec, podSetsInfo[:rayClusterLen]) || changed
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
@@ -214,7 +215,7 @@ func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 		changed = podset.RestorePodSpec(&submitterPod.ObjectMeta, &submitterPod.Spec, info) || changed
 	}
 
-	return raycluster.ClearRuntimeWorkerStateAnnotations(j.Object()) || changed
+	return changed
 }
 func (j *RayJob) IsOnHold() bool {
 	return j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusValidationFailed
