@@ -217,7 +217,9 @@ func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
 			got := tc.domains(s)
-			slices.SortFunc(got, s.compareDomainCapacityAndEntropy)
+			slices.SortFunc(got, func(a, b *domain) int {
+				return s.compareDomainCapacityAndEntropy(a, b, true)
+			})
 
 			if diff := cmp.Diff(tc.want, domainIDs(got)); diff != "" {
 				t.Errorf("unexpected domain order (-want,+got): %s", diff)
@@ -230,51 +232,41 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 	d1 := testDomainSpec{
 		domain: domain{id: "d1", levelValues: []string{"d1"}},
 		state: domainState{
-			podCount:             18,
-			sliceCount:           18,
-			podCountWithLeader:   18,
-			leaderCount:          0,
-			sliceCountWithLeader: 18,
+			podCount:    18,
+			sliceCount:  18,
+			leaderCount: 0,
 		},
 	}
 	d2 := testDomainSpec{
 		domain: domain{id: "d2", levelValues: []string{"d2"}},
 		state: domainState{
-			podCount:             18,
-			sliceCount:           18,
-			podCountWithLeader:   18,
-			leaderCount:          0,
-			sliceCountWithLeader: 18,
+			podCount:    18,
+			sliceCount:  18,
+			leaderCount: 0,
 		},
 	}
 	d3 := testDomainSpec{
 		domain: domain{id: "d3", levelValues: []string{"d3"}},
 		state: domainState{
-			podCount:             18,
-			sliceCount:           18,
-			podCountWithLeader:   18,
-			leaderCount:          0,
-			sliceCountWithLeader: 18,
+			podCount:    18,
+			sliceCount:  18,
+			leaderCount: 0,
 		},
 	}
 	d4 := testDomainSpec{
 		domain: domain{id: "d4", levelValues: []string{"d4"}},
 		state: domainState{
-			podCount:             10,
-			sliceCount:           10,
-			podCountWithLeader:   10,
-			leaderCount:          0,
-			sliceCountWithLeader: 10,
+			podCount:    10,
+			sliceCount:  10,
+			leaderCount: 0,
 		},
 	}
 	d5 := testDomainSpec{
 		domain: domain{id: "d5", levelValues: []string{"d5"}},
 		state: domainState{
-			podCount:             2,
-			sliceCount:           2,
-			podCountWithLeader:   2,
-			leaderCount:          0,
-			sliceCountWithLeader: 2,
+			podCount:    2,
+			sliceCount:  2,
+			leaderCount: 0,
 		},
 	}
 
@@ -293,8 +285,8 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   10,
 			want: map[string]domainState{
-				"d1": {sliceCount: 10, podCount: 10, podCountWithLeader: 10, sliceCountWithLeader: 10, leaderCount: 0},
-				"d2": {sliceCount: 10, podCount: 10, podCountWithLeader: 10, sliceCountWithLeader: 10, leaderCount: 0},
+				"d1": {sliceCount: 10, podCount: 10, leaderCount: 0},
+				"d2": {sliceCount: 10, podCount: 10, leaderCount: 0},
 			},
 		},
 		"simple placement on three domains": {
@@ -304,9 +296,9 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   13,
 			want: map[string]domainState{
-				"d1": {sliceCount: 14, podCount: 14, podCountWithLeader: 14, sliceCountWithLeader: 14, leaderCount: 0},
-				"d2": {sliceCount: 13, podCount: 13, podCountWithLeader: 13, sliceCountWithLeader: 13, leaderCount: 0},
-				"d3": {sliceCount: 13, podCount: 13, podCountWithLeader: 13, sliceCountWithLeader: 13, leaderCount: 0},
+				"d1": {sliceCount: 14, podCount: 14, leaderCount: 0},
+				"d2": {sliceCount: 13, podCount: 13, leaderCount: 0},
+				"d3": {sliceCount: 13, podCount: 13, leaderCount: 0},
 			},
 		},
 		"find smallest domain that fits": {
@@ -316,7 +308,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   2,
 			want: map[string]domainState{
-				"d5": {sliceCount: 2, podCount: 2, podCountWithLeader: 2, sliceCountWithLeader: 2, leaderCount: 0},
+				"d5": {sliceCount: 2, podCount: 2, leaderCount: 0},
 			},
 		},
 		"correctly select domains": {
@@ -326,8 +318,8 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   10,
 			want: map[string]domainState{
-				"d1": {sliceCount: 15, podCount: 15, podCountWithLeader: 15, sliceCountWithLeader: 15, leaderCount: 0},
-				"d4": {sliceCount: 10, podCount: 10, podCountWithLeader: 10, sliceCountWithLeader: 10, leaderCount: 0},
+				"d1": {sliceCount: 15, podCount: 15, leaderCount: 0},
+				"d4": {sliceCount: 10, podCount: 10, leaderCount: 0},
 			},
 		},
 	}
