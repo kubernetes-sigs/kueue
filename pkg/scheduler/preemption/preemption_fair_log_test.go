@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -146,9 +147,7 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 	})
 
 	preemptionCtx := &preemptionCtx{
-		ctx:               ctx,
 		clock:             clocktesting.NewFakeClock(now),
-		log:               log,
 		preemptor:         *wlInfo,
 		preemptorCQ:       snapshot.ClusterQueue("a"),
 		snapshot:          snapshot,
@@ -293,12 +292,13 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			log, observed := newObservedLogger(tc.enabledUpToV)
+			ctx := ctrl.LoggerInto(t.Context(), log)
 			fixture := newFsLogFixture(t, log, tc.cqs)
 
 			if tc.wantNoArrayBuilt {
 				// A disabled strategy log must not accumulate entries even as record is called.
-				ctx := fixture.preemptionCtx
-				ordering := fairsharing.MakeClusterQueueOrdering(ctx.preemptorCQ, fixture.candidates, ctx.log, ctx.clock)
+				pCtx := fixture.preemptionCtx
+				ordering := fairsharing.MakeClusterQueueOrdering(pCtx.preemptorCQ, fixture.candidates, log, pCtx.clock)
 				var candCQ *fairsharing.TargetClusterQueue
 				for cq := range ordering.Iter() {
 					candCQ = cq
@@ -330,9 +330,9 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			// soon as the incoming workload fits.
 			var targets []*Target
 			fits := false
-			retryCandidates := iterateWithFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
+			retryCandidates := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
 				targets = append(targets, t)
-				if workloadFitsForFairSharing(fixture.preemptionCtx) {
+				if workloadFitsForFairSharing(ctx, fixture.preemptionCtx) {
 					fits = true
 					return false
 				}
@@ -464,7 +464,7 @@ func TestIterateWithSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			iterateWithSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, func(*Target) bool { return true })
+			iterateWithSecondFsStrategy(log, fixture.preemptionCtx, fixture.candidates, func(*Target) bool { return true })
 
 			entries := observed.FilterMessage(strategyLogMessage).All()
 			if len(entries) == 0 {

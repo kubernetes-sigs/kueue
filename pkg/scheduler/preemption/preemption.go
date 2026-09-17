@@ -75,9 +75,7 @@ type Preemptor struct {
 }
 
 type preemptionCtx struct {
-	ctx               context.Context
 	clock             clock.Clock
-	log               logr.Logger
 	preemptor         workload.Info
 	preemptorCQ       *schdcache.ClusterQueueSnapshot
 	snapshot          *schdcache.Snapshot
@@ -131,25 +129,19 @@ func (p *Preemptor) GetPreemptionPlanFactory(
 	snapshot *schdcache.Snapshot,
 ) PreemptionPlanFactory {
 	return func(ctx context.Context, assignment *flavorassigner.Assignment) PreemptionPlan {
-		return p.getPreemptionPlan(p.buildContext(ctx, wl, *assignment, snapshot))
+		return p.getPreemptionPlan(ctx, p.buildContext(ctx, wl, *assignment, snapshot))
 	}
 }
 
-func (p *Preemptor) getPreemptionPlan(preemptionCtx *preemptionCtx) PreemptionPlan {
+func (p *Preemptor) getPreemptionPlan(ctx context.Context, preemptionCtx *preemptionCtx) PreemptionPlan {
 	if p.enableFairSharing {
-		return FairPreemptionPlan(p, preemptionCtx, p.fsStrategies)
+		return FairPreemptionPlan(ctx, p, preemptionCtx, p.fsStrategies)
 	}
-	return ClassicalPreemptionPlan(p, preemptionCtx)
+	return ClassicalPreemptionPlan(ctx, p, preemptionCtx)
 }
 
-func (p *Preemptor) GetTargetsUsingPlan(
-	ctx context.Context,
-	wl workload.Info,
-	assignment flavorassigner.Assignment,
-	snapshot *schdcache.Snapshot,
-	plan PreemptionPlan,
-) []*Target {
-	return p.getTargets(p.buildContext(ctx, wl, assignment, snapshot), plan)
+func (p *Preemptor) GetTargetsUsingPlan(ctx context.Context, plan PreemptionPlan) []*Target {
+	return p.getTargets(ctx, plan)
 }
 
 // GetTargets returns the list of workloads that should be evicted in
@@ -161,14 +153,14 @@ func (p *Preemptor) GetTargets(
 	snapshot *schdcache.Snapshot,
 ) []*Target {
 	pCtx := p.buildContext(ctx, wl, assignment, snapshot)
-	return p.getTargets(pCtx, p.getPreemptionPlan(pCtx))
+	return p.getTargets(ctx, p.getPreemptionPlan(ctx, pCtx))
 }
 
-func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx, plan PreemptionPlan) []*Target {
+func (p *Preemptor) getTargets(ctx context.Context, plan PreemptionPlan) []*Target {
 	if plan.Type == FairPreemptions {
-		return p.fairPreemptions(preemptionCtx, plan)
+		return p.fairPreemptions(ctx, plan)
 	}
-	return p.classicalPreemptions(preemptionCtx, plan)
+	return p.classicalPreemptions(ctx, plan)
 }
 
 func (p *Preemptor) buildContext(
@@ -184,9 +176,7 @@ func (p *Preemptor) buildContext(
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
 	return &preemptionCtx{
-		ctx:               ctx,
 		clock:             p.clock,
-		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
@@ -321,14 +311,15 @@ type preemptionAttemptOpts struct {
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits
-func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx, plan PreemptionPlan) []*Target {
+func (p *Preemptor) classicalPreemptions(ctx context.Context, plan PreemptionPlan) []*Target {
+	preemptionCtx := plan.pCtx
 	for strategy, opts := range plan.Strategies {
 		var targets []*Target
 		for target := range strategy {
 			preemptionCtx.snapshot.RemoveWorkload(target.WorkloadInfo)
 			targets = append(targets, target)
-			if workloadFits(preemptionCtx, opts.Borrowing) {
-				targets = fillBackWorkloads(preemptionCtx, targets, opts.Borrowing)
+			if workloadFits(ctx, preemptionCtx, opts.Borrowing) {
+				targets = fillBackWorkloads(ctx, preemptionCtx, targets, opts.Borrowing)
 				restoreSnapshot(preemptionCtx.snapshot, targets)
 				return targets
 			}
@@ -338,11 +329,11 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx, plan Pree
 	return nil
 }
 
-func fillBackWorkloads(preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
+func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
-		if workloadFits(preemptionCtx, allowBorrowing) {
+		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
@@ -407,14 +398,16 @@ func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, ta
 		!schdcache.DRS(targetOldShare).ZeroWeightBorrows()
 }
 
-func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, plan PreemptionPlan) []*Target {
+func (p *Preemptor) fairPreemptions(ctx context.Context, plan PreemptionPlan) []*Target {
+	preemptionCtx := plan.pCtx
+	log := log.FromContext(ctx)
 	// DRS values must include incoming workload.
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
-	targets, fits := tryStrategies(preemptionCtx, plan)
+	targets, fits := tryStrategies(ctx, preemptionCtx, plan)
 	revertSimulation()
 
 	if !fits {
-		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+		if logV := log.V(6); logV.Enabled() {
 			logV.Info("All fair sharing strategies failed",
 				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 				"targets", logging.GetObjectReferences(targets))
@@ -422,10 +415,10 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, plan Preemptio
 		restoreSnapshot(preemptionCtx.snapshot, targets)
 		return nil
 	}
-	targets = fillBackWorkloads(preemptionCtx, targets, true)
+	targets = fillBackWorkloads(ctx, preemptionCtx, targets, true)
 	restoreSnapshot(preemptionCtx.snapshot, targets)
 
-	if logV := preemptionCtx.log.V(6); logV.Enabled() {
+	if logV := log.V(6); logV.Enabled() {
 		logV.Info("Fair sharing strategies succeeded",
 			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 			"targets", logging.GetObjectReferences(targets))
@@ -433,11 +426,11 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, plan Preemptio
 	return targets
 }
 
-func tryStrategies(preemptionCtx *preemptionCtx, plan PreemptionPlan) (targets []*Target, fits bool) {
+func tryStrategies(ctx context.Context, preemptionCtx *preemptionCtx, plan PreemptionPlan) (targets []*Target, fits bool) {
 	for strategy := range plan.Strategies {
 		for target := range strategy {
 			targets = append(targets, target)
-			if workloadFitsForFairSharing(preemptionCtx) {
+			if workloadFitsForFairSharing(ctx, preemptionCtx) {
 				fits = true
 				return
 			}
@@ -524,7 +517,7 @@ func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Se
 // workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
-func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
+func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	for fr, v := range preemptionCtx.workloadUsage.Quota.Assigned {
 		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
@@ -534,7 +527,7 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 		}
 	}
 	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
-		preemptionCtx.ctx,
+		ctx,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkload(preemptionCtx.preemptor.Obj),
 	)
@@ -545,9 +538,9 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // workloadFits, as we need to remove, and then add back, the usage of
 // the incoming workload, as FairSharing adds this usage at the start
 // of processing for accurate DominantResourceShare calculations.
-func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
+func workloadFitsForFairSharing(ctx context.Context, preemptionCtx *preemptionCtx) bool {
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
-	res := workloadFits(preemptionCtx, true)
+	res := workloadFits(ctx, preemptionCtx, true)
 	revertSimulation()
 	return res
 }

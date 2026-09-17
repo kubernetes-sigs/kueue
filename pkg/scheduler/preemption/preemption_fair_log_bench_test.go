@@ -47,7 +47,7 @@ func BenchmarkIterateWithFirstFsStrategy(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for range b.N {
-					iterateWithFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails,
+					iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, alwaysFails,
 						func(*Target) bool { return true })
 				}
 				b.ReportMetric(float64(sink.n)/float64(b.N), "logB/op")
