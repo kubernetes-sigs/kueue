@@ -29,12 +29,12 @@ milestone:
   beta: TBD
   stable: TBD
 
-# The following PRR answers are required at alpha release.
-# The feature has its own alpha gate (off by default); it additionally requires
-# the ElasticJobsViaWorkloadSlices gate, MultiKueue, and the RayCluster/RayJob
-# setting enableInTreeAutoscaling.
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: MultiKueueRayInTreeAutoscaling
+    components:
+      - kueue-controller-manager
 disable-supported: true
 
 # The following PRR answers are required at beta release.
