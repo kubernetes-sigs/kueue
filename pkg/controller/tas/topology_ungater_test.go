@@ -17,6 +17,7 @@ limitations under the License.
 package tas
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -27,12 +28,12 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	jsoniter "github.com/json-iterator/go"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -3276,7 +3277,6 @@ func TestTopologyUngaterElasticSlice(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			ctx, log := utiltesting.ContextWithLog(t)
-			g := gomega.NewWithT(t)
 
 			// The finished origin and its replacement share the Pod event key.
 			origin := makeSlice("origin", 1).Finished().Obj()
@@ -3286,7 +3286,9 @@ func TestTopologyUngaterElasticSlice(t *testing.T) {
 				Label(constants.PodSetLabel, "workers").NodeSelector(corev1.LabelHostname, "node").Obj()
 
 			builder := utiltesting.NewClientBuilder()
-			g.Expect(indexer.SetupIndexes(ctx, utiltesting.AsIndexer(builder))).To(gomega.Succeed())
+			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(builder)); err != nil {
+				t.Fatalf("Failed to setup indexes: %v", err)
+			}
 			builder.WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName)
 			builder.WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName)
 			builder.WithObjects(running, replacement).WithStatusSubresource(&kueue.Workload{})
@@ -3298,45 +3300,71 @@ func TestTopologyUngaterElasticSlice(t *testing.T) {
 
 			// Admission is processed before the additional Pod exists.
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
-			g.Expect(err).NotTo(gomega.HaveOccurred())
+			if err != nil {
+				t.Fatalf("Failed to reconcile replacement: %v", err)
+			}
 
 			late := testingpod.MakePod("late", "ns").UID("late-uid").
 				Annotation(kueue.WorkloadAnnotation, tc.podReference).Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
 				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 				Label(constants.PodSetLabel, "workers").TopologySchedulingGate().Obj()
-			g.Expect(c.Create(ctx, late)).To(gomega.Succeed())
+			if err := c.Create(ctx, late); err != nil {
+				t.Fatalf("Failed to create late pod: %v", err)
+			}
 
 			// Reconcile the request produced by the real Pod event handler.
 			h := podHandler{expectationsStore: r.expectationsStore}
 			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 			defer q.ShutDown()
 			h.Create(ctx, event.CreateEvent{Object: late}, q)
-			g.Eventually(q.Len, 5*time.Second, 10*time.Millisecond).Should(gomega.Equal(1))
+			if err := wait.PollUntilContextTimeout(ctx, 10*time.Millisecond, 5*time.Second, true, func(context.Context) (bool, error) {
+				return q.Len() == 1, nil
+			}); err != nil {
+				t.Fatalf("Workqueue did not receive the expected item: %v", err)
+			}
 			req, shutdown := q.Get()
-			g.Expect(shutdown).To(gomega.BeFalse())
+			if shutdown {
+				t.Fatalf("Workqueue unexpectedly shut down")
+			}
 			_, err = r.Reconcile(ctx, req)
 			q.Done(req)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
+			if err != nil {
+				t.Fatalf("Failed to reconcile late pod request: %v", err)
+			}
 
 			updated := &corev1.Pod{}
-			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(late), updated)).To(gomega.Succeed())
+			if err := c.Get(ctx, client.ObjectKeyFromObject(late), updated); err != nil {
+				t.Fatalf("Failed to get late pod: %v", err)
+			}
 			if tc.wantUngated {
 				// Expectations must remain pending until the update or deletion is observed.
-				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeFalse())
+				if satisfied := r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin)); satisfied {
+					t.Fatalf("Expectations satisfied before observing the Pod update or deletion")
+				}
 				if tc.deletePod {
 					h.Delete(ctx, event.DeleteEvent{Object: updated}, q)
 				} else {
 					h.Update(ctx, event.UpdateEvent{ObjectOld: late, ObjectNew: updated}, q)
 				}
-				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeTrue())
+				if satisfied := r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin)); !satisfied {
+					t.Fatalf("Expectations not satisfied after observing the Pod update or deletion")
+				}
 				_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
-				g.Expect(err).NotTo(gomega.HaveOccurred())
+				if err != nil {
+					t.Fatalf("Failed to reconcile replacement after ungating: %v", err)
+				}
 			}
 
-			g.Expect(req.Name).To(gomega.Equal("origin"))
-			g.Expect(utilpod.HasGate(updated, kueue.TopologySchedulingGate)).To(gomega.Equal(!tc.wantUngated))
+			if req.Name != "origin" {
+				t.Errorf("Reconcile request name = %q, want %q", req.Name, "origin")
+			}
+			if gotGated := utilpod.HasGate(updated, kueue.TopologySchedulingGate); gotGated != !tc.wantUngated {
+				t.Errorf("HasGate() = %v, want %v", gotGated, !tc.wantUngated)
+			}
 			if tc.wantUngated {
-				g.Expect(updated.Spec.NodeSelector[corev1.LabelHostname]).To(gomega.Equal("node"))
+				if got := updated.Spec.NodeSelector[corev1.LabelHostname]; got != "node" {
+					t.Errorf("NodeSelector[%s] = %q, want %q", corev1.LabelHostname, got, "node")
+				}
 			}
 		})
 	}
