@@ -792,6 +792,91 @@ func TestValidateResources(t *testing.T) {
 	}
 }
 
+func TestValidateRuntimeClassScheduling(t *testing.T) {
+	cases := map[string]struct {
+		runtimeClass *nodev1.RuntimeClass
+		workload     *kueue.Workload
+		wantError    field.ErrorList
+	}{
+		"no RuntimeClass named": {
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet("alpha", 1).Obj()).
+				Obj(),
+		},
+		"class has no scheduling": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"selectors are compatible": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				Scheduling(map[string]string{"pool": "gpu"}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"zone": "z1"}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"the class sets a key the podSet sets differently": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				Scheduling(map[string]string{"pool": "gpu"}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+				).
+				Obj(),
+			wantError: field.ErrorList{
+				field.Invalid(
+					PodSetsPath.Index(0).Child("template").Child("spec").Child("nodeSelector"),
+					map[string]string{"pool": "cpu"},
+					"invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=pool, value1=cpu, value2=gpu",
+				),
+			},
+		},
+		"a Pod-owned Workload already carries what the class added": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				Scheduling(map[string]string{"pool": "gpu"}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-a", "uid-a").
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+				).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cliBuilder := utiltesting.NewClientBuilder()
+			if tc.runtimeClass != nil {
+				cliBuilder.WithObjects(tc.runtimeClass)
+			}
+			got := ValidateRuntimeClassScheduling(ctx, cliBuilder.Build(), &Info{Obj: tc.workload})
+			if diff := cmp.Diff(tc.wantError, got); len(diff) != 0 {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestValidateLimitRange(t *testing.T) {
 	cases := map[string]struct {
 		limitRange *corev1.LimitRange

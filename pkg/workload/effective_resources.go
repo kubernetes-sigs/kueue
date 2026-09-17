@@ -26,6 +26,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -103,13 +104,6 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 				in.PodScheduling[name] = runtimeClass.Scheduling
 			}
 		}
-		// Report the conflict here, where the PodSet name is known; the merge
-		// itself leaves a conflicting spec untouched.
-		if sched, ok := in.PodScheduling[name]; ok {
-			if err := mergeRuntimeClassScheduling(podSpec.DeepCopy(), sched); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", ps.Name, err))
-			}
-		}
 	}
 
 	var limitRanges corev1.LimitRangeList
@@ -143,6 +137,47 @@ func mergeRuntimeClassScheduling(podSpec *corev1.PodSpec, scheduling *nodev1.Sch
 	return nil
 }
 
+// ValidateRuntimeClassScheduling reports PodSets whose own nodeSelector
+// conflicts with the scheduling constraints of their RuntimeClass. The
+// RuntimeClass admission controller rejects such a Pod, so no flavor can hold
+// the Workload and it must not reserve quota. A class that cannot be read is
+// not a conflict; that is reported when the effective view is resolved.
+func ValidateRuntimeClassScheduling(ctx context.Context, c client.Client, wi *Info) field.ErrorList {
+	if c == nil || OwnedByPods(wi.Obj) {
+		return nil
+	}
+	var allErrors field.ErrorList
+	read := make(map[string]*nodev1.Scheduling)
+	for i := range wi.Obj.Spec.PodSets {
+		podSpec := &wi.Obj.Spec.PodSets[i].Template.Spec
+		if podSpec.RuntimeClassName == nil {
+			continue
+		}
+		name := *podSpec.RuntimeClassName
+		scheduling, found := read[name]
+		if !found {
+			var runtimeClass nodev1.RuntimeClass
+			if err := c.Get(ctx, types.NamespacedName{Name: name}, &runtimeClass); err != nil {
+				read[name] = nil
+				continue
+			}
+			scheduling = runtimeClass.Scheduling
+			read[name] = scheduling
+		}
+		if scheduling == nil {
+			continue
+		}
+		if err := mergeRuntimeClassScheduling(podSpec.DeepCopy(), scheduling); err != nil {
+			allErrors = append(allErrors, field.Invalid(
+				PodSetsPath.Index(i).Child("template").Child("spec").Child("nodeSelector"),
+				podSpec.NodeSelector,
+				err.Error(),
+			))
+		}
+	}
+	return allErrors
+}
+
 // applyAdjustmentsToPodSpec rewrites the given PodSpec into its effective
 // form: the RuntimeClass overhead and scheduling constraints, then limits
 // copied into missing requests (mirroring API-server object defaulting), then
@@ -154,8 +189,9 @@ func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 			podSpec.Overhead = overhead.DeepCopy()
 		}
 		if sched, found := in.PodScheduling[*podSpec.RuntimeClassName]; found {
-			// The error is reported by ResolveAdjustmentInputs; a conflicting
-			// spec is left as the PodSet wrote it.
+			// A conflicting spec is left as the PodSet wrote it and reported by
+			// ValidateRuntimeClassScheduling, which makes the Workload
+			// inadmissible rather than letting it reserve quota.
 			_ = mergeRuntimeClassScheduling(podSpec, sched)
 		}
 	}
