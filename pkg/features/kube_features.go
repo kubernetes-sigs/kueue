@@ -686,9 +686,10 @@ const (
 	// owner: @rjgoyln
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/15613
 	//
-	// Label the Workload of a Deployment-managed Pod with the Deployment UID rather than
-	// the Pod UID, so that all Workloads of one Deployment share a job-uid value. When
-	// disabled, the Pod UID is used.
+	// Label the Workload of a Pod that Kueue manages through a Deployment with the
+	// Deployment UID rather than the Pod UID, so that all Workloads of one Deployment
+	// share a job-uid value. The Pod UID is kept when the gate is disabled, and when the
+	// owning Deployment cannot be resolved.
 	DeploymentJobUIDLabel featuregate.Feature = "DeploymentJobUIDLabel"
 )
 
