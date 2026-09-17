@@ -19,8 +19,11 @@ limitations under the License.
 package was
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"maps"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,13 +35,34 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
-// VirtualPodName returns a collision-free name for a virtual pod.
+const (
+	maxPodNameLength = 253
+	hashLength       = 5
+)
+
+// VirtualPodName returns a collision-free name for a virtual pod
+// following the standard naming convention in Kueue
 func VirtualPodName(wlName, podSetName string, index int) string {
-	name := fmt.Sprintf("virtual-%s-%s-%d", wlName, podSetName, index)
-	if len(name) > 253 {
-		return fmt.Sprintf("virtual-%s-%d", name[len(name)-235:], index)
+	indexStr := strconv.Itoa(index)
+	prefix := fmt.Sprintf("virtual-%s-%s-%s", wlName, podSetName, indexStr)
+
+	maxPrefix := maxPodNameLength - 1 - hashLength
+	if len(prefix) > maxPrefix {
+		prefix = prefix[:maxPrefix]
 	}
-	return name
+
+	return fmt.Sprintf("%s-%s", prefix, getVirtualPodHash(wlName, podSetName, indexStr))
+}
+
+func getVirtualPodHash(wlName, podSetName, indexStr string) string {
+	h := sha1.New()
+	h.Write([]byte(wlName))
+	h.Write([]byte("\n"))
+	h.Write([]byte(podSetName))
+	h.Write([]byte("\n"))
+	h.Write([]byte(indexStr))
+
+	return hex.EncodeToString(h.Sum(nil))[:hashLength]
 }
 
 // PodsForWorkload generates virtual pods for an admitted or quota-reserved

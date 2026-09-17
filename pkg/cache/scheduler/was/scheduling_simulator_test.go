@@ -601,7 +601,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 		if p.Name == "real-pod-1" {
 			hasReal = true
 		}
-		if p.Name == "virtual-wl1-main-1" {
+		if strings.HasPrefix(p.Name, "virtual-wl1-main-1-") {
 			hasVirtual = true
 		}
 	}

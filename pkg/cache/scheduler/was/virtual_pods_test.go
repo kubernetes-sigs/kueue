@@ -35,14 +35,14 @@ func TestVirtualPodName(t *testing.T) {
 		wlName     string
 		podSetName string
 		index      int
-		wantName   string
+		wantPrefix string
 		checkLen   bool
 	}{
 		"short name": {
 			wlName:     "wl-1",
 			podSetName: "main",
 			index:      0,
-			wantName:   "virtual-wl-1-main-0",
+			wantPrefix: "virtual-wl-1-main-0-",
 		},
 		"long name capped to 253 chars": {
 			wlName:     strings.Repeat("a", 200),
@@ -55,8 +55,8 @@ func TestVirtualPodName(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			got := VirtualPodName(tc.wlName, tc.podSetName, tc.index)
-			if tc.wantName != "" && got != tc.wantName {
-				t.Errorf("VirtualPodName() = %q, want %q", got, tc.wantName)
+			if tc.wantPrefix != "" && !strings.HasPrefix(got, tc.wantPrefix) {
+				t.Errorf("VirtualPodName() = %q, want prefix %q", got, tc.wantPrefix)
 			}
 			if tc.checkLen && len(got) > 253 {
 				t.Errorf("VirtualPodName() length = %d, exceeds 253", len(got))
