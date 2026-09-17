@@ -85,3 +85,14 @@ dependencies:
       updates automatically; major and minor bumps are coordinated with a Kueue
       release that targets a new Kubernetes minor. See DEPENDENCY_LIFECYCLE.md
       for the full policy.
+  env-dependencies-policy:
+    policy-url: 'https://github.com/kubernetes-sigs/kueue/blob/main/ENVIRONMENT_DEPENDENCIES_POLICY.md'
+    comment: |
+      All dependencies are declared in version-controlled manifests with
+      lock or checksum files and consumed from the same manifests in every
+      environment. Development and CI install pinned tooling from
+      hack/tools/go.mod; tests run against pinned envtest and kind
+      Kubernetes versions and operator versions resolved from go.mod;
+      release images are static binaries on a digest-pinned distroless
+      base, promoted to registry.k8s.io with an SPDX SBOM and OpenVEX
+      document. See ENVIRONMENT_DEPENDENCIES_POLICY.md for the full policy.
