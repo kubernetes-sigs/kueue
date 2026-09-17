@@ -44,7 +44,7 @@
     - [Examples with Custom Ordering](#examples-with-custom-ordering)
       - [Story 1 - Defragmentation with Explicit Priority Ordering](#story-1---defragmentation-with-explicit-priority-ordering)
       - [Story 2 - Hero Workload with Explicit Priority Ordering](#story-2---hero-workload-with-explicit-priority-ordering)
-    - [Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multiple Queues Iteration](#per-selector-per-clusterqueue-priority-queues-and-dynamic-multiple-queues-iteration)
+  - [[Optimized] Dynamically Adjusted Candidate Generation](#optimized-dynamically-adjusted-candidate-generation)
       - [Motivation and Architectural Benefits](#motivation-and-architectural-benefits)
       - [Problem Statement](#problem-statement)
       - [Naive Solutions and Complexity Bottlenecks](#naive-solutions-and-complexity-bottlenecks)
@@ -843,8 +843,8 @@ type PriorityConstraint struct {
 
 // PriorityMode defines whether raw or boosted priority is used in candidate comparison.
 // Possible values are:
-// - "Base": uses the raw priority value as assigned in the Workload resource.
-// - "Boosted": uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled).
+// - "Base": uses the raw priority value as assigned in the Workload resource for both the candidate and preemptor.
+// - "Boosted": uses the effective priority value, that is, the priority value adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
 //
 // +kubebuilder:validation:Enum=Base;Boosted
 type PriorityMode string
@@ -1252,11 +1252,11 @@ spec:
       direction: "Ascending"
 ```
 
-#### Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multiple Queues Iteration
+### [Optimized] Dynamically Adjusted Candidate Generation
 
 In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and sorted in a single flat list (as detailed in [Candidate Gathering, Merging, and Ordering](#candidate-gathering-merging-and-ordering)). This minimizes modifications to the existing codebase during Alpha.
 
-However, when configurable candidate ordering is introduced in future iterations with user-defined multi-key comparator chains and dynamic ordering metrics (such as DRS and borrowing limits), preemption evaluation across large clusters will benefit from a more sophisticated candidate organization: **Per-Selector, Per-ClusterQueue Priority Queues** paired with dynamic multi-queue iteration.
+However, when configurable candidate ordering or quota based selectors are introduced in future the candidate generatio has to be dynamically adjusted to take into account changes of DRS or borrowing due to previous candidates preemption. Generatio of such candidates for large clusters will benefit from a more sophisticated candidate organization: **Per-Selector, Per-ClusterQueue Priority Queues** paired with iteration through priority queue heads.
 
 ##### Motivation and Architectural Benefits
 
