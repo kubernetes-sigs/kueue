@@ -2397,6 +2397,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices": {
 			featureGateMap: map[string]bool{
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
+				string(features.MultiKueueRayInTreeAutoscaling):      false,
 				string(features.TopologyAwareScheduling):             true,
 				string(features.ElasticJobsViaWorkloadSlices):        false,
 				string(features.TASProfileMixed):                     false,

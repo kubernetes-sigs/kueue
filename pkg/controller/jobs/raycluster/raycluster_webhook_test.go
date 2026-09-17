@@ -159,7 +159,7 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"invalid MultiKueue elastic autoscaling when feature gate is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueRayInTreeAutoscaling: false, features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				ManagedBy(kueue.MultiKueueControllerName).
