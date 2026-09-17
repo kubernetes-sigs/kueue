@@ -33,10 +33,11 @@ in each environment.
   not *which versions* of them.
 - **Trusted sources only.** Dependencies are fetched from the public
   Go module proxy and checksum database, the public npm registry,
-  PyPI, and well-known container registries (`public.ecr.aws`,
-  `gcr.io`, `registry.k8s.io`, `docker.io`, `quay.io`, `ghcr.io`).
-  Mirrors and private registries are not used in the project's own
-  build and release pipelines.
+  PyPI, well-known container registries (`public.ecr.aws`,
+  `gcr.io`, `registry.k8s.io`, `docker.io`, `quay.io`, `ghcr.io`),
+  and, for test-only operator manifests, the upstream projects'
+  GitHub releases. Mirrors and private registries are not used in
+  the project's own build and release pipelines.
 
 ## Development environment
 
@@ -85,7 +86,7 @@ Actions.
   pinned in `hack/tools/go.mod`; there is no separate CI-only tool
   manifest.
 - **Kubernetes control-plane binaries.** Integration tests run against
-  `envtest` binaries for the single Kubernetes version pinned by
+  `envtest` binaries for the Kubernetes version selected by
   `ENVTEST_K8S_VERSION` in [`hack/make/test.mk`](hack/make/test.mk).
   End-to-end tests run against `kind` clusters for each of the
   Kubernetes minor versions listed in `E2E_K8S_VERSIONS` in the same
@@ -101,9 +102,7 @@ Actions.
   the client library compiled into Kueue cannot drift apart. The one
   exception is the Prometheus Operator, which Kueue does not import as
   a Go module: its version is pinned independently by
-  `PROMETHEUS_OPERATOR_VERSION` in `hack/make/test.mk`, and
-  `hack/testing/e2e-common.sh` installs it from the release bundle
-  published for that tag.
+  `PROMETHEUS_OPERATOR_VERSION` in `hack/make/test.mk`.
 - **Test helper images.** Auxiliary images used only by tests (for
   example, `agnhost`, Ray, Redis, Spark, Cypress, and shellcheck) are
   built from the Dockerfiles under
