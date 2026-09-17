@@ -11,5 +11,5 @@ resources:
 images:
 - name: controller
   newName: us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue-populator
-  newTag: main
+  newTag: release-0.19
 namespace: kueue-system

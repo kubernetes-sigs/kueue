@@ -313,7 +313,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = \
+set-release-branch-images = \
 	(cd config/components/manager && \
 		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
 	(cd config/components/kueueviz && \
@@ -335,7 +335,7 @@ uninstall: compile-crd-manifests kustomize ## Uninstall CRDs from the K8s cluste
 .PHONY: deploy
 deploy: compile-crd-manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply --server-side -k config/default
-	@$(call clean-manifests)
+	@$(call set-release-branch-images)
 
 .PHONY: prometheus
 prometheus:
@@ -387,7 +387,7 @@ artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-m
 	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
 	$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
 	$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
-	@$(call clean-manifests)
+	@$(call set-release-branch-images)
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: release-artifacts
@@ -396,6 +396,7 @@ release-artifacts: ## Generate release artifacts.
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
+	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="$(APP_VERSION)/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
