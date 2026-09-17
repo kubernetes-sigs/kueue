@@ -59,7 +59,7 @@
     - [Examples with Time-Based Candidate Selectors](#examples-with-time-based-candidate-selectors)
       - [Story 1 - Minimal Execution Duration Before Preemption](#story-1---minimal-execution-duration-before-preemption)
       - [Story 2 - SLA Protection Based on Workload Creation Time](#story-2---sla-protection-based-on-workload-creation-time)
-  - [Quota-Based Candidate Selectors (QuotaConstraint)](#quota-based-candidate-selectors-quotaconstraint)
+  - [Quota-Based Candidate Selectors (PreemptionConfigQuotaConstraint)](#quota-based-candidate-selectors-preemptionconfigquotaconstraint)
     - [Proposed API for Quota-Based Candidate Selectors](#proposed-api-for-quota-based-candidate-selectors)
   - [PreemptionLimit (Rate-Limiting Guardrails)](#preemptionlimit-rate-limiting-guardrails)
     - [Proposed API for PreemptionLimit](#proposed-api-for-preemptionlimit)
@@ -363,7 +363,9 @@ spec:
       activationPolicy:
         trigger: "QuotaFeasibleAndInsufficientTopology"
       candidateSelectors:
-        - priorityComparison: "LessThanOrEqual"
+        - priority:
+            mode: "Boosted"
+            comparison: "LessThanOrEqual"
           scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
@@ -395,7 +397,9 @@ spec:
       activationPolicy:
         trigger: "Always"
       candidateSelectors:
-        - priorityComparison: "LessThan"
+        - priority:
+            mode: "Boosted"
+            comparison: "LessThan"
           scope: "AnyClusterQueue"
 ```
 
@@ -422,7 +426,9 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "WithinClusterQueue"
-             priorityComparison: "LessThan"
+             priority:
+               mode: "Boosted"
+               comparison: "LessThan"
              numericLabels:
                - key: "example.com/requested-gpus"
                  maxValue: 8
@@ -472,7 +478,9 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "WithinClusterQueue"
-             priorityComparison: "LessThan"
+             priority:
+               mode: "Boosted"
+               comparison: "LessThan"
              minExecutionDuration: "15m"
    ```
 
@@ -486,7 +494,9 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "WithinClusterQueue"
-             priorityComparison: "LessThan"
+             priority:
+               mode: "Boosted"
+               comparison: "LessThan"
              maxTimeFromCreationDuration: "1h"
    ```
 6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
@@ -592,32 +602,32 @@ type PreemptionConfigSpec struct {
   // +listType=map
   // +listMapKey=name
   // +kubebuilder:validation:MaxItems=64
-  Rules []PreemptionRule `json:"rules,omitempty"`
+  Rules []PreemptionConfigPreemptionRule `json:"rules,omitempty"`
 }
 
-// ActivationTrigger specifies when preemption rule should be treated as active.
+// PreemptionConfigActivationTrigger specifies when preemption rule should be treated as active.
 // +kubebuilder:validation:Enum=Always;InsufficientQuota;QuotaFeasibleAndInsufficientTopology
-type ActivationTrigger string
+type PreemptionConfigActivationTrigger string
 
 const (
   // Always contributes matching candidates unconditionally.
-  Always ActivationTrigger = "Always"
+  Always PreemptionConfigActivationTrigger = "Always"
 
   // InsufficientQuota contributes matching candidates only if preempting baseline candidates
   // does not yield sufficient quota to admit the preemptor workload.
-  InsufficientQuota ActivationTrigger = "InsufficientQuota"
+  InsufficientQuota PreemptionConfigActivationTrigger = "InsufficientQuota"
 
   // QuotaFeasibleAndInsufficientTopology contributes matching candidates only if quota
   // is feasible for the entire preemptor under at least one eligible flavor assignment
   // (after preempting baseline candidates and any candidates from InsufficientQuota rules),
   // but the workload cannot be admitted because no eligible flavor assignment satisfies
   // its topology requirements.
-  QuotaFeasibleAndInsufficientTopology ActivationTrigger = "QuotaFeasibleAndInsufficientTopology"
+  QuotaFeasibleAndInsufficientTopology PreemptionConfigActivationTrigger = "QuotaFeasibleAndInsufficientTopology"
 )
 
-// PreemptionRule defines a single rule under which preemptions can be triggered
+// PreemptionConfigPreemptionRule defines a single rule under which preemptions can be triggered
 // and the candidate workloads eligible for preemption.
-type PreemptionRule struct {
+type PreemptionConfigPreemptionRule struct {
   // Name is the identifier of the preemption rule.
   //
   // +kubebuilder:validation:Required
@@ -637,7 +647,7 @@ type PreemptionRule struct {
   // candidates to preemption evaluation.
   //
   // +kubebuilder:validation:Required
-  ActivationPolicy ActivationPolicy `json:"activationPolicy"`
+  ActivationPolicy PreemptionConfigActivationPolicy `json:"activationPolicy"`
 
 
   // CandidateSelectors specifies the selection rules for workloads that are candidates for preemption.
@@ -645,12 +655,12 @@ type PreemptionRule struct {
   // No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.
   //
   // +optional
-  CandidateSelectors []PreemptionCandidateSelector `json:"candidateSelectors,omitempty"`
+  CandidateSelectors []PreemptionConfigPreemptionCandidateSelector `json:"candidateSelectors,omitempty"`
 }
 
 
-// ActivationPolicy defines when a preemption rule contributes candidates.
-type ActivationPolicy struct {
+// PreemptionConfigActivationPolicy defines when a preemption rule contributes candidates.
+type PreemptionConfigActivationPolicy struct {
   // trigger specifies the prerequisite for contributing candidates.
   //
   // Possible values are:
@@ -669,7 +679,7 @@ type ActivationPolicy struct {
   //   whose activationPolicy.trigger is Always.
   //
   // +kubebuilder:validation:Required
-  Trigger ActivationTrigger `json:"trigger"`
+  Trigger PreemptionConfigActivationTrigger `json:"trigger"`
 }
 
 ```
@@ -689,7 +699,7 @@ After evaluating each tier, the scheduler simulates whether the preemptor worklo
 
 ```go
 
-// PreemptionQueueScope specifies the relational boundary between
+// PreemptionConfigPreemptionQueueScope specifies the relational boundary between
 // the preempting workload's queue and candidate workloads' queues.
 // Possible values are:
 // - "WithinLocalQueue": restricts preemption candidates to workloads submitted to the exact same LocalQueue (matching name and namespace).
@@ -699,38 +709,38 @@ After evaluating each tier, the scheduler simulates whether the preemptor worklo
 // - "AnyClusterQueue": places no relationship restrictions on preemption candidates.
 //
 // +kubebuilder:validation:Enum=WithinLocalQueue;WithinClusterQueue;WithinParentCohort;WithinCohortTree;AnyClusterQueue
-type PreemptionQueueScope string
+type PreemptionConfigPreemptionQueueScope string
 
 const (
   // WithinLocalQueue restricts preemption candidates to workloads submitted
   // to the exact same LocalQueue (matching name and namespace).
-  WithinLocalQueue PreemptionQueueScope = "WithinLocalQueue"
+  WithinLocalQueue PreemptionConfigPreemptionQueueScope = "WithinLocalQueue"
 
   // WithinClusterQueue restricts preemption candidates to workloads submitted
   // to the same ClusterQueue as the preemptor.
-  WithinClusterQueue PreemptionQueueScope = "WithinClusterQueue"
+  WithinClusterQueue PreemptionConfigPreemptionQueueScope = "WithinClusterQueue"
 
   // WithinParentCohort restricts preemption candidates to workloads in ClusterQueues
   // that share the exact same immediate direct Cohort, as well as workloads in the
   // preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
-  WithinParentCohort PreemptionQueueScope = "WithinParentCohort"
+  WithinParentCohort PreemptionConfigPreemptionQueueScope = "WithinParentCohort"
 
   // WithinCohortTree restricts preemption candidates to workloads in ClusterQueues
   // that belong to the same Cohort Tree (sharing the same root ancestor Cohort),
   // as well as workloads in the preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
-  WithinCohortTree PreemptionQueueScope = "WithinCohortTree"
+  WithinCohortTree PreemptionConfigPreemptionQueueScope = "WithinCohortTree"
 
   // AnyClusterQueue places no relationship restrictions on preemption candidates.
-  AnyClusterQueue PreemptionQueueScope = "AnyClusterQueue"
+  AnyClusterQueue PreemptionConfigPreemptionQueueScope = "AnyClusterQueue"
 )
 
 
-// PreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
-type PreemptionCandidateSelector struct {
+// PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+type PreemptionConfigPreemptionCandidateSelector struct {
   // Scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
   //
   // +kubebuilder:validation:Required
-  Scope PreemptionQueueScope `json:"scope"`
+  Scope PreemptionConfigPreemptionQueueScope `json:"scope"`
 
   // NumericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
   // Multiple numeric labels are joined using AND-rule (all have to be satisfied).
@@ -738,7 +748,7 @@ type PreemptionCandidateSelector struct {
   //
   // +optional
   // +listType=atomic
-  NumericLabels []NumericLabelConstraint `json:"numericLabels,omitempty"`
+  NumericLabels []PreemptionConfigNumericLabelConstraint `json:"numericLabels,omitempty"`
 
   // ClusterQueueSelector defines label selector constraints on candidate ClusterQueues.
   // Accepts all if not set.
@@ -757,12 +767,12 @@ type PreemptionCandidateSelector struct {
   // If nil, no priority requirements are enforced.
   //
   // +optional
-  Priority *PriorityConstraint `json:"priority,omitempty"`
+  Priority *PreemptionConfigPriorityConstraint `json:"priority,omitempty"`
 }
 
 
 
-// NumericLabelConstraint describes the rule for filtering a custom numerical label.
+// PreemptionConfigNumericLabelConstraint describes the rule for filtering a custom numerical label.
 // For example, this can be used to filter candidates based on the label describing the
 // required topology domain size, such as the "number of TPUs".
 // If a user has a label "number-of-tpus" that describes the number of TPUs required in a single cube,
@@ -773,7 +783,7 @@ type PreemptionCandidateSelector struct {
 // You should remember to append the designated labels to the list of labels
 // copied to the workload via the Kueue main configuration
 // if you wish to use a custom label.
-type NumericLabelConstraint struct {
+type PreemptionConfigNumericLabelConstraint struct {
   // Key is the label key that stores the integer value in the workload that will
   // be used for candidate selection.
   //
@@ -826,12 +836,12 @@ const (
 // This maintains consistency with equality comparisons, enhances YAML readability, and provides
 // clear, intuitive semantics for cluster administrators.
 
-// PriorityConstraint defines the requirements for the priority of preemption candidates.
-type PriorityConstraint struct {
+// PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
+type PreemptionConfigPriorityConstraint struct {
   // Mode specifies whether priority comparison uses base or boosted (effective) priority.
   //
   // +kubebuilder:validation:Required
-  Mode PriorityMode `json:"mode"`
+  Mode PreemptionConfigPriorityMode `json:"mode"`
 
   // Comparison defines how the candidate's priority compares to the preemptor's priority.
   // For example, "LessThan" means that only workloads with lower
@@ -841,19 +851,19 @@ type PriorityConstraint struct {
   Comparison NumericComparison `json:"comparison"`
 }
 
-// PriorityMode defines whether base or boosted (effective) priority is used when comparing candidates against the preemptor.
+// PreemptionConfigPriorityMode defines whether base or boosted (effective) priority is used when comparing candidates against the preemptor.
 // Possible values are:
 // - "Base": uses the raw priority value as assigned in the Workload resource (`spec.priority`) for both the candidate and preemptor, ignoring any priority boost.
 // - "Boosted": uses the effective priority value, adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
 //
 // +kubebuilder:validation:Enum=Base;Boosted
-type PriorityMode string
+type PreemptionConfigPriorityMode string
 
 const (
   // Base uses the raw priority value as assigned in the Workload resource (`spec.priority`) for both the candidate and preemptor, ignoring any priority boost.
-  Base PriorityMode = "Base"
+  Base PreemptionConfigPriorityMode = "Base"
   // Boosted uses the effective priority value, adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
-  Boosted PriorityMode = "Boosted"
+  Boosted PreemptionConfigPriorityMode = "Boosted"
 )
 
 
@@ -991,9 +1001,9 @@ Implementation of the foundations of PreemptionConfig:
 
 Implementation of the following candidate selector fields and constraints to have an MVP of defrag:
 
-- `NumericLabels` (`NumericLabelConstraint`)
-- `PriorityComparison` (`NumericComparison`)
-- `Scope` (`PreemptionQueueScope`)
+- `NumericLabels` (`PreemptionConfigNumericLabelConstraint`)
+- `Priority` (`PreemptionConfigPriorityConstraint`)
+- `Scope` (`PreemptionConfigPreemptionQueueScope`)
 
 Expose the implementation under feature gate "ConfigurablePreemptions", integration should not change in any way the existing preemption logic.
 
@@ -1081,7 +1091,7 @@ In future iterations, we plan to reintroduce the `Ordering` field in `Preemption
 ```go
 type PreemptionConfigSpec struct {
   // Rules to select preemption candidates.
-  Rules []PreemptionRule
+  Rules []PreemptionConfigPreemptionRule
 
   // Ordering of preemption candidates evaluated sequentially as a multi-key comparator chain.
   // Workloads already marked for eviction (`isEvicted`) are always prioritized first implicitly,
@@ -1092,11 +1102,11 @@ type PreemptionConfigSpec struct {
   // 2. AdmissionTimestamp (Descending: most recently admitted first, protecting long-running workloads)
   // 3. UID (Ascending: deterministic tie-breaker)
   // +optional
-  Ordering []Order `json:"ordering,omitempty"`
+  Ordering []PreemptionConfigOrder `json:"ordering,omitempty"`
 }
 
-// OrderingField specifies the criterion used to sort candidate workloads during preemption evaluation.
-// Note: OrderingField is a predefined enum of sorting keys, not arbitrary fields of the Workload struct.
+// PreemptionConfigOrderingField specifies the criterion used to sort candidate workloads during preemption evaluation.
+// Note: PreemptionConfigOrderingField is a predefined enum of sorting keys, not arbitrary fields of the Workload struct.
 // Supported values are:
 // - "Priority": orders workloads by effective priority (accounting for priority boost if enabled).
 //   - Ascending (default): lowest priority first.
@@ -1131,40 +1141,40 @@ type PreemptionConfigSpec struct {
 //   - Descending: workloads from LocalQueues with higher Dominant Resource Share first (preempting heavy LocalQueue borrowers first).
 //
 // +kubebuilder:validation:Enum=Priority;AdmissionTimestamp;ClusterQueueDRS;IsOtherCQ;IsOtherCohort;IsDRSLessThanInitialShare;IsDRSLessThanOrEqualToFinalShare;LocalQueueDRS
-type OrderingField string
+type PreemptionConfigOrderingField string
 
 const (
   // Priority orders candidates by effective priority (accounting for priority boost if enabled).
   // Ascending order places lowest priority candidates first.
-  Priority OrderingField = "Priority"
+  Priority PreemptionConfigOrderingField = "Priority"
 
   // AdmissionTimestamp orders candidates by the time quota was reserved.
   // Ascending order places oldest admitted candidates first and most recently admitted last.
-  AdmissionTimestamp OrderingField = "AdmissionTimestamp"
+  AdmissionTimestamp PreemptionConfigOrderingField = "AdmissionTimestamp"
 
   // ClusterQueueDRS orders candidates based on their ClusterQueue's Dominant Resource Share.
   // Ascending order places candidates from ClusterQueues with lower Dominant Resource Share first.
-  ClusterQueueDRS OrderingField = "ClusterQueueDRS"
+  ClusterQueueDRS PreemptionConfigOrderingField = "ClusterQueueDRS"
 
   // IsOtherCQ orders candidates based on whether their ClusterQueue differs from the preemptor.
   // Ascending order places workloads from the same ClusterQueue first.
-  IsOtherCQ OrderingField = "IsOtherCQ"
+  IsOtherCQ PreemptionConfigOrderingField = "IsOtherCQ"
 
   // IsOtherCohort orders candidates based on whether their direct Cohort differs from the preemptor.
   // Ascending order places workloads from the same Cohort first.
-  IsOtherCohort OrderingField = "IsOtherCohort"
+  IsOtherCohort PreemptionConfigOrderingField = "IsOtherCohort"
 
   // IsDRSLessThanInitialShare orders candidates based on whether preemption is fair according to DRSLessThanInitialShare.
   // Ascending order places workloads whose ClusterQueue exceeds initial share first.
-  IsDRSLessThanInitialShare OrderingField = "IsDRSLessThanInitialShare"
+  IsDRSLessThanInitialShare PreemptionConfigOrderingField = "IsDRSLessThanInitialShare"
 
   // IsDRSLessThanOrEqualToFinalShare orders candidates based on whether preemption is fair according to DRSLessThanOrEqualToFinalShare.
   // Ascending order places workloads whose ClusterQueue exceeds final share first.
-  IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
+  IsDRSLessThanOrEqualToFinalShare PreemptionConfigOrderingField = "IsDRSLessThanOrEqualToFinalShare"
 
   // LocalQueueDRS orders candidates based on their LocalQueue's Dominant Resource Share (fair sharing usage).
   // Ascending order places candidates from LocalQueues with lower Dominant Resource Share first.
-  LocalQueueDRS OrderingField = "LocalQueueDRS"
+  LocalQueueDRS PreemptionConfigOrderingField = "LocalQueueDRS"
 )
 
 // OrderingDirection specifies the sort direction for a candidate ordering criterion.
@@ -1183,14 +1193,14 @@ const (
   Descending OrderingDirection = "Descending"
 )
 
-// Order specifies a single sorting criterion and direction for ordering preemption candidates.
-// Multiple Order criteria are evaluated sequentially as a multi-key comparator chain,
+// PreemptionConfigOrder specifies a single sorting criterion and direction for ordering preemption candidates.
+// Multiple PreemptionConfigOrder criteria are evaluated sequentially as a multi-key comparator chain,
 // with ties broken by Workload UID for deterministic ordering.
-type Order struct {
+type PreemptionConfigOrder struct {
   // OrderingField specifies the field to sort preemption candidates by.
   //
   // +kubebuilder:validation:Required
-  OrderingField OrderingField `json:"orderingField"`
+  OrderingField PreemptionConfigOrderingField `json:"orderingField"`
 
   // Direction specifies whether to sort preemption candidates in ascending or descending order.
   // Defaults to "Ascending" if not specified.
@@ -1227,7 +1237,9 @@ spec:
       activationPolicy:
         trigger: "QuotaFeasibleAndInsufficientTopology"
       candidateSelectors:
-        - priorityComparison: "LessThanOrEqual"
+        - priority:
+            mode: "Boosted"
+            comparison: "LessThanOrEqual"
           scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
@@ -1247,7 +1259,9 @@ spec:
       activationPolicy:
         trigger: "Always"
       candidateSelectors:
-        - priorityComparison: "LessThan"
+        - priority:
+            mode: "Boosted"
+            comparison: "LessThan"
           scope: "AnyClusterQueue"
   ordering:
     - orderingField: "Priority"
@@ -1424,10 +1438,10 @@ Relevant use cases include:
 
 #### Proposed API for Time-Based Candidate Selectors
 
-In a future iteration, `PreemptionCandidateSelector` can be extended with the following duration and time-relation fields:
+In a future iteration, `PreemptionConfigPreemptionCandidateSelector` can be extended with the following duration and time-relation fields:
 
 ```go
-type PreemptionCandidateSelector struct {
+type PreemptionConfigPreemptionCandidateSelector struct {
   // ... baseline candidate selector fields ...
 
   // Accepts any execution times if not set.
@@ -1464,7 +1478,9 @@ spec:
         trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "WithinClusterQueue"
-          priorityComparison: "LessThan"
+          priority:
+            mode: "Boosted"
+            comparison: "LessThan"
           minExecutionDuration: "15m"
 ```
 
@@ -1478,11 +1494,13 @@ spec:
         trigger: "InsufficientQuota"
       candidateSelectors:
         - scope: "WithinClusterQueue"
-          priorityComparison: "LessThan"
+          priority:
+            mode: "Boosted"
+            comparison: "LessThan"
           maxTimeFromCreationDuration: "1h"
 ```
 
-### Quota-Based Candidate Selectors (QuotaConstraint)
+### Quota-Based Candidate Selectors (PreemptionConfigQuotaConstraint)
 
 In Alpha, candidate evaluation reuses the regular preemption ordering rules from classical preemption and fair sharing, which already take borrowing capacity and Dominant Resource Share (DRS) into account dynamically. Explicit pre-filtering of preemption candidates via a `Quota` constraint (such as `BorrowingCapacityFromPreemptor` or DRS share comparisons) is therefore not needed for Alpha and is deferred to future work.
 
@@ -1490,30 +1508,30 @@ Because borrowing and DRS values depend on the dynamic state of the cluster, wor
 
 #### Proposed API for Quota-Based Candidate Selectors
 
-In a future iteration, `PreemptionCandidateSelector` can be extended with the `Quota` field:
+In a future iteration, `PreemptionConfigPreemptionCandidateSelector` can be extended with the `Quota` field:
 
 ```go
 // +kubebuilder:validation:Enum=BorrowingCapacityFromPreemptor;DRSLessThanOrEqualToFinalShare;DRSLessThanInitialShare;DRSAllStrategies
-type QuotaConstraint string
+type PreemptionConfigQuotaConstraint string
 
 const (
   // BorrowingCapacityFromPreemptor restricts preemption candidates to workloads
   // in other ClusterQueues within the cohort that are currently borrowing capacity from the preemptor's ClusterQueue.
-  BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
+  BorrowingCapacityFromPreemptor PreemptionConfigQuotaConstraint = "BorrowingCapacityFromPreemptor"
 
   // DRSLessThanOrEqualToFinalShare restricts preemption candidates to workloads in ClusterQueues
   // whose Dominant Resource Share after preemption remains less than or equal to their final share.
-  DRSLessThanOrEqualToFinalShare QuotaConstraint = "DRSLessThanOrEqualToFinalShare"
+  DRSLessThanOrEqualToFinalShare PreemptionConfigQuotaConstraint = "DRSLessThanOrEqualToFinalShare"
 
   // DRSLessThanInitialShare restricts preemption candidates to workloads in ClusterQueues
   // whose Dominant Resource Share before preemption was less than their initial share.
-  DRSLessThanInitialShare QuotaConstraint = "DRSLessThanInitialShare"
+  DRSLessThanInitialShare PreemptionConfigQuotaConstraint = "DRSLessThanInitialShare"
 
   // DRSAllStrategies allows any preemption candidates permitted under configured DRS fair-sharing strategies.
-  DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
+  DRSAllStrategies PreemptionConfigQuotaConstraint = "DRSAllStrategies"
 )
 
-type PreemptionCandidateSelector struct {
+type PreemptionConfigPreemptionCandidateSelector struct {
   // ... baseline candidate selector fields ...
 
   // Quota specifies quota-based preemption constraints (e.g., borrowing capacity or fair sharing share).
@@ -1521,7 +1539,7 @@ type PreemptionCandidateSelector struct {
   // Accepts all if not set.
   //
   // +optional
-  Quota *QuotaConstraint `json:"quota,omitempty"`
+  Quota *PreemptionConfigQuotaConstraint `json:"quota,omitempty"`
 }
 ```
 
@@ -1655,16 +1673,16 @@ spec:
 
 In many production environments, administrators want to avoid premature or "flapping" preemptions caused by transient quota shortages or temporary topology fragmentation that might resolve naturally within a short window (e.g., as short jobs complete or as autoscaling nodes join). By requiring that a trigger condition (such as `QuotaFeasibleAndInsufficientTopology` or `InsufficientQuota`) persists for a minimum duration before evaluating candidate preemptions, clusters can grant a grace window for normal placement or natural workload completions before resorting to disruptive evictions.
 
-In the initial Alpha release, preemption evaluation triggers immediately upon observing the trigger condition without timer-based requeueing, keeping the execution flow synchronous with scheduling passes and avoiding timer management complexity. In future iterations, `ActivationPolicy` will be extended with `minTriggerRequiredDuration`.
+In the initial Alpha release, preemption evaluation triggers immediately upon observing the trigger condition without timer-based requeueing, keeping the execution flow synchronous with scheduling passes and avoiding timer management complexity. In future iterations, `PreemptionConfigActivationPolicy` will be extended with `minTriggerRequiredDuration`.
 
 #### Proposed API for Minimum Trigger Duration
 
 ```go
-type ActivationPolicy struct {
+type PreemptionConfigActivationPolicy struct {
 
   // trigger specifies the condition (InsufficientQuota, Always, or QuotaFeasibleAndInsufficientTopology)
   // that must be observed on the preemptor workload for this rule to apply.
-  Trigger ActivationTrigger `json:"trigger"`
+  Trigger PreemptionConfigActivationTrigger `json:"trigger"`
 
   // MinTriggerRequiredDuration specifies how long the trigger condition must be observed before
   // preempting workloads specified by candidateSelectors. 0s indicates that preemptions can be started immediately.
@@ -1696,7 +1714,9 @@ spec:
         trigger: "QuotaFeasibleAndInsufficientTopology"
         minTriggerRequiredDuration: "30s"
       candidateSelectors:
-        - priorityComparison: "LessThanOrEqual"
+        - priority:
+            mode: "Boosted"
+            comparison: "LessThanOrEqual"
           scope: "AnyClusterQueue"
           numericLabels:
             - key: "tpus-count"
@@ -1734,7 +1754,7 @@ const (
   // InsufficientDRADevices indicates that aggregate quota is available, but per-node
   // DRA device feasibility constraints cannot be satisfied without preempting workloads
   // holding the required device instances.
-  InsufficientDRADevices ActivationTrigger = "InsufficientDRADevices"
+  InsufficientDRADevices PreemptionConfigActivationTrigger = "InsufficientDRADevices"
 )
 ```
 
