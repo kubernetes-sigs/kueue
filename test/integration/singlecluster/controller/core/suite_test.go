@@ -47,6 +47,10 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+	// customMetricLabels is the instance handed to the controllers, caches and
+	// scheduler by managerAndControllerSetup. Tests read it to assert that the
+	// cached label values of deleted objects are dropped.
+	customMetricLabels *metrics.CustomLabels
 )
 
 func TestAPIs(t *testing.T) {
@@ -121,6 +125,7 @@ func managerAndControllerSetup(
 		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {
 			customLabels = metrics.NewCustomLabels(controllersCfg.Metrics.CustomLabels)
 		}
+		customMetricLabels = customLabels
 
 		cacheOpts := []schdcache.Option{
 			schdcache.WithResourceMetrics(controllersCfg.Metrics.EnableClusterQueueResources),
