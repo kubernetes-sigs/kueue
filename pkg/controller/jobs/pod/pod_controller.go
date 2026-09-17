@@ -1602,8 +1602,6 @@ func (p *Pod) workloadName() string {
 }
 
 func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types.NamespacedName) (*kueue.WorkloadList, error) {
-	log := ctrl.LoggerFrom(ctx)
-
 	workloads := &kueue.WorkloadList{}
 
 	// Get related workloads for the pod group
@@ -1614,19 +1612,6 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 				return workloads, nil
 			}
 			return nil, fmt.Errorf("getting related workload for the pod group: %w", err)
-		}
-
-		// A Workload that merely shares the pod group name may belong to another job.
-		// Treating it as this group's child would strip its finalizer and release its
-		// quota. Workloads built by NewGroupWorkload carry the is-group-workload marker,
-		// and a pod group only ever adds non-controller owner references, so a controller
-		// reference means the Workload is owned by someone else.
-		if features.Enabled(features.PodIntegrationValidateGroupOwner) &&
-			workload.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue &&
-			metav1.GetControllerOfNoCopy(workload) != nil {
-			log.V(3).Info("Existing workload with the pod group name is owned by another controller; not finalizing",
-				"workload", klog.KObj(workload))
-			return workloads, nil
 		}
 
 		workloads.Items = []kueue.Workload{*workload}
@@ -1640,6 +1625,19 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	}
 
 	return workloads, nil
+}
+
+func (p *Pod) CanFinalizeWorkload(wl *kueue.Workload) bool {
+	if !features.Enabled(features.PodIntegrationValidateGroupOwner) {
+		return true
+	}
+
+	if wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey] ==
+		podconstants.IsGroupWorkloadAnnotationValue {
+		return true
+	}
+
+	return metav1.GetControllerOfNoCopy(wl) == nil
 }
 
 func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r events.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {

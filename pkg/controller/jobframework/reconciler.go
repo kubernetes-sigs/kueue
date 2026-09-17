@@ -895,6 +895,10 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 		if jobFound && wl.DeletionTimestamp.IsZero() {
 			continue
 		}
+		if jobFinalizer, ok := job.(JobWithCustomWorkloadFinalization); ok &&
+			!jobFinalizer.CanFinalizeWorkload(wl) {
+			continue
+		}
 		if isComposable && !jobFound && wl.DeletionTimestamp.IsZero() && !workloadfinish.IsFinished(wl) {
 			// An empty composable job only means that its member Pods are gone. A
 			// live owner managed by Kueue can still recreate those Pods.
