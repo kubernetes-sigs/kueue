@@ -359,7 +359,7 @@ clean-release-artifacts:
 	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-manifests
-prepare-manifests:
+prepare-manifests: kustomize
 	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
 	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
@@ -375,20 +375,24 @@ verify-git-tag:
 		exit 1; \
 	fi
 
+define _artifacts_recipe
+$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
+$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
+$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
+$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
+$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
+$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
+$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
+$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
+$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
+@$(call set-release-branch-images)
+CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+endef
+
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
 artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
-	$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
-	$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
-	$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
-	$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
-	$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
-	$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
-	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
-	$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
-	$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
-	@$(call set-release-branch-images)
-	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+	$(_artifacts_recipe)
 
 .PHONY: release-artifacts
 release-artifacts: ## Generate release artifacts.
