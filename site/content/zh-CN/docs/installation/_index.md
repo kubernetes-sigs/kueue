@@ -167,7 +167,8 @@ data:
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
     waitForPodsReady:
-      timeout: 10m
+      timeout: 30m
+      recoveryTimeout: 5m
     integrations:
       frameworks:
       - "batch/job"
