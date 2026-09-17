@@ -98,7 +98,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -189,6 +189,11 @@ endef
 
 
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
+
+.PHONY: verify-artifacts
+verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
+verify-artifacts: verify-tree-prereqs verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Build artifacts after ensuring generated code is up to date.
+	$(_artifacts_recipe)
 
 .PHONY: verify-ci-lint
 verify-ci-lint: verify-tree-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
