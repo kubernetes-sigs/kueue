@@ -276,11 +276,12 @@ each time — so the underlying deduplication bug is tracked separately in #1522
 condition on this gate. What changes here is how often the repeat is reachable, since a Workload can
 now be charged without ever being admitted.
 
-**Concurrent admission over-counts.** With a `ConcurrentAdmissionPolicy`, several variants of the
-same Workload can hold reservations at once, and each contributes to usage, where at the `Admitted`
-anchor at most one ever could. At any instant the over-count is bounded by the number of flavors in
-the ResourceGroup. Under `RetainFirstAdmission` it collapses once a variant is admitted, because
-every other variant is deactivated and releases its reservation. Under the default
+**Concurrent admission counts each variant.** With a `ConcurrentAdmissionPolicy`, several variants
+of the same Workload can hold reservations at once, and each contributes to usage, where at the
+`Admitted` anchor at most one ever could. This follows the quota each variant reserves, and applies
+equally to every LocalQueue in the ClusterQueue. At any instant the extra usage is bounded by the
+number of flavors in the ResourceGroup. Under `RetainFirstAdmission` it collapses once a variant is
+admitted, because every other variant is deactivated and releases its reservation. Under the default
 `TryPreferredFlavors` only the variants less preferred than the admitted one are deactivated, so
 while the Workload runs on a non-preferred flavor, every reservation a more preferred variant takes
 — including one it holds while its own AdmissionChecks run — adds to the usage and settles another
@@ -366,11 +367,11 @@ We hope to have CQ+LQ in alpha for the next Kueue release (0.12).
   decided per release branch.
 * Beta - the gate is enabled by default in 0.20. The behavior it replaces was never specified by this
   KEP, so it graduates on the correctness of the transition table above rather than on Alpha
-  feedback, and on integration coverage for the `ConcurrentAdmissionPolicy` interaction described
-  above. The anchor still moves only for ClusterQueues that admit on usage; that scoping does not
+  feedback. The anchor still moves only for ClusterQueues that admit on usage; that scoping does not
   change.
 * GA - the quota-reservation anchor is the only anchor for ClusterQueues that admit on usage, and
-  the gate is removed.
+  the gate is removed. The interaction with `ConcurrentAdmissionPolicy` described above is
+  re-evaluated against user feedback.
 
 ### DRA Resource Integration
 
