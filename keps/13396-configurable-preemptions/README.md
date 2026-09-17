@@ -208,6 +208,7 @@ Other businesses might need workloads that are not preemptible at all.
 
 - maxPriorityThreshold for withinClusterQueue preemptions [#12001](https://github.com/kubernetes-sigs/kueue/issues/12001)
 - maxPriorityThreshold for reclaimWithinCohort [#12046](https://github.com/kubernetes-sigs/kueue/issues/12046)
+- using Boosted priorities only for within ClusterQueue preemptions [#13414](https://github.com/kubernetes-sigs/kueue/issues/13414)
 
 <!--
 This section is for explicitly listing the motivation, goals, and non-goals of
