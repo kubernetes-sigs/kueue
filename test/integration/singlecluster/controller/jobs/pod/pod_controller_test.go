@@ -4756,10 +4756,6 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				GroupNameLabel(workloadName).
 				GroupTotalCount("2").
 				Annotation(podconstants.RoleHashAnnotation, "worker").
-				Annotation(
-					podconstants.PodSchedulingShapeHashAnnotation,
-					"aaaa",
-				).
 				Queue(localQueue.Name).
 				PrebuiltWorkloadLabel(workloadName).
 				Request(corev1.ResourceName("nvidia.com/gpu"), "4").
@@ -4851,23 +4847,15 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				GroupNameLabel(workloadName).
 				GroupTotalCount("2").
 				Annotation(podconstants.RoleHashAnnotation, "leader").
-				Annotation(
-					podconstants.PodSchedulingShapeHashAnnotation,
-					"bbbb",
-				).
 				Queue(localQueue.Name).
-				Request(corev1.ResourceName("nvidia.com/gpu"), "1").
-				Limit(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Request(corev1.ResourceName("nvidia.com/gpu"), "2").
+				Limit(corev1.ResourceName("nvidia.com/gpu"), "2").
 				Obj()
 
 			worker := testingpod.MakePod("rollout-worker", ns.Name).
 				GroupNameLabel(workloadName).
 				GroupTotalCount("2").
 				Annotation(podconstants.RoleHashAnnotation, "worker").
-				Annotation(
-					podconstants.PodSchedulingShapeHashAnnotation,
-					"aaaa",
-				).
 				Queue(localQueue.Name).
 				Request(corev1.ResourceName("nvidia.com/gpu"), "1").
 				Limit(corev1.ResourceName("nvidia.com/gpu"), "1").
@@ -4936,8 +4924,25 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				)
 			})
 
+			ginkgo.By("updating a pod label", func() {
+				currentPod := &corev1.Pod{}
+				gomega.Expect(k8sClient.Get(
+					ctx,
+					client.ObjectKeyFromObject(leader),
+					currentPod,
+				)).To(gomega.Succeed())
+
+				if currentPod.Labels == nil {
+					currentPod.Labels = make(map[string]string)
+				}
+				currentPod.Labels["reconcile-test"] = "true"
+
+				gomega.Expect(k8sClient.Update(ctx, currentPod)).
+					To(gomega.Succeed())
+			})
+
 			ginkgo.By("checking the existing workload is preserved", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Consistently(func(g gomega.Gomega) {
 					createdWorkload := &kueue.Workload{}
 					g.Expect(k8sClient.Get(
 						ctx,
@@ -4958,7 +4963,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 			})
 
 			ginkgo.By("checking both pods remain unsuspended", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
+				gomega.Consistently(func(g gomega.Gomega) {
 					for _, pod := range []*corev1.Pod{leader, worker} {
 						currentPod := &corev1.Pod{}
 						g.Expect(k8sClient.Get(
