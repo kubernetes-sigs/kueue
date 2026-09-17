@@ -410,8 +410,8 @@ the following:
 
 - Move reverse elastic sync into the shared MultiKueue adapter framework by
   generalizing the `RuntimeReplicaSync` interface.
-- In addition to the Alpha integrations (`RayCluster` and `RayJob`), support at
-  least `RayService` and `StatefulSet`.
+- In addition to the Alpha integrations (`RayCluster` and `RayJob`), support
+  `RayService` and `batch/Job`.
 - Decide whether `enableInTreeAutoscaling` must be immutable while an elastic
   MultiKueue workload is active or define a safe replica-ownership handoff.
 
