@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -44,6 +45,8 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 		limitranges    []corev1.LimitRange
 		wl             *kueue.Workload
 		wantWl         *kueue.Workload
+		// disableRuntimeClassScheduling turns the RuntimeClassScheduling gate off.
+		disableRuntimeClassScheduling bool
 	}{
 		"Handle runtimeClass with podOverHead": {
 			runtimeClasses: []nodev1.RuntimeClass{
@@ -191,6 +194,28 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 						Obj(),
 					// No class named, left alone.
 					*utiltestingapi.MakePodSet("d", 1).
+						Obj(),
+				).
+				Obj(),
+		},
+		"Handle runtimeClass with scheduling when the feature gate is disabled": {
+			disableRuntimeClassScheduling: true,
+			runtimeClasses: []nodev1.RuntimeClass{
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+					Scheduling(map[string]string{"pool": "gpu"}).
+					RuntimeClass,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
 						Obj(),
 				).
 				Obj(),
@@ -665,6 +690,7 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RuntimeClassScheduling, !tc.disableRuntimeClassScheduling)
 			cl := utiltesting.NewClientBuilder().WithLists(
 				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
 				&corev1.LimitRangeList{Items: tc.limitranges},
@@ -864,6 +890,7 @@ func TestValidateRuntimeClassScheduling(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RuntimeClassScheduling, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cliBuilder := utiltesting.NewClientBuilder()
 			if tc.runtimeClass != nil {

@@ -250,6 +250,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RuntimeClassScheduling, true)
 			cpuFlavor = utiltestingapi.MakeResourceFlavor("rc-cpu-pool").NodeLabel("pool", "cpu").Obj()
 			util.MustCreate(ctx, k8sClient, cpuFlavor)
 			gpuFlavor = utiltestingapi.MakeResourceFlavor("rc-gpu-pool").NodeLabel("pool", "gpu").Obj()

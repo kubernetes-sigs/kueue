@@ -1244,9 +1244,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 				return status
 			}
 		}
-		// The effective spec carries what the RuntimeClass admission controller
-		// will merge into the Pods, so the flavor is checked against the
-		// constraints they actually end up with.
+		// The effective spec carries the constraints the Pods end up with.
 		podSpec := *a.wl.PodSpec(psID)
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
