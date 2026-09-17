@@ -34,6 +34,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const wasRackLabel = "cloud.provider.com/topology-rack"
@@ -96,15 +97,15 @@ func wantsTheSamePort() FlavorTASRequests {
 func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
 	requests := wantsTheSamePort()
-	wl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}}
+	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
 
-	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkload(wl)).Failure() == nil {
+	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
 		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
 	}
-	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkload(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
+	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
 		t.Errorf("FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", failure)
 	}
 }
@@ -114,13 +115,13 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
 	snapshot, simSnapshot := wasSnapshotWithVictim(t, victim)
 	requests := wantsTheSamePort()
-	wl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}}
+	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
 	fits := func() bool {
-		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkload(wl)).Failure() == nil
+		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil
 	}
 
 	// The flavor assigner asks first, while the victim still holds the port.

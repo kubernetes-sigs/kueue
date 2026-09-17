@@ -306,6 +306,49 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with topology spreading annotation": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetTopologySpreadingAnnotation, `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`).
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						Annotations(map[string]string{
+							kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`,
+						}).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASTopologySpreading:    true,
+			},
+		},
+		"topology spreading annotation dropped when feature gate is disabled": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetTopologySpreadingAnnotation, `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`).
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASTopologySpreading:    false,
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
