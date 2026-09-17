@@ -1,6 +1,6 @@
 ---
 name: kueue-general-guidelines
-description: Apply project-wide design guidance when drafting, updating, or reviewing Kueue enhancement proposals (KEPs), especially enhancements motivated by or initially implemented for an out-of-tree Job integration.
+description: Apply project-wide design guidance when drafting, updating, or reviewing Kueue enhancement proposals (KEPs).
 ---
 
 # Kueue General Guidelines
