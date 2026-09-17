@@ -666,6 +666,9 @@ const (
 	// WorkloadDeactivationTarget means that the Workload should be deactivated.
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
+
+	// WorkloadScaleDown means that Kueue processed an in-place workload scale-down.
+	WorkloadScaleDown = "ScaleDown"
 )
 
 // Reasons for the WorkloadPreempted condition.

@@ -40,6 +40,9 @@ import (
 )
 
 func TestValidateCreate(t *testing.T) {
+	dynamicAllocationError := "a kueue managed job can use dynamicAllocation only when one of the " +
+		"ElasticJobsViaWorkloadSlices or ElasticJobsViaWorkloadResize feature gates is on and the " +
+		"job is an elastic job (annotated with " + workloadslicing.EnabledAnnotationKey + ")"
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
 	testcases := map[string]struct {
 		sparkApp     *sparkappv1beta2.SparkApplication
@@ -60,7 +63,7 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{field.Invalid(
 				dynamicAllocationEnabledPath,
 				true,
-				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+				dynamicAllocationError,
 			)}.ToAggregate(),
 		},
 		"dynamicAllocation with elastic job feature": {
@@ -77,6 +80,24 @@ func TestValidateCreate(t *testing.T) {
 				field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey),
 				`elastic job is not supported for "sparkoperator.k8s.io/v1beta2, Kind=SparkApplication"`,
 			)}.ToAggregate(),
+		},
+		"dynamicAllocation with resize elastic feature": {
+			// resize and slicing gates are mutually exclusive; disable slicing to reflect the real
+			// resize config (otherwise the default-on slicing gate would trip the elastic-job
+			// annotation validation, which does not allow SparkApplication for slicing).
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadResize: true,
+				features.ElasticJobsViaWorkloadSlices: false,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
+			).DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
+				Enabled:          true,
+				MinExecutors:     new(int32(1)),
+				InitialExecutors: new(int32(2)),
+				MaxExecutors:     new(int32(3)),
+			}).Obj(),
+			wantErr: nil,
 		},
 		"base with TAS": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},

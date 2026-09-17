@@ -48,7 +48,24 @@ type PodSetReducer[R any] struct {
 	refine func(counts []int32, best R) (R, bool)
 }
 
-func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool), distribute distributeFunc) *PodSetReducer[R] {
+type podSetReducerOptions struct {
+	lowerBounds []int32
+}
+
+type PodSetReducerOption func(*podSetReducerOptions)
+
+// WithPodSetLowerBounds raises the reduction floor for each PodSet above its MinCount.
+func WithPodSetLowerBounds(lowerBounds []int32) PodSetReducerOption {
+	return func(options *podSetReducerOptions) {
+		options.lowerBounds = lowerBounds
+	}
+}
+
+func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool), distribute distributeFunc, options ...PodSetReducerOption) *PodSetReducer[R] {
+	opts := podSetReducerOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
 	psr := &PodSetReducer[R]{
 		podSets:    podSets,
 		deltas:     make([]int32, len(podSets)),
@@ -61,7 +78,12 @@ func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool
 		ps := &psr.podSets[i]
 		psr.fullCounts[i] = ps.Count
 
-		d := ps.Count - ptr.Deref(ps.MinCount, ps.Count)
+		floor := ptr.Deref(ps.MinCount, ps.Count)
+		if i < len(opts.lowerBounds) {
+			floor = max(floor, opts.lowerBounds[i])
+		}
+		floor = min(floor, ps.Count)
+		d := ps.Count - floor
 		psr.deltas[i] = d
 		psr.totalDelta += int64(d)
 	}
@@ -73,8 +95,8 @@ func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool
 // needlessly. The budget is a single number, but PodSets tied to different node groups draw
 // on separate capacity, so spending from the back can drain a PodSet whose own capacity was
 // never the constraint.
-func NewOrderedPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool)) *PodSetReducer[R] {
-	psr := newPodSetReducer(podSets, fits, distributeOrderBased)
+func NewOrderedPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool), options ...PodSetReducerOption) *PodSetReducer[R] {
+	psr := newPodSetReducer(podSets, fits, distributeOrderBased, options...)
 	psr.refine = psr.giveBack
 	return psr
 }

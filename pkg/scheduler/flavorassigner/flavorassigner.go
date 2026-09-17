@@ -59,10 +59,9 @@ type Assignment struct {
 	// for reuse in subsequent scheduling attempts.
 	FlavorScanState workload.FlavorScanState
 
-	// Usage is the accumulated Usage of resources as pod sets get
-	// flavors assigned. When workload slicing is enabled and replaceWorkloadSlice
-	// is set, this represents only the delta usage (new - old) to avoid double-counting
-	// resources already reserved in the replaced slice.
+	// Usage is the accumulated Usage of resources as pod sets get flavors assigned.
+	// When replaceWorkloadSlice is set, this represents only the delta usage (new - old)
+	// to avoid double-counting resources already reserved by the baseline workload.
 	Usage workload.Usage
 
 	// representativeMode is the cached representative mode for this assignment.
@@ -266,7 +265,11 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 	for i, ps := range wl.TotalRequests {
 		newCount := a.PodSets[i].Count
 		if a.replaceWorkloadSlice != nil {
-			newCount = ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count
+			if features.Enabled(features.ElasticJobsViaWorkloadResize) {
+				newCount -= a.replaceWorkloadSlice.TotalRequests[i].Count
+			} else {
+				newCount = ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count
+			}
 		}
 		ps = *ps.ScaledTo(newCount)
 
@@ -1032,13 +1035,14 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		}
 		fr := resources.FlavorResource{Flavor: flvAssignment.Name, Resource: resource}
 
-		// For workload slicing, only add the delta (new - old) to avoid double-counting
-		// podSets that already have quota reserved in the old slice.
+		// For elastic replacement, only add the delta (new - old) to avoid
+		// double-counting PodSets already covered by the baseline reservation.
 		var requestAmount int64
 		if requests != nil {
 			requestAmount = requests.ResourceValue(resource)
 		}
-		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
+		if (features.Enabled(features.ElasticJobsViaWorkloadSlices) ||
+			features.Enabled(features.ElasticJobsViaWorkloadResize)) && a.replaceWorkloadSlice != nil {
 			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
 			requestAmount -= oldRequest
 		}
@@ -1132,8 +1136,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		var flavorNoFitReason string
 
 		requests.ForEach(func(rName corev1.ResourceName, val int64) {
-			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
-			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
+			// Ensure the same ResourceFlavor is used as in the elastic replacement baseline,
+			// and check only the additional quota required above that baseline.
+			if (features.Enabled(features.ElasticJobsViaWorkloadSlices) ||
+				features.Enabled(features.ElasticJobsViaWorkloadResize)) && a.replaceWorkloadSlice != nil {
 				for _, psID := range psIDs {
 					preemptWorkloadRequests := a.replaceWorkloadSlice.TotalRequests[psID]
 

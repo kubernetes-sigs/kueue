@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -10435,5 +10437,150 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	got := fits(snapshot, cq, &incomingUsage, preempted, targets)
 	if got != schdcache.FitsCheckNoQuota {
 		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
+	}
+}
+
+func TestScheduleResize(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	resizeWorkload := func(specCount, admittedCount int32, partial bool) kueue.Workload {
+		ps := utiltestingapi.MakePodSet("main", int(specCount)).Request(corev1.ResourceCPU, "1")
+		if partial {
+			ps = ps.SetMinimumCount(1)
+		}
+		return *utiltestingapi.MakeWorkload("resize", "default").
+			Annotation(constants.ElasticJobAnnotation, "true").
+			Queue("lq").
+			PodSets(*ps.Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", fmt.Sprint(admittedCount)).
+						Count(admittedCount).
+						Obj()).
+					Obj(),
+				now,
+			).
+			AdmittedAt(true, now).
+			Obj()
+	}
+	blocker := func(count int32) kueue.Workload {
+		return *utiltestingapi.MakeWorkload("blocker", "default").
+			Queue("lq").
+			PodSets(*utiltestingapi.MakePodSet("main", int(count)).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", fmt.Sprint(count)).
+						Count(count).
+						Obj()).
+					Obj(),
+				now,
+			).
+			AdmittedAt(true, now).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		partial          bool
+		workloads        []kueue.Workload
+		wantResizeCount  int32
+		wantInadmissible bool
+	}{
+		"full scale up": {
+			workloads:       []kueue.Workload{resizeWorkload(4, 2, false)},
+			wantResizeCount: 4,
+		},
+		"partial scale up": {
+			partial:         true,
+			workloads:       []kueue.Workload{resizeWorkload(6, 2, true), blocker(5)},
+			wantResizeCount: 5,
+		},
+		"no free quota": {
+			workloads:        []kueue.Workload{resizeWorkload(4, 2, false), blocker(8)},
+			wantResizeCount:  2,
+			wantInadmissible: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: false,
+				features.ElasticJobsViaWorkloadResize: true,
+				features.PartialAdmission:             tc.partial,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().
+				WithLists(
+					&kueue.WorkloadList{Items: tc.workloads},
+					&kueue.LocalQueueList{Items: []kueue.LocalQueue{
+						*utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj(),
+					}},
+				).
+				WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				Build()
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(
+				cl,
+				cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			if err := qManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("AddLocalQueue() error: %v", err)
+			}
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("cache AddClusterQueue() error: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("queue AddClusterQueue() error: %v", err)
+			}
+			if err := cl.Create(ctx, cq); err != nil {
+				t.Fatalf("Create ClusterQueue() error: %v", err)
+			}
+
+			scheduler := New(
+				qManager,
+				cqCache,
+				cl,
+				&utiltesting.EventRecorder{},
+				WithClock(t, testingclock.NewFakeClock(now)),
+				WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			var wg sync.WaitGroup
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+
+			scheduleCtx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			defer cancel()
+			go qManager.CleanUpOnContext(scheduleCtx)
+			scheduler.schedule(scheduleCtx)
+			wg.Wait()
+
+			var got kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "resize"}, &got); err != nil {
+				t.Fatalf("Get resize Workload() error: %v", err)
+			}
+			if got.Status.Admission == nil {
+				t.Fatal("resize workload lost its admission")
+			}
+			if gotCount := *got.Status.Admission.PodSetAssignments[0].Count; gotCount != tc.wantResizeCount {
+				t.Errorf("admitted count = %d, want %d", gotCount, tc.wantResizeCount)
+			}
+			inadmissible := qManager.DumpInadmissible()["cq"]
+			if gotInadmissible := slices.Contains(inadmissible, workload.Reference("default/resize")); gotInadmissible != tc.wantInadmissible {
+				t.Errorf("resize workload inadmissible = %t, want %t; dump: %v", gotInadmissible, tc.wantInadmissible, inadmissible)
+			}
+		})
 	}
 }

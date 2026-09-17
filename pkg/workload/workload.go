@@ -1118,6 +1118,18 @@ func SetBlockedOnPreemptionGatesCondition(w *kueue.Workload, now time.Time, reas
 	return apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 }
 
+// SetScaleDownCondition records that Kueue processed a scale-down for the workload generation.
+func SetScaleDownCondition(w *kueue.Workload, now time.Time) bool {
+	return apimeta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+		Type:               kueue.WorkloadScaleDown,
+		Status:             metav1.ConditionTrue,
+		Reason:             kueue.WorkloadScaleDown,
+		Message:            "The workload was scaled down",
+		ObservedGeneration: w.Generation,
+		LastTransitionTime: metav1.NewTime(now),
+	})
+}
+
 // HasClosedPreemptionGate checks if the workload contains any PreemptionGate
 // that is considered closed, preventing it from triggering preemptions.
 func HasClosedPreemptionGate(w *kueue.Workload) bool {
@@ -1349,7 +1361,8 @@ func IsActive(w *kueue.Workload) bool {
 
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
-	return !HasAdmissionGate(w) && !workloadfinish.IsFinished(w) && IsActive(w) && !HasQuotaReservation(w) && !IsOnHold(w) &&
+	return !HasAdmissionGate(w) && !workloadfinish.IsFinished(w) && IsActive(w) &&
+		(!HasQuotaReservation(w) || IsResizeScaleUp(w)) && !IsOnHold(w) &&
 		!apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadWaitingForReplacementPods)
 }
 
@@ -1768,4 +1781,61 @@ func UnadmittedWorkloadReasonWithFallback(granularReason, fallback string) strin
 		return granularReason
 	}
 	return fallback
+}
+
+// IsResizeElastic returns true if the ElasticJobsViaWorkloadResize feature gate is enabled
+// and the given object is marked as elastic.
+func IsResizeElastic(obj metav1.Object) bool {
+	if obj == nil {
+		return false
+	}
+	return features.Enabled(features.ElasticJobsViaWorkloadResize) && obj.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
+}
+
+// IsResizeScaleUp returns true for an admitted resize-elastic Workload whose desired spec count
+// exceeds the currently admitted count for some PodSet, i.e. it wants more and must (re)enter
+// scheduling so Kueue can admit the delta.
+func IsResizeScaleUp(w *kueue.Workload) bool {
+	if !IsResizeElastic(w) || !HasQuotaReservation(w) || w.Status.Admission == nil {
+		return false
+	}
+	admitted := AdmittedPodSetCounts(w)
+	for i := range w.Spec.PodSets {
+		ps := &w.Spec.PodSets[i]
+		if a, ok := admitted[ps.Name]; ok && ps.Count > a {
+			return true
+		}
+	}
+	return false
+}
+
+// IsResizeScaleDown returns true for an admitted resize-elastic Workload whose desired spec count
+// is below the currently admitted count for at least one PodSet.
+func IsResizeScaleDown(w *kueue.Workload) bool {
+	if !IsResizeElastic(w) || !HasQuotaReservation(w) || w.Status.Admission == nil {
+		return false
+	}
+	admitted := AdmittedPodSetCounts(w)
+	for i := range w.Spec.PodSets {
+		ps := &w.Spec.PodSets[i]
+		if admittedCount, found := admitted[ps.Name]; found && ps.Count < admittedCount {
+			return true
+		}
+	}
+	return false
+}
+
+// AdmittedPodSetCounts returns the admitted count per PodSet from status.admission,
+// falling back to the spec count when the assignment count is not set.
+func AdmittedPodSetCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+	if wl.Status.Admission == nil {
+		return nil
+	}
+	specCounts := podSetsCounts(wl)
+	counts := make(map[kueue.PodSetReference]int32, len(wl.Status.Admission.PodSetAssignments))
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		counts[psa.Name] = ptr.Deref(psa.Count, specCounts[psa.Name])
+	}
+	return counts
 }

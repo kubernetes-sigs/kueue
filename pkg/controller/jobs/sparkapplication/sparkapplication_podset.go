@@ -53,6 +53,15 @@ func (j *SparkApplication) numInitialExecutors() int32 {
 	return ptr.Deref(j.Spec.Executor.Instances, 0)
 }
 
+// numMinExecutors returns the dynamic-allocation lower bound
+// (spec.dynamicAllocation.minExecutors) if dynamic allocation is enabled, else nil.
+func (j *SparkApplication) numMinExecutors() *int32 {
+	if da := j.Spec.DynamicAllocation; da != nil && da.Enabled {
+		return da.MinExecutors
+	}
+	return nil
+}
+
 func (j *SparkApplication) buildDriverPodTemplateSpec() (*corev1.PodTemplateSpec, error) {
 	pod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

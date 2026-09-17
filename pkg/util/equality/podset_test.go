@@ -40,6 +40,7 @@ func TestComparePodSetSlices(t *testing.T) {
 		b                     []kueue.PodSet
 		ignoreTolerations     bool
 		ignoreTopologyRequest bool
+		ignoreCounts          bool
 		wantEquivalent        bool
 	}{
 		"different name": {
@@ -193,6 +194,12 @@ func TestComparePodSetSlices(t *testing.T) {
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
 			wantEquivalent: false,
 		},
+		"different count ignored": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 20).SetMinimumCount(2).Obj()},
+			ignoreCounts:   true,
+			wantEquivalent: true,
+		},
 		"different slice len": {
 			a:              []kueue.PodSet{{}, {}},
 			b:              []kueue.PodSet{{}, {}, {}},
@@ -246,6 +253,9 @@ func TestComparePodSetSlices(t *testing.T) {
 			}
 			if tc.ignoreTopologyRequest {
 				options = append(options, WithIgnoreTopologyRequest())
+			}
+			if tc.ignoreCounts {
+				options = append(options, WithIgnoreCounts())
 			}
 			got := ComparePodSetSlices(tc.a, tc.b, options...)
 			if got != tc.wantEquivalent {

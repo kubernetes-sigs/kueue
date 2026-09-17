@@ -3291,3 +3291,41 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }
+
+func TestReconcileResizeScaleDownStatus(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, true)
+	now := time.Now().Truncate(time.Second)
+	wl := utiltestingapi.MakeWorkload("resize", "ns").
+		Generation(3).
+		Annotation(constants.ElasticJobAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "4").
+					Count(4).
+					Obj()).
+				Obj(),
+			now,
+		).
+		Obj()
+
+	if !reconcileResizeScaleDownStatus(wl, now, resources.NewResourceFormatter()) {
+		t.Fatal("reconcileResizeScaleDownStatus() = false, want true")
+	}
+	assignment := wl.Status.Admission.PodSetAssignments[0]
+	if got := *assignment.Count; got != 2 {
+		t.Errorf("admitted count = %d, want 2", got)
+	}
+	if got := assignment.ResourceUsage.Cpu().Value(); got != 2 {
+		t.Errorf("admitted CPU = %d, want 2", got)
+	}
+	condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadScaleDown)
+	if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != 3 {
+		t.Errorf("unexpected ScaleDown condition: %#v", condition)
+	}
+	if reconcileResizeScaleDownStatus(wl, now, resources.NewResourceFormatter()) {
+		t.Fatal("converged reconcileResizeScaleDownStatus() = true, want false")
+	}
+}

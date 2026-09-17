@@ -723,6 +723,13 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	if !features.Enabled(features.TopologyAwareScheduling) && enabledProfilesCount > 0 {
 		allErrs = append(allErrs, field.Invalid(featureGatesPath, enabledProfilesCount, "cannot use a TAS profile with TAS disabled"))
 	}
+	if features.Enabled(features.ElasticJobsViaWorkloadResize) && features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		allErrs = append(allErrs, field.Invalid(
+			featureGatesPath,
+			featureGateMap,
+			"ElasticJobsViaWorkloadResize and ElasticJobsViaWorkloadSlices are mutually exclusive and cannot both be enabled",
+		))
+	}
 
 	return allErrs
 }

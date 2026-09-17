@@ -1535,6 +1535,9 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
 	}
+	if workload.IsResizeElastic(job.Object()) {
+		opts = append(opts, equality.WithIgnoreCounts())
+	}
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
 		if equality.ComparePodSetSlices(jobPodSets, runningPodSets, opts...) {
@@ -1865,6 +1868,8 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		if err := prepareWorkloadSlice(ctx, r.client, job, wl); err != nil {
 			return err
 		}
+	} else if workload.IsResizeElastic(job.Object()) {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
 	}
 
 	wl.Spec.PodSets = clearUnusableMinCounts(wl.Spec.PodSets, wl)

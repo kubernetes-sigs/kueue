@@ -1033,6 +1033,9 @@ const (
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
 
+	// WorkloadScaleDown means that Kueue processed an in-place workload scale-down.
+	WorkloadScaleDown = "ScaleDown"
+
 	// WorkloadWaitingForReplacementPods means that Kueue doesn't observe all
 	// the Pods declared for the group.
 	WorkloadWaitingForReplacementPods = "WaitingForReplacementPods"

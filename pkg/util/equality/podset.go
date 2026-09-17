@@ -29,6 +29,7 @@ import (
 type ComparePodSetsOptions struct {
 	ignoreTolerations     bool
 	ignoreTopologyRequest bool
+	ignoreCounts          bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -42,6 +43,12 @@ func WithIgnoreTolerations() ComparePodSetsOption {
 func WithIgnoreTopologyRequest() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreTopologyRequest = true
+	}
+}
+
+func WithIgnoreCounts() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreCounts = true
 	}
 }
 
@@ -100,11 +107,13 @@ func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 	for _, opt := range options {
 		opt(opts)
 	}
-	if a.Count != b.Count {
-		return false
-	}
-	if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
-		return false
+	if !opts.ignoreCounts {
+		if a.Count != b.Count {
+			return false
+		}
+		if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
+			return false
+		}
 	}
 	if !opts.ignoreTopologyRequest &&
 		(utiltas.HasTopologyConstraint(a.TopologyRequest) || utiltas.HasTopologyConstraint(b.TopologyRequest)) &&

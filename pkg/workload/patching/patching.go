@@ -44,6 +44,7 @@ var (
 		kueue.WorkloadPreempted,
 		kueue.WorkloadRequeued,
 		kueue.WorkloadDeactivationTarget,
+		kueue.WorkloadScaleDown,
 		kueue.WorkloadFinished,
 		kueue.WorkloadPodsReady,
 	}

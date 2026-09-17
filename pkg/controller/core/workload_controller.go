@@ -809,6 +809,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	if workload.HasQuotaReservation(&wl) {
+		if updated, err := r.reconcileResizeScaleDown(ctx, &wl); updated || err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -1473,6 +1477,27 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
 		})
+	case workload.IsResizeScaleUp(e.ObjectNew):
+		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+		}
+		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+			log.V(2).Info("Failed to enqueue resize scale-up workload", "error", err)
+		}
+	case workload.IsResizeElastic(e.ObjectNew):
+		cacheWl := wlCopy.DeepCopy()
+		scaledDown := reconcileResizeScaleDownStatus(cacheWl, r.clock.Now(), r.resourceFormatter)
+		refreshCache := func() {
+			if !r.cache.AddOrUpdateWorkload(log, cacheWl) {
+				log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+			}
+		}
+		if scaledDown {
+			r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, refreshCache)
+		} else {
+			refreshCache()
+		}
+		r.queues.DeleteWorkload(log, wlKey)
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
@@ -1492,6 +1517,47 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wlCopy, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
 	return true
+}
+
+func (r *WorkloadReconciler) reconcileResizeScaleDown(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !workload.IsResizeScaleDown(wl) {
+		return false, nil
+	}
+	updated := false
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		updated = reconcileResizeScaleDownStatus(wl, r.clock.Now(), r.resourceFormatter)
+		return updated, nil
+	})
+	return updated, err
+}
+
+func reconcileResizeScaleDownStatus(wl *kueue.Workload, now time.Time, formatter *resources.ResourceFormatter) bool {
+	if !workload.IsResizeScaleDown(wl) {
+		return false
+	}
+	counts := workload.ExtractPodSetCountsFromWorkload(wl)
+	updated := false
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		targetCount, found := counts[psa.Name]
+		if !found {
+			continue
+		}
+		admittedCount := ptr.Deref(psa.Count, targetCount)
+		if admittedCount <= targetCount {
+			continue
+		}
+		usage := resources.NewMapRequests(psa.ResourceUsage)
+		usage.Divide(int64(admittedCount))
+		usage.Mul(int64(targetCount))
+		psa.ResourceUsage = usage.ToResourceList(formatter)
+		psa.Count = new(targetCount)
+		updated = true
+	}
+	if updated {
+		workload.SetScaleDownCondition(wl, now)
+	}
+	return updated
 }
 
 // reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle for an
