@@ -54,28 +54,28 @@ const (
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
+func handlePodOverhead(ctx context.Context, reader client.Reader, wl *kueue.Workload) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
-			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
+			if err := reader.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
 				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
 				continue
 			}
 			if runtimeClass.Overhead != nil {
-				podSpec.Overhead = runtimeClass.Overhead.PodFixed
+				podSpec.Overhead = runtimeClass.Overhead.PodFixed.DeepCopy()
 			}
 		}
 	}
 	return errs
 }
 
-func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
+func handlePodLimitRange(ctx context.Context, reader client.Reader, wl *kueue.Workload) error {
 	// get the list of limit ranges
 	var limitRanges corev1.LimitRangeList
-	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+	if err := reader.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
 		return err
 	}
 
@@ -139,11 +139,11 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 
 // AdjustResources adjusts the resource requests of a workload based on:
 // - PodOverhead
-// - LimitRanges
 // - Limits
-func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
+// - LimitRanges
+func AdjustResources(ctx context.Context, reader client.Reader, wl *kueue.Workload) {
 	log := ctrl.LoggerFrom(ctx)
-	for _, err := range handlePodOverhead(ctx, cl, wl) {
+	for _, err := range handlePodOverhead(ctx, reader, wl) {
 		log.Error(err, "Failures adjusting requests for pod overhead")
 	}
 	// Copy limits into missing requests before applying the LimitRange
@@ -152,7 +152,7 @@ func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) 
 	// The Pods created after admission request their limits, so the Workload
 	// must be accounted the same way.
 	handleLimitsToRequests(wl)
-	if err := handlePodLimitRange(ctx, cl, wl); err != nil {
+	if err := handlePodLimitRange(ctx, reader, wl); err != nil {
 		log.Error(err, "Failed adjusting requests for LimitRanges")
 	}
 }
