@@ -36,6 +36,7 @@ integrations:
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
+  MultiKueueRayInTreeAutoscaling: true
   ConcurrentAdmission: true
   MultiKueueManagerQuotaAutomation: true
 tls:
