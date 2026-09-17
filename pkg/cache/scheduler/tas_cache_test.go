@@ -52,6 +52,7 @@ type PodSetTestCase struct {
 	nodeSelector       map[string]string
 	nodeAffinity       *corev1.NodeAffinity
 	podSetGroupName    *string
+	podSetUpdates      []*kueue.PodSetUpdate
 	previousAssignment *kueue.TopologyAssignment
 	wantAssignment     *tas.TopologyAssignment
 	wantReason         string
@@ -643,6 +644,319 @@ func TestFindTopologyAssignments(t *testing.T) {
 					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
 				},
 			}},
+		},
+		"grouped leader and workers; the leader's own nodeSelector matches no node": {
+			// The workers fit on either node. The leader asks for a label no node
+			// carries, so no domain is leader-capable and the group cannot be placed.
+			featureGates: map[featuregate.Feature]bool{features.TASLeaderPodSetFeasibility: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					nodeSelector:    map[string]string{"accelerator": "true"},
+					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+				},
+			},
+		},
+		"grouped leader and workers; the leader's own required affinity matches no node": {
+			// As above, but the leader states its requirement as node affinity
+			// rather than a nodeSelector. Both reach the same node filters.
+			featureGates: map[featuregate.Feature]bool{features.TASLeaderPodSetFeasibility: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					nodeAffinity: &corev1.NodeAffinity{
+						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+							NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+								MatchExpressions: []corev1.NodeSelectorRequirement{{
+									Key:      "accelerator",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{"true"},
+								}},
+							}},
+						},
+					},
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)`,
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+				},
+			},
+		},
+		"grouped leader and workers; the leader does not tolerate a taint the workers tolerate": {
+			// Every node carries the taint. The workers tolerate it, the leader
+			// does not, so no domain is leader-capable and the group is rejected.
+			featureGates: map[featuregate.Feature]bool{features.TASLeaderPodSetFeasibility: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().
+					Taints(corev1.Taint{Key: "example.com/gpu", Value: "present", Effect: corev1.TaintEffectNoSchedule}).
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().
+					Taints(corev1.Taint{Key: "example.com/gpu", Value: "present", Effect: corev1.TaintEffectNoSchedule}).
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					tolerations: []corev1.Toleration{{
+						Key:      "example.com/gpu",
+						Operator: corev1.TolerationOpExists,
+						Effect:   corev1.TaintEffectNoSchedule,
+					}},
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)`,
+				},
+			},
+		},
+		"grouped leader and workers; the leader's own nodeSelector is ignored with the gate off": {
+			// Same shape as above. With TASLeaderPodSetFeasibility off the leader's
+			// own filters are not consulted, so the group is placed as before.
+			featureGates: map[featuregate.Feature]bool{features.TASLeaderPodSetFeasibility: false},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					nodeSelector:    map[string]string{"accelerator": "true"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x1"}}},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x1"}}},
+					},
+				},
+			},
+		},
+		"podSetUpdate conflicts with the PodSet's own nodeSelector": {
+			// podSetInfo merges each PodSetUpdate into the PodSet before the node
+			// filters are built. A key present on both with a different value is a
+			// conflict, and the PodSet cannot be placed.
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				podSetName: "worker",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasBlockLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:        1,
+				nodeSelector: map[string]string{"example.com/pool": "a"},
+				podSetUpdates: []*kueue.PodSetUpdate{{
+					NodeSelector: map[string]string{"example.com/pool": "b"},
+				}},
+				wantReason: `invalid podSetUpdate for PodSet worker, error: invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=example.com/pool, value1=a, value2=b`,
+			}},
+		},
+		"grouped leader and workers; with the hostname level each of them gets its own node": {
+			// The same group with the hostname level declared: the assignment names the
+			// nodes, the leader the CPU one and the workers the GPU one.
+			featureGates: map[featuregate.Feature]bool{features.TASLeaderPodSetFeasibility: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-gpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "gpu").
+					Label("pool", "gpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-cpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "cpu").
+					Label("pool", "cpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					nodeSelector:    map[string]string{"pool": "cpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"cpu"}}},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					nodeSelector:    map[string]string{"pool": "gpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"gpu"}}},
+					},
+				},
+			},
+		},
+		"grouped leader and workers; with the hostname level each of them gets its own node; node match results uncached": {
+			// The same case without matchingLeavesCache. fillInCounts takes a different
+			// branch there, and the leader-only leaf has to be counted in both.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASLeaderPodSetFeasibility: true,
+				features.TASCacheNodeMatchResults:   false,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-gpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "gpu").
+					Label("pool", "gpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-cpu").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "cpu").
+					Label("pool", "cpu").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					nodeSelector:    map[string]string{"pool": "cpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"cpu"}}},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           2,
+					nodeSelector:    map[string]string{"pool": "gpu"},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"gpu"}}},
+					},
+				},
+			},
 		},
 		"grouped with leader and sliced workers; hostname level slicing with lower leader requirement": {
 			// Leader requests 1 CPU.
@@ -9128,6 +9442,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 								},
 							},
 						},
+						PodSetUpdates:      ps.podSetUpdates,
 						SinglePodRequests:  resources.NewRequestsFromMap(ps.requests),
 						Count:              ps.count,
 						PreviousAssignment: ps.previousAssignment,
