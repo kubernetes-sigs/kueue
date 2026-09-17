@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -192,14 +193,16 @@ func resolveQuotaKey(
 type containerExtendedResourceRequests struct {
 	path      *field.Path
 	resources corev1.ResourceList
+	// Carried so the total can be taken the way the Pod's own is: a restartable
+	// init container runs alongside the rest and adds to them.
+	restartPolicy *corev1.ContainerRestartPolicy
 }
 
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
-// into DRA logical quota resources. Per PodSet, init containers are aggregated with
-// max (sequential) and regular containers with sum (concurrent), then combined with
-// max — per original resource name, before any two names sharing a quota key can
-// collapse into each other's contribution. The quota key for each original name is
-// resolved once per PodSet, from that name's own aggregated total.
+// into DRA logical quota resources. Per PodSet each original name is aggregated with
+// `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the app-container
+// total, they are not maxed as ordinary inits), and its quota key is resolved from that
+// name's own total, so two names sharing a key cannot collapse into each other.
 func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (
 	map[kueue.PodSetReference]corev1.ResourceList,
 	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
@@ -226,8 +229,9 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 					continue
 				}
 				entries = append(entries, containerExtendedResourceRequests{
-					path:      podSetPath.Child(pathSegment).Index(j),
-					resources: res,
+					path:          podSetPath.Child(pathSegment).Index(j),
+					resources:     res,
+					restartPolicy: container.RestartPolicy,
 				})
 			}
 			return entries
@@ -239,24 +243,27 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		// The field path of the first container an original resource name is seen in,
 		// for error reporting once that name is resolved below.
 		firstPath := map[corev1.ResourceName]*field.Path{}
-		var maxInitResources, sumRegularResources corev1.ResourceList
-		for _, e := range initEntries {
-			for name := range e.resources {
-				if _, ok := firstPath[name]; !ok {
-					firstPath[name] = e.path
+		charged := func(entries []containerExtendedResourceRequests) []corev1.Container {
+			out := make([]corev1.Container, 0, len(entries))
+			for _, e := range entries {
+				for name := range e.resources {
+					if _, ok := firstPath[name]; !ok {
+						firstPath[name] = e.path
+					}
 				}
+				out = append(out, corev1.Container{
+					RestartPolicy: e.restartPolicy,
+					Resources:     corev1.ResourceRequirements{Requests: e.resources},
+				})
 			}
-			maxInitResources = utilresource.MergeResourceListKeepMax(maxInitResources, e.resources)
+			return out
 		}
-		for _, e := range regularEntries {
-			for name := range e.resources {
-				if _, ok := firstPath[name]; !ok {
-					firstPath[name] = e.path
-				}
-			}
-			sumRegularResources = utilresource.MergeResourceListKeepSum(sumRegularResources, e.resources)
-		}
-		podRequests := utilresource.MergeResourceListKeepMax(maxInitResources, sumRegularResources)
+		initCharged := charged(initEntries)
+		regularCharged := charged(regularEntries)
+		// PodRequests adds a sidecar to the regular containers rather than maxing it against them.
+		podRequests := resourcehelpers.PodRequests(
+			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initCharged, Containers: regularCharged}},
+			resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 
 		aggregated := corev1.ResourceList{}
 		replaced := sets.New[corev1.ResourceName]()
