@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -1883,7 +1884,7 @@ func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string)
 // reads. A non-empty second return value is the reason the PodSet cannot be placed.
 func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
 	var podRequirements simulator.PodRequirements
-	podRequirements.Tolerations = append(info.Tolerations, s.tolerations...)
+	podRequirements.Tolerations = utiltolerations.Merge(info.Tolerations, s.tolerations)
 
 	if s.isLowestLevelNode {
 		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
