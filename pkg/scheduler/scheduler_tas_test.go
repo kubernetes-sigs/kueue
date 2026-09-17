@@ -11165,6 +11165,12 @@ func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
 				WithObjects(ns.DeepCopy(), topology.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), tc.workload.DeepCopy()).
 				WithStatusSubresource(&kueue.Workload{}).
 				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+							statusPatches++
+						}
+						return c.SubResource(subResourceName).Update(ctx, obj, opts...)
+					},
 					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
 							statusPatches++
