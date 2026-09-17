@@ -1,7 +1,6 @@
 # KEP-13396: Configurable Preemptions
 
 <!-- toc -->
-
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [1. Defragmentation](#1-defragmentation)
@@ -11,7 +10,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [Referencing PreemptionConfig and Strategy Interaction](#referencing-preemptionconfig-and-strategy-interaction)
+    - [Referencing PreemptionConfig and Current Preemption Strategies Interaction](#referencing-preemptionconfig-and-current-preemption-strategies-interaction)
   - [User Stories](#user-stories)
     - [Story 1 - Defragmentation](#story-1---defragmentation)
     - [Story 2 - Hero job](#story-2---hero-job)
@@ -26,9 +25,7 @@
 - [Design Details](#design-details)
   - [Proposed API PreemptionConfig](#proposed-api-preemptionconfig)
     - [Default Candidate Ordering](#default-candidate-ordering)
-  - [Preemption evaluation flow in scheduler](#preemption-evaluation-flow-in-scheduler)
-    - [Step-by-Step Breakdown](#step-by-step-breakdown)
-  - [Candidate Gathering, Merging, and Ordering](#candidate-gathering-merging-and-ordering)
+  - [Integration](#integration)
   - [Observability](#observability)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
@@ -47,7 +44,7 @@
     - [Examples with Custom Ordering](#examples-with-custom-ordering)
       - [Story 1 - Defragmentation with Explicit Priority Ordering](#story-1---defragmentation-with-explicit-priority-ordering)
       - [Story 2 - Hero Workload with Explicit Priority Ordering](#story-2---hero-workload-with-explicit-priority-ordering)
-    - [Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multi-Queue Iteration](#per-selector-per-clusterqueue-priority-queues-and-dynamic-multi-queue-iteration)
+    - [Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multiple Queues Iteration](#per-selector-per-clusterqueue-priority-queues-and-dynamic-multiple-queues-iteration)
       - [Motivation and Architectural Benefits](#motivation-and-architectural-benefits)
       - [Problem Statement](#problem-statement)
       - [Naive Solutions and Complexity Bottlenecks](#naive-solutions-and-complexity-bottlenecks)
@@ -70,9 +67,13 @@
     - [Examples with PreemptionLimit](#examples-with-preemptionlimit)
       - [Story 1 - Global Preemption Rate Limiting](#story-1---global-preemption-rate-limiting)
       - [Story 2 - Protecting a Mission-Critical ClusterQueue from Preemption](#story-2---protecting-a-mission-critical-clusterqueue-from-preemption)
-  - [Minimum Trigger Duration (MinTriggerRequiredDuration)](#minimum-trigger-duration-mintriggerrequiredduration) - [Proposed API for Minimum Trigger Duration](#proposed-api-for-minimum-trigger-duration) - [Examples with Minimum Trigger Duration](#examples-with-minimum-trigger-duration) - [Story 1 - Grace Period for Topology Defragmentation](#story-1---grace-period-for-topology-defragmentation)
+  - [Minimum Trigger Duration (MinTriggerRequiredDuration)](#minimum-trigger-duration-mintriggerrequiredduration)
+    - [Proposed API for Minimum Trigger Duration](#proposed-api-for-minimum-trigger-duration)
+    - [Examples with Minimum Trigger Duration](#examples-with-minimum-trigger-duration)
+      - [Story 1 - Grace Period for Topology Defragmentation](#story-1---grace-period-for-topology-defragmentation)
   - [Per-Node DRA Device Feasibility Trigger (InsufficientDRADevices)](#per-node-dra-device-feasibility-trigger-insufficientdradevices)
-  <!-- /toc -->
+    - [Future Evolution](#future-evolution)
+<!-- /toc -->
 
 ## Summary
 
@@ -423,7 +424,7 @@ Requested functionalities from the community can be satisfied with the following
            - scope: "WithinClusterQueue"
              priorityComparison: "LessThan"
              numericLabels:
-               - key: "requested-gpus"
+               - key: "example.com/requested-gpus"
                  maxValue: 8
    ```
 
@@ -862,13 +863,6 @@ const (
 
 In the initial iteration, candidate workloads are evaluated and ordered using the default ordering rules for classical preemption and fair sharing (reusing the logic from [`pkg/scheduler/preemption/common/ordering.go`](https://github.com/kubernetes-sigs/kueue/blob/24f6f99135979076a8d56ca7fc407990b98c66af/pkg/scheduler/preemption/common/ordering.go#L34-L41)):
 
-0. Workloads already marked for preemption/eviction first (`isEvicted`).
-1. Workloads from other ClusterQueues in the cohort before the ones in the same ClusterQueue as the preemptor.
-2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first.
-3. Workloads with lower priority first (accounting for effective priority and priority boost if enabled).
-4. Workloads admitted more recently first (protecting long-running workloads, matching classical Kueue).
-5. Workload UID as tie-breaker for deterministic sorting.
-
 Configurable candidate ordering via an `Ordering` field is deferred to [Future Work](#future-work-ideas).
 
 ### Integration
@@ -1258,7 +1252,7 @@ spec:
       direction: "Ascending"
 ```
 
-#### Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multi-Queue Iteration
+#### Per-Selector, Per-ClusterQueue Priority Queues and Dynamic Multiple Queues Iteration
 
 In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and sorted in a single flat list (as detailed in [Candidate Gathering, Merging, and Ordering](#candidate-gathering-merging-and-ordering)). This minimizes modifications to the existing codebase during Alpha.
 
@@ -1329,7 +1323,7 @@ Consider three ClusterQueues (CQ A, CQ B, and CQ C) in a flat cohort, each with 
   - Candidates in CQ B: B1 (Priority = 5), B2 (Priority = 10).
   - Candidates in CQ C: C1 (Priority = 30), C2 (Priority = 60).
 - **Rules & Candidate Ordering**:
-  - Candidates are evaluated according to the configured ordering comparator chain (e.g. lower priority workloads preempted first).
+  - Candidate ordering: lower priority workloads preempted first.
   - _Rule 1 (Priority-based, intra-CQ)_: Preempt workloads within the same CQ (CQ A) with strictly lower priority than the preemptor (priority < 40). Candidate matching: Workload A1 (Priority 20).
   - _Rule 2 (Fair Sharing, inter-CQ)_: Preempt workloads from any ClusterQueue whose DRS exceeds its fair share.
 
