@@ -19,8 +19,6 @@ package workload
 import (
 	"context"
 	"fmt"
-	"maps"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -34,9 +32,10 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
 
 // AdjustmentInputs carries the pre-resolved external inputs the effective
@@ -118,18 +117,11 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 // PodSet keeps its own values, tolerations are not duplicated, and a
 // conflicting nodeSelector key is an error that leaves podSpec untouched.
 func mergeRuntimeClassScheduling(podSpec *corev1.PodSpec, scheduling *nodev1.Scheduling) error {
-	merged := podset.PodSetInfo{
-		NodeSelector: maps.Clone(podSpec.NodeSelector),
-		Tolerations:  slices.Clone(podSpec.Tolerations),
-	}
-	if err := merged.Merge(podset.PodSetInfo{
-		NodeSelector: scheduling.NodeSelector,
-		Tolerations:  scheduling.Tolerations,
-	}); err != nil {
+	if err := utilmaps.HaveConflict(podSpec.NodeSelector, scheduling.NodeSelector); err != nil {
 		return err
 	}
-	podSpec.NodeSelector = merged.NodeSelector
-	podSpec.Tolerations = merged.Tolerations
+	utilmaps.Copy(&podSpec.NodeSelector, scheduling.NodeSelector)
+	podSpec.Tolerations = utiltolerations.Merge(podSpec.Tolerations, scheduling.Tolerations)
 	return nil
 }
 

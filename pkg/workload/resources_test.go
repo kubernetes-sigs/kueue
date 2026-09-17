@@ -869,7 +869,7 @@ func TestValidateRuntimeClassScheduling(t *testing.T) {
 				field.Invalid(
 					PodSetsPath.Index(0).Child("template").Child("spec").Child("nodeSelector"),
 					map[string]string{"pool": "cpu"},
-					"invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=pool, value1=cpu, value2=gpu",
+					"conflict for key=pool, value1=cpu, value2=gpu",
 				),
 			},
 		},
