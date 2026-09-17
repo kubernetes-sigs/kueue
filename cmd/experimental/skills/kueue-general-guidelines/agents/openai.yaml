@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kueue General Guidelines"
+  short_description: "Apply general design guidance to Kueue changes"
+  default_prompt: "Use $kueue-general-guidelines to review this Kueue proposal for project-wide design concerns."
