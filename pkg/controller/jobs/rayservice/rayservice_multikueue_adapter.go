@@ -35,7 +35,14 @@ var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 // markInactive clears the manager RayService's mirrored Ready condition once
 // MultiKueue has confirmed its remote copy is gone - see
 // ray.WithMarkInactiveOnDelete.
+//
+// If the condition already reports False for some other reason, leave it:
+// that's already what IsActive() needs, and relabelling it RemoteDeleted
+// would throw away the real reason.
 func markInactive(job *rayv1.RayService) {
+	if cond := meta.FindStatusCondition(job.Status.Conditions, string(rayv1.RayServiceReady)); cond != nil && cond.Status == metav1.ConditionFalse {
+		return
+	}
 	meta.SetStatusCondition(&job.Status.Conditions, metav1.Condition{
 		Type:    string(rayv1.RayServiceReady),
 		Status:  metav1.ConditionFalse,

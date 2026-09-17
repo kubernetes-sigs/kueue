@@ -43,7 +43,15 @@ func copyJobStatus(dst, src *rayv1.RayCluster) {
 // markInactive sets the manager RayCluster's mirrored state to Suspended once
 // MultiKueue has confirmed its remote copy is gone - see
 // ray.WithMarkInactiveOnDelete.
+//
+// IsActive() already treats Failed as inactive, so this isn't fixing a stuck
+// state for that case, but overwriting a real Failed with Suspended would
+// still relabel a genuine failure as a routine suspension. Leave a status
+// that's already terminal alone.
 func markInactive(job *rayv1.RayCluster) {
+	if job.Status.State == rayv1.Failed {
+		return
+	}
 	job.Status.State = rayv1.Suspended
 }
 

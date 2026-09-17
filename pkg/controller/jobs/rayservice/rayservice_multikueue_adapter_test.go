@@ -254,6 +254,46 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"remote rayservice deleted while manager rayservice already reports not ready": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersRayServices: []rayv1.RayService{
+				*rayServiceBuilder.Clone().
+					Suspend(true).
+					StatusConditions(metav1.Condition{
+						Type:    string(rayv1.RayServiceReady),
+						Status:  metav1.ConditionFalse,
+						Reason:  "SomeOtherReason",
+						Message: "a message worth keeping",
+					}).
+					Obj(),
+			},
+			workerRayServices: []rayv1.RayService{
+				*rayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					StatusConditions(metav1.Condition{
+						Type:    string(rayv1.RayServiceReady),
+						Status:  metav1.ConditionFalse,
+						Reason:  "SomeOtherReason",
+						Message: "a message worth keeping",
+					}).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace})
+			},
+			wantManagersRayServices: []rayv1.RayService{
+				*rayServiceBuilder.Clone().
+					Suspend(true).
+					StatusConditions(metav1.Condition{
+						Type:    string(rayv1.RayServiceReady),
+						Status:  metav1.ConditionFalse,
+						Reason:  "SomeOtherReason",
+						Message: "a message worth keeping",
+					}).
+					Obj(),
+			},
+		},
 		"job with wrong managedBy is not considered managed": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayServices: []rayv1.RayService{

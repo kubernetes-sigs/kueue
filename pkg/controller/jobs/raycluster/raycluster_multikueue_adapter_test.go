@@ -201,6 +201,31 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"remote raycluster deleted after the manager raycluster already failed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					Suspend(true).
+					State(rayv1.Failed).
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					State(rayv1.Failed).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace})
+			},
+			wantManagersRayClusters: []rayv1.RayCluster{
+				*rayClusterBuilder.Clone().
+					Suspend(true).
+					State(rayv1.Failed).
+					Obj(),
+			},
+		},
 		"raycluster with wrong managedBy is not considered managed": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{

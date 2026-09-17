@@ -190,6 +190,36 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Deletion also happens on the plain successful path, once a finished
+		// RayJob's Workload has no quota left and MultiKueue tears down the
+		// remote copy as routine cleanup. Caught by e2e on the first version
+		// of this fix: it overwrote the already-correct Complete status with
+		// Suspended, right after the job actually finished.
+		"remote rayjob deleted after the manager rayjob already completed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
+			},
+			workerRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, "origin1").
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayjob1", Namespace: TestNamespace})
+			},
+			wantManagersRayJobs: []rayv1.RayJob{
+				*rayJobBuilder.Clone().
+					Suspend(true).
+					JobDeploymentStatus(rayv1.JobDeploymentStatusComplete).
+					Obj(),
+			},
+		},
 		"job with wrong managedBy is not considered managed": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayJobs: []rayv1.RayJob{

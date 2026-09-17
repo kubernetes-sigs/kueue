@@ -92,7 +92,20 @@ func fetchChildWorkerState(ctx context.Context, remoteClient client.Client, remo
 // markInactive sets the manager RayJob's mirrored deployment status to
 // Suspended once MultiKueue has confirmed its remote copy is gone - see
 // ray.WithMarkInactiveOnDelete.
+//
+// Deletion also happens on the plain, successful path: once a RayJob finishes
+// and its Workload has no quota reservation left, MultiKueue deletes the
+// remote copy as routine cleanup - by then the manager already mirrored the
+// real terminal status (Complete, Failed, ValidationFailed) from the remote
+// before it went away. Overwriting that with Suspended would replace a
+// correct, informative status with a misleading one, so this only steps in
+// when the mirrored status isn't already terminal - the same condition the
+// stale-forever bug requires in the first place.
 func markInactive(job *rayv1.RayJob) {
+	switch job.Status.JobDeploymentStatus {
+	case rayv1.JobDeploymentStatusComplete, rayv1.JobDeploymentStatusFailed, rayv1.JobDeploymentStatusValidationFailed:
+		return
+	}
 	job.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
 }
 
