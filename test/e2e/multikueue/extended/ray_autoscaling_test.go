@@ -114,6 +114,16 @@ func runRayClusterAutoscalingTest(
 	workerClient := admittedWorker.client
 	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
 
+	ginkgo.By("Waiting for the zero-worker RayCluster to become ready on the worker cluster", func() {
+		workerRayCluster := &rayv1.RayCluster{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, true)).To(gomega.BeFalse())
+			g.Expect(apimeta.IsStatusConditionTrue(workerRayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
+			g.Expect(workerRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(0)))
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayCluster did not become ready", workerRayCluster))
+	})
+
 	ginkgo.By("Creating two detached actors so the autoscaler scales up to two workers", func() {
 		util.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
