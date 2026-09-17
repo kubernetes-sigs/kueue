@@ -3979,7 +3979,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 				g.Expect(active.Status.Admission.PodSetAssignments[0].Count).To(gomega.HaveValue(gomega.Equal(count)))
 				if count > 1 {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
-					g.Expect(workloadfinish.IsFinished(&origin)).To(gomega.BeTrue())
+					g.Expect(workload.IsFinished(&origin)).To(gomega.BeTrue())
 				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
