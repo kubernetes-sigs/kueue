@@ -727,6 +727,7 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 
 	// test "constants".
 	now := time.Now()
+	errListWorkloads := errors.New("list workloads failed")
 
 	// test cases.
 	tests := map[string]struct {
@@ -736,11 +737,18 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 	}{
 		"ListFailure": {
 			args: args{
-				clnt:         fake.NewFakeClient(),
+				clnt: utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+					List: func(_ context.Context, _ client.WithWatch, objs client.ObjectList, _ ...client.ListOption) error {
+						if _, ok := objs.(*kueue.WorkloadList); ok {
+							return errListWorkloads
+						}
+						return nil
+					},
+				}).Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
-			wantErr: cmpopts.AnyError,
+			wantErr: errListWorkloads,
 		},
 		"EmptyList": {
 			args: args{
