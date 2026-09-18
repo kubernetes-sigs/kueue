@@ -29,6 +29,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 // The subrequest name has to be a DNS label, so it cannot be the class name.
@@ -312,7 +313,7 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 	cases := map[string]struct {
 		spec        *resourcev1.ResourceClaimSpec
 		gateEnabled bool
-		wantLogical map[corev1.ResourceName]int64
+		wantLogical map[corev1.ResourceName]resources.Amount
 		wantClasses map[corev1.ResourceName]int64
 		wantErr     bool
 		// Set these when which error comes back is the point of the case, since
@@ -330,7 +331,7 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 				faReq("r1", alt("fast", "fast.example.com", 2), alt("slow", "slow.example.com", 5)),
 			),
 			gateEnabled: true,
-			wantLogical: map[corev1.ResourceName]int64{"example.com/gpu": 8},
+			wantLogical: map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(8)},
 		},
 		"an Exactly request beside a prioritized list is counted once each": {
 			spec: specOf(
@@ -339,7 +340,7 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 			),
 			gateEnabled: true,
 			wantClasses: map[corev1.ResourceName]int64{"fast.example.com": 2},
-			wantLogical: map[corev1.ResourceName]int64{"example.com/gpu": 4},
+			wantLogical: map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(4)},
 		},
 		"a request setting both exactly and firstAvailable is refused": {
 			spec: specOf(resourcev1.DeviceRequest{
@@ -350,21 +351,13 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 			gateEnabled: true,
 			wantErr:     true,
 		},
-		"a sum that reaches the unlimited sentinel is refused rather than saturated": {
+		"a sum past the int64 range is kept exactly rather than saturated": {
 			spec: specOf(
-				faReq("r0", alt("fast", "fast.example.com", math.MaxInt64-1)),
+				faReq("r0", alt("fast", "fast.example.com", math.MaxInt64)),
 				faReq("r1", alt("fast", "fast.example.com", 1)),
 			),
 			gateEnabled: true,
-			wantErr:     true,
-		},
-		"a sum one below the sentinel is still charged": {
-			spec: specOf(
-				faReq("r0", alt("fast", "fast.example.com", math.MaxInt64-2)),
-				faReq("r1", alt("fast", "fast.example.com", 1)),
-			),
-			gateEnabled: true,
-			wantLogical: map[corev1.ResourceName]int64{"example.com/gpu": math.MaxInt64 - 1},
+			wantLogical: map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(math.MaxInt64).AddInt64(1)},
 		},
 		"an empty firstAvailable is reported against firstAvailable, not as a missing exactly": {
 			spec: specOf(resourcev1.DeviceRequest{
@@ -402,8 +395,8 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
 			for name, want := range tc.wantLogical {
-				if got.perLogicalResource[name] != want {
-					t.Errorf("logical %s = %d, want %d", name, got.perLogicalResource[name], want)
+				if !got.perLogicalResource[name].Equal(want) {
+					t.Errorf("logical %s = %v, want %v", name, got.perLogicalResource[name], want)
 				}
 			}
 			if len(got.perLogicalResource) != len(tc.wantLogical) {
@@ -468,8 +461,8 @@ func TestEnvelopeBoundsEverySelection(t *testing.T) {
 				realized += requestCounts[r][chosen]
 			}
 			checked++
-			if realized > envelope {
-				t.Fatalf("selection %v realizes %d, above the admitted envelope %d", selection, realized, envelope)
+			if envelope.CmpInt64(realized) < 0 {
+				t.Fatalf("selection %v realizes %d, above the admitted envelope %v", selection, realized, envelope)
 			}
 			return
 		}
@@ -485,7 +478,7 @@ func TestEnvelopeBoundsEverySelection(t *testing.T) {
 	}
 	// The envelope is the sum of the per-request maxima, which is the largest
 	// realizable selection, so the bound is tight rather than merely safe.
-	if worst := int64(1 + 4 + 7 + 6 + 9); envelope != worst {
-		t.Errorf("envelope = %d, want the worst selection %d", envelope, worst)
+	if worst := int64(1 + 4 + 7 + 6 + 9); envelope.CmpInt64(worst) != 0 {
+		t.Errorf("envelope = %v, want the worst selection %d", envelope, worst)
 	}
 }

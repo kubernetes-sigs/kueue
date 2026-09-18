@@ -263,9 +263,9 @@ The following limitations apply:
   supported and will result in inadmissible workloads.
 - **ExactCount allocation mode only**: the `All` allocation mode is not
   supported, in an `exactly` request or in an alternative of a `firstAvailable`
-  one. A `firstAvailable` request is read only with the
-  `KueueDRAIntegrationPrioritizedList` feature gate, which is alpha and off by
-  default; see the note below for what it covers.
+  one. Kueue reads a `firstAvailable` request only when the
+  `KueueDRAIntegrationPrioritizedList` feature gate is enabled. That gate is
+  alpha and off by default; see the note below for what it covers.
 - **No device constraints or config**: Device `constraints` (MatchAttribute)
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not

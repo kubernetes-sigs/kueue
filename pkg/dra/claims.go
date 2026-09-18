@@ -19,8 +19,6 @@ package dra
 import (
 	"context"
 	"fmt"
-	"maps"
-	"math"
 	"slices"
 	"strconv"
 
@@ -61,9 +59,13 @@ func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
 // against its DeviceClass and mapped to a logical resource by the caller. The
 // alternatives of a firstAvailable request can only be compared once they are
 // mapped, so its charge arrives already resolved.
+// amountFormatter turns an accumulated charge into the Quantity the shared
+// request path reads, at the same boundary every other resource crosses.
+var amountFormatter = resources.NewResourceFormatter()
+
 type claimCharges struct {
 	perDeviceClass     resources.Requests
-	perLogicalResource map[corev1.ResourceName]int64
+	perLogicalResource map[corev1.ResourceName]resources.Amount
 }
 
 // chargesForClaimSpec classifies every request in the provided ResourceClaimSpec
@@ -73,7 +75,7 @@ type claimCharges struct {
 func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) (claimCharges, field.ErrorList) {
 	charges := claimCharges{
 		perDeviceClass:     resources.NewRequests(),
-		perLogicalResource: map[corev1.ResourceName]int64{},
+		perLogicalResource: map[corev1.ResourceName]resources.Amount{},
 	}
 	if claimSpec == nil {
 		return charges, nil
@@ -101,13 +103,7 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 			if len(errs) > 0 {
 				return claimCharges{}, append(allErrs, errs...)
 			}
-			total, ok := utilmath.BoundedAdd(charges.perLogicalResource[logical], count)
-			if !ok {
-				allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), count,
-					fmt.Sprintf("the counts charged to logical resource %s do not add up to a bounded quota amount", logical)))
-				return claimCharges{}, allErrs
-			}
-			charges.perLogicalResource[logical] = total
+			charges.perLogicalResource[logical] = charges.perLogicalResource[logical].AddInt64(count)
 			continue
 		}
 
@@ -223,78 +219,6 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 	return logical, maxCount, nil
 }
 
-// canonicalUnits converts a charge the way resources.ResourceValue does, so the
-// number checked here is the one the queue reads, and reports whether that
-// conversion was exact. Scaling a device count instead answers 2000m for 1.5
-// CPU where the queue answers 1500m. An amount the unit cannot hold, a fraction
-// of a device or a sub-milli CPU, is refused rather than rounded.
-func canonicalUnits(name corev1.ResourceName, qty resource.Quantity) (int64, bool) {
-	v := resources.ResourceValue(name, qty)
-	rounded := *resource.NewQuantity(v, resource.DecimalSI)
-	if name == corev1.ResourceCPU {
-		rounded = *resource.NewMilliQuantity(v, resource.DecimalSI)
-	}
-	return v, qty.Cmp(rounded) == 0
-}
-
-// chargeFitsCanonicalUnits reports the charges that cannot reach the queue
-// intact. Each PodSet's charge is multiplied by its count and the results are
-// summed across PodSets, in the resource's canonical unit. Both of those steps
-// saturate rather than fail, and math.MaxInt64 is the value the quota code
-// reads as unlimited, so a count that reaches either is refused here while the
-// number that was asked for is still known.
-//
-// The count is the one the PodSet asks for rather than the one left after a
-// reclaim, so a request is refused on what it asks for. Admitting it and
-// scaling down later is not open to it: PodSetResources scales by dividing the
-// aggregate it holds, and one that saturated on the way in does not divide back
-// to the value it came from.
-//
-// The bound covers the charges this function is given. A Pod requesting the
-// same logical resource by name, and the counter and capacity charges merged in
-// after this returns, are added later and are not bounded here.
-func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSetReference]corev1.ResourceList) field.ErrorList {
-	var errs field.ErrorList
-	totals := map[corev1.ResourceName]int64{}
-	for i := range podSets {
-		ps := &podSets[i]
-		psPath := field.NewPath("spec", "podSets").Index(i)
-		// Sorted so a PodSet with more than one bad charge reports them in the
-		// same order every time, rather than whichever the map hands over first.
-		charged := perPodSet[ps.Name]
-		for _, name := range slices.Sorted(maps.Keys(charged)) {
-			qty := charged[name]
-			// The charge is accumulated with Quantity.Add and can leave int64
-			// behind, where Value wraps and reads back as an ordinary count.
-			canonical, exact := canonicalUnits(name, qty)
-			if canonical < 0 || canonical == math.MaxInt64 {
-				errs = append(errs, field.Invalid(psPath, qty.String(),
-					fmt.Sprintf("device count charged to logical resource %s is not a bounded quota amount", name)))
-				continue
-			}
-			if !exact {
-				errs = append(errs, field.Invalid(psPath, qty.String(),
-					fmt.Sprintf("device count charged to logical resource %s is not representable in the units it is accounted in", name)))
-				continue
-			}
-			scaled, ok := utilmath.BoundedMul(canonical, int64(ps.Count))
-			if !ok {
-				errs = append(errs, field.Invalid(psPath.Child("count"), ps.Count,
-					fmt.Sprintf("device count charged to logical resource %s is not representable once multiplied by the podSet count", name)))
-				continue
-			}
-			total, ok := utilmath.BoundedAdd(totals[name], scaled)
-			if !ok {
-				errs = append(errs, field.Invalid(field.NewPath("spec", "podSets"), name,
-					fmt.Sprintf("total charged to logical resource %s across podSets is not representable as a bounded quota amount", name)))
-				continue
-			}
-			totals[name] = total
-		}
-	}
-	return errs
-}
-
 // getClaimSpec resolves the ResourceClaim(Template) referenced by the PodResourceClaim
 // and returns its *ResourceClaimSpec. A nil spec and nil error mean the reference is
 // empty (both name pointers are nil) and should be skipped.
@@ -382,8 +306,8 @@ func GetResourceRequestsForResourceClaimTemplates(
 
 			// Already resolved to a logical resource, since the maximum over the
 			// alternatives of a request can only be taken after the mapping.
-			for logical, qty := range charges.perLogicalResource {
-				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
+			for logical, amount := range charges.perLogicalResource {
+				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: amountFormatter.AmountQuantity(logical, amount)})
 			}
 
 			for dc, qty := range charges.perDeviceClass.Iter() {
@@ -407,17 +331,6 @@ func GetResourceRequestsForResourceClaimTemplates(
 
 		if len(aggregated) > 0 {
 			perPodSet[ps.Name] = aggregated
-		}
-	}
-
-	// Only under the gate. perPodSet carries the Exactly charges too, and an
-	// existing one that reaches the range would be refused here rather than
-	// saturating as it does today, which is a change this gate is not entitled
-	// to make while it is off. Narrowing further, to the keys an envelope
-	// actually reached, needs the provenance preprocessing does not carry yet.
-	if features.Enabled(features.KueueDRAIntegrationPrioritizedList) {
-		if errs := chargeFitsCanonicalUnits(wl.Spec.PodSets, perPodSet); len(errs) > 0 {
-			return nil, append(allErrs, errs...)
 		}
 	}
 
