@@ -35,37 +35,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-const rayActorNamespace = "kueue-e2e"
-
-func createDetachedActorScript(actorName, resourceName string) string {
-	return fmt.Sprintf(`import ray
-
-ray.init(namespace=%q)
-
-@ray.remote(num_cpus=0, resources={%q: 1})
-class Actor:
-    pass
-
-try:
-    ray.get_actor(%q)
-except ValueError:
-    Actor.options(name=%q, lifetime="detached").remote()
-`, rayActorNamespace, resourceName, actorName, actorName)
-}
-
-func terminateDetachedActorScript(actorName string) string {
-	return fmt.Sprintf(`import ray
-
-ray.init(namespace=%q)
-try:
-    actor = ray.get_actor(%q)
-except ValueError:
-    pass
-else:
-    ray.kill(actor)
-`, rayActorNamespace, actorName)
-}
-
 // specReplicasPerWorkerGroup returns the desired replica count of every worker
 // group in the RayCluster spec, keyed by group name.
 func specReplicasPerWorkerGroup(rayCluster *rayv1.RayCluster) map[string]int32 {
@@ -221,32 +190,36 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		}
 
 		ginkgo.By("Requesting only the first worker group's custom resource", func() {
-			util.ExecuteCommandInRayClusterHead(ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster),
-				[]string{"python", "-c", createDetachedActorScript(actorA, rayResourceA)})
+			util.CreateDetachedRayActor(
+				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorA, rayResourceA,
+			)
 			expected := map[string]int32{workerGroupA: 1, workerGroupB: 0}
 			expectWorkerGroups(expected)
 			expectKueueAccounting(expected)
 		})
 
 		ginkgo.By("Requesting the second worker group's custom resource without changing the first group", func() {
-			util.ExecuteCommandInRayClusterHead(ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster),
-				[]string{"python", "-c", createDetachedActorScript(actorB, rayResourceB)})
+			util.CreateDetachedRayActor(
+				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorB, rayResourceB,
+			)
 			expected := map[string]int32{workerGroupA: 1, workerGroupB: 1}
 			expectWorkerGroups(expected)
 			expectKueueAccounting(expected)
 		})
 
 		ginkgo.By("Terminating the first actor without scaling down the second worker group", func() {
-			util.ExecuteCommandInRayClusterHead(ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster),
-				[]string{"python", "-c", terminateDetachedActorScript(actorA)})
+			util.TerminateDetachedRayActor(
+				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorA,
+			)
 			expected := map[string]int32{workerGroupA: 0, workerGroupB: 1}
 			expectWorkerGroups(expected)
 			expectKueueAccounting(expected)
 		})
 
 		ginkgo.By("Terminating the second actor and returning both worker groups to zero", func() {
-			util.ExecuteCommandInRayClusterHead(ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster),
-				[]string{"python", "-c", terminateDetachedActorScript(actorB)})
+			util.TerminateDetachedRayActor(
+				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorB,
+			)
 			expected := map[string]int32{workerGroupA: 0, workerGroupB: 0}
 			expectWorkerGroups(expected)
 			expectKueueAccounting(expected)
