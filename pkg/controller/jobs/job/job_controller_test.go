@@ -3288,9 +3288,9 @@ func TestReconciler(t *testing.T) {
 		},
 		// A scale-up waiting for quota keeps the admitted slice alongside its
 		// pending replacement, and normalizeActiveSlices returns only the
-		// replacement. Both are live, but only the pending replacement can update
-		// its maximum execution time.
-		"the pending workload slice updates its timeout while the retained admitted slice keeps it": {
+		// replacement. Removing the timeout label clears only the pending
+		// replacement; the retained admitted slice keeps its maximum execution time.
+		"the pending workload slice clears its timeout while the retained admitted slice keeps it": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:      false,
 				features.AssignQueueLabelsForPods:     true,
@@ -3300,7 +3300,6 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
-				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
@@ -3308,7 +3307,6 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
-				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
@@ -3358,7 +3356,6 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("replacement", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					MaximumExecutionTimeSeconds(10).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(highWPCWrapper.Value).

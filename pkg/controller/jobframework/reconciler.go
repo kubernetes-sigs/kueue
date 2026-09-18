@@ -981,11 +981,6 @@ func (r *JobReconciler) syncWorkloadSliceFields(ctx context.Context, job Generic
 
 func updateWorkloadSliceMaximumExecutionTime(ctx context.Context, c client.Client, obj client.Object, wls ...*kueue.Workload) error {
 	desired := MaximumExecutionTimeSecondsForObject(obj)
-	// A missing label is not an instruction to clear a value that may have come
-	// from another source, such as a Workload default.
-	if desired == nil {
-		return nil
-	}
 
 	for _, wl := range wls {
 		if wl == nil {
@@ -1002,7 +997,10 @@ func updateWorkloadSliceMaximumExecutionTime(ctx context.Context, c client.Clien
 			if workload.IsAdmitted(wl) || ptr.Equal(wl.Spec.MaximumExecutionTimeSeconds, desired) {
 				return false, nil
 			}
-			wl.Spec.MaximumExecutionTimeSeconds = new(*desired)
+			wl.Spec.MaximumExecutionTimeSeconds = nil
+			if desired != nil {
+				wl.Spec.MaximumExecutionTimeSeconds = new(*desired)
+			}
 			return true, nil
 		}, clientutil.WithRetryOnConflict()); err != nil {
 			return fmt.Errorf("updating maximum execution time of workload slice %s: %w", workload.Key(wl), err)

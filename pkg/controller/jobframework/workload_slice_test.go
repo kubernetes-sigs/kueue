@@ -148,7 +148,7 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 					Obj(),
 			},
 		},
-		"keeps the timeout when the owner has no explicit value": {
+		"clears the timeout on a pending slice when the owner has no explicit value": {
 			job: testingjob.MakeJob("job", "ns").Obj(),
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("pending", "ns").
@@ -159,7 +159,39 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 			wantWorkloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("pending", "ns").
 					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+		},
+		"clears the timeout after quota reservation but before admission": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Request(corev1.ResourceCPU, "1").
 					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, notAdmitted).
+					Obj(),
+			},
+			wantWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Request(corev1.ResourceCPU, "1").
+					Conditions(quotaReserved, notAdmitted).
+					Obj(),
+			},
+		},
+		"keeps the timeout on an admitted slice when the owner has no explicit value": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("admitted", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, admitted).
+					Obj(),
+			},
+			wantWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("admitted", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(quotaReserved, admitted).
 					Obj(),
 			},
 		},

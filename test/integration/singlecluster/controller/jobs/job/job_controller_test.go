@@ -5426,7 +5426,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		})
 	})
 
-	ginkgo.It("Should update the timeout on a quota-reserved workload slice before admission", func() {
+	ginkgo.It("Should update and clear the timeout on a quota-reserved workload slice before admission", func() {
 		admissionCheck := utiltestingapi.MakeAdmissionCheck("slice-timeout-check").
 			ControllerName("example.com/slice-timeout-check").
 			Obj()
@@ -5497,6 +5497,26 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 				g.Expect(wl.UID).To(gomega.Equal(originalSlice.UID))
 				g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(originalSlice.Spec.PodSets[0].Count))
 				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(10))))
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("removing the timeout label while the slice remains unadmitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				delete(job.Labels, constants.MaxExecTimeSecondsLabel)
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("keeping the same reservation while clearing the timeout through the API server", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(originalSlice), wl)).To(gomega.Succeed())
+				g.Expect(wl.UID).To(gomega.Equal(originalSlice.UID))
+				g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.BeNil())
 				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
