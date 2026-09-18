@@ -67,6 +67,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRADeviceFeasibility, true)
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 	fwk = &framework.Framework{
 		WebhookPath: util.WebhookPath,

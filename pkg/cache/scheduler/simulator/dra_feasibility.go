@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +39,11 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"sigs.k8s.io/kueue/pkg/dra"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 // DRAChecker drops candidate nodes that cannot supply a Pod's ResourceClaims. It
@@ -104,15 +111,15 @@ func (c *DRAChecker) FindFeasibleNodes(
 		return nil, err
 	}
 
-	if requirements.PodTemplate == nil || !hasDRAClaims(requirements.PodTemplate) {
+	if requirements.PodTemplate == nil {
 		return feasible, nil
 	}
 
 	// The claims belong to the Workload rather than the cluster, so unlike the
-	// allocator they are resolved on every call. They are read by name, not listed.
-	claims, err := buildSyntheticClaims(ctx, c.cl, requirements.PodTemplate.Namespace, requirements.PodTemplate)
+	// allocator they are resolved on every call.
+	claims, err := c.podClaims(ctx, requirements.PodTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("building synthetic DRA claims: %w", err)
+		return nil, err
 	}
 	if len(claims) == 0 {
 		return feasible, nil
@@ -124,6 +131,20 @@ func (c *DRAChecker) FindFeasibleNodes(
 	}
 
 	return c.filterByDevices(ctx, feasible, allocator, claims, stats)
+}
+
+// podClaims is every ResourceClaim the Pod will hold on a node: the ones its PodSet names,
+// and the one kube-scheduler creates for DRA-backed extended resources.
+func (c *DRAChecker) podClaims(ctx context.Context, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, error) {
+	claims, err := buildSyntheticClaims(ctx, c.cl, podTemplate.Namespace, podTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("building synthetic DRA claims: %w", err)
+	}
+	extended, err := buildExtendedResourceClaims(ctx, c.cl, podTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("building extended resource DRA claims: %w", err)
+	}
+	return append(claims, extended...), nil
 }
 
 func (c *DRAChecker) buildAllocator(ctx context.Context) (structured.Allocator, error) {
@@ -196,10 +217,6 @@ func (c *DRAChecker) filterByDevices(
 	return draFeasible, nil
 }
 
-func hasDRAClaims(podTemplate *corev1.PodTemplateSpec) bool {
-	return len(podTemplate.Spec.ResourceClaims) > 0
-}
-
 func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace string, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, error) {
 	var claims []*resourceapi.ResourceClaim
 	for _, prc := range podTemplate.Spec.ResourceClaims {
@@ -219,6 +236,92 @@ func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace strin
 		})
 	}
 	return claims, nil
+}
+
+// buildExtendedResourceClaims builds the claim kube-scheduler creates for a Pod's
+// DRA-backed extended resources, which does not exist yet when Kueue admits. One request
+// per DeviceClass carries the Pod's total, since without selectors only the total decides
+// whether a node fits.
+func buildExtendedResourceClaims(ctx context.Context, cl client.Client, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, error) {
+	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		return nil, nil
+	}
+	if !requestsExtendedResource(&podTemplate.Spec) {
+		return nil, nil
+	}
+	totals := extendedResourceTotals(&podTemplate.Spec)
+
+	var requests []resourceapi.DeviceRequest
+	// Sorted so the synthesized claim does not vary between calls.
+	for _, resourceName := range slices.Sorted(maps.Keys(totals)) {
+		deviceClass, err := dra.ResolveDeviceClass(ctx, cl, resourceName)
+		if err != nil {
+			return nil, err
+		}
+		if deviceClass == nil {
+			// A device plugin advertises it, so the node filters already cover it.
+			continue
+		}
+		requests = append(requests, resourceapi.DeviceRequest{
+			Name: fmt.Sprintf("request-%d", len(requests)),
+			Exactly: &resourceapi.ExactDeviceRequest{
+				DeviceClassName: deviceClass.Name,
+				AllocationMode:  resourceapi.DeviceAllocationModeExactCount,
+				Count:           totals[resourceName],
+			},
+		})
+	}
+	if len(requests) == 0 {
+		return nil, nil
+	}
+
+	return []*resourceapi.ResourceClaim{{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kueue-sim-extended-resources",
+			Namespace: podTemplate.Namespace,
+		},
+		Spec: resourceapi.ResourceClaimSpec{
+			Devices: resourceapi.DeviceClaim{Requests: requests},
+		},
+	}}, nil
+}
+
+// requestsExtendedResource reports whether the Pod asks for any extended resource. Most
+// Workloads ask for none, and totalling them costs more than looking.
+func requestsExtendedResource(spec *corev1.PodSpec) bool {
+	for i := range spec.InitContainers {
+		if containerRequestsExtendedResource(&spec.InitContainers[i]) {
+			return true
+		}
+	}
+	for i := range spec.Containers {
+		if containerRequestsExtendedResource(&spec.Containers[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+func containerRequestsExtendedResource(container *corev1.Container) bool {
+	for name := range container.Resources.Requests {
+		if utilresource.IsExtendedResourceName(name) {
+			return true
+		}
+	}
+	return false
+}
+
+// extendedResourceTotals is how many devices of each extended resource the Pod holds at
+// once. It errs high: kube-scheduler lets an init container reuse a later container's
+// devices, which Pod-level requests do not model.
+func extendedResourceTotals(spec *corev1.PodSpec) map[corev1.ResourceName]int64 {
+	totals := make(map[corev1.ResourceName]int64)
+	for name, count := range resources.ToMap(resources.NewRequestsFromPodSpec(spec)) {
+		if utilresource.IsExtendedResourceName(name) && count > 0 {
+			totals[name] = count
+		}
+	}
+	return totals
 }
 
 // resolveClaimSpec returns the spec to allocate for a PodResourceClaim, or nil when the
