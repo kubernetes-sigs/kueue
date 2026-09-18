@@ -32,8 +32,8 @@ import (
 // Reduce breaks.
 type distributeFunc func(out, fullCounts, deltas []int32, amount, totalDelta int64)
 
-// PodSetReducer helper structure used to find the largest counts between
-// PodSets[*].MinCount and PodSets[*].Count that fit.
+// PodSetReducer helper structure used to find the largest counts between each PodSet's baseline
+// (MinCount) and target (Count) that fit.
 type PodSetReducer[R any] struct {
 	podSets    []kueue.PodSet
 	fullCounts []int32
@@ -45,7 +45,7 @@ type PodSetReducer[R any] struct {
 	distribute distributeFunc
 	// refine optionally grows back counts the shrink gave up needlessly. Nil for a
 	// strategy whose shrink is already exact.
-	refine func(counts []int32, best R) (R, bool)
+	refine func(counts []int32, best R) R
 }
 
 func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool), distribute distributeFunc) *PodSetReducer[R] {
@@ -91,7 +91,11 @@ func distributeOrderBased(out, fullCounts, deltas []int32, amount, _ int64) {
 // Reduce returns the fits() result for the largest counts the reduction strategy can admit,
 // and false when no combination fits. A strategy may favour some PodSets over others, so the
 // total is not necessarily the largest one possible.
-func (psr *PodSetReducer[R]) Reduce() (R, bool) {
+//
+// mustGrow rejects the outcome that leaves every PodSet at its baseline. An elastic scale-up
+// sets it, being already running those baselines, so landing back on them grants it nothing.
+// Classic partial admission does not: its baselines are a size nothing is running at yet.
+func (psr *PodSetReducer[R]) Reduce(mustGrow bool) (R, bool) {
 	var best R
 
 	if psr.totalDelta == 0 {
@@ -116,17 +120,34 @@ func (psr *PodSetReducer[R]) Reduce() (R, bool) {
 	if idx > int(psr.totalDelta) {
 		return best, false
 	}
+	// refine grows bestCounts in place, so afterwards they still describe what best stands for.
 	if psr.refine != nil {
-		return psr.refine(bestCounts, best)
+		best = psr.refine(bestCounts, best)
+	}
+	// Checked after refine rather than by trimming the search: an all-baseline fit is often the
+	// only one the shrink finds, and refine is what grows it into real progress.
+	if mustGrow && !psr.aboveBaseline(bestCounts) {
+		var none R
+		return none, false
 	}
 	return best, true
+}
+
+// aboveBaseline reports whether any PodSet ended above its baseline.
+func (psr *PodSetReducer[R]) aboveBaseline(counts []int32) bool {
+	for i, c := range counts {
+		if c > psr.fullCounts[i]-psr.deltas[i] {
+			return true
+		}
+	}
+	return false
 }
 
 // giveBack grows back the counts that the shrink cut more than it had to.
 // It goes through the PodSets from first to last and grows each one as far as
 // still fits before moving on - so a later PodSet only sees the capacity the earlier ones
 // left. It grows counts in place and returns what fits() gave for the final counts.
-func (psr *PodSetReducer[R]) giveBack(counts []int32, best R) (R, bool) {
+func (psr *PodSetReducer[R]) giveBack(counts []int32, best R) R {
 	reduced := 0
 	for i := range counts {
 		if counts[i] < psr.fullCounts[i] {
@@ -137,7 +158,7 @@ func (psr *PodSetReducer[R]) giveBack(counts []int32, best R) (R, bool) {
 	// shrink already rejected. This also keeps the pass away from classic partial admission,
 	// which allows at most one minCount PodSet per Workload.
 	if reduced < 2 {
-		return best, true
+		return best
 	}
 
 	trial := make([]int32, len(counts))
@@ -171,5 +192,5 @@ func (psr *PodSetReducer[R]) giveBack(counts []int32, best R) (R, bool) {
 		})
 		counts[i], trial[i], best = grownTo, grownTo, grownBest
 	}
-	return best, true
+	return best
 }
