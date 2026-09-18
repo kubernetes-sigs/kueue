@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -4016,43 +4015,36 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 	ginkgo.When("Cohort cycle detection halts admissions gracefully", func() {
-		var (
-			cohortA *kueue.Cohort
-			cohortB *kueue.Cohort
-		)
-
-		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
-		})
-
-		ginkgo.It("should handle cohort cycle without controller panic", func() {
-			ginkgo.By("Creating two cohorts with a mutual parent cycle: cohort-a → cohort-b → cohort-a")
-			// Create cohort-a that references cohort-b as parent
-			cohortA = utiltestingapi.MakeCohort("").GeneratedName("cohort-a-").
-				Parent(kueue.CohortReference("cohort-b")).
+		ginkgo.It("Should mark ClusterQueue inactive when cycle is detected and restore after cycle is removed", func() {
+			ginkgo.By("Creating cohort-a and cohort-b without a cycle initially")
+			cohortA := utiltestingapi.MakeCohort("cohort-a").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
-						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceCPU, "2").
 						Obj(),
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cohortA)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
+			})
 
-			// Create cohort-b that references cohort-a as parent (creating a cycle)
-			cohortB = utiltestingapi.MakeCohort("").GeneratedName("cohort-b-").
-				Parent(kueue.CohortReference(cohortA.GetName())).
+			cohortB := utiltestingapi.MakeCohort("cohort-b").
+				Parent(kueue.CohortReference("cohort-a")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
-						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceCPU, "2").
 						Obj(),
 				).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cohortB)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
+			})
 
-			ginkgo.By("Creating a ClusterQueue in the cyclic cohort")
+			ginkgo.By("Creating a ClusterQueue in cohort-b")
 			cycleCq := createQueue(utiltestingapi.MakeClusterQueue("cycle-cq").
-				Cohort(kueue.CohortReference(cohortA.GetName())).
+				Cohort(kueue.CohortReference("cohort-b")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
 						Resource(corev1.ResourceCPU, "1").
@@ -4060,20 +4052,79 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				).
 				Obj())
 
-			ginkgo.By("Fixing the cycle by removing parentName from cohort-b")
-			updatedCohortB := cohortB.DeepCopy()
-			updatedCohortB.Spec.ParentName = ""
-			gomega.Expect(k8sClient.Update(ctx, updatedCohortB)).To(gomega.Succeed())
+			ginkgo.By("Verifying CQ is initially active")
+			gomega.Eventually(func(g gomega.Gomega) {
+				readCq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cycleCq), readCq)).To(gomega.Succeed())
+				g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.ClusterQueueActive, kueue.ClusterQueueActiveReasonReady))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Verifying the controller remains healthy by submitting workload after cycle fix")
-			wl := utiltestingapi.MakeWorkload("cycle-test", ns.Name).
+			ginkgo.By("Creating a cycle: updating cohort-a parent to cohort-b")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedCohortA := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), updatedCohortA)).To(gomega.Succeed())
+				updatedCohortA.Spec.ParentName = "cohort-b"
+				g.Expect(k8sClient.Update(ctx, updatedCohortA)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the CQ is marked inactive with CohortCycleDetected reason while the cycle exists")
+			gomega.Eventually(func(g gomega.Gomega) {
+				readCq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cycleCq), readCq)).To(gomega.Succeed())
+				cond := meta.FindStatusCondition(readCq.Status.Conditions, kueue.ClusterQueueActive)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.ClusterQueueActiveReasonCohortCycleDetected))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("cohort"), "message should mention cohort name")
+				g.Expect(cond.Message).To(gomega.ContainSubstring("cycle"), "message should mention cycle")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Submitting workloads while the cycle is present")
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).
 				Queue(kueue.LocalQueueName(cycleCq.Name)).
 				Request(corev1.ResourceCPU, "500m").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).
+				Queue(kueue.LocalQueueName(cycleCq.Name)).
+				Request(corev1.ResourceCPU, "500m").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
 
-			ginkgo.By("Verifying workload is admitted after cycle fix (no panic occurred)")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cycleCq.Name, wl)
+			ginkgo.By("Verifying workloads are not admitted while the cycle exists")
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{wl1, wl2} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse(), "workload should not be admitted while CQ is inactive due to cycle")
+					g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse(), "workload should not be evicted, just unadmitted")
+				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Removing the cycle by clearing parentName from cohort-a")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedCohortA := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), updatedCohortA)).To(gomega.Succeed())
+				updatedCohortA.Spec.ParentName = ""
+				g.Expect(k8sClient.Update(ctx, updatedCohortA)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying the CQ returns to Ready once the cycle is removed")
+			gomega.Eventually(func(g gomega.Gomega) {
+				readCq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cycleCq), readCq)).To(gomega.Succeed())
+				g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.ClusterQueueActive, kueue.ClusterQueueActiveReasonReady))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying previously submitted workloads are now admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cycleCq.Name, wl1, wl2)
+
+			ginkgo.By("Verifying new workload can be admitted after cycle is resolved")
+			wlNew := utiltestingapi.MakeWorkload("wl-new", ns.Name).
+				Queue(kueue.LocalQueueName(cycleCq.Name)).
+				Request(corev1.ResourceCPU, "500m").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlNew)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cycleCq.Name, wlNew)
 		})
 	})
 	ginkgo.When("Workload slicing with multiple podSets", func() {
