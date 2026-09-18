@@ -915,13 +915,20 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	}{
 		"FailedListWorkloads": {
 			args: args{
-				clnt: testWorkloadClientBuilder().
-					WithInterceptorFuncs(interceptor.Funcs{
-						List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-							return errTest
-						},
-					}).
-					Build(),
+				clnt: func() client.Client {
+					listCalls := 0
+					return testWorkloadClientBuilder().
+						WithInterceptorFuncs(interceptor.Funcs{
+							List: func(ctx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) error {
+								listCalls++
+								if listCalls == 1 {
+									return errTest
+								}
+								return c.List(ctx, obj, opts...)
+							},
+						}).
+						Build()
+				}(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
@@ -1636,9 +1643,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if gotCompatible != tt.want.compatible {
 				t.Errorf("EnsureWorkloadSlices() compatible = %v, want %v", gotCompatible, tt.want.compatible)
-			}
-			if gotError != nil {
-				return
 			}
 			var workloads kueue.WorkloadList
 			if err := tt.args.clnt.List(ctx, &workloads); err != nil {
