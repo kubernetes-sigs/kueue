@@ -1291,8 +1291,8 @@ func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *ku
 	if p.integrationManager == nil {
 		return nil
 	}
-	// The annotation value is free-form and may name an external controller, and the
-	// deployment package cannot be imported here without a cycle in its own tests.
+	// The annotation value is free-form and may refer to an external controller.
+	// Use the literal to avoid importing the deployment package and creating a cycle.
 	if p.pod.Annotations[podconstants.SuspendedByParentAnnotation] != "deployment" {
 		return nil
 	}
