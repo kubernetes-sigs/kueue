@@ -19,7 +19,6 @@ package workloadslicing
 import (
 	"context"
 	"errors"
-	"strconv"
 	"testing"
 	"time"
 
@@ -883,39 +882,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
-	testPodSets := func(count int32) []kueue.PodSet {
-		return []kueue.PodSet{
-			{
-				Name:  kueue.DefaultPodSetName,
-				Count: count,
-			},
-		}
-	}
-	testResourceVersion := int64(100)
-	// testWorkload helper constructs a workload object with the provided name, resourceVersion/generation and podSets.
-	// The workload's creation time is offset by 5 minutes in the past + N milliseconds, where N is "derived"
-	// from the resource version, to adjust for later creation time.
-	// For example: resource version 100 - will result in creation timestamp 5 min ago + 100 millis.
-	testWorkload := func(name string, resourceVersion int64, podSets []kueue.PodSet) *kueue.Workload {
-		return &kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              name,
-				Namespace:         testJobObject.Namespace,
-				ResourceVersion:   strconv.FormatInt(resourceVersion, 10),
-				CreationTimestamp: metav1.NewTime(fiveMinutesAgo.Add(time.Duration(resourceVersion) * time.Millisecond)),
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion: testJobGVK.GroupVersion().String(),
-						Kind:       testJobGVK.Kind,
-						Name:       testJobObject.Name,
-					},
-				},
-			},
-			Spec: kueue.WorkloadSpec{
-				PodSets: podSets,
-			},
-		}
-	}
+	testWorkload := utiltestingapi.MakeWorkload("", testJobObject.Namespace).
+		OwnerReference(testJobGVK, testJobObject.Name, "")
 
 	assertStatusConditionPatch := func(t *testing.T, subResourceName string, obj client.Object, wantWorkloadName string, activeConditionType, activeConditionReason string) error {
 		// Assert side effect: old slice is aggregated and marked as "finished".
@@ -1508,11 +1476,26 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		"MoreThanTwoWorkloadSlices": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
-					testWorkload(testJobObject.Name+"-1", testResourceVersion, testPodSets(1)),
-					testWorkload(testJobObject.Name+"-2", testResourceVersion+1, testPodSets(2)),
-					testWorkload(testJobObject.Name+"-3", testResourceVersion+1, testPodSets(3))).
+					testWorkload.Clone().
+						Name(testJobObject.Name+"-1").
+						ResourceVersion("100").
+						Creation(fiveMinutesAgo.Add(100*time.Millisecond)).
+						PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 1}).
+						Obj(),
+					testWorkload.Clone().
+						Name(testJobObject.Name+"-2").
+						ResourceVersion("101").
+						Creation(fiveMinutesAgo.Add(101*time.Millisecond)).
+						PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 2}).
+						Obj(),
+					testWorkload.Clone().
+						Name(testJobObject.Name+"-3").
+						ResourceVersion("101").
+						Creation(fiveMinutesAgo.Add(101*time.Millisecond)).
+						PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 3}).
+						Obj()).
 					Build(),
-				jobPodSets:   testPodSets(3),
+				jobPodSets:   []kueue.PodSet{{Name: kueue.DefaultPodSetName, Count: 3}},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
