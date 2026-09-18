@@ -28,10 +28,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -80,9 +82,49 @@ func Test_GetResourceRequests(t *testing.T) {
 		modifyWL     func(w *kueue.Workload)
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
-		want         map[kueue.PodSetReference]corev1.ResourceList
-		wantErr      field.ErrorList
+		// mappings replaces the default res-1/res-2 mappings when set.
+		mappings []configapi.DeviceClassMapping
+		features map[featuregate.Feature]bool
+		want     map[kueue.PodSetReference]corev1.ResourceList
+		wantErr  field.ErrorList
 	}{
+		{
+			name: "An Exactly request on a logical resource named cpu is charged in whole units",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+				}
+			},
+			lookup:   defaultLookup,
+			mappings: []configapi.DeviceClassMapping{{Name: corev1.ResourceCPU, DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"}}},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {corev1.ResourceCPU: resource.MustParse("2")},
+			},
+		},
+		{
+			name: "A prioritized list on a logical resource named cpu is charged in whole units like an Exactly request",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-fa")},
+				}
+			},
+			extraObjects: []runtime.Object{
+				&resourcev1.ResourceClaimTemplate{
+					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-fa", Namespace: "ns1"},
+					Spec: resourcev1.ResourceClaimTemplateSpec{Spec: resourcev1.ResourceClaimSpec{
+						Devices: resourcev1.DeviceClaim{Requests: []resourcev1.DeviceRequest{
+							faReq("r", alt("fast", "test-deviceclass-1", 2)),
+						}},
+					}},
+				},
+			},
+			lookup:   defaultLookup,
+			mappings: []configapi.DeviceClassMapping{{Name: corev1.ResourceCPU, DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"}}},
+			features: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {corev1.ResourceCPU: resource.MustParse("2")},
+			},
+		},
 		{
 			name: "Single claim template with single device",
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
@@ -707,6 +749,9 @@ func Test_GetResourceRequests(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			for fg, on := range tc.features {
+				features.SetFeatureGateDuringTest(t, fg, on)
+			}
 			var testMapper *ResourceMapper
 			if tc.lookup != nil {
 				mappings := []configapi.DeviceClassMapping{
@@ -721,6 +766,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 				if tc.name == "Unmapped DeviceClass returns error" {
 					mappings = []configapi.DeviceClassMapping{}
+				}
+				if tc.mappings != nil {
+					mappings = tc.mappings
 				}
 				mapper := NewResourceMapper()
 				err := mapper.PopulateFromConfiguration(mappings)

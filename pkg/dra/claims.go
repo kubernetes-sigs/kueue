@@ -55,10 +55,6 @@ func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
 	return req.AdminAccess != nil && *req.AdminAccess
 }
 
-// amountFormatter turns an accumulated charge into the Quantity the shared
-// request path reads, at the same boundary every other resource crosses.
-var amountFormatter = resources.NewResourceFormatter()
-
 // claimCharges is what one ResourceClaimSpec costs. An Exactly request is counted
 // against its DeviceClass and mapped to a logical resource by the caller. The
 // alternatives of a firstAvailable request can only be compared once they are
@@ -304,9 +300,11 @@ func GetResourceRequestsForResourceClaimTemplates(
 			}
 
 			// Already resolved to a logical resource, since the maximum over the
-			// alternatives of a request can only be taken after the mapping.
+			// alternatives of a request can only be taken after the mapping. The
+			// count becomes a whole-unit Quantity exactly as the Exactly count below
+			// does; a formatter would read a resource named cpu in milli.
 			for logical, amount := range charges.perLogicalResource {
-				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: amountFormatter.AmountQuantity(logical, amount)})
+				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(amount.String())})
 			}
 
 			for dc, qty := range charges.perDeviceClass.Iter() {
