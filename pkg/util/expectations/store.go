@@ -72,6 +72,13 @@ func (e *Store) ObservedUID(log logr.Logger, key types.NamespacedName, uid types
 	}
 }
 
+// ExpectedUIDs returns the sorted UIDs which are still expected to be observed for the key.
+func (e *Store) ExpectedUIDs(key types.NamespacedName) []types.UID {
+	e.Lock()
+	defer e.Unlock()
+	return sets.List(e.store[key])
+}
+
 func (e *Store) Satisfied(log logr.Logger, key types.NamespacedName) bool {
 	e.Lock()
 	_, found := e.store[key]
