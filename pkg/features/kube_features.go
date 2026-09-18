@@ -681,7 +681,7 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/13151
 	// Enables delegating TAS fit and preemptions simulations entirely to WAS Scheduler Library.
 	TASSchedulerLibraryDeepIntegration featuregate.Feature = "TASSchedulerLibraryDeepIntegration"
-  
+
 	// owner: @reruno
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13746-tas-topology-spreading
 	//
@@ -1066,7 +1066,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASSchedulerLibraryDeepIntegration: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
-    
+	},
+
 	TASTopologySpreading: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
