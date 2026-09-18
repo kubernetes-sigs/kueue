@@ -28,10 +28,9 @@ import (
 // Sentinel errors for TAS request building, so callers/tests can identify the
 // failure with errors.Is instead of matching on the message text.
 var (
-	ErrElasticRequiredTopologyNotSupported  = errors.New("required topology is not supported with ElasticJobsViaWorkloadSlices")
-	ErrElasticPreferredTopologyNotSupported = errors.New("preferred topology is not supported with ElasticJobsViaWorkloadSlices")
-	ErrNoTASCacheInformation                = errors.New("workload requires Topology, but there is no TAS cache information")
-	ErrNoTASFlavorAssigned                  = errors.New("no TAS flavor assigned")
+	ErrElasticRequiredTopologyNotSupported = errors.New("required topology is not supported with ElasticJobsViaWorkloadSlices")
+	ErrNoTASCacheInformation               = errors.New("workload requires Topology, but there is no TAS cache information")
+	ErrNoTASFlavorAssigned                 = errors.New("no TAS flavor assigned")
 )
 
 // MultipleTASFlavorsAssignedError indicates that a PodSet ended up with more
