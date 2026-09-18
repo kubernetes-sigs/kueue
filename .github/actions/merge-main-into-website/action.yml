@@ -31,13 +31,13 @@ runs:
         # Merge main into website, preferring main on conflicts.
         # -X theirs resolves content conflicts; rename/delete conflicts need manual resolution.
         if ! git merge -X theirs origin/main; then
-          git ls-files --unmerged | awk '{print $4}' | sort -u | while IFS= read -r f; do
+          while IFS= read -r -d '' f; do
             if git checkout --theirs -- "$f" 2>/dev/null; then
               git add -- "$f"
             else
               git rm -q -- "$f"
             fi
-          done
+          done < <(git diff --name-only --diff-filter=U -z)
           if ! git commit --no-edit; then
             echo "message=❌ Failed to merge the main branch into the website branch." >> "$GITHUB_OUTPUT"
             exit 1
