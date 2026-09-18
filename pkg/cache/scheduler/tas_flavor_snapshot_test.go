@@ -36,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/component-base/featuregate"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -2533,57 +2534,189 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 	}
 }
 
-func TestBuildPodRequirementsMergesTolerations(t *testing.T) {
+func TestBuildPodRequirements(t *testing.T) {
 	tolerateGPU := corev1.Toleration{Key: "example.com/gpu", Operator: corev1.TolerationOpExists}
 	tolerateDrain := corev1.Toleration{Key: "example.com/drain", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+	basePodSet := utiltestingapi.MakePodSet("main", 1)
+
+	// The compiled affinity filters do not expose the terms they were built from,
+	// so the test asks them about these Nodes instead.
+	probeNodes := []*corev1.Node{
+		node.MakeNode("pool-a").Label("pool", "a").Obj(),
+		node.MakeNode("pool-b").Label("pool", "b").Obj(),
+	}
+	affinityMatches := func(requirements simulator.PodRequirements) map[string]bool {
+		if requirements.AffinitySelector == nil {
+			return nil
+		}
+		matches := make(map[string]bool, len(probeNodes))
+		for _, probeNode := range probeNodes {
+			matches[probeNode.Name] = requirements.AffinitySelector.Match(probeNode)
+		}
+		return matches
+	}
+	preferredScores := func(requirements simulator.PodRequirements) map[string]int64 {
+		if requirements.PreferredSchedulingTerms == nil {
+			return nil
+		}
+		scores := make(map[string]int64, len(probeNodes))
+		for _, probeNode := range probeNodes {
+			scores[probeNode.Name] = requirements.PreferredSchedulingTerms.Score(probeNode)
+		}
+		return scores
+	}
+
 	cases := map[string]struct {
-		flavorTolerations   []corev1.Toleration
-		templateTolerations []corev1.Toleration
-		podSetUpdates       []*kueue.PodSetUpdate
-		want                []corev1.Toleration
+		featureGates map[featuregate.Feature]bool
+		// levels are the levels the Topology declares. A leaf is a node when the lowest
+		// level is the hostname, declared or injected by TASNodeFeasibilityForAllLevels.
+		levels            []string
+		flavorTolerations []corev1.Toleration
+		podSet            *kueue.PodSet
+		podSetUpdates     []*kueue.PodSetUpdate
+
+		wantReasonPrefix string
+		wantTolerations  []corev1.Toleration
+		wantSelector     labels.Selector
+		// wantAffinityMatches is whether the AffinitySelector matches each probe Node,
+		// nil when there is no AffinitySelector.
+		wantAffinityMatches map[string]bool
+		// wantPreferredScores is the PreferredSchedulingTerms score of each probe Node,
+		// nil when there are no PreferredSchedulingTerms.
+		wantPreferredScores map[string]int64
+		// wantTemplateNodeSelector is the nodeSelector of the Pod template, which
+		// otherwise matches the PodSet's template with wantTolerations.
+		wantTemplateNodeSelector map[string]string
 	}{
 		"flavor toleration joins the template's": {
-			flavorTolerations:   []corev1.Toleration{tolerateGPU},
-			templateTolerations: []corev1.Toleration{tolerateDrain},
-			want:                []corev1.Toleration{tolerateDrain, tolerateGPU},
+			flavorTolerations: []corev1.Toleration{tolerateGPU},
+			podSet:            basePodSet.Clone().Toleration(tolerateDrain).Obj(),
+			wantTolerations:   []corev1.Toleration{tolerateDrain, tolerateGPU},
+			wantSelector:      labels.Everything(),
 		},
 		"toleration on both the template and the flavor appears once": {
-			flavorTolerations:   []corev1.Toleration{tolerateGPU},
-			templateTolerations: []corev1.Toleration{tolerateGPU},
-			want:                []corev1.Toleration{tolerateGPU},
+			flavorTolerations: []corev1.Toleration{tolerateGPU},
+			podSet:            basePodSet.Clone().Toleration(tolerateGPU).Obj(),
+			wantTolerations:   []corev1.Toleration{tolerateGPU},
+			wantSelector:      labels.Everything(),
 		},
 		"toleration from an admission check and the flavor appears once": {
 			flavorTolerations: []corev1.Toleration{tolerateGPU},
+			podSet:            basePodSet.Clone().Obj(),
 			podSetUpdates:     []*kueue.PodSetUpdate{{Name: "main", Tolerations: []corev1.Toleration{tolerateGPU}}},
-			want:              []corev1.Toleration{tolerateGPU},
+			wantTolerations:   []corev1.Toleration{tolerateGPU},
+			wantSelector:      labels.Everything(),
 		},
 		"no flavor tolerations": {
-			templateTolerations: []corev1.Toleration{tolerateDrain},
-			want:                []corev1.Toleration{tolerateDrain},
+			podSet:          basePodSet.Clone().Toleration(tolerateDrain).Obj(),
+			wantTolerations: []corev1.Toleration{tolerateDrain},
+			wantSelector:    labels.Everything(),
+		},
+		"nodeSelector is compiled into the selector and kept on the template": {
+			levels:                   []string{corev1.LabelHostname},
+			podSet:                   basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj(),
+			wantSelector:             labels.SelectorFromSet(labels.Set{"pool": "a"}),
+			wantTemplateNodeSelector: map[string]string{"pool": "a"},
+		},
+		"nodeSelector from an admission check joins the template's": {
+			levels:                   []string{corev1.LabelHostname},
+			podSet:                   basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj(),
+			podSetUpdates:            []*kueue.PodSetUpdate{{Name: "main", NodeSelector: map[string]string{"zone": "z1"}}},
+			wantSelector:             labels.SelectorFromSet(labels.Set{"pool": "a", "zone": "z1"}),
+			wantTemplateNodeSelector: map[string]string{"pool": "a", "zone": "z1"},
+		},
+		"nodeSelector is not compiled into the selector when a leaf spans several nodes": {
+			featureGates:             map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: false},
+			levels:                   []string{utiltesting.DefaultRackTopologyLevel},
+			podSet:                   basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj(),
+			wantSelector:             labels.Everything(),
+			wantTemplateNodeSelector: map[string]string{"pool": "a"},
+		},
+		"invalid nodeSelector": {
+			levels:           []string{corev1.LabelHostname},
+			podSet:           basePodSet.Clone().NodeSelector(map[string]string{"pool": "not a label value"}).Obj(),
+			wantReasonPrefix: "invalid node selectors: ",
+		},
+		"required node affinity is compiled into the affinity selector": {
+			podSet:              basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantSelector:        labels.Everything(),
+			wantAffinityMatches: map[string]bool{"pool-a": true, "pool-b": false},
+		},
+		"required node affinity without preferred terms when TASRespectNodeAffinityPreferred is enabled": {
+			featureGates:        map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			podSet:              basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantSelector:        labels.Everything(),
+			wantAffinityMatches: map[string]bool{"pool-a": true, "pool-b": false},
+		},
+		"affinity without node affinity is not compiled": {
+			podSet:       basePodSet.Clone().PodSpec(corev1.PodSpec{Affinity: &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{}}}).Obj(),
+			wantSelector: labels.Everything(),
+		},
+		"invalid required node affinity": {
+			podSet:           basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn).Obj(),
+			wantReasonPrefix: "invalid affinity node selectors: ",
+		},
+		"preferred node affinity is compiled when TASRespectNodeAffinityPreferred is enabled": {
+			featureGates:        map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			podSet:              basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantSelector:        labels.Everything(),
+			wantPreferredScores: map[string]int64{"pool-a": 10, "pool-b": 0},
+		},
+		"preferred node affinity is ignored when TASRespectNodeAffinityPreferred is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: false},
+			podSet:       basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantSelector: labels.Everything(),
+		},
+		"invalid preferred node affinity": {
+			featureGates:     map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			podSet:           basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn).Obj(),
+			wantReasonPrefix: "invalid preferred node affinity terms: ",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			_, log := utiltesting.ContextWithLog(t)
 			flavor := flavorInformation{TopologyName: "dummy", Tolerations: tc.flavorTolerations}
-			snapshot := newTASFlavorSnapshot(log, flavor, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
-			podSet := &kueue.PodSet{
-				Name:     "main",
-				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Tolerations: tc.templateTolerations}},
-			}
-			info, reason := podSetInfo(TASPodSetRequests{PodSet: podSet, PodSetUpdates: tc.podSetUpdates})
+			snapshot := newTASFlavorSnapshot(log, flavor, newTopologyTree(tc.levels, nil, 0), newDefaultSimulatorSnapshot())
+			info, reason := podSetInfo(TASPodSetRequests{PodSet: tc.podSet, PodSetUpdates: tc.podSetUpdates})
 			if reason != "" {
 				t.Fatalf("podSetInfo() = %q, want no reason", reason)
 			}
-			got, reason := snapshot.buildPodRequirements(info, podSet)
+			// The Pod template is a copy, so the merged constraints must not reach the PodSet.
+			wantPodSet := tc.podSet.DeepCopy()
+
+			got, reason := snapshot.buildPodRequirements(info, tc.podSet)
+
+			if diff := cmp.Diff(wantPodSet, tc.podSet); diff != "" {
+				t.Errorf("buildPodRequirements() modified the PodSet (-want,+got):\n%s", diff)
+			}
+			if tc.wantReasonPrefix != "" {
+				if !strings.HasPrefix(reason, tc.wantReasonPrefix) {
+					t.Errorf("buildPodRequirements() = %q, want a reason starting with %q", reason, tc.wantReasonPrefix)
+				}
+				return
+			}
 			if reason != "" {
 				t.Fatalf("buildPodRequirements() = %q, want no reason", reason)
 			}
-			if diff := cmp.Diff(tc.want, got.Tolerations); diff != "" {
+			if diff := cmp.Diff(tc.wantTolerations, got.Tolerations, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("unexpected tolerations (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(got.Tolerations, got.PodTemplate.Spec.Tolerations); diff != "" {
-				t.Errorf("template tolerations differ from the field form (-field,+template):\n%s", diff)
+			if diff := cmp.Diff(tc.wantSelector, got.Selector); diff != "" {
+				t.Errorf("unexpected selector (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantAffinityMatches, affinityMatches(got)); diff != "" {
+				t.Errorf("unexpected affinity selector matches (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantPreferredScores, preferredScores(got)); diff != "" {
+				t.Errorf("unexpected preferred scheduling terms scores (-want,+got):\n%s", diff)
+			}
+			wantTemplate := wantPodSet.Template.DeepCopy()
+			wantTemplate.Spec.Tolerations = tc.wantTolerations
+			wantTemplate.Spec.NodeSelector = tc.wantTemplateNodeSelector
+			if diff := cmp.Diff(wantTemplate, got.PodTemplate, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected Pod template (-want,+got):\n%s", diff)
 			}
 		})
 	}
