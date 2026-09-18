@@ -55,14 +55,14 @@ func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
 	return req.AdminAccess != nil && *req.AdminAccess
 }
 
-// claimCharges is what one ResourceClaimSpec costs. An Exactly request is counted
-// against its DeviceClass and mapped to a logical resource by the caller. The
-// alternatives of a firstAvailable request can only be compared once they are
-// mapped, so its charge arrives already resolved.
 // amountFormatter turns an accumulated charge into the Quantity the shared
 // request path reads, at the same boundary every other resource crosses.
 var amountFormatter = resources.NewResourceFormatter()
 
+// claimCharges is what one ResourceClaimSpec costs. An Exactly request is counted
+// against its DeviceClass and mapped to a logical resource by the caller. The
+// alternatives of a firstAvailable request can only be compared once they are
+// mapped, so its charge arrives already resolved.
 type claimCharges struct {
 	perDeviceClass     resources.Requests
 	perLogicalResource map[corev1.ResourceName]resources.Amount
@@ -148,8 +148,7 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		}
 		// Device counts are user-controlled and effectively unbounded (the
 		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
-		// (matching the scheduler's Amount arithmetic) rather than letting the
-		// sum wrap to a negative count.
+		// rather than letting the sum wrap to a negative count.
 		charges.perDeviceClass.Set(dc, utilmath.SaturatingAdd(charges.perDeviceClass.ResourceValue(dc), q))
 	}
 	return charges, nil

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -50,28 +51,33 @@ func specOf(requests ...resourcev1.DeviceRequest) *resourcev1.ResourceClaimSpec 
 	return &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: requests}}
 }
 
-// oneGPUResource maps every listed DeviceClass onto a single logical resource.
-func mapperFor(logical string, deviceClasses ...corev1.ResourceName) *ResourceMapper {
+// mapperFor maps every listed DeviceClass onto one logical resource.
+func mapperFor(t *testing.T, logical string, deviceClasses ...corev1.ResourceName) *ResourceMapper {
+	t.Helper()
 	m := NewResourceMapper()
-	_ = m.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+	if err := m.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
 		Name:             corev1.ResourceName(logical),
 		DeviceClassNames: deviceClasses,
-	}})
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
 	return m
 }
 
 func TestChargeForPrioritizedList(t *testing.T) {
-	twoClassesOneResource := mapperFor("example.com/gpu", "fast.example.com", "slow.example.com")
-	excludedResource := mapperFor("example.com/gpu", "fast.example.com")
+	twoClassesOneResource := mapperFor(t, "example.com/gpu", "fast.example.com", "slow.example.com")
+	excludedResource := mapperFor(t, "example.com/gpu", "fast.example.com")
 
 	twoResources := NewResourceMapper()
-	_ = twoResources.PopulateFromConfiguration([]configapi.DeviceClassMapping{
+	if err := twoResources.PopulateFromConfiguration([]configapi.DeviceClassMapping{
 		{Name: "example.com/gpu", DeviceClassNames: []corev1.ResourceName{"fast.example.com"}},
 		{Name: "example.com/cpu", DeviceClassNames: []corev1.ResourceName{"slow.example.com"}},
-	})
+	}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
 
 	counterBacked := NewResourceMapper()
-	_ = counterBacked.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+	if err := counterBacked.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
 		Name:             "example.com/gpu",
 		DeviceClassNames: []corev1.ResourceName{"fast.example.com"},
 		Sources: []configapi.DeviceClassSourceConfig{{Counter: &configapi.DeviceClassCounterSource{
@@ -79,12 +85,15 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			Driver:         "fast.example.com",
 			DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
 		}}},
-	}})
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
 
-	// The refusal reads the counter and capacity configurations with one or, so
-	// keep a capacity mapping beside the counter one to notice if they part.
+	// The refusal checks the counter and capacity sources in one condition, so a
+	// capacity-backed mapping beside the counter-backed one catches the two
+	// drifting apart.
 	capacityBacked := NewResourceMapper()
-	_ = capacityBacked.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+	if err := capacityBacked.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
 		Name:             "example.com/gpu",
 		DeviceClassNames: []corev1.ResourceName{"fast.example.com"},
 		Sources: []configapi.DeviceClassSourceConfig{{Capacity: &configapi.DeviceClassCapacitySource{
@@ -92,7 +101,9 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			Driver:         "fast.example.com",
 			DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
 		}}},
-	}})
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
 
 	// The path the request is reported under, which the cases below index into.
 	const base = "devices.requests[0].firstAvailable"
@@ -113,7 +124,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantResource: "example.com/gpu",
 			wantCount:    3,
 		},
-		"and the order of the alternatives does not decide it": {
+		"the order of the alternatives does not change the charge": {
 			req:          faReq("r", alt("slow", "slow.example.com", 3), alt("fast", "fast.example.com", 1)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
@@ -165,7 +176,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantType:   field.ErrorTypeInvalid,
 			wantDetail: "counter-backed or capacity-backed",
 		},
-		"and so is a capacity-backed one": {
+		"a capacity-backed mapping is refused": {
 			req:        faReq("r", alt("fast", "fast.example.com", 1)),
 			mapper:     capacityBacked,
 			wantErr:    true,
@@ -234,31 +245,35 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantType:  field.ErrorTypeRequired,
 		},
 		"a capacity requirement is charged the count beside it": {
-			req: faReq("r", func() resourcev1.DeviceSubRequest {
-				s := alt("fast", "fast.example.com", 3)
-				s.Capacity = &resourcev1.CapacityRequirements{
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+				AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+				Count:           3,
+				Capacity: &resourcev1.CapacityRequirements{
 					Requests: map[resourcev1.QualifiedName]resource.Quantity{
 						"memory": resource.MustParse("10Gi"),
 					},
-				}
-				return s
-			}()),
+				},
+			}),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
 			wantCount:    3,
 		},
-		"which is what the same alternative without one is charged": {
+		"the same alternative without a capacity requirement is charged the same count": {
 			req:          faReq("r", alt("fast", "fast.example.com", 3)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
 			wantCount:    3,
 		},
 		"a selector that does not compile is refused": {
-			req: faReq("r", func() resourcev1.DeviceSubRequest {
-				s := alt("fast", "fast.example.com", 1)
-				s.Selectors = []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "this is not cel("}}}
-				return s
-			}()),
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+				AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+				Count:           1,
+				Selectors:       []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "this is not cel("}}},
+			}),
 			mapper:    twoClassesOneResource,
 			wantErr:   true,
 			wantField: base + "[0].selectors",
@@ -307,12 +322,14 @@ func TestChargeForPrioritizedList(t *testing.T) {
 	}
 }
 
-func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
-	mapper := mapperFor("example.com/gpu", "fast.example.com", "slow.example.com")
+func TestChargesForClaimSpec(t *testing.T) {
+	mapper := mapperFor(t, "example.com/gpu", "fast.example.com", "slow.example.com")
 
 	cases := map[string]struct {
 		spec        *resourcev1.ResourceClaimSpec
 		gateEnabled bool
+		// perLogicalResource is always allocated, so an empty map is the expectation
+		// when no prioritized list is charged; ToMap reports no class charges as nil.
 		wantLogical map[corev1.ResourceName]resources.Amount
 		wantClasses map[corev1.ResourceName]int64
 		wantErr     bool
@@ -321,6 +338,16 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 		wantErrField string
 		wantErrType  field.ErrorType
 	}{
+		"exactly requests on one class add up": {
+			spec:        specOf(exactReq("r0", "gpu", 2), exactReq("r1", "gpu", 3)),
+			wantLogical: map[corev1.ResourceName]resources.Amount{},
+			wantClasses: map[corev1.ResourceName]int64{"gpu": 5},
+		},
+		"an exactly sum saturates at MaxInt64 instead of wrapping negative": {
+			spec:        specOf(exactReq("r0", "gpu", math.MaxInt64), exactReq("r1", "gpu", math.MaxInt64)),
+			wantLogical: map[corev1.ResourceName]resources.Amount{},
+			wantClasses: map[corev1.ResourceName]int64{"gpu": math.MaxInt64},
+		},
 		"with the gate off a prioritized list is still refused": {
 			spec:    specOf(faReq("r", alt("fast", "fast.example.com", 1))),
 			wantErr: true,
@@ -339,8 +366,8 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 				faReq("r1", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 4)),
 			),
 			gateEnabled: true,
-			wantClasses: map[corev1.ResourceName]int64{"fast.example.com": 2},
 			wantLogical: map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(4)},
+			wantClasses: map[corev1.ResourceName]int64{"fast.example.com": 2},
 		},
 		"a request setting both exactly and firstAvailable is refused": {
 			spec: specOf(resourcev1.DeviceRequest{
@@ -394,21 +421,11 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 			if len(errs) != 0 {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
-			for name, want := range tc.wantLogical {
-				if !got.perLogicalResource[name].Equal(want) {
-					t.Errorf("logical %s = %v, want %v", name, got.perLogicalResource[name], want)
-				}
+			if diff := cmp.Diff(tc.wantLogical, got.perLogicalResource, cmp.Comparer(resources.Amount.Equal)); diff != "" {
+				t.Errorf("logical charges (-want +got):\n%s", diff)
 			}
-			if len(got.perLogicalResource) != len(tc.wantLogical) {
-				t.Errorf("logical charges = %v, want %v", got.perLogicalResource, tc.wantLogical)
-			}
-			for name, want := range tc.wantClasses {
-				if got.perDeviceClass.ResourceValue(name) != want {
-					t.Errorf("class %s = %d, want %d", name, got.perDeviceClass.ResourceValue(name), want)
-				}
-			}
-			if got.perDeviceClass.Len() != len(tc.wantClasses) {
-				t.Errorf("class charges = %v, want %v", got.perDeviceClass, tc.wantClasses)
+			if diff := cmp.Diff(tc.wantClasses, resources.ToMap(got.perDeviceClass)); diff != "" {
+				t.Errorf("class charges (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -421,7 +438,7 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 // not the same claim.
 func TestEnvelopeBoundsEverySelection(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPrioritizedList, true)
-	mapper := mapperFor("example.com/gpu", "a.example.com", "b.example.com", "c.example.com")
+	mapper := mapperFor(t, "example.com/gpu", "a.example.com", "b.example.com", "c.example.com")
 
 	// Counts chosen so no two requests are alike and the maximum is not always
 	// the first or the last alternative.
@@ -441,7 +458,7 @@ func TestEnvelopeBoundsEverySelection(t *testing.T) {
 			// Indexed, so reusing a class does not repeat a subrequest name.
 			alternatives = append(alternatives, alt(fmt.Sprintf("alt%d", j), classes[j%len(classes)], c))
 		}
-		requests = append(requests, faReq(string(rune('a'+i)), alternatives...))
+		requests = append(requests, faReq(fmt.Sprintf("r%d", i), alternatives...))
 	}
 
 	charges, errs := chargesForClaimSpec(specOf(requests...), mapper)
@@ -450,31 +467,22 @@ func TestEnvelopeBoundsEverySelection(t *testing.T) {
 	}
 	envelope := charges.perLogicalResource["example.com/gpu"]
 
-	// Every combination of one alternative per request.
-	selection := make([]int, len(requestCounts))
-	var walk func(i int)
-	checked := 0
-	walk = func(i int) {
-		if i == len(requestCounts) {
-			var realized int64
-			for r, chosen := range selection {
-				realized += requestCounts[r][chosen]
-			}
-			checked++
-			if envelope.CmpInt64(realized) < 0 {
-				t.Fatalf("selection %v realizes %d, above the admitted envelope %v", selection, realized, envelope)
-			}
-			return
-		}
-		for j := range requestCounts[i] {
-			selection[i] = j
-			walk(i + 1)
-		}
+	// Every combination of one alternative per request, read off a mixed-radix
+	// counter whose digit i ranges over request i's alternatives.
+	combinations := 1
+	for _, counts := range requestCounts {
+		combinations *= len(counts)
 	}
-	walk(0)
-
-	if want := 1 * 2 * 3 * 2 * 4; checked != want {
-		t.Fatalf("checked %d selections, want %d", checked, want)
+	for k := range combinations {
+		var realized int64
+		rest := k
+		for _, counts := range requestCounts {
+			realized += counts[rest%len(counts)]
+			rest /= len(counts)
+		}
+		if envelope.CmpInt64(realized) < 0 {
+			t.Fatalf("combination %d realizes %d, above the admitted envelope %v", k, realized, envelope)
+		}
 	}
 	// The envelope is the sum of the per-request maxima, which is the largest
 	// realizable selection, so the bound is tight rather than merely safe.

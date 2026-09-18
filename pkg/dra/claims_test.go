@@ -18,7 +18,6 @@ package dra
 
 import (
 	"errors"
-	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -776,33 +775,5 @@ func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
 			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 			Count:           count,
 		},
-	}
-}
-
-func TestChargesForClaimSpecOverflow(t *testing.T) {
-	cases := map[string]struct {
-		requests  []resourcev1.DeviceRequest
-		wantCount int64
-	}{
-		"normal sum across requests": {
-			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", 2), exactReq("r1", "gpu", 3)},
-			wantCount: 5,
-		},
-		"sum saturates at MaxInt64 instead of wrapping negative": {
-			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", math.MaxInt64), exactReq("r1", "gpu", math.MaxInt64)},
-			wantCount: math.MaxInt64,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			spec := &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: tc.requests}}
-			out, errs := chargesForClaimSpec(spec, NewResourceMapper())
-			if len(errs) != 0 {
-				t.Fatalf("unexpected errors: %v", errs)
-			}
-			if got := out.perDeviceClass.ResourceValue("gpu"); got != tc.wantCount {
-				t.Errorf("count = %d, want %d", got, tc.wantCount)
-			}
-		})
 	}
 }
