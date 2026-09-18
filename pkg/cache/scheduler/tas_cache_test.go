@@ -10324,8 +10324,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 						}
 						topologyRequest.PodSetGroupName = ps.podSetGroupName
 					}
-					// Extended resources are read off the containers, not from
-					// SinglePodRequests, which is where the device check looks.
+					// Extended resources are read off the containers. They are absent
+					// from SinglePodRequests because the flavor assigner delegates a
+					// DRA-backed one to the device check before building these requests.
 					var containers []corev1.Container
 					if len(ps.containerRequests) > 0 {
 						containers = []corev1.Container{{

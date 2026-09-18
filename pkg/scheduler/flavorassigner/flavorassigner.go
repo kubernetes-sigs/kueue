@@ -131,6 +131,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			continue
 		}
 		singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpecByName(psa.Name))
+		delegateDRABackedExtendedResources(wl.PodSpecByName(psa.Name), cq.DRABackedResources(), singlePodRequests)
 		for _, domain := range psa.TopologyAssignment.Domains {
 			count := domain.Count - accounted[tas.DomainID(domain.Values)]
 			if count <= 0 {

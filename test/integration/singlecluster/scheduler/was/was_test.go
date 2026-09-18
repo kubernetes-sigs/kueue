@@ -224,6 +224,31 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
 		})
 
+		// The first Workload's domain usage is rebuilt from its PodSet template once it
+		// is admitted. Counting its extended resource there would leave the domain
+		// short of a resource the Node never advertised, stranding the second.
+		ginkgo.It("should admit a second extended resource workload to the same node", func() {
+			var wls []*kueue.Workload
+			for _, name := range []string{"wl-dra-ext-1", "wl-dra-ext-2"} {
+				wl := utiltestingapi.MakeWorkload(name, ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "1").
+					Request("test.com/gpu", "1").
+					Obj()
+				wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+					Required: ptr.To[string](corev1.LabelHostname),
+				}
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				wls = append(wls, wl)
+			}
+			for _, wl := range wls {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
+			}
+		})
+
 		ginkgo.It("should not admit a DRA workload when no node has enough devices", func() {
 			wl := utiltestingapi.MakeWorkload("wl-dra-too-big", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).

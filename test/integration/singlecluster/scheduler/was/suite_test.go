@@ -122,13 +122,14 @@ func managerSetup() func(ctx context.Context, mgr manager.Manager) {
 		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig(), was.WithDRA(mgr.GetClient()))
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		draBackedResources := dra.NewExtendedResourceCache()
 		cacheOptions := []schdcache.Option{
 			schdcache.WithSchedulingSimulator(sim),
 			schdcache.WithResourceFormatter(resourceFormatter),
+			schdcache.WithDRABackedResources(draBackedResources),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
-		draBackedResources := dra.NewExtendedResourceCache()
 		queueOptions := []qcache.Option{
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithDRABackedResources(draBackedResources),
