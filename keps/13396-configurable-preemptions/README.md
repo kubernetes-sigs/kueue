@@ -424,7 +424,7 @@ Requested functionalities from the community can be satisfied with the following
 > - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in ``kueue.x-k8s.io/priority-class` label.
 
 3. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):** _(Deferred to [Future Work](FUTURE_WORK.md#quota-based-candidate-selectors-preemptionconfigquotaconstraint))_
-   Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `priority.matchExpressions`:
+   Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `priority.matchNames`:
 
    ```yaml
    spec:
@@ -436,10 +436,8 @@ Requested functionalities from the community can be satisfied with the following
            - scope: "WithinParentCohort"
              quota: "BorrowingCapacityFromPreemptor"
              priority:
-              matchExpressions:
-               - operator: "In"
-                 values:
-                   - "batch-low"
+               matchNames:
+                 - "batch-low"
    ```
 
 4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):** _(Deferred to [Future Work](FUTURE_WORK.md#time-based-candidate-selectors-execution-and-creation-duration))_
