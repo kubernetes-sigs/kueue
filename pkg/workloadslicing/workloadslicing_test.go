@@ -899,10 +899,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	testWorkload := utiltestingapi.MakeWorkload("", testJobObject.Namespace).
 		OwnerReference(testJobGVK, testJobObject.Name, "")
 
-	errFailedListWorkloads := errors.New("test-list-error")
-	errOneWorkloadSliceUpdate := errors.New("test-update-error")
-	errFailedToPatchOldSliceStatus := errors.New("test-patch-failure")
-	errSelectedWorkloadUpdate := errors.New("test-update-error")
+	errTest := errors.New("test error")
 
 	tests := map[string]struct {
 		args args
@@ -913,7 +910,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				clnt: testWorkloadClientBuilder().
 					WithInterceptorFuncs(interceptor.Funcs{
 						List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-							return errFailedListWorkloads
+							return errTest
 						},
 					}).
 					Build(),
@@ -921,7 +918,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      errFailedListWorkloads,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1133,14 +1130,14 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).WithInterceptorFuncs(interceptor.Funcs{
 					Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						return errOneWorkloadSliceUpdate
+						return errTest
 					}}).Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      errOneWorkloadSliceUpdate,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1195,7 +1192,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-							return errFailedToPatchOldSliceStatus
+							return errTest
 						},
 					}).
 					Build(),
@@ -1204,7 +1201,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      errFailedToPatchOldSliceStatus,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1413,7 +1410,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 							if obj.GetName() != testJobObject.Name+"-2" {
 								t.Errorf("unexptected workload update: %v", obj)
 							}
-							return errSelectedWorkloadUpdate
+							return errTest
 						},
 					}).
 					Build(),
@@ -1422,7 +1419,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      errSelectedWorkloadUpdate,
+				error:      errTest,
 				compatible: true,
 			},
 		},
