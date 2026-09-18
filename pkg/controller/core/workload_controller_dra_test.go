@@ -17,7 +17,10 @@ limitations under the License.
 package core
 
 import (
-	"errors"
+	"context"
+	stderrors "errors"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -26,11 +29,15 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -41,6 +48,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
@@ -48,7 +57,7 @@ import (
 )
 
 func TestReconcileDRA(t *testing.T) {
-	errTest := errors.New("test error")
+	errTest := stderrors.New("test error")
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 
 	draConfig := []configapi.DeviceClassMapping{
@@ -128,7 +137,20 @@ func TestReconcileDRA(t *testing.T) {
 			Obj()).
 		Obj()
 
-	cases := map[string]reconcileTestCase{
+	cases := map[string]struct {
+		featureGates      map[featuregate.Feature]bool
+		reconcilerOpts    []Option
+		listErr           error
+		workload          *kueue.Workload
+		additionalObjects []client.Object
+		cq                *kueue.ClusterQueue
+		lq                *kueue.LocalQueue
+		wantResult        reconcile.Result
+		wantWorkload      *kueue.Workload
+		wantErrorMsg      string
+		wantEvents        []utiltesting.EventRecord
+		verify            func(t *testing.T, qManager *qcache.Manager, cqName kueue.ClusterQueueReference)
+	}{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
@@ -803,7 +825,167 @@ func TestReconcileDRA(t *testing.T) {
 			},
 		},
 	}
-	runReconcileTestCases(t, cases, fakeClock)
+
+	scenarios := []map[featuregate.Feature]bool{
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     false,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: false,
+		},
+		{
+			features.WorkloadRequestUseMergePatch:     true,
+			features.UnadmittedWorkloadsObservability: true,
+		},
+	}
+
+	for name, tc := range cases {
+		for _, scenario := range scenarios {
+			// Skip scenarios where the test case overrides the scenario's feature gate value
+			// to avoid running duplicate tests and misreporting the gate values in the subtest name.
+			skip := false
+			for fg, val := range tc.featureGates {
+				if scenarioVal, exists := scenario[fg]; exists && scenarioVal != val {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
+
+			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t, UnadmittedWorkloadsObservability enabled: %t",
+				name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
+				fgMap := make(map[featuregate.Feature]bool)
+				maps.Copy(fgMap, scenario)
+				maps.Copy(fgMap, tc.featureGates)
+				features.SetFeatureGatesDuringTest(t, fgMap)
+				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
+
+				testWl := tc.workload.DeepCopy()
+				objs := []client.Object{testWl}
+				if testWl.Namespace != "" {
+					objs = append(objs, &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: testWl.Namespace,
+						},
+					})
+				}
+				objs = append(objs, tc.additionalObjects...)
+
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithObjects(objs...).
+					WithStatusSubresource(objs...).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResourceName, applyConf, opts...)
+						},
+						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+							if tc.listErr != nil {
+								if _, ok := list.(*resourcev1.ResourceSliceList); ok {
+									return tc.listErr
+								}
+							}
+							return c.List(ctx, list, opts...)
+						},
+					})
+				if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+					clientBuilder = clientBuilder.WithIndex(&resourcev1.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex, indexer.IndexDeviceClassExtendedResourceName)
+				}
+				cl := clientBuilder.Build()
+				recorder := &utiltesting.EventRecorder{}
+
+				cqCache := schdcache.New(cl)
+				var draCache *dra.ExtendedResourceCache
+				if features.Enabled(features.KueueDRAIntegration) {
+					draCache = setupDRACache(objs)
+				}
+				queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptexpectations.New())}
+				if draCache != nil {
+					queueOptions = append(queueOptions, qcache.WithDRABackedResources(draCache))
+				}
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache, queueOptions...)
+				reconcilerOpts := tc.reconcilerOpts
+				if draCache != nil {
+					reconcilerOpts = append(reconcilerOpts, WithDRABackedResources(draCache))
+				}
+				reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, reconcilerOpts...)
+				if features.Enabled(features.KueueDRAIntegration) {
+					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
+				}
+				
+				reconciler.clock = fakeClock
+
+				ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+				ctx, ctxCancel := context.WithCancel(ctxWithLogger)
+				defer ctxCancel()
+
+				if tc.cq != nil {
+					setupClusterQueue(ctx, t, cl, qManager, cqCache, tc.cq, false)
+				}
+
+				if tc.lq != nil {
+					setupLocalQueue(ctx, t, cl, qManager, tc.lq, false)
+				}
+
+				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
+
+				switch {
+				case tc.wantErrorMsg != "":
+					if gotError == nil {
+						t.Errorf("expected error containing %q, got nil", tc.wantErrorMsg)
+					} else if !strings.Contains(gotError.Error(), tc.wantErrorMsg) {
+						t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
+					}
+				case gotError != nil:
+					t.Errorf("unexpected error: %v", gotError)
+				}
+
+				if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
+					t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
+				}
+
+				if tc.wantWorkload != nil {
+					gotWorkload := &kueue.Workload{}
+					if err := cl.Get(ctx, client.ObjectKeyFromObject(testWl), gotWorkload); err != nil {
+						if !errors.IsNotFound(err) {
+							t.Fatalf("Could not get Workloads after reconcile: %v", err)
+						}
+						t.Fatalf("expected workload to persist")
+					}
+
+					wantWl := tc.wantWorkload.DeepCopy()
+					if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+						wantWl.Status.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInWorkloadController(
+							wantWl.Status.Conditions,
+							apimeta.IsStatusConditionTrue(tc.workload.Status.Conditions, kueue.WorkloadAdmitted),
+						)
+					}
+
+					if diff := cmp.Diff(wantWl, gotWorkload, workloadCmpOpts...); diff != "" {
+						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+					}
+				}
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+
+				if tc.verify != nil {
+					cqName, found := qManager.ClusterQueueFromLocalQueue(utilqueue.KeyFromWorkload(testWl))
+					if !found {
+						t.Fatalf("LocalQueue not found in queue manager - workload should have been queued")
+					}
+					tc.verify(t, qManager, cqName)
+				}
+			})
+		}
+	}
 }
 
 // The DeviceClass handler runs outside the reconcile loop, so the tests below
