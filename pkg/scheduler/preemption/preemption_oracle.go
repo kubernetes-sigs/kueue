@@ -20,38 +20,35 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func NewOracle(preemptor *Preemptor, snapshot *schdcache.Snapshot) *PreemptionOracle {
-	return &PreemptionOracle{preemptor, snapshot}
+func NewInternalOracle(preemptor *Preemptor, snapshot *schdcache.Snapshot) *InternalPreemptionOracle {
+	return &InternalPreemptionOracle{preemptor, snapshot}
 }
 
-type PreemptionOracle struct {
+type InternalPreemptionOracle struct {
 	preemptor *Preemptor
 	snapshot  *schdcache.Snapshot
 }
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
 // preemption and reclaim are possible in this flavor resource.
-func (p *PreemptionOracle) SimulatePreemption(
+func (p *InternalPreemptionOracle) SimulatePreemption(
 	ctx context.Context,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
-	log := log.FromContext(ctx)
-	candidates := p.preemptor.getTargets(&preemptionCtx{
-		ctx:               ctx,
+	pCtx := &preemptionCtx{
 		clock:             p.preemptor.clock,
-		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
@@ -61,7 +58,8 @@ func (p *PreemptionOracle) SimulatePreemption(
 				Assigned: resources.FlavorResourceQuantities{fr: quantity},
 			},
 		},
-	})
+	}
+	candidates := p.preemptor.getTargets(ctx, p.preemptor.getPreemptionPlan(ctx, pCtx))
 
 	if len(candidates) == 0 {
 		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
@@ -82,4 +80,26 @@ func (p *PreemptionOracle) SimulatePreemption(
 		}
 	}
 	return preemptioncommon.Reclaim, borrowAfterPreemptions
+}
+
+func NewSchedulerLibraryOracle(snapshot *simulator.SimulatorSnapshot) *SchedulerLibraryOracle {
+	return &SchedulerLibraryOracle{
+		snapshot: snapshot,
+	}
+}
+
+type SchedulerLibraryOracle struct {
+	snapshot *simulator.SimulatorSnapshot
+}
+
+// SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
+// preemption and reclaim are possible in this flavor resource.
+func (s *SchedulerLibraryOracle) SimulatePreemption(
+	ctx context.Context,
+	cq *schdcache.ClusterQueueSnapshot,
+	wl workload.Info,
+	fr resources.FlavorResource,
+	quantity resources.Amount,
+) (preemptioncommon.PreemptionPossibility, int) {
+	panic("not implemented")
 }
