@@ -55,6 +55,12 @@
     lockToDefault: false
     preRelease: Deprecated
     version: "0.20"
+- name: DeploymentJobUIDLabel
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false

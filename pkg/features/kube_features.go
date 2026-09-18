@@ -682,6 +682,15 @@ const (
 	// Enable cross-Workload topology spreading, limiting how many Workloads
 	// matching a label selector may be placed in a single topology domain.
 	TASTopologySpreading featuregate.Feature = "TASTopologySpreading"
+
+	// owner: @rjgoyln
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15613
+	//
+	// Label the Workload of a Pod that Kueue manages through a Deployment with the
+	// Deployment UID rather than the Pod UID, so that all Workloads of one Deployment
+	// share a job-uid value. The Pod UID is kept when the gate is disabled, and for Pods
+	// that Kueue does not manage through a Deployment.
+	DeploymentJobUIDLabel featuregate.Feature = "DeploymentJobUIDLabel"
 )
 
 func init() {
@@ -1058,6 +1067,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	TASTopologySpreading: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DeploymentJobUIDLabel: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
