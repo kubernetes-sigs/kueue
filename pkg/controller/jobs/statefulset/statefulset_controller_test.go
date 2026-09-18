@@ -43,6 +43,11 @@ func TestIndexPodOwner(t *testing.T) {
 				OwnerReferenceWithUID("job", schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}, "job-uid").
 				Obj(),
 		},
+		"pod with statefulset owner but wrong api version": {
+			object: testingpod.MakePod("pod", "ns").
+				OwnerReferenceWithUID("sts", schema.GroupVersionKind{Group: "extensions", Version: "v1beta1", Kind: gvk.Kind}, "sts-uid").
+				Obj(),
+		},
 		"pod with statefulset owner": {
 			object: testingpod.MakePod("pod", "ns").
 				OwnerReferenceWithUID("sts", gvk, "sts-uid").

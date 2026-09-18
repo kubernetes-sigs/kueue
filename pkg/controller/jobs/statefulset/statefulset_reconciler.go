@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -92,13 +93,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		sts = nil
 	}
 
-	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
-		PodOwnerKey: req.Name,
-	}); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	var wlName string
 	var wl *kueue.Workload
 	if sts != nil {
@@ -117,7 +111,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var eg errgroup.Group
 
 	eg.Go(func() error {
-		return r.ungatePods(ctx, sts, wlName, podList.Items)
+		return r.ungatePods(ctx, req, sts, wlName)
 	})
 
 	if sts != nil {
@@ -129,9 +123,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, eg.Wait()
 }
 
-func (r *Reconciler) ungatePods(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pods []corev1.Pod) error {
-	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return r.ungatePod(ctx, sts, wlName, &pods[i])
+func (r *Reconciler) ungatePods(ctx context.Context, req reconcile.Request, sts *appsv1.StatefulSet, wlName string) error {
+	pods := &corev1.PodList{}
+	if err := r.client.List(ctx, pods, client.InNamespace(req.Namespace), client.MatchingFields{
+		coreindexer.OwnerReferenceIndexKey(gvk): req.Name,
+	}); err != nil {
+		return err
+	}
+
+	return parallelize.Until(ctx, len(pods.Items), func(i int) error {
+		return r.ungatePod(ctx, sts, wlName, &pods.Items[i])
 	})
 }
 

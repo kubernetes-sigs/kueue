@@ -86,6 +86,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -1493,6 +1494,27 @@ func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 		}
 	}
 	return active
+}
+
+// FindConcurrentAdmissionVariants returns the subset of workloads that are Concurrent Admission variants.
+func FindConcurrentAdmissionVariants(workloads []kueue.Workload) []kueue.Workload {
+	var variants []kueue.Workload
+	for i := range workloads {
+		if concurrentadmission.IsVariant(&workloads[i]) {
+			variants = append(variants, workloads[i])
+		}
+	}
+	return variants
+}
+
+// FindConcurrentAdmissionParent returns the first non-variant workload, or nil, assuming a ClusterQueue with Concurrent Admission enabled.
+func FindConcurrentAdmissionParent(workloads []kueue.Workload) *kueue.Workload {
+	for i := range workloads {
+		if !concurrentadmission.IsVariant(&workloads[i]) {
+			return &workloads[i]
+		}
+	}
+	return nil
 }
 
 // DeleteWorkloadSliceAndAwaitDeletion deletes the named workload slice and waits

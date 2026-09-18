@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.19.4](https://img.shields.io/badge/Version-0.19.4-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.19.4](https://img.shields.io/badge/AppVersion-v0.19.4-informational?style=flat-square)
+![Version: 0.19.5](https://img.shields.io/badge/Version-0.19.5-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.19.5](https://img.shields.io/badge/AppVersion-v0.19.5-informational?style=flat-square)
 
 Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -28,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.4" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.5" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -50,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.4" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.5" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -58,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.4" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.4" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.5" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"
@@ -191,6 +191,12 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard frontend deployments |
 | kueueViz.frontend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz frontend pod resources |
 | kueueViz.frontend.tolerations | list | `[]` | KueueViz frontend tolerations |
+| kueueViz.ingress.annotations | object | `{}` | Path-routed ingress annotations. Do not set `nginx.ingress.kubernetes.io/rewrite-target` here: rewriting the path breaks routing of the backend prefixes. |
+| kueueViz.ingress.enabled | bool | `false` | Enable a single path-routed ingress serving the KueueViz dashboard and its backend on one host. While enabled, the per-component `backend.ingress` and `frontend.ingress` objects are not rendered. |
+| kueueViz.ingress.host | string | `"kueueviz.local"` | Host serving both the dashboard and the backend |
+| kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
+| kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
+| kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
 | managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |

@@ -653,6 +653,8 @@ type BorrowWithinCohort struct {
 // +kubebuilder:printcolumn:name="Strategy",JSONPath=".spec.queueingStrategy",type=string,description="The queueing strategy used to prioritize workloads",priority=1
 // +kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
 // +kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet",priority=1
+// +kubebuilder:printcolumn:name="Active",JSONPath=".status.conditions[?(@.type=='Active')].status",type=string,description="Status of the ClusterQueue's Active condition",priority=1
+// +kubebuilder:printcolumn:name="Reason",JSONPath=".status.conditions[?(@.type=='Active')].reason",type=string,description="Reason for the Active condition",priority=1
 
 // ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueue struct {

@@ -148,6 +148,24 @@ func TestNodePortsFeasibility(t *testing.T) {
 
 			wantFeasible: map[string]bool{"node2": true},
 		},
+		// The simulator builds one profile, so a candidate naming a profile it does not
+		// build is judged by that profile rather than failing the whole check.
+		"another scheduler name does not change hostPort feasibility": {
+			addExistingPod: true,
+			candidateSpec: corev1.PodSpec{
+				SchedulerName: "secondary-scheduler",
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "busybox",
+					Ports: []corev1.ContainerPort{{
+						ContainerPort: 8080,
+						HostPort:      8080,
+						Protocol:      corev1.ProtocolTCP,
+					}},
+				}},
+			},
+			wantFeasible: map[string]bool{"node2": true},
+		},
 		"different hostPort has no conflict": {
 			addExistingPod: true,
 			candidateSpec: corev1.PodSpec{
@@ -221,12 +239,18 @@ func TestNodePortsFeasibility(t *testing.T) {
 			}
 
 			stats := &simulator.NodeExclusionStats{}
+			podTemplate := &corev1.PodTemplateSpec{Spec: tc.candidateSpec}
+			origSpec := *tc.candidateSpec.DeepCopy()
 			results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
-				PodTemplate:   &corev1.PodTemplateSpec{Spec: tc.candidateSpec},
+				PodTemplate:   podTemplate,
 				SimulateEmpty: tc.simulateEmpty,
 			}, stats)
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes failed: %v", err)
+			}
+
+			if diff := cmp.Diff(origSpec, podTemplate.Spec); diff != "" {
+				t.Errorf("PodTemplate.Spec was rewritten (-want,+got):\n%s", diff)
 			}
 
 			gotNames := make(map[string]bool)
