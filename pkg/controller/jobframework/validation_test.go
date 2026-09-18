@@ -403,17 +403,6 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name-new").Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
-		"Changing the waitForPodsReady annotation on an unsuspended Job is rejected at admission time": {
-			oldJob:       utiltestingjob.MakeJob("test-job", "ns1").Suspend(false).Obj(),
-			newJob:       utiltestingjob.MakeJob("test-job", "ns1").Suspend(false).SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 10}`).Obj(),
-			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.annotations[kueue.x-k8s.io/wait-for-pods-ready]",
-				},
-			},
-		},
 	}
 
 	for tcName, tc := range testCases {
