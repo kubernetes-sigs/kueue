@@ -98,6 +98,11 @@ func TestPodsReady(t *testing.T) {
 			list:    corev1.PodList{Items: pods},
 		}
 	}
+	makeServingPodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
+		group := makePodGroup(totalCount, pods...)
+		group.pod.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
+		return group
+	}
 
 	testCases := map[string]struct {
 		pod                           *Pod
@@ -161,6 +166,16 @@ func TestPodsReady(t *testing.T) {
 			pod:                           makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), pendingPod("worker-2")),
 			countSucceededPodsAsReadyGate: true,
 			want:                          false,
+		},
+		"serving pod group with some pods succeeded and the rest ready": {
+			pod:                           makeServingPodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			countSucceededPodsAsReadyGate: true,
+			want:                          false,
+		},
+		"serving pod group with all pods ready": {
+			pod:                           makeServingPodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
 		},
 		"pod group without total count annotation": {
 			pod: &Pod{
