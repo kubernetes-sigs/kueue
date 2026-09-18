@@ -62,7 +62,7 @@ var _ predicate.TypedPredicate[*kueue.Topology] = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *topologyReconciler {
 	return &topologyReconciler{
-		logName:          TASTopologyController,
+		logName:          "tas-topology-reconciler",
 		client:           c,
 		queues:           queues,
 		cache:            cache,
@@ -88,7 +88,7 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Topology").GroupKind().String()],
 		}).
-		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASTopologyController)).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, "tas-topology-reconciler")).
 		Watches(&kueue.ResourceFlavor{}, &resourceFlavorHandler{}).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Topology{}, cfg))
 }

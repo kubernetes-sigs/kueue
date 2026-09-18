@@ -137,5 +137,5 @@ Kueue 确保 Workload 的 AdmissionCheckStates 列表与 Workload 的 ClusterQue
 
 ## 接下来是什么？
 
-- 阅读 [API 参考](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheck)了解 `AdmissionCheck`
+- 阅读 [API 参考](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-AdmissionCheck)了解 `AdmissionCheck`
 - 从内置的[准入检查控制器](/docs/concepts/admission_check/provisioning_request)学习更多

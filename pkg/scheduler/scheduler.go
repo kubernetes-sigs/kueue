@@ -249,7 +249,7 @@ func (e *entry) markSkipped(msg string) {
 	e.status = skipped
 	e.inadmissibleMsg = msg
 	if !features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
-		e.LastAssignment = nil
+		e.FlavorScanState = nil
 	}
 }
 
@@ -260,7 +260,7 @@ func (e *entry) markPreemptionGated(msg string) {
 	e.status = preemptionGated
 	e.inadmissibleMsg = msg
 	e.requeueReason = qcache.RequeueReasonPreemptionGated
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 }
 
 func (e *entry) markEvicted() {
@@ -276,20 +276,20 @@ func (e *entry) markAssumed() {
 }
 
 // recordAssignment stores a flavor assignment and its preemption
-// targets from nominate. LastAssignment aliases the stored
-// assignment's LastState so it tracks any later mutation.
+// targets from nominate. FlavorScanState aliases the stored
+// assignment's FlavorScanState so it tracks any later mutation.
 func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
 	e.assignment = a
 	e.preemptionTargets = targets
 	e.inadmissibleMsg = e.assignment.Message()
-	e.LastAssignment = &e.assignment.LastState
+	e.FlavorScanState = &e.assignment.FlavorScanState
 }
 
 // markPreemptionOutcome records the outcome of IssuePreemptions and
 // clears the cached flavor assignment so the next cycle reconsiders
 // every flavor.
 func (e *entry) markPreemptionOutcome(preempted, errors int) {
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 	if preempted != 0 {
 		e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
@@ -317,13 +317,13 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
-	headWorkloads := s.queues.Heads(ctx)
+	heads := s.queues.Heads(ctx)
 	// If there are no elements, it means that the program is finishing.
-	if len(headWorkloads) == 0 {
+	if len(heads) == 0 {
 		return wait.KeepGoing
 	}
 	startTime := s.clock.Now()
-	log.V(2).Info("Obtained heads", "headCount", len(headWorkloads), "waitDuration", startTime.Sub(cycleStartTime))
+	log.V(2).Info("Obtained heads", "headCount", len(heads), "waitDuration", startTime.Sub(cycleStartTime))
 
 	// 2. Take a snapshot of the cache.
 	var snapshotOpts []schdcache.SnapshotOption
@@ -334,6 +334,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
 		log.Error(err, "failed to build snapshot for scheduling")
+		s.requeueHeadsAfterSnapshotError(ctx, heads)
 		return wait.SlowDown
 	}
 	logSnapshotIfVerbose(log, snapshot)
@@ -341,7 +342,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	phaseStartTime = s.clock.Now()
-	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
+	entries, inadmissibleEntries := s.nominate(ctx, heads, snapshot)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
 	// 4. Create iterator which returns ordered entries.
@@ -361,19 +362,13 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
-	for _, e := range entries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		// When the workload is evicted by scheduler we skip requeueAndUpdate.
-		// The eviction process will be finalized by the workload controller.
-		if e.status != assumed && e.status != evicted {
-			s.requeueAndUpdate(ctx, e)
-		} else {
+	for i := range entries {
+		if s.finishEntry(ctx, log, &entries[i]) {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
-	for _, e := range inadmissibleEntries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		s.requeueAndUpdate(ctx, e)
+	for i := range inadmissibleEntries {
+		s.finishEntry(ctx, log, &inadmissibleEntries[i])
 	}
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
@@ -383,6 +378,37 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+// requeueHeadsAfterSnapshotError puts back the workloads popped by Heads, which
+// nothing else does. The failure is transient, so they are requeued to be retried
+// rather than parked as inadmissible; second-pass workloads return after a backoff
+// step, as they do on the other failure paths of a cycle.
+func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []qcache.Head) {
+	log := ctrl.LoggerFrom(ctx)
+	for i := range heads {
+		wl := &heads[i].Info
+		if s.queues.QueueSecondPassIfNeeded(ctx, wl.Obj, wl.SecondPassIteration) {
+			continue
+		}
+		if !s.queues.RequeueWorkload(ctx, wl, qcache.RequeueReasonSnapshotFailed, "") {
+			log.V(2).Info("Popped head was not requeued after a failed snapshot",
+				"workload", klog.KObj(wl.Obj), "clusterQueue", klog.KRef("", string(wl.ClusterQueue)))
+		}
+	}
+}
+
+// finishEntry concludes an entry's scheduling cycle and reports whether the
+// entry counts as a successful admission attempt. Assumed and evicted entries
+// need no requeue: assumed workloads are admitted, and evicted ones are
+// finalized by the workload controller. All other entries are requeued.
+func (s *Scheduler) finishEntry(ctx context.Context, log logr.Logger, e *entry) bool {
+	logAdmissionAttemptIfVerbose(log, e)
+	if e.status == assumed || e.status == evicted {
+		return true
+	}
+	s.requeueAndUpdate(ctx, *e)
+	return false
 }
 
 // processEntry runs the admission pipeline for a single entry: TAS replacement,
@@ -438,7 +464,7 @@ func (s *Scheduler) processEntry(
 		if len(e.preemptionTargets) == 0 {
 			e.requeueReason = qcache.RequeueReasonPreemptionNoCandidates
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
-			s.reserveCapacityForUnreclaimablePreempt(log, e, cq)
+			s.reserveCapacityForUnreclaimablePreempt(log, e, snapshot, cq)
 			return
 		}
 		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
@@ -456,13 +482,13 @@ func (s *Scheduler) processEntry(
 		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
-		// Clear LastAssignment to force a full re-evaluation of all flavors in the next cycle.
+		// Clear FlavorScanState to force a full re-evaluation of all flavors in the next cycle.
 		// Since we are deferring admission until in-flight preemptions complete, the cluster
 		// state will change. Retaining the current assignment could lock the workload into a
 		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
 		// become available.
-		e.LastAssignment = nil
-		cq.AddUsage(usage)
+		e.FlavorScanState = nil
+		snapshot.AddUsage(cq, usage)
 		return
 	}
 
@@ -483,7 +509,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 	preemptedWorkloads.Insert(e.preemptionTargets)
-	cq.AddUsage(usage)
+	snapshot.AddUsage(cq, usage)
 
 	// Filter out the old workload slice from the preemption targets.
 	// The old workload slice is initially included in the preemption targets because it is treated
@@ -501,6 +527,7 @@ func (s *Scheduler) processEntry(
 
 	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+		e.Obj = e.Obj.DeepCopy()
 		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
 	}
 
@@ -532,12 +559,13 @@ func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Log
 
 // reserveCapacityForUnreclaimablePreempt is called when an entry needs preemption
 // but has no candidate targets. If the ClusterQueue cannot always reclaim its
-// nominal capacity, we reserve up to the borrowing limit so that lower-priority
+// nominal capacity, or if the workload is an active preemptor waiting for evictions
+// to complete, we reserve up to the borrowing limit so that lower-priority
 // workloads in another Cohort cannot admit before us.
-func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) {
+func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) {
 	log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
-	if !preemption.CanAlwaysReclaim(cq) {
-		cq.AddUsage(resourcesToReserve(log, e, cq))
+	if !preemption.CanAlwaysReclaim(cq) || (features.Enabled(features.PrioritizePreemptorWorkloads) && e.IsPreemptor) {
+		snapshot.AddUsage(cq, resourcesToReserve(log, e, cq))
 	}
 }
 
@@ -554,7 +582,7 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	if err != nil {
 		log.Error(err, "Failed to evict workload for migration")
 	}
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 	e.requeueReason = qcache.RequeueReasonPendingMigration
 	e.inadmissibleMsg += ". Pending the migration of 1 workload(s)"
 }
@@ -630,9 +658,9 @@ const (
 
 // entry holds requirements for a workload to be admitted by a clusterQueue.
 type entry struct {
-	// workload.Info holds the workload from the API as well as resource usage
-	// and flavors assigned.
-	workload.Info
+	// qcache.Head holds the workload from the API as well as resource usage
+	// and flavors assigned, along with queue-specific metadata.
+	qcache.Head
 	assignment           flavorassigner.Assignment
 	status               entryStatus
 	inadmissibleMsg      string
@@ -661,46 +689,58 @@ func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
-func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot) ([]entry, []entry) {
+func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *schdcache.Snapshot) ([]entry, []entry) {
 	log := ctrl.LoggerFrom(ctx)
-	entries := make([]entry, 0, len(workloads))
+	entries := make([]entry, 0, len(heads))
 	var inadmissibleEntries []entry
-	for _, w := range workloads {
-		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
-		e := entry{Info: w}
-		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
-			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
-			continue
-		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
-			e.inadmissibleMsg = "The workload has failed admission checks"
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
-		} else if e.clusterQueueSnapshot == nil {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
-			e.inadmissibleMsg = err.Error()
-			if errors.Is(err, workload.ErrInternal) {
-				log.Error(err, "Failed to validate workload admissibility")
-				e.skipStatusUpdate = true
-			} else {
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-				if errors.Is(err, workload.ErrNamespaceMismatch) {
-					e.requeueReason = qcache.RequeueReasonNamespaceMismatch
-				}
-			}
-		} else {
-			assignment, targets := s.getAssignments(ctx, &e.Info, snap)
-			e.recordAssignment(assignment, targets)
-			entries = append(entries, e)
+	for _, h := range heads {
+		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
+		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
+			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
 			continue
 		}
-		inadmissibleEntries = append(inadmissibleEntries, e)
+		if e, nominated := s.nominateWorkload(ctx, log, h, snap); nominated {
+			entries = append(entries, e)
+		} else {
+			inadmissibleEntries = append(inadmissibleEntries, e)
+		}
 	}
 	return entries, inadmissibleEntries
+}
+
+// nominateWorkload computes the requirements (resource flavors, borrowing,
+// preemption targets) for admitting a single workload against the snapshot, and
+// reports whether it was nominated. A workload that was not carries the reason
+// in the entry's inadmissibleMsg and is requeued by the cycle.
+func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qcache.Head, snap *schdcache.Snapshot) (entry, bool) {
+	e := entry{Head: h}
+	e.clusterQueueSnapshot = snap.ClusterQueue(h.ClusterQueue)
+	if workload.HasRetryChecks(h.Obj) || workload.HasRejectedChecks(h.Obj) {
+		e.inadmissibleMsg = "The workload has failed admission checks"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	} else if snap.InactiveClusterQueueSets.Has(h.ClusterQueue) {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", h.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
+	} else if e.clusterQueueSnapshot == nil {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", h.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	} else if err := workload.ValidateAdmissibility(ctx, s.client, &h.Info, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
+		e.inadmissibleMsg = err.Error()
+		if errors.Is(err, workload.ErrInternal) {
+			log.Error(err, "Failed to validate workload admissibility")
+			e.skipStatusUpdate = true
+		} else {
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+			if errors.Is(err, workload.ErrNamespaceMismatch) {
+				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+			}
+		}
+	} else {
+		assignment, targets := s.getAssignments(ctx, &e.Info, snap)
+		e.recordAssignment(assignment, targets)
+		return e, true
+	}
+	return e, false
 }
 
 func (s *Scheduler) updateAssignmentIfNeeded(
@@ -720,19 +760,16 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	switch {
 	case needsOverlapRecompute:
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
-		// To get the projected cluster state after other preemptions complete,
-		// we simulate the removal of their victims.
-		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
-		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
 	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
 		// Short-circuit, nothing to recompute.
 		return usage, schdcache.FitsCheckOk == fitsCheck
 	}
-	// Clear the last assignment so that we can start from the first flavor again and
+	// Clear the flavor scan state so that we can start from the first flavor again and
 	// reach all flavors from the nomination.
-	e.LastAssignment = nil
+	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
 	e.recordAssignment(newAssignment, newTargets)
@@ -749,6 +786,20 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
+
+	// Determine the overlap recomputation result for metrics reporting.
+	if needsOverlapRecompute {
+		var overlapRecomputeResult metrics.PreemptionTargetRecomputationResult
+		switch {
+		case e.assignment.RepresentativeMode() == flavorassigner.DeferredFit:
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultDeferredFit
+		case len(newTargets) > 0 && fitsCheck == schdcache.FitsCheckOk && !preemptedWorkloads.HasAny(newTargets):
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultNewTargets
+		default:
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultSkipped
+		}
+		metrics.ReportPreemptionTargetRecomputation(e.ClusterQueue, overlapRecomputeResult, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
+	}
 
 	return usage, schdcache.FitsCheckOk == fitsCheck
 }
@@ -805,24 +856,24 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
-	// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
+	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
-	if wl.LastAssignment != nil && lastAssignmentOutdated(wl.LastAssignment, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
-		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
+	if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+		log.FromContext(ctx).V(6).Info("Clearing Workload's flavor scan state because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
-			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
-		wl.LastAssignment = nil
+			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
+		wl.FlavorScanState = nil
 	}
 	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
 	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
 	return assignment, targets
 }
 
-// lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
+// flavorScanStateOutdated reports whether the recorded flavor assignment no longer describes
 // the current state, in which case the flavor scan has to start over.
-func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
+func flavorScanStateOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
 	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
 		// Checked before the cycle age, so that a Workload whose shape changed starts over
 		// even when it was assigned in the preceding cycle.
@@ -837,7 +888,7 @@ func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentC
 			return false
 		}
 	}
-	return currentCQGeneration > last.ClusterQueueGeneration
+	return currentCQGeneration > last.AllocatableResourceGeneration
 }
 
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
@@ -885,8 +936,8 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		}
 	}
 
-	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
-		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
+	if workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
@@ -901,7 +952,10 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			}
 			return nil, false
 		})
-		if pa, found := reducer.Search(); found {
+		// A live predecessor is already running these MinCounts, so admitting them would change
+		// nothing. With no predecessor they are just the size the job last ran at, which it needs back.
+		mustGrow := replaceableWorkloadSlice != nil
+		if pa, found := reducer.Reduce(mustGrow); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
 	}
@@ -921,6 +975,55 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
 	}
 	return nil
+}
+
+// simulateOtherPreemptions projects the victims of preemptions already decided this cycle
+// out of the snapshot and returns the single undo. Freeing their quota is not enough:
+// until the simulator is told, it still reports their Pods and their host ports.
+func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
+	victims := slices.Collect(maps.Values(preemptedWorkloads))
+	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
+	revertPods := simulatePodRemoval(ctx, log, snapshot, victims)
+	return func() {
+		revertPods()
+		revertUsage()
+	}
+}
+
+// simulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
+// returns a function that puts them back.
+func simulatePodRemoval(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, workloads []*workload.Info) func() {
+	// The default simulator reports the same cluster whatever is running, so there is
+	// nothing to take out of it and nothing cached to drop.
+	if snapshot.SimulatorSnapshot == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+		return func() {}
+	}
+	reverts := make([]func() error, 0, len(workloads))
+	for _, w := range workloads {
+		revert, err := snapshot.SimulatorSnapshot.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		if err != nil {
+			// The simulation still holds this victim's Pods, so it can only be
+			// stricter than reality. Log it and keep scheduling.
+			log.V(2).Info("Could not remove a preempted Workload from the scheduling simulator",
+				"workload", klog.KObj(w.Obj), "error", err)
+			continue
+		}
+		reverts = append(reverts, revert)
+	}
+	if len(reverts) == 0 {
+		return func() {}
+	}
+	// The simulator reports a different cluster now, so results cached before this
+	// no longer hold. The revert changes it back, so they are dropped again there.
+	snapshot.ForgetSimulatedFeasibility()
+	return func() {
+		for _, revert := range reverts {
+			if err := revert(); err != nil {
+				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
+			}
+		}
+		snapshot.ForgetSimulatedFeasibility()
+	}
 }
 
 func updateAssignmentForTAS(
@@ -945,11 +1048,15 @@ func updateAssignmentForTAS(
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
 			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
+			// Freeing the victims' quota is not enough. Until the simulator is told,
+			// it still reports their Pods and their nodes still look occupied.
+			revertPods := simulatePodRemoval(ctx, log, snapshot, targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
-				schdcache.WithWorkload(wl.Obj),
+				schdcache.WithWorkloadInfo(wl),
 			)
+			revertPods()
 			revertUsage()
 		} else {
 			// In this scenario we don't have any preemption candidates, yet we need
@@ -962,7 +1069,7 @@ func updateAssignmentForTAS(
 				ctx,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkload(wl.Obj),
+				schdcache.WithWorkloadInfo(wl),
 			)
 		}
 		assignment.UpdateForTASResult(log, cq, wl, tasResult)
@@ -981,7 +1088,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
-	cacheWl, err := s.assumeWorkload(log, e, cq, admission)
+	cacheWl, err := s.assumeWorkload(ctx, log, e, cq, admission)
 	if err != nil {
 		return err
 	}
@@ -1037,10 +1144,10 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 	}
 }
 
-func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
+func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
-	if added := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
+	if added := s.cache.AddOrUpdateWorkload(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)); !added {
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 
@@ -1105,14 +1212,24 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			return 1
 		}
 
-		// 1. Request under nominal quota.
+		// 1. Process workloads pending preemption if the feature is enabled.
+		if features.Enabled(features.PrioritizePreemptorWorkloads) {
+			if a.IsPreemptor != b.IsPreemptor {
+				if a.IsPreemptor {
+					return -1
+				}
+				return 1
+			}
+		}
+
+		// 2. Request under nominal quota.
 		aBorrows := a.assignment.Borrows()
 		bBorrows := b.assignment.Borrows()
 		if aBorrows != bBorrows {
 			return cmp.Compare(aBorrows, bBorrows)
 		}
 
-		// 2. Higher priority first if not disabled.
+		// 3. Higher priority first if not disabled.
 		if features.Enabled(features.PrioritySortingWithinCohort) {
 			p1 := priority.EffectivePriority(log, a.Obj)
 			p2 := priority.EffectivePriority(log, b.Obj)
@@ -1121,7 +1238,7 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			}
 		}
 
-		// 3. FIFO.
+		// 4. FIFO.
 		aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 		bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 		if aComparisonTimestamp.Before(bComparisonTimestamp) {

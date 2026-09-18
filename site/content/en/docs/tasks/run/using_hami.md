@@ -55,7 +55,7 @@ This configuration tells Kueue to multiply per-vGPU resource values by the numbe
 Configure your ClusterQueue to track both vGPU instance counts and total resources:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: vgpu-cluster-queue
@@ -98,6 +98,8 @@ resources:
 Kueue will automatically transform these into total resources:
 - `nvidia.com/total-gpucores: 40` (20 cores × 2 vGPUs)
 - `nvidia.com/total-gpumem: 2048` (1024 MiB × 2 vGPUs)
+
+> **Note:** `nvidia.com/gpucores` is enforced by HAMi as a reactive throttle, not a hard preemptive cap — a container's instantaneous GPU utilization can briefly exceed its requested core count before HAMi's monitor throttles it back down. Treat `nvidia.com/total-gpucores` quota in Kueue as a target you're dividing GPU compute capacity by across workloads, not as a guarantee that a container can never observe more than its requested share at any single instant. `nvidia.com/gpumem`, by contrast, is enforced as a hard ceiling.
 
 ## Example
 

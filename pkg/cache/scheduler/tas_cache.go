@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"maps"
 	"slices"
 	"sync"
@@ -155,13 +156,13 @@ func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger)
 }
 
 // TrackPod notifies the scheduling simulator that a pod is running on a node.
-func (t *tasCache) TrackPod(pod *corev1.Pod) {
-	t.schedulingSimulator.TrackPod(pod)
+func (t *tasCache) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	t.schedulingSimulator.TrackPod(ctx, pod)
 }
 
 // UntrackPod notifies the scheduling simulator that a pod has been removed.
-func (t *tasCache) UntrackPod(key client.ObjectKey) {
-	t.schedulingSimulator.UntrackPod(key)
+func (t *tasCache) UntrackPod(ctx context.Context, key client.ObjectKey) {
+	t.schedulingSimulator.UntrackPod(ctx, key)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {

@@ -17,10 +17,14 @@ limitations under the License.
 package core
 
 import (
+	"slices"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/metrics/testutil"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -28,6 +32,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -51,8 +56,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -195,7 +200,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "cost_center", SourceLabelKey: "billing/cost-center", SourceKind: new(config.SourceKindClusterQueue)},
+				utiltestingapi.MakeCustomLabel("cost_center").SourceLabelKey("billing/cost-center").SourceKind(config.SourceKindClusterQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -245,7 +250,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "budget", SourceAnnotationKey: "billing.co/budget", SourceKind: new(config.SourceKindClusterQueue)},
+				utiltestingapi.MakeCustomLabel("budget").SourceAnnotationKey("billing.co/budget").SourceKind(config.SourceKindClusterQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -295,8 +300,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, false)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -403,8 +408,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -466,8 +471,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -627,7 +632,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				utiltestingapi.MakeCustomLabel("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -724,8 +729,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg := &config.Configuration{}
 			controllersCfg.FairSharing = &config.FairSharing{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
-				{Name: "team_cohort", SourceLabelKey: "team", SourceKind: new(config.SourceKindCohort)},
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(config.SourceKindCohort).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -987,10 +992,10 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
-				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: new(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
-				{Name: "wl_anno", SourceAnnotationKey: "workload-anno", SourceKind: new(config.SourceKindWorkload), TrackedValues: []string{"anno1", "anno2"}},
-				{Name: "lq_label", SourceLabelKey: "lq-label", SourceKind: new(config.SourceKindLocalQueue)},
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
+				utiltestingapi.MakeCustomLabel("wl_anno").SourceAnnotationKey("workload-anno").SourceKind(config.SourceKindWorkload).TrackedValues("anno1", "anno2").Obj(),
+				utiltestingapi.MakeCustomLabel("lq_label").SourceLabelKey("lq-label").SourceKind(config.SourceKindLocalQueue).Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -1227,6 +1232,80 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "lq-val", "kind1", "anno1")
 			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind1", "anno1")
 		})
+
+		// Custom label order for LQ pending metrics: lq_label, wl_kind, wl_anno
+		// (SourceKind strings sorted alphabetically: LocalQueue < Workload).
+		ginkgo.It("LQ pending workloads metric should track workloads by custom WL and LQ labels", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-pending", ns.Name).
+				Label("lq-label", "lq-val").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			// wl1: kind1 with tracked annotation — exercises the positive annotation path.
+			wl1 := utiltestingapi.MakeWorkload("wl1-pending", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			// wl2: kind2 with no annotation — exercises the untracked annotation path.
+			wl2 := utiltestingapi.MakeWorkload("wl2-pending", ns.Name).
+				Label("workload-kind", "kind2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			ginkgo.By("verifying LQ pending workloads metric includes custom WL and LQ label values")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind1", "anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind2", config.UntrackedCustomLabelValue)
+		})
+
+		ginkgo.It("LQ pending workloads metric should update when workload label changes", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending-update").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-pending-update", ns.Name).
+				Label("lq-label", "lq-val").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			// wl1: kind1 with tracked annotation anno1.
+			wl1 := utiltestingapi.MakeWorkload("wl1-pending-update", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			ginkgo.By("verifying initial LQ pending metric for kind1/anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind1", "anno1")
+
+			ginkgo.By("updating workload label from kind1 to kind2")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &fetchedWl)).To(gomega.Succeed())
+				fetchedWl.Labels["workload-kind"] = "kind2"
+				g.Expect(k8sClient.Update(ctx, &fetchedWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying LQ pending metric moves from kind1/anno1 to kind2/anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 0, "lq-val", "kind1", "anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind2", "anno1")
+		})
 	})
 
 	ginkgo.When("PendingWorkloads metric when CustomMetricLabels is enabled with workload custom labels", func() {
@@ -1236,10 +1315,12 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			// LocalQueueMetrics must be enabled for reportLQPendingWorkloads to be called.
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
-				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: new(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -1331,7 +1412,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("making popped workload (wl3) inadmissible")
 			var fetchedWl3 kueue.Workload
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &fetchedWl3)).To(gomega.Succeed())
-			qManager.RequeueWorkload(ctx, workload.NewInfo(&fetchedWl3), qcache.RequeueReasonGeneric, "")
+			qManager.RequeueWorkload(ctx, workload.NewInfo(ctrl.LoggerFrom(ctx), &fetchedWl3), qcache.RequeueReasonGeneric, "")
 
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Label("workload-kind", "kind1").
@@ -1378,7 +1459,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 			var fetchedWl3 kueue.Workload
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &fetchedWl3)).To(gomega.Succeed())
-			qManager.RequeueWorkload(ctx, workload.NewInfo(&fetchedWl3), qcache.RequeueReasonGeneric, "")
+			qManager.RequeueWorkload(ctx, workload.NewInfo(ctrl.LoggerFrom(ctx), &fetchedWl3), qcache.RequeueReasonGeneric, "")
 
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Label("workload-kind", "kind1").
@@ -1534,4 +1615,310 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("CustomMetricLabels sources are deleted", func() {
+		var (
+			cq     *kueue.ClusterQueue
+			cohort *kueue.Cohort
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
+			controllersCfg := &config.Configuration{}
+			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("team_lq").SourceLabelKey("team").SourceKind(config.SourceKindLocalQueue).Obj(),
+				utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(config.SourceKindCohort).Obj(),
+				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("training").Obj(),
+			}
+			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-deleted-")
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			fwk.StopManager(ctx)
+			metrics.InitMetricVectors(nil)
+		})
+
+		ginkgo.It("should clear ClusterQueue series and stored label values when the ClusterQueue is deleted", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-deleted").
+				Label("team", "platform").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-deleted", ns.Name).
+				Label("team", "platform").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			admitted := utiltestingapi.MakeWorkload("wl-admitted", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, admitted)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admitted)
+
+			// Requests more than the nominal quota, so it stays pending and keeps
+			// the pending-workload series alive until the ClusterQueue is gone.
+			pending := utiltestingapi.MakeWorkload("wl-pending", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "10").Obj()
+			util.MustCreate(ctx, k8sClient, pending)
+
+			ginkgo.By("verifying the ClusterQueue series and stored label values are present")
+			expectSeriesPresent(clusterQueueScopedMetrics(), map[string]string{"cluster_queue": cq.Name})
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "platform", "training")
+			gomega.Expect(customMetricLabels.CQGet(kueue.ClusterQueueReference(cq.Name))).To(gomega.Equal([]string{"platform"}))
+
+			ginkgo.By("deleting the admitted workload and the ClusterQueue")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, admitted, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+
+			ginkgo.By("verifying no series is left for the deleted ClusterQueue")
+			expectNoRemainingSeries(clusterQueueScopedMetrics(), map[string]string{"cluster_queue": cq.Name})
+
+			ginkgo.By("verifying the stored ClusterQueue label values are dropped")
+			gomega.Eventually(func() []string {
+				return customMetricLabels.StoredRefsForTest(config.SourceKindClusterQueue)
+			}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement(cq.Name))
+		})
+
+		ginkgo.It("should clear LocalQueue series and stored label values when the LocalQueue is deleted", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-lq-deleted").
+				Label("team", "platform").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-deleted", ns.Name).
+				Label("team", "platform").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			admitted := utiltestingapi.MakeWorkload("wl-admitted", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, admitted)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admitted)
+
+			// Requests more than the nominal quota, so it stays pending and keeps
+			// the pending-workload series alive until the LocalQueue is gone.
+			pending := utiltestingapi.MakeWorkload("wl-pending", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "10").Obj()
+			util.MustCreate(ctx, k8sClient, pending)
+
+			ginkgo.By("verifying the LocalQueue series and stored label values are present")
+			expectSeriesPresent(localQueueScopedMetrics(), map[string]string{"name": lq.Name, "namespace": lq.Namespace})
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "platform", "training")
+			gomega.Expect(customMetricLabels.LQGet(utilqueue.Key(lq))).To(gomega.Equal([]string{"platform"}))
+
+			ginkgo.By("deleting the admitted workload and the LocalQueue")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, admitted, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+
+			ginkgo.By("verifying no series is left for the deleted LocalQueue")
+			expectNoRemainingSeries(localQueueScopedMetrics(), map[string]string{"name": lq.Name, "namespace": lq.Namespace})
+
+			ginkgo.By("verifying the stored LocalQueue label values are dropped")
+			gomega.Eventually(func() []string {
+				return customMetricLabels.StoredRefsForTest(config.SourceKindLocalQueue)
+			}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement(string(utilqueue.Key(lq))))
+		})
+
+		ginkgo.It("should clear Cohort series and stored label values when the Cohort is deleted", func() {
+			cohort = utiltestingapi.MakeCohort("cohort-deleted").
+				Label("team", "data-eng").
+				Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-cohort-deleted").
+				Label("team", "data-eng").
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-cohort-deleted", ns.Name).
+				Label("team", "data-eng").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl-cohort-deleted", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("verifying the Cohort series and stored label values are present")
+			expectSeriesPresent(cohortScopedMetrics(), map[string]string{"cohort": cohort.Name})
+			util.ExpectCohortSubtreeQuotaGaugeMetric(cohort.Name, defaultFlavor.Name, corev1.ResourceCPU.String(), 5, "data-eng")
+			gomega.Expect(customMetricLabels.CohortGet(kueue.CohortReference(cohort.Name))).To(gomega.Equal([]string{"data-eng"}))
+
+			ginkgo.By("deleting the workload, the LocalQueue, the ClusterQueue and the Cohort")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+
+			ginkgo.By("verifying no series is left for the deleted Cohort")
+			expectNoRemainingSeries(cohortScopedMetrics(), map[string]string{"cohort": cohort.Name})
+
+			ginkgo.By("verifying the stored Cohort label values are dropped")
+			gomega.Eventually(func() []string {
+				return customMetricLabels.StoredRefsForTest(config.SourceKindCohort)
+			}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement(cohort.Name))
+		})
+
+		ginkgo.It("should drop the stored Workload label values when admitted workloads are deleted", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-wl-deleted").
+				Label("team", "platform").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-wl-deleted", ns.Name).
+				Label("team", "platform").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			kept := utiltestingapi.MakeWorkload("wl-kept", ns.Name).
+				Label("workload-kind", "training").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, kept)
+			// An untracked value is folded into UntrackedCustomLabelValue in the
+			// metric series, but is still stored per workload.
+			removed := utiltestingapi.MakeWorkload("wl-removed", ns.Name).
+				Label("workload-kind", "adhoc").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, removed)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, kept, removed)
+
+			ginkgo.By("verifying both workloads are recorded in the custom label store")
+			gomega.Eventually(func() []string {
+				return customMetricLabels.StoredRefsForTest(config.SourceKindWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.ConsistOf(
+				string(workload.Key(kept)), string(workload.Key(removed)),
+			))
+
+			ginkgo.By("deleting one of the workloads")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, removed, true)
+
+			ginkgo.By("verifying only the deleted workload is dropped from the custom label store")
+			gomega.Eventually(func() []string {
+				return customMetricLabels.StoredRefsForTest(config.SourceKindWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.ConsistOf(string(workload.Key(kept))))
+
+			ginkgo.By("deleting the remaining workload")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, kept, true)
+
+			ginkgo.By("verifying no workload label values are left in the custom label store")
+			gomega.Eventually(func() []string {
+				return customMetricLabels.StoredRefsForTest(config.SourceKindWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+		})
+	})
 })
+
+// The metric vectors below are keyed by an object kind that carries custom
+// labels: none of them may hold a series once the object it is keyed by is
+// deleted, whatever custom label values that series carries. They are resolved
+// through functions because InitMetricVectors replaces the vectors whenever the
+// custom label configuration changes.
+func clusterQueueScopedMetrics() map[string]prometheus.Collector {
+	return map[string]prometheus.Collector{
+		"kueue_pending_workloads":                  metrics.PendingWorkloads,
+		"kueue_cluster_queue_status":               metrics.ClusterQueueByStatus,
+		"kueue_cluster_queue_info":                 metrics.ClusterQueueInfo,
+		"kueue_admitted_active_workloads":          metrics.AdmittedActiveWorkloads,
+		"kueue_reserving_active_workloads":         metrics.ReservingActiveWorkloads,
+		"kueue_admitted_workloads_total":           metrics.AdmittedWorkloadsTotal,
+		"kueue_quota_reserved_workloads_total":     metrics.QuotaReservedWorkloadsTotal,
+		"kueue_cluster_queue_nominal_quota":        metrics.ClusterQueueResourceNominalQuota,
+		"kueue_cluster_queue_resource_usage":       metrics.ClusterQueueResourceUsage,
+		"kueue_cluster_queue_resource_reservation": metrics.ClusterQueueResourceReservations,
+	}
+}
+
+func localQueueScopedMetrics() map[string]prometheus.Collector {
+	return map[string]prometheus.Collector{
+		"kueue_local_queue_pending_workloads":          metrics.LocalQueuePendingWorkloads,
+		"kueue_local_queue_status":                     metrics.LocalQueueByStatus,
+		"kueue_local_queue_admitted_active_workloads":  metrics.LocalQueueAdmittedActiveWorkloads,
+		"kueue_local_queue_reserving_active_workloads": metrics.LocalQueueReservingActiveWorkloads,
+		"kueue_local_queue_admitted_workloads_total":   metrics.LocalQueueAdmittedWorkloadsTotal,
+		"kueue_local_queue_resource_usage":             metrics.LocalQueueResourceUsage,
+		"kueue_local_queue_resource_reservation":       metrics.LocalQueueResourceReservations,
+	}
+}
+
+func cohortScopedMetrics() map[string]prometheus.Collector {
+	return map[string]prometheus.Collector{
+		"kueue_cohort_info":                              metrics.CohortInfo,
+		"kueue_cohort_subtree_quota":                     metrics.CohortSubtreeQuota,
+		"kueue_cohort_subtree_resource_reservations":     metrics.CohortSubtreeResourceReservations,
+		"kueue_cohort_subtree_admitted_active_workloads": metrics.CohortSubtreeAdmittedActiveWorkloads,
+	}
+}
+
+// expectSeriesPresent guards the cleanup assertions from becoming vacuous: it
+// pins down that every listed vector really does hold a series for the object
+// before that object is deleted.
+func expectSeriesPresent(collectors map[string]prometheus.Collector, lbls map[string]string) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		_, missing := partitionBySeries(collectors, lbls)
+		g.Expect(missing).To(gomega.BeEmpty(), "metrics holding no series matching %v", lbls)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+func expectNoRemainingSeries(collectors map[string]prometheus.Collector, lbls map[string]string) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		holding, _ := partitionBySeries(collectors, lbls)
+		g.Expect(holding).To(gomega.BeEmpty(), "metrics still holding series matching %v", lbls)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+// partitionBySeries splits the collectors by whether they currently hold at
+// least one series matching lbls. Both sides are returned so that a failure
+// names every offending metric at once instead of only the first.
+func partitionBySeries(collectors map[string]prometheus.Collector, lbls map[string]string) (holding, missing []string) {
+	for name, collector := range collectors {
+		if len(testingmetrics.CollectFilteredGaugeVec(collector, lbls)) > 0 {
+			holding = append(holding, name)
+		} else {
+			missing = append(missing, name)
+		}
+	}
+	slices.Sort(holding)
+	slices.Sort(missing)
+	return holding, missing
+}

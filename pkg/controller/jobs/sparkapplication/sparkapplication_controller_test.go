@@ -121,6 +121,45 @@ func TestPodSets(t *testing.T) {
 				}).Obj(),
 			},
 		},
+		"with SparkApplication-level node selector": {
+			sparkApp: testSparkApp.Clone().
+				NodeSelector(maps.Clone(nodeSelector)).
+				ExecutorInstances(3).Obj(),
+			want: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("driver", 1).PodSpec(corev1.PodSpec{
+					NodeSelector:   maps.Clone(nodeSelector),
+					Tolerations:    []corev1.Toleration{},
+					InitContainers: []corev1.Container{},
+					Containers: []corev1.Container{
+						{
+							Name: sparkcommon.SparkDriverContainerName,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("512Mi"),
+								},
+							},
+						},
+					},
+				}).Obj(),
+				*utiltestingapi.MakePodSet("executor", 3).PodSpec(corev1.PodSpec{
+					NodeSelector:   maps.Clone(nodeSelector),
+					Tolerations:    []corev1.Toleration{},
+					InitContainers: []corev1.Container{},
+					Containers: []corev1.Container{
+						{
+							Name: sparkcommon.Spark3DefaultExecutorContainerName,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("512Mi"),
+								},
+							},
+						},
+					},
+				}).Obj(),
+			},
+		},
 		"with TopologyAwareScheduling": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").
@@ -684,6 +723,14 @@ func TestReconciler(t *testing.T) {
 	// SparkApp variants used by the PodsReady cases.
 	sparkAppDriverRunningOnly := withDriverRunningOnly(withUID(testSparkApp.DeepCopy()), 2)
 	sparkAppAllExecutorsReady := withExecutorsRunning(withUID(testSparkApp.DeepCopy()), 2)
+	// Dynamic allocation variant: Instances=10, MinExecutors=5, 5 executors Running.
+	// PodsReady should use MinExecutors (5) as the expected count, not Instances (10).
+	sparkAppDynamicAllocation := withExecutorsRunning(withUID(testSparkApp.DeepCopy()), 5)
+	sparkAppDynamicAllocation.Spec.Executor.Instances = new(int32(10))
+	sparkAppDynamicAllocation.Spec.DynamicAllocation = &sparkappv1beta2.DynamicAllocation{
+		Enabled:      true,
+		MinExecutors: new(int32(5)),
+	}
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
@@ -748,6 +795,27 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"PodsReady becomes True/Started with dynamic allocation when MinExecutors executors are ready": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			sparkApp: sparkAppDynamicAllocation,
+			workloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDynamicAllocation).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDynamicAllocation).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -755,7 +823,9 @@ func TestReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder(sparkappv1beta2.AddToScheme).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 			kClient := clientBuilder.
 				WithObjects(tc.sparkApp, testNamespace).
 				WithStatusSubresource(&kueue.Workload{}).
@@ -797,5 +867,44 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestGlobalNodeSelectorSurvivesRunRestoreRoundTrip guards the full admit/evict cycle:
+// RunWithPodSetsInfo flattens spec.nodeSelector into the per-role selectors and clears
+// it, so the PodSet templates recorded in the Workload are the only place
+// RestorePodSetsInfo can read the original selector back from.
+func TestGlobalNodeSelectorSurvivesRunRestoreRoundTrip(t *testing.T) {
+	globalNodeSelector := map[string]string{"zone": "us-east"}
+	sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns").
+		NodeSelector(maps.Clone(globalNodeSelector)).
+		ExecutorInstances(3).
+		Obj()
+	kSparkApp := (*SparkApplication)(sparkApp)
+
+	podSets, err := kSparkApp.PodSets(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("PodSets() returned error: %v", err)
+	}
+
+	// Mirrors how the reconciler derives the PodSetInfos it feeds back on eviction.
+	podSetsInfo := make([]podset.PodSetInfo, 0, len(podSets))
+	for i := range podSets {
+		podSetsInfo = append(podSetsInfo, podset.FromPodSet(&podSets[i]))
+	}
+
+	if err := kSparkApp.RunWithPodSetsInfo(t.Context(), nil, podSetsInfo); err != nil {
+		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
+	}
+	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
+
+	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Driver.NodeSelector); diff != "" {
+		t.Errorf("driver node selector mismatch (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Executor.NodeSelector); diff != "" {
+		t.Errorf("executor node selector mismatch (-want,+got):\n%s", diff)
+	}
+	if sparkApp.Spec.NodeSelector != nil {
+		t.Errorf("spec.nodeSelector should stay cleared, got %v", sparkApp.Spec.NodeSelector)
 	}
 }

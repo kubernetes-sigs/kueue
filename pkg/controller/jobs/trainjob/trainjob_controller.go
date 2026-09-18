@@ -27,6 +27,7 @@ import (
 	kftrainerruntimecore "github.com/kubeflow/trainer/v2/pkg/runtime/core"
 	kftrainerjobset "github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset"
 	trainjobutil "github.com/kubeflow/trainer/v2/pkg/util/trainjob"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/slices"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
 
 var (
@@ -66,13 +68,18 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	})
 }
 
-// +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainjobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainjobs,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainjobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=trainingruntimes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=trainer.kubeflow.org,resources=clustertrainingruntimes,verbs=get;list;watch
 
 const runtimePatchManagerName = "kueue.x-k8s.io/manager"
+
+var (
+	errJobsStillActive           = errors.New("jobs are still active")
+	errKueueRuntimePatchNotFound = errors.New("error restoring info to the trainjob")
+)
 
 var newReconciler = jobframework.NewGenericReconcilerFactory(NewJob,
 	func(b *builder.Builder, _ client.Client) *builder.Builder {
@@ -166,14 +173,6 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 		return nil, err
 	}
 
-	// Jobset replicaJob parallelism/completions are set outside of the jobset builder
-	for psIdx, ps := range info.TemplateSpec.PodSets {
-		if ps.Count != nil {
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
-		}
-	}
-
 	jobsetApply := kftrainerjobset.NewBuilder(jobsetapplyapi.JobSet(t.Name, t.Namespace).
 		WithSpec(jobSetSpec)).Initializer(trainJob).Trainer(info, trainJob).PodLabels(info.Scheduler.PodLabels).Build()
 
@@ -239,8 +238,10 @@ func (t *TrainJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet
 	return wl.Spec.PodSets, nil
 }
 
+// RunWithPodSetsInfo applies admission assignments to the Kueue-owned Trainer
+// RuntimePatch while preserving tolerations resolved from the runtime.
 func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error {
-	jobset, err := getChildJobSet(ctx, c, t)
+	jobset, err := getChildJobSetWithoutKueuePatch(ctx, c, t)
 	if err != nil {
 		return err
 	}
@@ -249,8 +250,34 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 		return podset.BadPodSetsInfoLenError(len(jobset.Spec.ReplicatedJobs), len(podSetsInfo))
 	}
 
+	// Match admission assignments by name rather than relying on their order.
+	replicatedJobsByName := make(map[string]*jobsetapi.ReplicatedJob, len(jobset.Spec.ReplicatedJobs))
+	for i := range jobset.Spec.ReplicatedJobs {
+		replicatedJobsByName[jobset.Spec.ReplicatedJobs[i].Name] = &jobset.Spec.ReplicatedJobs[i]
+	}
+
+	// Keep the admission-to-replicated-job mapping one-to-one.
+	seenPodSets := make(map[string]struct{}, len(podSetsInfo))
 	var replicatedJobPatches []kftrainer.ReplicatedJobPatch
 	for _, info := range podSetsInfo {
+		name := string(info.Name)
+		if _, seen := seenPodSets[name]; seen {
+			return fmt.Errorf("%w: podset %q appears more than once", podset.ErrInvalidPodsetInfo, info.Name)
+		}
+		seenPodSets[name] = struct{}{}
+
+		replicatedJob, found := replicatedJobsByName[name]
+		if !found {
+			return fmt.Errorf("%w: podset %q does not match a replicated job", podset.ErrInvalidPodsetInfo, info.Name)
+		}
+
+		var tolerations []corev1.Toleration
+		if len(info.Tolerations) > 0 {
+			// Trainer treats PodSpecPatch.tolerations as an atomic list, so write
+			// the complete resolved list instead of replacing user tolerations
+			// with the admission additions.
+			tolerations = utiltolerations.Merge(replicatedJob.Template.Spec.Template.Spec.Tolerations, info.Tolerations)
+		}
 		replicatedJobPatches = append(replicatedJobPatches,
 			kftrainer.ReplicatedJobPatch{
 				Name: string(info.Name),
@@ -263,7 +290,7 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 							},
 							Spec: &kftrainer.PodSpecPatch{
 								NodeSelector:    info.NodeSelector,
-								Tolerations:     info.Tolerations,
+								Tolerations:     tolerations,
 								SchedulingGates: info.SchedulingGates,
 							},
 						},
@@ -273,13 +300,16 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 		)
 	}
 
-	kueueRuntimePatch := getKueueRuntimePatch(t)
-	if kueueRuntimePatch == nil {
-		return errors.New("kueue runtime patch not found")
-	}
-	kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = replicatedJobPatches
-	// Update the runtimePatches while the job is suspended, since is a requirement from the trainjob admission webhook
-	err = c.Update(ctx, t.Object())
+	// Update the runtimePatches while the job is suspended, since is a requirement from the trainjob admission webhook.
+	// Use merge patch to only update the kueue-managed fields.
+	err = clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
+		kueueRuntimePatch := getKueueRuntimePatch(t)
+		if kueueRuntimePatch == nil {
+			return false, errors.New("kueue runtime patch not found")
+		}
+		kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = replicatedJobPatches
+		return true, nil
+	})
 	if err != nil {
 		return err
 	}
@@ -288,32 +318,54 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 	return nil
 }
 
+// getChildJobSetWithoutKueuePatch resolves the JobSet from the runtime and
+// user-owned patches. Kueue's previous patch is excluded so stale admission
+// tolerations cannot be mistaken for user configuration on a re-admission.
+func getChildJobSetWithoutKueuePatch(ctx context.Context, c client.Client, t *TrainJob) (*jobsetapi.JobSet, error) {
+	trainJob := (*kftrainer.TrainJob)(t).DeepCopy()
+	userPatches := make([]kftrainer.RuntimePatch, 0, len(trainJob.Spec.RuntimePatches))
+	for _, patch := range trainJob.Spec.RuntimePatches {
+		if patch.Manager != runtimePatchManagerName {
+			userPatches = append(userPatches, patch)
+		}
+	}
+	trainJob.Spec.RuntimePatches = userPatches
+	return getChildJobSet(ctx, c, (*TrainJob)(trainJob))
+}
+
 func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
+	stoppedNow := false
 	if !t.IsSuspended() {
-		t.Suspend()
-		if err := c.Update(ctx, t.Object()); err != nil {
+		if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
+			t.Suspend()
+			return true, nil
+		}); err != nil {
 			return false, fmt.Errorf("error suspending trainjob: %w", err)
 		}
+		stoppedNow = true
 	}
 
 	if t.IsActive(ctx) {
-		return false, errors.New("jobs are still active")
+		return stoppedNow, errJobsStillActive
 	}
 
-	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
-		if !t.RestorePodSetsInfo(ctx, podSetsInfo) {
-			return false, errors.New("error restoring info to the trainjob")
-		}
-		return true, nil
-	}); err != nil {
-		return false, err
+	if getKueueRuntimePatch(t) == nil {
+		return stoppedNow, errKueueRuntimePatchNotFound
 	}
-	return true, nil
+	// RestorePodSetsInfo reports whether it changed anything, so clientutil.Patch
+	// issues no request for a TrainJob that was already restored by an earlier
+	// reconcile.
+	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
+		return t.RestorePodSetsInfo(ctx, podSetsInfo), nil
+	}); err != nil {
+		return stoppedNow, err
+	}
+	return stoppedNow, nil
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ context.Context, _ []podset.PodSetInfo) bool {
 	kueueRuntimePatch := getKueueRuntimePatch(t)
-	if kueueRuntimePatch == nil {
+	if kueueRuntimePatch == nil || kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs == nil {
 		return false
 	}
 	kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = nil

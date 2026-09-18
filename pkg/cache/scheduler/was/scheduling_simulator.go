@@ -1,15 +1,33 @@
 //go:build !exclude_scheduler_library
 
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package was
 
 import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -19,46 +37,63 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
 
-// podTracker maintains per-node pod state for scheduler plugins that need
-// existing pod information.
-type podTracker struct {
-	mu sync.RWMutex
-	// podsByNode maps node names to the set of tracked pods on that node.
-	podsByNode map[string]map[types.UID]*corev1.Pod
-	// podIndex maps each tracked pod to its current node so that TrackPod can
-	// remove the old entry when a pod migrates between nodes.
-	podIndex map[types.NamespacedName]podNodeInfo
-}
-
-// podNodeInfo records which node a tracked pod is placed on.
-type podNodeInfo struct {
-	nodeName string
-	podUID   types.UID
-}
-
 type wasSimulator struct {
 	newSnapshot snapshotFactory
 	pods        podTracker
 }
 
+type wasSimulatorSnapshot struct {
+	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
+	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
+	// is the only set PreemptWorkload can release.
+	podsByWorkload podsByWorkload
+	// emptyCluster holds the same nodes with no Pods, for callers asking what would
+	// fit if nothing were running.
+	emptyCluster lazyCluster
+}
+
+// lazyCluster builds its cluster on first use, so cycles that never ask do not
+// pay for it.
+type lazyCluster struct {
+	// build produces the cluster. It runs at most once.
+	build func(context.Context) (*schedLibSnapshot.ClusterSnapshot, error)
+	once  sync.Once
+	// value and err hold what build returned, and are only read after once has run.
+	value *schedLibSnapshot.ClusterSnapshot
+	err   error
+}
+
+func (l *lazyCluster) get(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+	l.once.Do(func() {
+		l.value, l.err = l.build(ctx)
+	})
+	return l.value, l.err
+}
+
+var _ simulator.SimulatorSnapshot = (*wasSimulatorSnapshot)(nil)
+
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
-				SchedulerName: "default-scheduler",
+				SchedulerName: corev1.DefaultSchedulerName,
 				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
 					QueueSort: schedulerconfig.PluginSet{
@@ -69,6 +104,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 					},
 					Filter: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{
+							{Name: nodeunschedulable.Name},
 							{Name: tainttoleration.Name},
 							{Name: nodeaffinity.Name},
 							{Name: nodeports.Name},
@@ -92,21 +128,26 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	}
 }
 
-func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulator.SchedulingSimulator, error) {
+func newWASSimulator(ctx context.Context, client kubernetes.Interface) (*wasSimulator, error) {
 	cfg := newWASSchedulerConfig()
-	informerFactory := informers.NewSharedInformerFactory(client, 0)
-
-	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
-	_ = informerFactory.Core().V1().Nodes().Informer()
-	_ = informerFactory.Core().V1().Pods().Informer()
-	informerFactory.StartWithContext(ctx)
-	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
-		return nil, err
-	}
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
+		// Building the framework registers a DRA index on the factory it is given, so it
+		// cannot be shared across snapshots, and the enabled plugins read the snapshot
+		// rather than the informers, so it is not needed once the framework is built.
+		buildCtx, cancelBuild := context.WithCancel(ctx)
+		defer cancelBuild()
+		informerFactory := informers.NewSharedInformerFactory(client, 0)
+
+		// Register node and pod informers with the factory; sync errors are caught by AsError() below.
+		_ = informerFactory.Core().V1().Nodes().Informer()
+		_ = informerFactory.Core().V1().Pods().Informer()
+		informerFactory.StartWithContext(buildCtx)
+		if err := informerFactory.WaitForCacheSyncWithContext(buildCtx).AsError(); err != nil {
+			return nil, err
+		}
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := framework.NewProfileMap(ctx, client, informerFactory, snap, cfg)
+		profiles, err := framework.NewProfileMap(buildCtx, client, informerFactory, snap, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -116,95 +157,72 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			podsByNode: make(map[string]map[types.UID]*corev1.Pod),
-			podIndex:   make(map[types.NamespacedName]podNodeInfo),
+			pods:         make(podsByKey),
+			workloadPods: make(podsByWorkload),
 		},
 	}, nil
 }
 
-// NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
-// suitable for unit tests that need the full production plugin pipeline.
-func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
-	return newWASSimulator(ctx, fake.NewSimpleClientset())
-}
-
-func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
-	// TODO(#13534): when DRA plugins are added, use a real client here
-	// instead of the fake so the informer factory is populated.
-	if _, err := schedLibSimulator.NewReadonlyClient(restConfig); err != nil {
-		return nil, err
+func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulator, error) {
+	if restConfig != nil {
+		// TODO(#13534): when DRA plugins are added, use a real client here
+		// instead of the fake so the informer factory is populated.
+		if _, err := schedLibSimulator.NewReadonlyClient(restConfig); err != nil {
+			return nil, err
+		}
 	}
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
-	pods := s.pods.podsForNodes(nodes)
-	clusterSnap, err := s.newSnapshot(ctx, pods, nodes)
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+	allPods, podsByWorkload := s.pods.snapshot()
+	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
 	}
-	return &wasChecker{snap: clusterSnap}, nil
+	snapshot := &wasSimulatorSnapshot{
+		wasSnapshot:    clusterSnap,
+		podsByWorkload: podsByWorkload,
+	}
+	snapshot.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, podsByWorkload), nodes)
+	}
+	return snapshot, nil
 }
 
-func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
+// podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption
+// cannot remove them, so they keep occupying their node even when the caller assumes
+// every Workload is gone.
+func podsNotManagedByKueue(allPods []*corev1.Pod, byWorkload podsByWorkload) []*corev1.Pod {
+	managed := sets.New[client.ObjectKey]()
+	for _, pods := range byWorkload {
+		managed.Insert(slices.Collect(maps.Keys(pods))...)
+	}
+	var kept []*corev1.Pod
+	for _, pod := range allPods {
+		if !managed.Has(client.ObjectKeyFromObject(pod)) {
+			kept = append(kept, pod)
+		}
+	}
+	return kept
+}
+
+func (s *wasSimulator) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
+		ctrl.LoggerFrom(ctx).V(1).Info(
+			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
+			"pod", client.ObjectKeyFromObject(pod).String(),
+			"missing annotation", kueue.WorkloadAnnotation,
+		)
+	}
 	s.pods.track(pod)
 }
 
-func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
+func (s *wasSimulator) UntrackPod(_ context.Context, key client.ObjectKey) {
 	s.pods.untrack(key)
 }
 
-func (t *podTracker) podsForNodes(nodes []*corev1.Node) []*corev1.Pod {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	var pods []*corev1.Pod
-	for _, node := range nodes {
-		for _, pod := range t.podsByNode[node.Name] {
-			pods = append(pods, pod)
-		}
-	}
-	return pods
-}
-
-func (t *podTracker) track(pod *corev1.Pod) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	key := client.ObjectKeyFromObject(pod)
-	if old, found := t.podIndex[key]; found {
-		delete(t.podsByNode[old.nodeName], old.podUID)
-		if len(t.podsByNode[old.nodeName]) == 0 {
-			delete(t.podsByNode, old.nodeName)
-		}
-	}
-	node := pod.Spec.NodeName
-	if t.podsByNode[node] == nil {
-		t.podsByNode[node] = make(map[types.UID]*corev1.Pod)
-	}
-	t.podsByNode[node][pod.UID] = pod
-	t.podIndex[key] = podNodeInfo{nodeName: node, podUID: pod.UID}
-}
-
-func (t *podTracker) untrack(key types.NamespacedName) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	old, found := t.podIndex[key]
-	if !found {
-		return
-	}
-	delete(t.podsByNode[old.nodeName], old.podUID)
-	if len(t.podsByNode[old.nodeName]) == 0 {
-		delete(t.podsByNode, old.nodeName)
-	}
-	delete(t.podIndex, key)
-}
-
-type wasChecker struct {
-	snap *schedLibSnapshot.ClusterSnapshot
-}
-
-func (c *wasChecker) FindFeasibleNodes(
+func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -230,11 +248,20 @@ func (c *wasChecker) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
-	placement, err := c.snap.MakePlacement(candidateNodeNames)
+	// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
+	dummyPod.Spec.SchedulerName = corev1.DefaultSchedulerName
+	cluster := s.wasSnapshot
+	if requirements.SimulateEmpty {
+		var err error
+		if cluster, err = s.emptyCluster.get(ctx); err != nil {
+			return nil, err
+		}
+	}
+	placement, err := cluster.MakePlacement(candidateNodeNames)
 	if err != nil {
 		return nil, err
 	}
-	feasibleNodeNames, _, err := c.snap.CanSchedulePod(ctx, dummyPod, placement)
+	feasibleNodeNames, _, err := cluster.CanSchedulePod(ctx, dummyPod, placement)
 	if err != nil {
 		return nil, err
 	}
@@ -250,4 +277,26 @@ func (c *wasChecker) FindFeasibleNodes(
 	stats.SchedulerLibraryNoFit = len(candidateNodeNames) - len(feasibleNodeNames)
 
 	return feasibleCandidates, nil
+}
+
+func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+	// Pods with indeterminate workloads are not stored in s.podsByWorkload and are omitted from preemptions.
+	// This means the simulation may be more restrictive than the real scheduler would be,
+	// if the preempted workload has pods that do not identify with it directly.
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
+	}
+
+	return func() error {
+		_, err := s.wasSnapshot.Unpreempt(unpreempt)
+		return err
+	}, nil
+}
+
+func (s *wasSimulatorSnapshot) Simulate(ctx context.Context, fn func()) error {
+	return s.wasSnapshot.Transaction(ctx, func() (schedLibSnapshot.TransactionResult, error) {
+		fn()
+		return schedLibSnapshot.Revert, nil
+	})
 }

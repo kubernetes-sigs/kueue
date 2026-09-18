@@ -180,4 +180,4 @@ Parent Workload 是作业集成观察准入状态的对象。Variant Workload �
 ## 接下来 {#whats-next}
 
 - 阅读[并发准入概念](/v0.19/docs/concepts/concurrent_admission)。
-- 阅读 [`ConcurrentAdmissionPolicy` API 参考](/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)。
+- 阅读 [`ConcurrentAdmissionPolicy` API 参考](/zh-cn/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionPolicy)。

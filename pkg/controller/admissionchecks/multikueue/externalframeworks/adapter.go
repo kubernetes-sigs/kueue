@@ -48,13 +48,6 @@ var (
 	_ jobframework.MultiKueueWatcher = (*Adapter)(nil)
 )
 
-// NewAdapter creates a new adapter for the given GVK.
-func NewAdapter(gvk schema.GroupVersionKind) jobframework.MultiKueueAdapter {
-	return &Adapter{
-		gvk: gvk,
-	}
-}
-
 // SyncJob synchronizes a job resource between the local and remote clusters.
 // It ensures that the remote cluster has a corresponding object for the local job,
 // creating it if necessary, and updates the status of the local object based on the remote object.

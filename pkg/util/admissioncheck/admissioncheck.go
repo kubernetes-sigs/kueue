@@ -31,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
 
 var (
@@ -174,7 +175,7 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 			if len(check.OnFlavors) > 0 {
 				checks[check.Name] = sets.New(check.OnFlavors...)
 			} else {
-				checks[check.Name] = utilqueue.AllFlavors(cq.Spec.ResourceGroups)
+				checks[check.Name] = utilqueue.AllFlavors(resourcegroups.EffectiveResourceGroups(cq))
 			}
 		}
 	} else {

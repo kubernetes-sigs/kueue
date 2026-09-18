@@ -84,7 +84,7 @@ Cohort 可以组织成树形结构。我们将属于同一棵树的 ClusterQueue
 Cohort 的组合称为 **CohortTree**。
 
 给定 CohortTree 中的 ClusterQueue 可以使用其中的资源，
-并遵循[借用和借出限制](/zh-cn/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceQuota)。
+并遵循[借用和借出限制](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ResourceQuota)。
 这些借用和借出限制可以为 Cohort 以及 ClusterQueue 指定。
 
 这是一个简单的 CohortTree，包含三个 Cohort：

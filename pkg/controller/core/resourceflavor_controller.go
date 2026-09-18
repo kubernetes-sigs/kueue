@@ -40,6 +40,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -224,8 +225,8 @@ func (r *ResourceFlavorReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.
 		return
 	}
 
-	oldFlavors := utilqueue.AllFlavors(oldCQ.Spec.ResourceGroups)
-	newFlavors := utilqueue.AllFlavors(newCQ.Spec.ResourceGroups)
+	oldFlavors := utilqueue.AllFlavors(resourcegroups.EffectiveResourceGroups(oldCQ))
+	newFlavors := utilqueue.AllFlavors(resourcegroups.EffectiveResourceGroups(newCQ))
 	if !oldFlavors.Equal(newFlavors) {
 		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
 	}
@@ -258,7 +259,7 @@ func (h *cqHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue
 		return
 	}
 
-	for _, rg := range cq.Spec.ResourceGroups {
+	for _, rg := range resourcegroups.EffectiveResourceGroups(cq) {
 		for _, flavor := range rg.Flavors {
 			if cqs := h.cache.ClusterQueuesUsingFlavor(flavor.Name); len(cqs) == 0 {
 				req := reconcile.Request{

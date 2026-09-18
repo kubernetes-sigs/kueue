@@ -1,0 +1,24 @@
+title: Partial Replica ScaleUp for ElasticJob
+kep-number: 12100
+authors:
+  - "@yaroslava-serdiuk"
+status: provisional
+creation-date: 2026-08-11
+reviewers:
+  - "@kshalot"
+approvers:
+  - "@tenzen-y"
+  - "@sohankunkerkar"
+
+see-also:
+  - "/keps/77-dynamically-sized-jobs"
+  - "/keps/420-partial-admission"
+
+stage: alpha
+latest-milestone: "v0.20"
+milestone:
+  alpha: "v0.20"
+
+feature-gates:
+  - name: ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp
+disable-supported: true

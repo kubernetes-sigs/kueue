@@ -18,11 +18,13 @@ package core
 
 import (
 	"context"
-	stderrors "errors"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -98,11 +100,12 @@ func TestWorkloadPriorityClassPredicates(t *testing.T) {
 }
 
 func TestWorkloadPriorityClassReconcile(t *testing.T) {
+	errTest := errors.New("test error")
 	cases := map[string]struct {
 		wpc           *kueue.WorkloadPriorityClass
 		workloads     []kueue.Workload
 		wantWorkloads []kueue.Workload
-		wantError     bool
+		wantError     error
 		clientFuncs   *interceptor.Funcs
 	}{
 		"reconcile updates workload priority when WPC priority changes": {
@@ -143,6 +146,31 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"reconcile updates local workload and skips MultiKueue remote workload": {
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("local", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("remote", "default").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("local", "default").
+					Priority(1000).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("remote", "default").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+		},
 		"reconcile skips workloads with up-to-date priority": {
 			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
 			workloads: []kueue.Workload{
@@ -173,7 +201,7 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 			},
 			clientFuncs: &interceptor.Funcs{
 				Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-					return errors.NewNotFound(kueue.Resource("workload"), "wl1")
+					return apierrors.NewNotFound(kueue.Resource("workload"), "wl1")
 				},
 			},
 			wantWorkloads: []kueue.Workload{
@@ -193,10 +221,10 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 			},
 			clientFuncs: &interceptor.Funcs{
 				Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-					return stderrors.New("update failed")
+					return errTest
 				},
 			},
-			wantError: true,
+			wantError: errTest,
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl1", "default").
 					Priority(100).
@@ -220,12 +248,12 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 				Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 					wl := obj.(*kueue.Workload)
 					if wl.Name == "wl2" {
-						return stderrors.New("update failed for wl2")
+						return errTest
 					}
 					return client.Update(ctx, obj, opts...)
 				},
 			},
-			wantError: true,
+			wantError: errTest,
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl1", "default").
 					Priority(1000).
@@ -237,13 +265,50 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"reconcile returns an error when all updates fail": {
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			clientFuncs: &interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					return fmt.Errorf("%w: update failed for %s", errTest, obj.GetName())
+				},
+			},
+			wantError: errTest,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+		},
 		"reconcile handles WPC not found": {
 			wpc:           utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
 			workloads:     []kueue.Workload{},
 			wantWorkloads: []kueue.Workload{},
 			clientFuncs: &interceptor.Funcs{
 				Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					return errors.NewNotFound(kueue.Resource("workloadpriorityclass"), key.Name)
+					return apierrors.NewNotFound(kueue.Resource("workloadpriorityclass"), key.Name)
 				},
 			},
 		},
@@ -273,11 +338,8 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 			}
 
 			_, gotErr := reconciler.Reconcile(ctx, req)
-
-			if tc.wantError && gotErr == nil {
-				t.Errorf("expected error but got nil")
-			} else if !tc.wantError && gotErr != nil {
-				t.Errorf("unexpected error: %v", gotErr)
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
+				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
 			// Verify workloads are in the expected state
 			for _, wantWl := range tc.wantWorkloads {

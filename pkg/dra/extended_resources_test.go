@@ -34,7 +34,11 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func newFakeClient(deviceClasses ...*resourceapi.DeviceClass) client.Client {
@@ -270,6 +274,33 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
 				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
+		},
+		{
+			name: "workload with negative extended resource request is not charged",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("-3"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want:          nil,
 		},
 		{
 			name: "workload with multiple extended resources",
@@ -588,6 +619,50 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
+			// vendor.example/a and vendor.example/b share the "gpu-claims" quota key.
+			// The negative request for b must be dropped before aggregation, not
+			// merged in and left to offset a's positive charge.
+			name: "positive and negative extended resource names sharing a quota key: negative does not offset positive",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"vendor.example/a": resource.MustParse("5"),
+											"vendor.example/b": resource.MustParse("-3"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{classADeviceClass, classBDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu-claims",
+					DeviceClassNames: []corev1.ResourceName{"class-a", "class-b"},
+				},
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu-claims": resource.MustParse("5"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("vendor.example/a"),
+			},
+		},
+		{
 			name: "workload with non-integer extended resource quantity",
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
@@ -859,7 +934,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 
 			cl := newFakeClient(tt.deviceClasses...)
 
-			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, mapper, tt.workload)
+			got, gotReplaced, errs := ResolveExtendedResourceQuota(t.Context(), cl, mapper, &workload.Info{Obj: tt.workload})
 
 			if diff := cmp.Diff(tt.wantErr, errs, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ResolveExtendedResourceQuota() error mismatch (-want +got):\n%s", diff)
@@ -1063,9 +1138,52 @@ func TestNeedsDRAReconcile(t *testing.T) {
 				cache.Add(resName, dcName)
 			}
 
-			got := NeedsDRAReconcile(tc.workload, cache)
+			got := NeedsDRAReconcile(&workload.Info{Obj: tc.workload}, cache)
 			if got != tc.want {
 				t.Errorf("NeedsDRAReconcile() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDRADetectionAndQuotaUseEffectiveRequests verifies that both DRA consumers
+// use Info's effective requests when the raw Workload has no explicit requests.
+// NeedsDRAReconcile must detect the defaulted GPU request, and
+// ResolveExtendedResourceQuota must account for the same two GPUs and mark the
+// resource as replaced so it is not also charged as a regular extended resource.
+// Limits-only and LimitRange inputs exercise the two sources of those requests;
+// this test covers the DRA helpers, without running a controller or scheduler.
+func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+	const gpu corev1.ResourceName = "example.com/gpu"
+	for name, useLimitRange := range map[string]bool{"limits only": false, "LimitRange defaults": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Limit(gpu, "2").Obj()
+			inputs := workload.AdjustmentInputs{}
+			if useLimitRange {
+				wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Limits = nil
+				inputs.LimitRangeSummary = limitrange.Summary{corev1.LimitTypeContainer: {DefaultRequest: corev1.ResourceList{gpu: resource.MustParse("2")}}}
+			}
+			original := wl.DeepCopy()
+			info := workload.NewInfo(log, wl, workload.WithAdjustmentInputs(inputs))
+			cache := NewExtendedResourceCache()
+			cache.Add(gpu, "gpu.example.com")
+			if !NeedsDRAReconcile(info, cache) {
+				t.Fatal("effective GPU requests did not trigger DRA processing")
+			}
+			dc := &resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"}, Spec: resourceapi.DeviceClassSpec{ExtendedResourceName: new(string(gpu))}}
+			got, replaced, errs := ResolveExtendedResourceQuota(ctx, newFakeClient(dc), NewResourceMapper(), info)
+			if len(errs) != 0 {
+				t.Fatal(errs)
+			}
+			qty := got["main"][gpu]
+			if qty.Cmp(resource.MustParse("2")) != 0 || !replaced["main"].Has(gpu) {
+				t.Errorf("effective DRA requests not charged: requests %v, replaced %v", got, replaced)
+			}
+			if diff := cmp.Diff(original, wl); diff != "" {
+				t.Fatalf("raw Workload changed: %s", diff)
 			}
 		})
 	}

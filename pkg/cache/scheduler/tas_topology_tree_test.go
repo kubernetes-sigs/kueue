@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -40,6 +41,50 @@ const (
 	treeTestBlockLabel = "cloud.provider.com/topology-block"
 	treeTestRackLabel  = "cloud.provider.com/topology-rack"
 )
+
+// The virtual hostname level must identify nodes by name: hostname labels
+// are neither unique nor immutable, and two nodes sharing one label must
+// not merge into a single leaf with pooled capacity.
+func TestTreeVirtualLevelKeyedByNodeName(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	labeledNode := testingnode.MakeNode("").
+		Label(treeTestBlockLabel, "b1").
+		Label(treeTestRackLabel, "r1").
+		StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}).
+		Ready()
+	testCases := map[string]struct {
+		hostnameLabels []string
+	}{
+		"distinct hostname labels": {
+			hostnameLabels: []string{"node-a", "node-b"},
+		},
+		"duplicate hostname labels": {
+			hostnameLabels: []string{"dup", "dup"},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tree := newTopologyTree(
+				[]string{treeTestBlockLabel, treeTestRackLabel},
+				[]*corev1.Node{
+					labeledNode.Clone().Name("node-a").Label(corev1.LabelHostname, tc.hostnameLabels[0]).Obj(),
+					labeledNode.Clone().Name("node-b").Label(corev1.LabelHostname, tc.hostnameLabels[1]).Obj(),
+				},
+				0,
+			)
+			if len(tree.leaves) != 2 {
+				t.Fatalf("expected one leaf per node, got %d leaves for 2 nodes", len(tree.leaves))
+			}
+			nodeNames := sets.New[string]()
+			for _, leaf := range tree.leaves {
+				nodeNames.Insert(leaf.node.Name)
+			}
+			if !nodeNames.HasAll("node-a", "node-b") {
+				t.Errorf("leaves must be backed by node-a and node-b, got %v", sets.List(nodeNames))
+			}
+		})
+	}
+}
 
 func makeTreeTestNode(name, block, rack string) *corev1.Node {
 	return testingnode.MakeNode(name).
@@ -199,7 +244,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 				Count:             2,
 			}})
 
-			cold, err := fc.snapshot(ctx, log, nil)
+			cold, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("cold snapshot failed: %v", err)
 			}
@@ -207,7 +252,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 			if tree == nil {
 				t.Fatal("expected the cold build to store the topology tree")
 			}
-			reused, err := fc.snapshot(ctx, log, nil)
+			reused, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("second snapshot failed: %v", err)
 			}
@@ -234,11 +279,11 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 		flavorInformation{TopologyName: "default"},
 	)
 
-	first, err := fc.snapshot(ctx, log, nil)
+	first, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
-	second, err := fc.snapshot(ctx, log, nil)
+	second, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -252,12 +297,39 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	// leak into snapshots of other cycles.
 	second.addTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}))
 	second.addNonTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 500}))
-	third, err := fc.snapshot(ctx, log, nil)
+	third, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
 	if diff := cmp.Diff(firstDump, dumpSnapshotTree(t, third), cmp.Comparer(resources.Equal)); diff != "" {
 		t.Errorf("usage applied to one snapshot leaked into another (-first,+third):\n%s", diff)
+	}
+}
+
+func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, false)
+	ctx, log := utiltesting.ContextWithLog(t)
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
+	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
+	fc := tasCache.NewTASFlavorCache(
+		topologyInformation{Levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname}},
+		flavorInformation{TopologyName: "default"},
+	)
+
+	first, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	if err != nil {
+		t.Fatalf("first snapshot failed: %v", err)
+	}
+	second, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	if err != nil {
+		t.Fatalf("second snapshot failed: %v", err)
+	}
+	if first.topologyTree == second.topologyTree {
+		t.Error("snapshots share a topology tree while TASCacheTopologyTree is disabled")
+	}
+	if fc.cachedTree() != nil {
+		t.Error("the flavor cache retained a topology tree while TASCacheTopologyTree is disabled")
 	}
 }
 
@@ -271,7 +343,7 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 		topologyInformation{Levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname}},
 		flavorInformation{TopologyName: "default"},
 	)
-	snapshot, err := fc.snapshot(ctx, log, nil)
+	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -308,7 +380,7 @@ func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 	snapshots := make([]*TASFlavorSnapshot, 2)
 	for i := range snapshots {
 		var err error
-		snapshots[i], err = fc.snapshot(ctx, log, nil)
+		snapshots[i], err = fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 		if err != nil {
 			t.Fatalf("snapshot %d failed: %v", i, err)
 		}
@@ -423,7 +495,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 				flavorInformation{TopologyName: "default", NodeLabels: tc.initialNodeLabels},
 			)
 
-			if _, err := fc.snapshot(ctx, log, nil); err != nil {
+			if _, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil); err != nil {
 				t.Fatalf("initial snapshot failed: %v", err)
 			}
 			tree := fc.cachedTree()
@@ -432,7 +504,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 			}
 
 			tc.mutate(&tasCache, fc)
-			snapshot, err := fc.snapshot(ctx, log, nil)
+			snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("snapshot after cache mutation failed: %v", err)
 			}
@@ -489,7 +561,7 @@ func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
 	_, log := utiltesting.ContextWithLog(t)
 	// Validate each domain's index against the per-snapshot domain state addressed
 	// by domain.idx.
-	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, &defaultChecker{})
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "default"}, tree, newDefaultSimulatorSnapshot())
 	seen := make(map[int]*domain, tree.domainCount)
 	for _, levelDomains := range tree.domainsPerLevel {
 		for _, dom := range levelDomains {
@@ -510,9 +582,10 @@ func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
 
 func TestNewTopologyTree(t *testing.T) {
 	tests := map[string]struct {
-		levels []string
-		nodes  []*corev1.Node
-		want   map[domainKey]topologyTreeDomainDump
+		nodeFeasibility bool
+		levels          []string
+		nodes           []*corev1.Node
+		want            map[domainKey]topologyTreeDomainDump
 	}{
 		"lowest level is hostname": {
 			levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname},
@@ -560,7 +633,9 @@ func TestNewTopologyTree(t *testing.T) {
 				},
 			},
 		},
-		"lowest level is not hostname": {
+		"lowest level is not hostname; feature gate off": {
+			// Without the gate the lowest declared level stays the leaf, so a
+			// rack aggregates its nodes' capacity and carries no node of its own.
 			levels: []string{treeTestBlockLabel, treeTestRackLabel},
 			nodes: []*corev1.Node{
 				makeTreeTestNode("n1", "b1", "r1"),
@@ -583,6 +658,86 @@ func TestNewTopologyTree(t *testing.T) {
 					LevelValues: []string{"b1", "r2"},
 					Parent:      domainKey{Level: 0, ID: "b1"},
 					Leaf:        true,
+					CPUCapacity: 4000,
+				},
+			},
+		},
+		"lowest level is not hostname": {
+			nodeFeasibility: true,
+			levels:          []string{treeTestBlockLabel, treeTestRackLabel},
+			nodes: []*corev1.Node{
+				makeTreeTestNode("n1", "b1", "r1"),
+				makeTreeTestNode("n2", "b1", "r1"),
+				makeTreeTestNode("n3", "b1", "r2"),
+			},
+			want: map[domainKey]topologyTreeDomainDump{
+				{Level: 0, ID: "b1"}: {
+					LevelValues: []string{"b1"},
+					Children:    []domainKey{{Level: 1, ID: "b1,r1"}, {Level: 1, ID: "b1,r2"}},
+					Root:        true,
+				},
+				{Level: 1, ID: "b1,r1"}: {
+					LevelValues: []string{"b1", "r1"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n1"}, {Level: 2, ID: "n2"}},
+				},
+				{Level: 1, ID: "b1,r2"}: {
+					LevelValues: []string{"b1", "r2"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n3"}},
+				},
+				{Level: 2, ID: "n1"}: {
+					LevelValues: []string{"b1", "r1", "n1"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n1",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n2"}: {
+					LevelValues: []string{"b1", "r1", "n2"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n2",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n3"}: {
+					LevelValues: []string{"b1", "r2", "n3"},
+					Parent:      domainKey{Level: 1, ID: "b1,r2"},
+					Leaf:        true,
+					NodeName:    "n3",
+					CPUCapacity: 4000,
+				},
+			},
+		},
+		"node without hostname label on a non-hostname topology falls back to node name": {
+			nodeFeasibility: true,
+			levels:          []string{treeTestBlockLabel, treeTestRackLabel},
+			nodes: []*corev1.Node{
+				testingnode.MakeNode("n1").
+					Label(treeTestBlockLabel, "b1").
+					Label(treeTestRackLabel, "r1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+			},
+			want: map[domainKey]topologyTreeDomainDump{
+				{Level: 0, ID: "b1"}: {
+					LevelValues: []string{"b1"},
+					Children:    []domainKey{{Level: 1, ID: "b1,r1"}},
+					Root:        true,
+				},
+				{Level: 1, ID: "b1,r1"}: {
+					LevelValues: []string{"b1", "r1"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n1"}},
+				},
+				{Level: 2, ID: "n1"}: {
+					LevelValues: []string{"b1", "r1", "n1"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n1",
 					CPUCapacity: 4000,
 				},
 			},
@@ -611,6 +766,7 @@ func TestNewTopologyTree(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, tc.nodeFeasibility)
 			tree := newTopologyTree(tc.levels, tc.nodes, 0)
 			validateTopologyTreeStateIndexes(t, tree)
 			if diff := cmp.Diff(tc.want, dumpTopologyTree(tree)); diff != "" {

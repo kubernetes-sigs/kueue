@@ -43,7 +43,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
-	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
@@ -70,7 +69,6 @@ var (
 
 func init() {
 	utilruntime.Must(visibilityv1beta2.AddToScheme(scheme))
-	utilruntime.Must(visibilityv1beta1.AddToScheme(scheme))
 	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
 }
 
@@ -104,7 +102,6 @@ func CreateAndStartVisibilityServer(ctx context.Context, kueueMgr *qcache.Manage
 func createVisibilityServerOptions(cfg *configapi.Configuration) *genericoptions.RecommendedOptions {
 	o := genericoptions.NewRecommendedOptions("", codecs.LegacyCodec(
 		visibilityv1beta2.SchemeGroupVersion,
-		visibilityv1beta1.SchemeGroupVersion,
 	))
 	o.Etcd = nil
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
@@ -166,7 +163,7 @@ func applyVisibilityServerSecureServingOptions(o *genericoptions.SecureServingOp
 func newVisibilityServerConfig(kubeConfig *rest.Config) *genericapiserver.RecommendedConfig {
 	c := genericapiserver.NewRecommendedConfig(codecs)
 	versionInfo := version.Get()
-	version := strings.Split(versionInfo.String(), "-")[0]
+	version, _, _ := strings.Cut(versionInfo.String(), "-")
 	// enable OpenAPI schemas
 	c.EffectiveVersion = compatibility.NewEffectiveVersionFromString(version, "", "")
 	c.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(scheme))
@@ -187,7 +184,6 @@ func install(server *genericapiserver.GenericAPIServer, kueueMgr *qcache.Manager
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(visibilityv1beta2.SchemeGroupVersion.Group, scheme, parameterCodec, codecs)
 	storage := storage.NewStorage(kueueMgr)
 	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta2.SchemeGroupVersion.Version] = storage
-	apiGroupInfo.VersionedResourcesStorageMap[visibilityv1beta1.SchemeGroupVersion.Version] = storage
-	apiGroupInfo.PrioritizedVersions = []schema.GroupVersion{visibilityv1beta2.SchemeGroupVersion, visibilityv1beta1.SchemeGroupVersion}
+	apiGroupInfo.PrioritizedVersions = []schema.GroupVersion{visibilityv1beta2.SchemeGroupVersion}
 	return server.InstallAPIGroups(&apiGroupInfo)
 }

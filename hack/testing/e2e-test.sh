@@ -25,6 +25,17 @@ ROOT_DIR="$SOURCE_DIR/../.."
 source "${SOURCE_DIR}/e2e-common.sh"
 
 function cleanup {
+    local exit_code=$?
+
+    # Deleting the cluster under an in-flight "kind create" SIGKILLs "kubeadm join",
+    # which surfaces as "exit status 137" and hides the real failure (#14673).
+    # Waiting is the only option: "timeout" escapes our process group and
+    # "kubeadm" runs inside the node container.
+    if [ -n "${STARTUP_PID:-}" ] && kill -0 "$STARTUP_PID" 2>/dev/null; then
+        echo "Exiting (code ${exit_code}) while the cluster bring-up is still running; waiting for it to finish before teardown."
+        wait "$STARTUP_PID" || true
+    fi
+
     if [ ! -d "$ARTIFACTS" ]; then
         mkdir -p "$ARTIFACTS"
     fi
@@ -50,8 +61,12 @@ function startup {
 trap cleanup EXIT
 build_kind_node_image
 startup &
+STARTUP_PID=$!
 prepare_docker_images
-wait
+# A bare "wait" reports success no matter how the background job exited, which
+# would let the run continue without a cluster.
+wait "$STARTUP_PID"
+STARTUP_PID=""
 kind_load "$KIND_CLUSTER_NAME" ""
 kueue_deploy
 

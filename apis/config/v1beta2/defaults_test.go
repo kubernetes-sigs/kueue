@@ -34,8 +34,8 @@ const (
 	overwriteMetricBindAddress                   = ":38081"
 	overwriteHealthProbeBindAddress              = ":38080"
 	overwriteLeaderElectionID                    = "foo.kueue.x-k8s.io"
-	expectedDefaultClientConnectionQPS   float32 = 300.0
-	expectedDefaultClientConnectionBurst int32   = 500
+	expectedDefaultClientConnectionQPS   float32 = 1000.0
+	expectedDefaultClientConnectionBurst int32   = 1000
 )
 
 func TestSetDefaults_Configuration(t *testing.T) {
@@ -484,7 +484,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						BackoffBaseSeconds: new(int32(63)),
 						BackoffMaxSeconds:  new(int32(1800)),
 					},
-					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
+					RecoveryTimeout:    &metav1.Duration{Duration: time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -492,9 +493,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					BlockAdmission:  new(false),
-					Timeout:         podsReadyTimeoutOverwrite,
-					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
+					BlockAdmission:     new(false),
+					Timeout:            podsReadyTimeoutOverwrite,
+					RecoveryTimeout:    &metav1.Duration{Duration: time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
 						BackoffBaseSeconds: new(int32(63)),

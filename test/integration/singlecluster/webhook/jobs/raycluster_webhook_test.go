@@ -27,10 +27,12 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
@@ -59,6 +61,56 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+		})
+
+		ginkgo.When("ValidateRayAndSparkJobUpdates is enabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, true)
+			})
+
+			ginkgo.It("should reject removing the queue name from an unsuspended RayCluster", func() {
+				cluster := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("queue-name").Obj()
+				util.MustCreate(ctx, k8sClient, cluster)
+
+				lookupKey := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
+				createdCluster := &rayv1.RayCluster{}
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdCluster)).Should(gomega.Succeed())
+
+				// Simulate an unsuspended cluster updating other fields while retaining the queue name.
+				createdCluster.Spec.Suspend = new(false)
+				gomega.Expect(k8sClient.Update(ctx, createdCluster)).Should(gomega.Succeed())
+
+				// Simulate an unsuspended cluster dropping its queue name to become unmanaged.
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdCluster)).Should(gomega.Succeed())
+				delete(createdCluster.Labels, controllerconstants.QueueLabel)
+				err := k8sClient.Update(ctx, createdCluster)
+				gomega.Expect(err).Should(gomega.HaveOccurred())
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+			})
+		})
+
+		ginkgo.When("ValidateRayAndSparkJobUpdates is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ValidateRayAndSparkJobUpdates, false)
+			})
+
+			ginkgo.It("should allow removing the queue name from an unsuspended RayCluster", func() {
+				cluster := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("queue-name").Obj()
+				util.MustCreate(ctx, k8sClient, cluster)
+
+				lookupKey := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
+				createdCluster := &rayv1.RayCluster{}
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdCluster)).Should(gomega.Succeed())
+
+				// Simulate an unsuspended cluster updating other fields while retaining the queue name.
+				createdCluster.Spec.Suspend = new(false)
+				gomega.Expect(k8sClient.Update(ctx, createdCluster)).Should(gomega.Succeed())
+
+				// Simulate an unsuspended cluster dropping its queue name to become unmanaged.
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdCluster)).Should(gomega.Succeed())
+				delete(createdCluster.Labels, controllerconstants.QueueLabel)
+				gomega.Expect(k8sClient.Update(ctx, createdCluster)).Should(gomega.Succeed())
+			})
 		})
 	})
 

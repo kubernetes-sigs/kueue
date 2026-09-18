@@ -18,6 +18,7 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,15 +28,19 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -46,14 +51,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
@@ -226,6 +235,234 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 	}
 }
 
+func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
+	deploymentGVK := appsv1.SchemeGroupVersion.WithKind("Deployment")
+	statefulSetGVK := appsv1.SchemeGroupVersion.WithKind("StatefulSet")
+	replicaSetGVK := appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
+
+	// The pod integration cannot import the parent integrations, so the ancestor walk is
+	// given equivalent registrations to resolve against.
+	manager := jobframework.NewIntegrationManager()
+	for _, parent := range []struct {
+		name    string
+		gvk     schema.GroupVersionKind
+		jobType runtime.Object
+	}{
+		{"deployment", deploymentGVK, &appsv1.Deployment{}},
+		{"statefulset", statefulSetGVK, &appsv1.StatefulSet{}},
+	} {
+		if err := manager.RegisterIntegration(parent.name, jobframework.IntegrationCallbacks{
+			GVK:           parent.gvk,
+			JobType:       parent.jobType,
+			NewReconciler: jobframework.NewNoopReconcilerFactory(parent.gvk),
+			SetupWebhook:  func(ctrl.Manager, ...jobframework.Option) error { return nil },
+		}); err != nil {
+			t.Fatalf("registering %s: %v", parent.name, err)
+		}
+	}
+	t.Cleanup(manager.EnableIntegrationsForTest(t, "deployment", "statefulset"))
+
+	deployment := testingdeployment.MakeDeployment("test-deployment", "ns").UID("deployment-uid").Queue("user-queue").Obj()
+	unqueuedDeployment := testingdeployment.MakeDeployment("test-deployment", "ns").UID("deployment-uid").Obj()
+	statefulSet := testingstatefulset.MakeStatefulSet("test-statefulset", "ns").UID("statefulset-uid").Queue("user-queue").Obj()
+
+	ownedBy := func(gvk schema.GroupVersionKind, name, uid string) metav1.OwnerReference {
+		return metav1.OwnerReference{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       name,
+			UID:        types.UID(uid),
+			Controller: new(true),
+		}
+	}
+	deploymentOwner := ownedBy(deploymentGVK, "test-deployment", "deployment-uid")
+	replicaSet := func(name, uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
+		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: "ns", UID: types.UID(uid), OwnerReferences: owners,
+		}}
+	}
+	podOwnedBy := func(podName, rsName, rsUID string) *testingpod.PodWrapper {
+		return testingpod.MakePod(podName, "ns").
+			UID(podName+"-uid").
+			SuspendedByParent(deploymentconstants.FrameworkName).
+			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
+			Image("", nil)
+	}
+	gatedPod := func() *testingpod.PodWrapper { return podOwnedBy("pod", "test-rs", "rs-uid") }
+	owningReplicaSet := replicaSet("test-rs", "rs-uid", deploymentOwner)
+	rollingUpdate := []client.Object{
+		deployment,
+		replicaSet("test-deployment-old", "old-rs-uid", deploymentOwner),
+		replicaSet("test-deployment-new", "new-rs-uid", deploymentOwner),
+	}
+
+	failMetadataReads := func(err error) interceptor.Funcs {
+		return interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, isMetadata := obj.(*metav1.PartialObjectMetadata); isMetadata {
+					return err
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}
+	}
+	errAPIDown := errors.New("api is down")
+	gateEnabled := map[featuregate.Feature]bool{features.DeploymentJobUIDLabel: true}
+	gateDisabled := map[featuregate.Feature]bool{features.DeploymentJobUIDLabel: false}
+
+	testCases := map[string]struct {
+		featureGates               map[featuregate.Feature]bool
+		pod                        *corev1.Pod
+		ancestors                  []client.Object
+		interceptors               interceptor.Funcs
+		manageJobsWithoutQueueName bool
+		wantJobUID                 string
+		wantErr                    error
+	}{
+		"deployment pod is labelled with the deployment UID": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
+		},
+		"pod from the outgoing replicaset of a rolling update": {
+			pod:          podOwnedBy("old-pod", "test-deployment-old", "old-rs-uid").Obj(),
+			ancestors:    rollingUpdate,
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
+		},
+		"pod from the incoming replicaset of a rolling update": {
+			pod:          podOwnedBy("new-pod", "test-deployment-new", "new-rs-uid").Obj(),
+			ancestors:    rollingUpdate,
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
+		},
+		"feature disabled keeps the pod UID without walking the owners": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateDisabled,
+			interceptors: failMetadataReads(errors.New("owners must not be walked while the feature is disabled")),
+			wantJobUID:   "pod-uid",
+		},
+		"queue-name on the pod rather than the deployment keeps the pod UID": {
+			pod:          gatedPod().Queue("user-queue").Obj(),
+			ancestors:    []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"deployment without a queue-name is used when unqueued jobs are managed": {
+			pod:                        gatedPod().Queue("user-queue").Obj(),
+			ancestors:                  []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates:               gateEnabled,
+			manageJobsWithoutQueueName: true,
+			wantJobUID:                 "deployment-uid",
+		},
+		"ancestor that is not a deployment keeps the pod UID": {
+			pod: testingpod.MakePod("pod", "ns").
+				UID("pod-uid").
+				SuspendedByParent("statefulset").
+				OwnerReferenceWithUID("test-statefulset", statefulSetGVK, "statefulset-uid").
+				Image("", nil).
+				Obj(),
+			ancestors:    []client.Object{statefulSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"pod gated by an external parent keeps the pod UID": {
+			pod: testingpod.MakePod("pod", "ns").
+				UID("pod-uid").
+				SuspendedByParent("spark-driver").
+				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+				Image("", nil).
+				Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"pod not gated by a parent integration keeps the pod UID": {
+			// The shape a Pod under an unmanaged Deployment actually has: the
+			// queue-name is its own and the Deployment webhook stamped nothing.
+			pod: testingpod.MakePod("pod", "ns").
+				UID("pod-uid").
+				Queue("user-queue").
+				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+				Image("", nil).
+				Obj(),
+			ancestors:    []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"standalone pod keeps the pod UID": {
+			pod:          testingpod.MakePod("pod", "ns").UID("pod-uid").Image("", nil).Obj(),
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"replicaset without a deployment owner keeps the pod UID": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{replicaSet("test-rs", "rs-uid")},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"replicaset UID not matching the owner reference keeps the pod UID": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, replicaSet("test-rs", "recreated-rs-uid", deploymentOwner)},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"missing replicaset is surfaced for retry": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment},
+			featureGates: gateEnabled,
+			wantErr:      jobframework.ErrWorkloadOwnerNotFound,
+		},
+		"replicaset lookup failure is surfaced for retry": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			interceptors: failMetadataReads(errAPIDown),
+			featureGates: gateEnabled,
+			wantErr:      errAPIDown,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			kClient := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(tc.interceptors).
+				WithObjects(tc.ancestors...).
+				Build()
+
+			pod := &Pod{
+				pod:                        *tc.pod,
+				isFound:                    true,
+				integrationManager:         manager,
+				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
+			}
+			wl, gotErr := pod.ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
+
+			if tc.wantErr != nil {
+				if !errors.Is(gotErr, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
+				}
+				return
+			}
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != tc.wantJobUID {
+				t.Errorf("job-uid label = %q, want %q", gotJobUID, tc.wantJobUID)
+			}
+			// The Deployment UID belongs on the Workload only; patching it onto the Pod
+			// would race with informers that already observed the Pod.
+			if diff := cmp.Diff(*tc.pod, pod.pod); diff != "" {
+				t.Errorf("pod was modified (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		pod          *Pod
@@ -303,6 +540,49 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with topology spreading annotation": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetTopologySpreadingAnnotation, `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`).
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						Annotations(map[string]string{
+							kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`,
+						}).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASTopologySpreading:    true,
+			},
+		},
+		"topology spreading annotation dropped when feature gate is disabled": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetTopologySpreadingAnnotation, `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`).
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASTopologySpreading:    false,
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -343,6 +623,7 @@ var (
 	}
 )
 
+// TestReconciler verifies pod and pod-group reconciliation behavior across pod states, Workload presence, and feature-gate settings.
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -373,14 +654,12 @@ func TestReconciler(t *testing.T) {
 		workloadCmpOpts        cmp.Options
 		excessPodsExpectations []keyUIDs
 		// If true, the test will delete workloads before running reconcile
-		deleteWorkloads bool
-
+		deleteWorkloads   bool
 		wantEvents        []utiltesting.EventRecord
 		reconcilerOptions []jobframework.Option
 		featureGates      map[featuregate.Feature]bool
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			initObjects: []client.Object{
 				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
@@ -442,8 +721,77 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"single pod with admitted prebuilt workload and implicit TAS remains in sync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+			},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				KueueFinalizer().
+				TopologySchedulingGate().
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Annotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				KueueFinalizer().
+				TopologySchedulingGate().
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Annotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localUserQueueName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj()).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localUserQueueName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj()).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"non-matching admitted workload is deleted and pod is finalized": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -476,7 +824,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is created when queue name is set": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -519,7 +866,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when the queue-name changed": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -575,7 +921,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"when the queue-name changed in pod-groupr": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -619,7 +964,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -631,13 +976,11 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
-						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -649,15 +992,12 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
-						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"when the queue-name changed in serving pod-groupr": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -705,7 +1045,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -717,13 +1057,11 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
-						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -735,15 +1073,12 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
-						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"the pod reconciliation is skipped when 'kueue.x-k8s.io/managed' label is not set": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				Obj()},
@@ -754,7 +1089,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"pod is stopped when workload is evicted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -812,7 +1146,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"pod is finalized when it's succeeded": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -868,7 +1201,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload status condition is added even if the pod is finalized": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -914,7 +1246,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"pod without scheduling gate is terminated if workload is not admitted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -954,7 +1285,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when a workload is created for the pod it has its ProvReq annotations copied": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1004,7 +1334,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is composed and created for the pod group": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1052,7 +1381,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1064,9 +1393,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
-						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1080,7 +1407,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is composed and created for the pod group, WorkloadIdentifierAnnotations enabled": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1120,7 +1446,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1132,9 +1458,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
-					}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1148,7 +1471,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is composed and created for the pod group with fast admission": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1177,7 +1499,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -1188,9 +1510,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey:                    podconstants.IsGroupWorkloadAnnotationValue,
-						controllerconsts.ProvReqAnnotationPrefix + "test-annotation": "test-val"}).
+					Annotation(controllerconsts.ProvReqAnnotationPrefix+"test-annotation", "test-val").
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1204,7 +1524,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is composed and created for the pod group with max exec time": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1248,7 +1567,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1260,9 +1579,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
-					}).
 					MaximumExecutionTimeSeconds(10).
 					Obj(),
 			},
@@ -1277,7 +1593,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is recreated when max exec time changes": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1300,7 +1615,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1311,7 +1626,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					MaximumExecutionTimeSeconds(5).
 					Obj(),
 			},
@@ -1337,7 +1651,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet("dc85db45", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1349,7 +1663,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					MaximumExecutionTimeSeconds(10).
 					Obj(),
 			},
@@ -1364,7 +1677,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is found for the pod group": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1404,7 +1716,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1418,7 +1730,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1433,8 +1745,170 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"pod group does not adopt a workload that is not a pod group workload": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("shared-wl-name").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("shared-wl-name").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("shared-wl-name", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("shared-wl-name", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    ReasonWorkloadNameConflict,
+					Message:   `A Workload named "shared-wl-name" already exists but is not a pod group workload; this pod group cannot be admitted`,
+				},
+			},
+		},
+		"deleted pods of a group refused adoption of a foreign workload are finalized": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("shared-wl-name").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			// The pod is gone once the kueue finalizer is removed.
+			wantPods: []corev1.Pod{},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("shared-wl-name", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("shared-wl-name", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    ReasonWorkloadNameConflict,
+					Message:   `A Workload named "shared-wl-name" already exists but is not a pod group workload; this pod group cannot be admitted`,
+				},
+			},
+		},
+		"pod group adopts a foreign workload when PodIntegrationValidateGroupOwner is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: false,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("shared-wl-name").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("shared-wl-name").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("shared-wl-name", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("shared-wl-name", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/shared-wl-name",
+				},
+			},
+		},
 		"scheduling gate is removed for all pods in the group if workload is admitted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			initObjects: []client.Object{
 				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
@@ -1485,7 +1959,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(localUserQueueName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -1503,7 +1977,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(localUserQueueName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
@@ -1541,7 +2015,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is not finished if the pod in the group is running": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1580,7 +2053,7 @@ func TestReconciler(t *testing.T) {
 			},
 
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1594,7 +2067,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1611,7 +2084,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"workload is finished if all pods in the group has finished": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1649,7 +2121,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1663,7 +2135,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1693,7 +2165,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is not deleted if the pod in group has been deleted after admission": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -1709,7 +2180,7 @@ func TestReconciler(t *testing.T) {
 				GroupTotalCount("2").
 				Obj()},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1728,7 +2199,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1749,7 +2220,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"pod group remains stopped when workload is evicted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1793,7 +2263,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -1808,7 +2278,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
@@ -1825,7 +2295,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"Pods are finalized even if one of the pods in the finished group is absent": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1847,7 +2316,7 @@ func TestReconciler(t *testing.T) {
 			},
 
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1872,7 +2341,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1907,7 +2376,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload for pod group with different queue names shouldn't be created": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1956,7 +2424,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"all pods in group should be removed if workload is deleted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1979,7 +2446,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -2014,7 +2481,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"replacement pod should be started for pod group of size 1": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2057,7 +2523,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -2077,7 +2543,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -2107,7 +2573,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"replacement pod should be started for set of Running, Failed, Succeeded pods": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2149,7 +2614,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -2207,7 +2672,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -2244,7 +2709,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"pod group of size 2 is finished when 2 pods has succeeded and 1 pod has failed": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2299,7 +2763,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -2314,7 +2778,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -2345,7 +2809,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"wl should not get the quota reservation cleared for a running pod group of size 1": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2369,7 +2832,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -2396,7 +2859,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -2425,7 +2888,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"wl should get the quota reservation cleared for a failed pod group of size 1": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2449,7 +2911,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -2477,7 +2939,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -2528,7 +2990,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"deleted pods in group should not be finalized if the workload doesn't match": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2576,7 +3037,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet("incorrect-role-name", 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
 					ReserveQuotaAt(
@@ -2592,7 +3053,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").
 							NodeName("test-node").
@@ -2603,7 +3064,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2617,8 +3077,288 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"workload is not created when every pod of the group is terminating and already finalized": {
+			// Regression test for a kubelet-stuck pod teardown: the pod keeps a non-Kueue finalizer (so it lingers Terminating in the API) but Kueue's own finalizer and its Workload are gone.
+			// The foreign finalizer stands in for the kubelet-held teardown: client and API server cannot keep an object with a deletionTimestamp and no finalizers at all. No new Workload must be
+			// created for it - the pod can never be scheduled again and the
+			// recreated Workload would only hang a reservation.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			// notably: no workloads and no CreatedWorkload event
+		},
+		"workload is created when one pod of the group is live and another is terminating and finalized": {
+			// Replacement-in-progress: a fresh gated (live) member coexists with the old
+			// terminating member that already lost Kueue's finalizer. The all-terminating
+			// skip must not fire while any member pod still needs lifecycle management.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"workload is not created and pods are finalized when every group pod is terminating and no workload remains": {
+			// The Workload is gone, so finalize directly: drop the pod's finalizer, never re-create one.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods:        []corev1.Pod{},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			// notably: the pod is gone, no workloads, no CreatedWorkload event
+		},
+		"workload is created for an all-terminating no-workload group when FinalizeTerminatingPodGroups is disabled": {
+			// Gate disabled keeps the legacy behavior this gate replaces (verified by running):
+			// Load does not short-circuit, so a Workload is re-created for the terminating
+			// group, pinning the admission-mutated NodeName into the PodSet.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: false},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							NodeName("test-node").
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"finalization of an all-terminating group must not touch another group via a pod/workload name collision": {
+			// Regression guard: Load used to rewrite the shared request key to the first pod's
+			// name, so finalizing this group would have reached the Workload named after that pod
+			// (a different group's object) and stripped its finalizer.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				// A legit pod-group Workload from another group, whose name equals this group's pod name.
+				*utiltestingapi.MakeWorkload("pod1", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localTestQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "other-group-pod", "other-uid").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pod1", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localTestQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "other-group-pod", "other-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			// notably: the pod lingers (foreign finalizer), the foreign Workload keeps its own finalizer, no CreatedWorkload event
+		},
+		"all-terminating group is not finalized when the same-named Workload is controller-owned by someone else": {
+			// With PodIntegrationValidateGroupOwner, ListChildWorkloads masks a same-named
+			// foreign-owned Workload as "no workload remains". The all-terminating gate must
+			// see through that: a Workload that remains blocks finalization of this group.
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinalizeTerminatingPodGroups:     true,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localTestQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Deployment"), "other-job", "other-uid").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localTestQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Deployment"), "other-job", "other-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    "WorkloadNameConflict",
+					Message:   `A Workload named "test-group" already exists but is not a pod group workload; this pod group cannot be admitted`,
+				},
+			},
+		},
 		"workload is not deleted if all of the pods in the group are deleted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2658,7 +3398,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -2678,7 +3418,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -2700,7 +3440,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"workload is not deleted if one pod role is absent from the cluster": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2722,7 +3461,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -2744,7 +3483,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -2768,7 +3507,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"if pod group is finished and wl is deleted, new workload shouldn't be created": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2810,7 +3548,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"if pod in group is scheduling gated and wl is deleted, workload should be recreated": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2851,7 +3588,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
@@ -2863,7 +3600,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2877,7 +3613,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"if there's not enough non-failed pods in the group, workload should not be created": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2928,7 +3663,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"pod group is considered finished if there is an unretriable pod and no running pods": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -2987,7 +3721,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("a119f908", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3012,7 +3746,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("a119f908", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3053,7 +3787,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"reclaimable pods updated for pod group": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3113,7 +3846,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3138,7 +3871,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3166,7 +3899,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"reclaimablePods field is not updated for a serving pod group": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3232,7 +3964,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3257,7 +3989,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("4ebdd4a6", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3284,7 +4016,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"excess pods before wl creation, youngest pods are deleted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3319,7 +4050,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3330,7 +4061,6 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
-					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -3350,7 +4080,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"excess pods before admission, youngest pods are deleted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3404,7 +4133,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -3417,7 +4146,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -3442,7 +4171,6 @@ func TestReconciler(t *testing.T) {
 		// In this case, group-total-count is equal to the number of pods in the cluster.
 		// But one of the roles is missing, and another role has an excess pod.
 		"excess pods in pod set after admission, youngest pods are deleted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3474,7 +4202,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3496,7 +4224,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3532,7 +4260,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"waiting to observe previous deletion of excess pod, no pods are deleted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3596,7 +4323,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3608,7 +4335,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3626,7 +4353,6 @@ func TestReconciler(t *testing.T) {
 			}},
 		},
 		"delete excess pod that is gated": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3678,7 +4404,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -3693,7 +4419,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -3720,7 +4446,6 @@ func TestReconciler(t *testing.T) {
 		// If an excess pod is already deleted and finalized, but an external finalizer blocks
 		// pod deletion, kueue should ignore such a pod, when creating a workload.
 		"deletion of excess pod is blocked by another controller": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3767,7 +4492,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -3779,7 +4504,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -3793,7 +4517,8 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"deleted pods in incomplete group are finalized": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			// All listed pods are terminating with no Workload, so finalization precedes composition: no ErrWorkloadCompose event.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3818,27 +4543,20 @@ func TestReconciler(t *testing.T) {
 					Delete().
 					Obj(),
 			},
+			wantPods:        []corev1.Pod{},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "p1", Namespace: "ns"},
-					EventType: "Warning",
-					Reason:    "ErrWorkloadCompose",
-					Message:   "'group' group has fewer runnable pods than expected",
-				},
-			},
 		},
 		"finalize workload for non existent pod with FinishOrphanedWorkloads disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
 					Obj(),
 			},
@@ -3848,13 +4566,13 @@ func TestReconciler(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadFinished,
@@ -3867,8 +4585,91 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"foreign workload sharing the pod group name is not finalized": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"foreign workload sharing the pod group name is finalized when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: false,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+						Message:            "The workload's owner no longer exists",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"pod group workload is finalized when all pods are gone": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"prebuilt pod group workload without the group marker is still finalized": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"replacement pods are owning the workload": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -3924,7 +4725,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -3944,7 +4745,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -3975,7 +4776,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"all pods in a group should receive the event about preemption, unless already terminating": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4043,7 +4843,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -4070,7 +4870,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -4113,7 +4913,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"preemption reason should be propagated to termination target": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4141,7 +4940,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -4165,7 +4964,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
 							Request(corev1.ResourceCPU, "1").
@@ -4199,7 +4998,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the failed pods are finalized in order": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4328,7 +5126,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
@@ -4350,7 +5148,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
@@ -4384,7 +5182,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"no failed pods are finalized while waiting for expectations": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4452,7 +5249,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -4466,7 +5263,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -4486,7 +5283,6 @@ func TestReconciler(t *testing.T) {
 			}},
 		},
 		"no unnecessary additional failed pods are finalized": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4566,7 +5362,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
@@ -4586,7 +5382,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
 							Request(corev1.ResourceCPU, "1").
@@ -4617,7 +5413,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is created with correct labels for a single pod": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -4660,7 +5455,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"workload is created with correct labels for pod group": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4692,7 +5486,7 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithLabelKeysToCopy(sets.New("toCopyKey1", "toCopyKey2")),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -4704,8 +5498,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Annotations(map[string]string{
-						podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}).
 					Labels(map[string]string{
 						"toCopyKey1": "toCopyValue1",
 						"toCopyKey2": "toCopyValue2",
@@ -4723,7 +5515,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"reconciler returns error in case pod group pod index is bigger or equal pod group total count": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -4738,7 +5529,6 @@ func TestReconciler(t *testing.T) {
 			wantErr:         utilpod.ErrValidation,
 		},
 		"reconciler returns error in case pod group pod index is less than 0": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -4753,7 +5543,6 @@ func TestReconciler(t *testing.T) {
 			wantErr:         utilpod.ErrInvalidUInt,
 		},
 		"reconciler returns error in case of label mismatch in pod group": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4788,8 +5577,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"workload is created with correct annotations for a single pod": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.CustomMetricLabels:            true,
+				features.CustomMetricLabels: true,
 			},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
@@ -4834,8 +5622,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"workload is created with correct annotations for pod group": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.CustomMetricLabels:            true,
+				features.CustomMetricLabels: true,
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -4899,8 +5686,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"workload is created without annotations for pod group when CustomMetricLabels is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.CustomMetricLabels:            false,
+				features.CustomMetricLabels: false,
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -4962,8 +5748,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"reconciler returns error in case of annotation mismatch in pod group": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.CustomMetricLabels:            true,
+				features.CustomMetricLabels: true,
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -4999,8 +5784,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"annotations mismatch is ignored for pod group when CustomMetricLabels is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.CustomMetricLabels:            false,
+				features.CustomMetricLabels: false,
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -5059,7 +5843,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"admission check message is recorded as event for a single pod": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
 				ManagedByKueueLabel().
@@ -5138,7 +5921,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"admission check message is recorded as event for each pod in the group": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5160,7 +5942,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
@@ -5187,7 +5969,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: nil,
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					Active(false).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadQuotaReserved,
@@ -5229,7 +6011,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"deleted unschedulable pods are finalized": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5270,7 +6051,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5313,7 +6094,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5344,7 +6125,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't set waiting for pods ready condition to true when all pods pending": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5369,7 +6149,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5405,7 +6185,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5420,7 +6200,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should set waiting for pods ready condition to true when at least one pod failed": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5445,7 +6224,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5481,7 +6260,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5502,7 +6281,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should set waiting for pods ready condition to true when at least one pod deleted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5528,7 +6306,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5565,7 +6343,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5586,7 +6364,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should set waiting for pods ready condition to true when workload was evicted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5612,7 +6389,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5655,7 +6432,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5684,7 +6461,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should update reason and message on waiting for pods ready condition when workload was evicted again": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5710,7 +6486,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5758,7 +6534,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5785,7 +6561,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't change waiting for pods ready condition when it's true and workload was readmitted": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5810,7 +6585,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5860,7 +6635,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5889,7 +6664,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should set waiting for pods ready condition to false when pods was replaced": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -5914,7 +6688,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5956,7 +6730,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 							Request(corev1.ResourceCPU, "1").
@@ -5977,7 +6751,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when the prebuilt workload exists its owner info is updated": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6073,7 +6846,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"when the prebuilt workload is partially owned": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6170,7 +6942,6 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"when the prebuilt workload is not equivalent to the job": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6269,7 +7040,6 @@ func TestReconciler(t *testing.T) {
 			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithObjectRetentionPolicies(&configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -6287,7 +7057,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -6308,7 +7078,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
 							Request(corev1.ResourceCPU, "1").
@@ -6370,7 +7140,10 @@ func TestReconciler(t *testing.T) {
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, log := utiltesting.ContextWithLog(t)
-				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+
+				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
@@ -6514,7 +7287,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("group", metav1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("group", metav1.NamespaceDefault).Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(lqName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(pogGroupPodSetName), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "pod1-uid").
@@ -6599,7 +7372,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 					Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("group", metav1.NamespaceDefault).Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltestingapi.MakeWorkload("group", metav1.NamespaceDefault).Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(lqName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(pogGroupPodSetName), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "pod1-uid").
@@ -6712,7 +7485,9 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				WithObjects(utiltestingapi.MakeResourceFlavor(rfName).NodeLabel(corev1.LabelArchStable, "arm64").Obj()).
 				WithLists(&corev1.PodList{Items: tc.pods}).
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
@@ -6741,7 +7516,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 
 			count, err := testutil.GetHistogramMetricCount(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(podconstants.SchedulingGateName, cqName, strconv.FormatBool(tc.isGroup)),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(podconstants.SchedulingGateName, cqName, strconv.FormatBool(tc.isGroup), roletracker.RoleStandalone),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric count: %v", err)
@@ -6751,7 +7526,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 
 			seconds, err := testutil.GetHistogramMetricValue(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(podconstants.SchedulingGateName, cqName, strconv.FormatBool(tc.isGroup)),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(podconstants.SchedulingGateName, cqName, strconv.FormatBool(tc.isGroup), roletracker.RoleStandalone),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric seconds: %v", err)
@@ -6839,7 +7614,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 						}
 						return client.Patch(ctx, obj, patch, opts...)
 					},
-					SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 				})
 
 			kClient := kcBuilder.Build()
@@ -7018,7 +7793,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 			Obj(),
 	}
 
-	wl := *utiltestingapi.MakeWorkload("test-group", "ns").
+	wl := *utiltestingapi.MakeWorkload("test-group", "ns").Group().
 		PodSets(
 			*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
 				Request(corev1.ResourceCPU, "1").
@@ -7277,6 +8052,195 @@ func TestPod_IsActive(t *testing.T) {
 
 			if got := p.IsActive(ctx); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsPodRunnableOrSucceeded covers https://github.com/kubernetes-sigs/kueue/issues/13830:
+// a pod that already ran (so it kept its NodeName) and terminated cleanly while being deleted
+// must not be misclassified as still active just because NodeName is non-empty.
+func TestIsPodRunnableOrSucceeded(t *testing.T) {
+	now := time.Now()
+
+	tests := map[string]struct {
+		pod  corev1.Pod
+		want bool
+	}{
+		"running, not being deleted": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			want: true,
+		},
+		"succeeded, not being deleted": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+			},
+			want: true,
+		},
+		"failed, not being deleted": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodFailed},
+			},
+			want: false,
+		},
+		"deleting, never scheduled (no NodeName)": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			want: false,
+		},
+		"deleting, still running with a NodeName": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Spec:       corev1.PodSpec{NodeName: "node-1"},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			want: true,
+		},
+		"deleting, terminated Succeeded but kept its NodeName, non-serving group": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Spec:       corev1.PodSpec{NodeName: "node-1"},
+				Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+			},
+			// Batch groups keep a terminated-but-deleting pod counted as active so the
+			// group can still be declared finished once every pod has concluded.
+			want: true,
+		},
+		"deleting, terminated Succeeded but kept its NodeName, serving group": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					DeletionTimestamp: new(metav1.NewTime(now)),
+					Annotations: map[string]string{
+						podconstants.GroupServingAnnotationKey: podconstants.GroupServingAnnotationValue,
+					},
+				},
+				Spec:   corev1.PodSpec{NodeName: "node-1"},
+				Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+			},
+			want: false,
+		},
+		"deleting, terminated Failed with a NodeName": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Spec:       corev1.PodSpec{NodeName: "node-1"},
+				Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+			},
+			want: false,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := isPodRunnableOrSucceeded(&tc.pod); got != tc.want {
+				t.Errorf("isPodRunnableOrSucceeded() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSortActivePods pins down the ordering behavior of sortActivePods, in particular
+// the finalizer and gated-state tiebreakers that are implemented with cmputil.CompareBool.
+func TestSortActivePods(t *testing.T) {
+	now := time.Now()
+
+	tests := map[string]struct {
+		pods     []corev1.Pod
+		wantPods []string
+	}{
+		"finalizer state takes priority over creation timestamp": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("no-finalizer-newer", "ns").
+					CreationTimestamp(now).
+					Obj(),
+				*testingpod.MakePod("has-finalizer-older", "ns").
+					KueueFinalizer().
+					CreationTimestamp(now.Add(-time.Hour)).
+					Obj(),
+			},
+			wantPods: []string{"has-finalizer-older", "no-finalizer-newer"},
+		},
+		"non-gated pods sort before gated pods with the same finalizer state": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("gated", "ns").
+					KueueSchedulingGate().
+					Obj(),
+				*testingpod.MakePod("not-gated", "ns").
+					Obj(),
+			},
+			wantPods: []string{"not-gated", "gated"},
+		},
+		"older creation timestamp sorts first when finalizer and gate state match": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("newer", "ns").
+					CreationTimestamp(now).
+					Obj(),
+				*testingpod.MakePod("older", "ns").
+					CreationTimestamp(now.Add(-time.Hour)).
+					Obj(),
+			},
+			wantPods: []string{"older", "newer"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sortActivePods(tc.pods)
+			gotPods := make([]string, len(tc.pods))
+			for i, p := range tc.pods {
+				gotPods[i] = p.Name
+			}
+			if diff := cmp.Diff(tc.wantPods, gotPods); diff != "" {
+				t.Errorf("sortActivePods() ordering mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestSortInactivePods pins down the ordering behavior of sortInactivePods, in particular
+// the finalizer tiebreaker that is implemented with cmputil.CompareBool.
+func TestSortInactivePods(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+
+	tests := map[string]struct {
+		pods     []corev1.Pod
+		wantPods []string
+	}{
+		"finalizer state takes priority over last-active time": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("no-finalizer-active-later", "ns").
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+				*testingpod.MakePod("has-finalizer-active-earlier", "ns").
+					KueueFinalizer().
+					DeletionTimestamp(now.Add(-time.Hour)).
+					Obj(),
+			},
+			wantPods: []string{"has-finalizer-active-earlier", "no-finalizer-active-later"},
+		},
+		"more recently active pods sort first when finalizer state matches": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("active-earlier", "ns").
+					DeletionTimestamp(now.Add(-time.Hour)).
+					Obj(),
+				*testingpod.MakePod("active-later", "ns").
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+			},
+			wantPods: []string{"active-later", "active-earlier"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sortInactivePods(fakeClock, tc.pods)
+			gotPods := make([]string, len(tc.pods))
+			for i, p := range tc.pods {
+				gotPods[i] = p.Name
+			}
+			if diff := cmp.Diff(tc.wantPods, gotPods); diff != "" {
+				t.Errorf("sortInactivePods() ordering mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

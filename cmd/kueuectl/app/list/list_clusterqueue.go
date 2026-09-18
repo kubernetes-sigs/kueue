@@ -111,6 +111,11 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 func (o *ClusterQueueOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command, args []string) error {
 	var err error
 
+	o.Limit, err = listRequestLimit()
+	if err != nil {
+		return err
+	}
+
 	clientset, err := clientGetter.KueueClientSet()
 	if err != nil {
 		return err
@@ -167,6 +172,7 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 	}
 
 	tabWriter := printers.GetNewTabWriter(o.Out)
+	pager := newPagedListPrinter(o.PrintFlags.OutputFlagSpecified())
 
 	for {
 		headers := totalCount == 0
@@ -185,7 +191,7 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if err := printer.PrintObj(list, tabWriter); err != nil {
+		if err := pager.printPage(list, list.Continue == "", printer, tabWriter); err != nil {
 			return err
 		}
 

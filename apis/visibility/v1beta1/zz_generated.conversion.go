@@ -27,8 +27,6 @@ import (
 
 	conversion "k8s.io/apimachinery/pkg/conversion"
 	runtime "k8s.io/apimachinery/pkg/runtime"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	v1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 )
 
@@ -214,11 +212,7 @@ func Convert_v1beta2_LocalQueueList_To_v1beta1_LocalQueueList(in *v1beta2.LocalQ
 }
 
 func autoConvert_v1beta1_PendingWorkload_To_v1beta2_PendingWorkload(in *PendingWorkload, out *v1beta2.PendingWorkload, s conversion.Scope) error {
-	out.ObjectMeta = in.ObjectMeta
-	out.Priority = in.Priority
-	out.LocalQueueName = kueuev1beta2.LocalQueueName(in.LocalQueueName)
-	out.PositionInClusterQueue = in.PositionInClusterQueue
-	out.PositionInLocalQueue = in.PositionInLocalQueue
+	*out = *(*v1beta2.PendingWorkload)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -228,11 +222,7 @@ func Convert_v1beta1_PendingWorkload_To_v1beta2_PendingWorkload(in *PendingWorkl
 }
 
 func autoConvert_v1beta2_PendingWorkload_To_v1beta1_PendingWorkload(in *v1beta2.PendingWorkload, out *PendingWorkload, s conversion.Scope) error {
-	out.ObjectMeta = in.ObjectMeta
-	out.Priority = in.Priority
-	out.LocalQueueName = kueuev1beta1.LocalQueueName(in.LocalQueueName)
-	out.PositionInClusterQueue = in.PositionInClusterQueue
-	out.PositionInLocalQueue = in.PositionInLocalQueue
+	*out = *(*PendingWorkload)(unsafe.Pointer(in))
 	return nil
 }
 

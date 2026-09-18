@@ -12,6 +12,10 @@
     - [Reference design for (<code>batch/Job</code>)](#reference-design-for-batchjob)
       - [To consider](#to-consider)
   - [API](#api)
+  - [Topology Aware Scheduling (TAS) Usage Release](#topology-aware-scheduling-tas-usage-release)
+    - [Multi-PodSet Workloads](#multi-podset-workloads)
+    - [Quota Release vs. TAS Usage Release](#quota-release-vs-tas-usage-release)
+    - [Feature Gate Dependency](#feature-gate-dependency)
 - [Implementation](#implementation)
   - [Workload](#workload)
     - [API](#api-1)
@@ -116,6 +120,27 @@ type ReclaimablePod struct {
 }
 ```
 
+### Topology Aware Scheduling (TAS) Usage Release
+
+While compute quota (such as CPU and memory) is dynamically reclaimed pod-by-pod as individual pods complete execution, Topology Aware Scheduling (TAS) assignments operate at the PodSet level.
+
+When all Pods within an admitted PodSet become reclaimable (i.e., `ReclaimablePod.Count` equals the PodSet's `count`), Kueue releases that PodSet's TAS topology usage (`TASUsage`). This makes the assigned topology domain (such as a node, rack, or block) available in the scheduler cache for other pending workloads to be admitted.
+
+#### Multi-PodSet Workloads
+
+This behavior is particularly important for multi-PodSet workloads, such as `JobSet` or driver-worker workloads, where one PodSet can finish its execution while other PodSets continue to run. Once a completed PodSet becomes fully reclaimable, its assigned topology domain is released immediately rather than being held until the entire workload finishes.
+
+#### Quota Release vs. TAS Usage Release
+
+The distinction between quota release and TAS usage release is preserved:
+- **Quota release**: Can occur incrementally for individual completed pods within a PodSet, reducing the overall workload resource requests.
+- **TAS usage release**: Only occurs when an entire PodSet is fully reclaimable (`ps.Count == 0`). Topology assignments cannot be partially sliced or released for partial pod completions within a single PodSet.
+
+#### Feature Gate Dependency
+
+This behavior is gated by the `ReclaimablePods` feature gate. When `ReclaimablePods` is disabled:
+- TAS usage behavior remains unchanged, and topology assignments are retained until the workload completes or is deactivated.
+
 ## Implementation
 
 ### Workload
@@ -131,6 +156,8 @@ type ReclaimablePod struct {
 #### `pkg/workload`
 
 Rework the way `Info.TotalRequests` in computed in order to take the `ReclaimablePods` into account.
+
+Additionally, update `Info.TASUsage` to omit PodSets that are fully reclaimable when the `ReclaimablePods` feature gate is enabled, releasing their topology domain usage in the scheduler cache.
 
 ### Jobframework
 
@@ -153,10 +180,12 @@ All the Kueue's core components must be covered by unit tests.
 ### Integration tests
 * Scheduler
   - Checking if a Workload gets admitted when an admitted Workload releases a part of it's assigned resources.
+  - Checking if a pending Workload requiring topology gets admitted when one PodSet of an admitted multi-PodSet workload becomes fully reclaimable and releases its assigned topology domain.
 
 * Kueue Job Controller (Optional)
   - Checking the resources owned by a Job are released to the cache and clusterQueue when a Pod of the Job succeed.
 
 ## Implementation History
 
-Dynamically Reclaiming Resources are tracked as part of [enhancement#78](https://github.com/kubernetes-sigs/kueue/issues/78).
+- Dynamically Reclaiming Resources are tracked as part of [enhancement#78](https://github.com/kubernetes-sigs/kueue/issues/78).
+- Extend KEP-78 to document Topology Aware Scheduling (TAS) topology usage release when a PodSet is fully reclaimable under the `ReclaimablePods` feature gate.

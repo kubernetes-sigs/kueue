@@ -21,7 +21,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,11 +58,13 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		class        *kueue.WorkloadPriorityClass
-		workloads    []*kueue.Workload
-		interceptors func(s *priorityStats) interceptor.Funcs
-		steps        []step
-		want         map[string]wantWorkload
+		class            *kueue.WorkloadPriorityClass
+		workloads        []*kueue.Workload
+		job              *batchv1.Job
+		podPriorityClass []schedulingv1.PriorityClass
+		interceptors     func(s *priorityStats) interceptor.Funcs
+		steps            []step
+		want             map[string]wantWorkload
 		// Nil where the count is not part of what the case pins.
 		wantClassReads     *int
 		wantWorkloadWrites *int
@@ -121,6 +127,122 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"reserved": {refName: new("")},
 			},
 			wantWorkloadWrites: new(0),
+		},
+
+		// Group and kind are frozen while quota is reserved.
+		"leaves a quota-reserved workload alone when the owner falls back to a pod priority class": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			podPriorityClass: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(0),
+		},
+
+		// A nil resolved ref is a removal, frozen while quota is reserved.
+		"leaves a quota-reserved workload alone when the owner's class stops resolving": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(0),
+		},
+
+		// Same group and kind, so the rename is legal while reserved.
+		"moves a quota-reserved workload between workload priority classes": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(10).Obj(),
+			job:   testingjob.MakeJob("job", "ns").WorkloadPriorityClass("low").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					WorkloadPriorityClassRef("high").Priority(100).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(1),
+		},
+
+		"still moves a workload without a reservation onto a pod priority class": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			podPriorityClass: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("free", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			steps: []step{{}},
+			want: map[string]wantWorkload{
+				"free": {refName: new("podpc"), priority: new(int32(50))},
+			},
+		},
+
+		"writes the unreserved half of a batch and skips the reserved half": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			podPriorityClass: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+				utiltestingapi.MakeWorkload("free", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+				"free":     {refName: new("podpc"), priority: new(int32(50))},
+			},
+			wantWorkloadWrites: new(1),
 		},
 
 		// A workload that already carries the right class name but a stale value is
@@ -207,9 +329,18 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			job := tc.job
+			if job == nil {
+				job = testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			}
 
-			objs := []client.Object{job, tc.class}
+			objs := []client.Object{job}
+			if tc.class != nil {
+				objs = append(objs, tc.class)
+			}
+			for i := range tc.podPriorityClass {
+				objs = append(objs, &tc.podPriorityClass[i])
+			}
 			names := make([]string, 0, len(tc.workloads))
 			for _, wl := range tc.workloads {
 				objs = append(objs, wl)
@@ -326,5 +457,88 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 		if err := cl.Update(ctx, class); err != nil {
 			t.Fatalf("updating class: %v", err)
 		}
+	}
+}
+
+// TestExtractPriorityReportsMissingWorkloadPriorityClass pins which lookup
+// failure is reported. Only the class the label named can be reported by name;
+// a failure anywhere else leaves the answer unknown, so saying the class does
+// not exist would be a guess.
+func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
+	forbidden := apierrors.NewForbidden(
+		kueue.SchemeGroupVersion.WithResource("workloadpriorityclasses").GroupResource(),
+		"denied", errors.New("not allowed"))
+
+	cases := map[string]struct {
+		job          *batchv1.Job
+		podSets      []kueue.PodSet
+		objects      []client.Object
+		interceptors interceptor.Funcs
+		wantEvents   []utiltesting.EventRecord
+		wantErr      error
+	}{
+		"an explicitly referenced class that does not exist": {
+			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("missing").Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "job"},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonWorkloadPriorityClassNotFound,
+				Message:   `WorkloadPriorityClass "missing" not found`,
+			}},
+			wantErr: apierrors.NewNotFound(
+				kueue.SchemeGroupVersion.WithResource("workloadpriorityclasses").GroupResource(),
+				"missing",
+			),
+		},
+		"an explicitly referenced class that exists": {
+			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("present").Obj(),
+			objects: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("present").PriorityValue(10).Obj(),
+			},
+		},
+		"no class referenced at all": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+		},
+		// scheduling.k8s.io is a different resource and keeps its own handling.
+		"a pod template naming a PriorityClass that does not exist": {
+			job:     testingjob.MakeJob("job", "ns").Obj(),
+			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("missing-pc").Obj()},
+			wantErr: apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), "missing-pc"),
+		},
+		"a lookup that failed for another reason": {
+			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("denied").Obj(),
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
+						return forbidden
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			wantErr: forbidden,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(tc.objects...).
+				WithInterceptorFuncs(tc.interceptors).
+				Build()
+			podSets := tc.podSets
+			if podSets == nil {
+				podSets = []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).Obj()}
+			}
+			recorder := &utiltesting.EventRecorder{}
+
+			// The event does not stand in for the error: the reconcile still fails.
+			_, _, err := ExtractPriority(t.Context(), cl, recorder, tc.job, podSets, nil)
+
+			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
+				t.Fatalf("ExtractPriority() error (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("recorded events (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

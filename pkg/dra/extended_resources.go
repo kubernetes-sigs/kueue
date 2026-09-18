@@ -37,7 +37,8 @@ import (
 // NeedsDRAReconcile returns true if the workload needs DRA processing in Reconcile.
 // For extended resources, checks the provided cache to confirm the resource
 // is backed by a DeviceClass before triggering DRA reconciliation.
-func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool {
+func NeedsDRAReconcile(wi *workload.Info, erCache *ExtendedResourceCache) bool {
+	wl := wi.Obj
 	if workload.IsOnHold(wl) {
 		return false
 	}
@@ -53,8 +54,8 @@ func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool 
 		return false
 	}
 	for i := range wl.Spec.PodSets {
-		ps := &wl.Spec.PodSets[i]
-		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
+		spec := wi.PodSpec(i)
+		for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
 			for _, c := range containers {
 				for name, qty := range c.Resources.Requests {
 					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) {
@@ -93,8 +94,11 @@ func selectedDeviceClass(items []resourceapi.DeviceClass) *resourceapi.DeviceCla
 	return selected
 }
 
-// extendedResourceRequests extracts a container's non-zero extended resource requests,
-// keyed by their original (unmapped) resource name. Quantities are not validated here:
+// extendedResourceRequests extracts a container's positive extended resource requests,
+// keyed by their original (unmapped) resource name. A zero or negative quantity is
+// dropped here rather than merged into a logical quota key later, since a negative
+// value could otherwise cancel out part of another resource's charge under the same
+// key (e.g. a ResourceClaimTemplate). Quantities are not validated here:
 // the integer-only rule only applies to resources that turn out to be DRA-backed, which
 // isn't known until a DeviceClass is resolved for the name later in
 // ResolveExtendedResourceQuota. Validating here would reject fractional requests for
@@ -104,7 +108,7 @@ func extendedResourceRequests(container corev1.Container) corev1.ResourceList {
 	result := corev1.ResourceList{}
 
 	for resourceName, quantity := range container.Resources.Requests {
-		if quantity.IsZero() || !utilresource.IsExtendedResourceName(resourceName) {
+		if quantity.Sign() <= 0 || !utilresource.IsExtendedResourceName(resourceName) {
 			continue
 		}
 		result[resourceName] = quantity
@@ -183,7 +187,7 @@ func resolveQuotaKey(
 	return quotaKey, nil
 }
 
-// containerExtendedResourceRequests pairs a container's non-zero extended resource
+// containerExtendedResourceRequests pairs a container's positive extended resource
 // requests, keyed by original (unmapped) resource name, with the field path used to
 // report errors against that container.
 type containerExtendedResourceRequests struct {
@@ -197,11 +201,12 @@ type containerExtendedResourceRequests struct {
 // max — per original resource name, before any two names sharing a quota key can
 // collapse into each other's contribution. The quota key for each original name is
 // resolved once per PodSet, from that name's own aggregated total.
-func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (
+func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wi *workload.Info) (
 	map[kueue.PodSetReference]corev1.ResourceList,
 	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
 	field.ErrorList,
 ) {
+	wl := wi.Obj
 	if cl == nil {
 		return nil, nil, nil
 	}
@@ -230,8 +235,8 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 			return entries
 		}
 
-		initEntries := collect(ps.Template.Spec.InitContainers, "initContainers")
-		regularEntries := collect(ps.Template.Spec.Containers, "containers")
+		initEntries := collect(wi.PodSpec(i).InitContainers, "initContainers")
+		regularEntries := collect(wi.PodSpec(i).Containers, "containers")
 
 		// The field path of the first container an original resource name is seen in,
 		// for error reporting once that name is resolved below.

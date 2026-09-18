@@ -63,7 +63,7 @@ type Status struct {
 }
 
 var _ framework.ComponentBuilderPlugin = (*Status)(nil)
-var _ framework.EnforceMLPolicyPlugin = (*Status)(nil)
+var _ framework.EnforcePodSpecPlugin = (*Status)(nil)
 
 func New(_ context.Context, c client.Client, _ client.FieldIndexer, cfg *configapi.Configuration) (framework.Plugin, error) {
 	return &Status{client: c, cfg: cfg}, nil
@@ -73,8 +73,11 @@ func (p *Status) Name() string {
 	return Name
 }
 
-func (p *Status) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) error {
-	if info == nil || trainJob == nil {
+// EnforcePodSpec injects the status server endpoint, its CA certificate, and the
+// projected service account token into every trainer container, so the instrumented
+// runtime can report the TrainJob status back to the control plane.
+func (p *Status) EnforcePodSpec(podSets runtime.PodSets, trainJob *trainer.TrainJob) error {
+	if podSets == nil || trainJob == nil {
 		return nil
 	}
 
@@ -86,7 +89,7 @@ func (p *Status) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob)
 	volume := createTokenVolume(trainJob)
 
 	// Inject into all trainer containers
-	trainerPS := info.FindPodSetByAncestor(constants.AncestorTrainer)
+	trainerPS := podSets.FindByAncestor(constants.AncestorTrainer)
 	if trainerPS != nil {
 		for i := range trainerPS.Containers {
 			apply.UpsertEnvVars(&trainerPS.Containers[i].Env, envVars...)

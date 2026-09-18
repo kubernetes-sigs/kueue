@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -33,11 +34,39 @@ import (
 )
 
 // MultiKueueConfigInformer provides access to a shared informer and lister for
-// MultiKueueConfigs.
+// MultiKueueConfigs. Prefer using the type-safe variant (see [TypedMultiKueueConfigInformer]).
 type MultiKueueConfigInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta1.MultiKueueConfigLister
 }
+
+// TypedMultiKueueConfigInformer provides access to a shared informer and lister for
+// MultiKueueConfigs, including the type-safe TypedInformer variant.
+// It is a superset of MultiKueueConfigInformer.
+type TypedMultiKueueConfigInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() MultiKueueConfigIndexInformer
+	Lister() kueuev1beta1.MultiKueueConfigLister
+}
+
+// MultiKueueConfigIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type MultiKueueConfigIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueConfig]
+
+// MultiKueueConfigHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for MultiKueueConfig.
+type MultiKueueConfigHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta1.MultiKueueConfig]
+
+// MultiKueueConfigDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for MultiKueueConfig.
+type MultiKueueConfigDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta1.MultiKueueConfig]
+
+// MultiKueueConfigFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for MultiKueueConfig.
+type MultiKueueConfigFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta1.MultiKueueConfig]
+
+// MultiKueueConfigIndexers is a specialization of [cache.TypedIndexers] for MultiKueueConfig.
+type MultiKueueConfigIndexers = cache.TypedIndexers[*apiskueuev1beta1.MultiKueueConfig]
+
+// DeletedMultiKueueConfig is a specialization of [cache.DeletedObject] for MultiKueueConfig.
+type DeletedMultiKueueConfig = cache.DeletedObject[*apiskueuev1beta1.MultiKueueConfig]
 
 type multiKueueConfigInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -47,55 +76,132 @@ type multiKueueConfigInformer struct {
 // NewMultiKueueConfigInformer constructs a new informer for MultiKueueConfig type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedMultiKueueConfigInformer]).
 func NewMultiKueueConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredMultiKueueConfigInformer(client, resyncPeriod, indexers, nil)
+	return NewMultiKueueConfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedMultiKueueConfigInformer constructs a new informer for MultiKueueConfig type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedMultiKueueConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers MultiKueueConfigIndexers) MultiKueueConfigIndexInformer {
+	return NewTypedMultiKueueConfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredMultiKueueConfigInformer constructs a new informer for MultiKueueConfig type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredMultiKueueConfigInformer]).
 func NewFilteredMultiKueueConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
+	return NewTypedMultiKueueConfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredMultiKueueConfigInformer constructs a new informer for MultiKueueConfig type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredMultiKueueConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers MultiKueueConfigIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) MultiKueueConfigIndexInformer {
+	return NewTypedMultiKueueConfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewMultiKueueConfigInformerWithOptions constructs a new informer for MultiKueueConfig type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedMultiKueueConfigInformerWithOptions]).
+func NewMultiKueueConfigInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedMultiKueueConfigInformerWithOptions(client, options)
+}
+
+// NewTypedMultiKueueConfigInformerWithOptions constructs a new informer for MultiKueueConfig type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedMultiKueueConfigInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) MultiKueueConfigIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta1", Resource: "multikueueconfigs"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueConfig](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().MultiKueueConfigs().List(context.Background(), options)
+				return client.KueueV1beta1().MultiKueueConfigs().List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().MultiKueueConfigs().Watch(context.Background(), options)
+				return client.KueueV1beta1().MultiKueueConfigs().Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().MultiKueueConfigs().List(ctx, options)
+				return client.KueueV1beta1().MultiKueueConfigs().List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().MultiKueueConfigs().Watch(ctx, options)
+				return client.KueueV1beta1().MultiKueueConfigs().Watch(ctx, opts)
 			},
 		}, client),
 		&apiskueuev1beta1.MultiKueueConfig{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *multiKueueConfigInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredMultiKueueConfigInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedMultiKueueConfigInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *multiKueueConfigInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta1.MultiKueueConfig{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *multiKueueConfigInformer) TypedInformer() MultiKueueConfigIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueConfig](f.factory.InformerFor(&apiskueuev1beta1.MultiKueueConfig{}, f.defaultInformer))
 }
 
 func (f *multiKueueConfigInformer) Lister() kueuev1beta1.MultiKueueConfigLister {
 	return kueuev1beta1.NewMultiKueueConfigLister(f.Informer().GetIndexer())
+}
+
+// ToTypedMultiKueueConfigInformer converts an untyped informer into a TypedMultiKueueConfigInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *MultiKueueConfig. If that is not the case, calling type-safe methods of the returned
+// TypedMultiKueueConfigInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedMultiKueueConfigInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedMultiKueueConfigInformer(informer MultiKueueConfigInformer) TypedMultiKueueConfigInformer {
+	if informer, ok := informer.(TypedMultiKueueConfigInformer); ok {
+		return informer
+	}
+	return &multiKueueConfigTypedInformerAdapter{informer}
+}
+
+type multiKueueConfigTypedInformerAdapter struct {
+	MultiKueueConfigInformer
+}
+
+func (a *multiKueueConfigTypedInformerAdapter) TypedInformer() MultiKueueConfigIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueConfig](a.Informer())
+}
+
+// ToMultiKueueConfigIndexInformer converts an untyped informer into a MultiKueueConfigIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *MultiKueueConfig. If that is not the case, calling type-safe methods of the returned
+// MultiKueueConfigIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a MultiKueueConfigIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToMultiKueueConfigIndexInformer(informer cache.SharedIndexInformer) MultiKueueConfigIndexInformer {
+	if informer, ok := informer.(MultiKueueConfigIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueConfig](informer)
 }

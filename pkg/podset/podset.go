@@ -130,14 +130,7 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	utilmaps.Copy(&podSetInfo.Labels, o.Labels)
 	utilmaps.Copy(&podSetInfo.NodeSelector, o.NodeSelector)
 
-	// make sure we don't duplicate tolerations
-	for _, t := range o.Tolerations {
-		if !slices.ContainsFunc(podSetInfo.Tolerations, func(e corev1.Toleration) bool {
-			return utiltolerations.Equal(e, t)
-		}) {
-			podSetInfo.Tolerations = append(podSetInfo.Tolerations, t)
-		}
-	}
+	podSetInfo.Tolerations = utiltolerations.Merge(podSetInfo.Tolerations, o.Tolerations)
 	// make sure we don't duplicate schedulingGates
 	for _, t := range o.SchedulingGates {
 		if slices.Index(podSetInfo.SchedulingGates, t) == -1 {

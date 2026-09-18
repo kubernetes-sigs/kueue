@@ -19,8 +19,11 @@ package scheduler
 import (
 	"iter"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/util/dqo"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
 
 // cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -33,6 +36,8 @@ type cohort struct {
 	FairWeight float64
 
 	admittedWorkloadsCount int
+
+	DynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference
 }
 
 func newCohort(name kueue.CohortReference) *cohort {
@@ -46,7 +51,9 @@ func newCohort(name kueue.CohortReference) *cohort {
 func (c *cohort) updateCohort(apiCohort *kueue.Cohort, oldParent *cohort) error {
 	c.FairWeight = parseFairWeight(apiCohort.Spec.FairSharing)
 
-	c.resourceNode.Quotas = createResourceQuotas(apiCohort.Spec.ResourceGroups)
+	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(apiCohort.Status.EffectiveQuotas)
+
+	c.resourceNode.Quotas = createResourceQuotas(resourcegroups.EffectiveCohortResourceGroups(apiCohort))
 	if oldParent != nil && oldParent != c.Parent() {
 		updateCohortTreeResourcesIfNoCycle(oldParent)
 	}
@@ -86,15 +93,21 @@ func (c *cohort) fairWeight() float64 {
 	return c.FairWeight
 }
 
-// Returns all ancestors starting with self and ending with root
+// PathSelfToRoot returns all ancestors starting with self and ending with root,
+// or stops when it detects a cycle.
 func (c *cohort) PathSelfToRoot() iter.Seq[*cohort] {
 	return func(yield func(*cohort) bool) {
-		cohort := c
-		for cohort != nil {
-			if !yield(cohort) {
+		cur := c
+		seen := make(map[*cohort]struct{})
+		for cur != nil {
+			if _, ok := seen[cur]; ok {
 				return
 			}
-			cohort = cohort.Parent()
+			seen[cur] = struct{}{}
+			if !yield(cur) {
+				return
+			}
+			cur = cur.Parent()
 		}
 	}
 }

@@ -175,8 +175,8 @@ func TestApplyCohortMetricPointReportsUnlimitedAsInf(t *testing.T) {
 	cache.applyCohortMetricPoint(cohortMetricPoint{
 		cohortName:      cohortName,
 		flavorResource:  fr,
-		quotaQty:        resources.Unlimited,
-		reservationsQty: resources.Unlimited,
+		quotaQty:        resources.NewAmount(math.MaxInt64),
+		reservationsQty: resources.NewAmount(math.MaxInt64),
 	})
 
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, labels, math.Inf(1))
@@ -684,19 +684,21 @@ func cohortQuotaMetricLabels(cohortName kueue.CohortReference, fr resources.Flav
 
 func cohortMetricInfoLabels(cohortName kueue.CohortReference, parentCohort, rootCohort string) map[string]string {
 	return map[string]string{
-		"cohort":        string(cohortName),
-		"parent_cohort": parentCohort,
-		"root_cohort":   rootCohort,
-		"replica_role":  "standalone",
+		"cohort":                     string(cohortName),
+		"parent_cohort":              parentCohort,
+		"root_cohort":                rootCohort,
+		"dynamic_quota_orchestrator": "",
+		"replica_role":               "standalone",
 	}
 }
 
 func cqMetricInfoLabels(cqName kueue.ClusterQueueReference, parentCohort, rootCohort string) map[string]string {
 	return map[string]string{
-		"cluster_queue": string(cqName),
-		"parent_cohort": parentCohort,
-		"root_cohort":   rootCohort,
-		"replica_role":  "standalone",
+		"cluster_queue":              string(cqName),
+		"parent_cohort":              parentCohort,
+		"root_cohort":                rootCohort,
+		"dynamic_quota_orchestrator": "",
+		"replica_role":               "standalone",
 	}
 }
 

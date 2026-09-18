@@ -494,6 +494,8 @@ We **postpone** this to Alpha2 in order to earn more time for carefully planning
 
 Yet, we plan to deliver an Alpha1 version even before that happens - because the core functionality (managing quotas and workloads in MultiKueue) is going to be unaffected.
 
+More specifically, the KEP will be adjusted to use the [Dynamic Quota Orchestration (KEP-14104)](https://github.com/kubernetes-sigs/kueue/pull/14104) mechanism.
+
 #### Use cached remote clients for low-volume resource kinds
 
 Currently, the MultiKueue controllers use cached K8s clients for local (manager-side) resources but uncached clients for remote resources. Just enabling cache for remote clients does feel risky, as it could use much memory for Workloads and supported job kinds (which can exist in large numbers).

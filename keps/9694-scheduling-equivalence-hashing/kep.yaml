@@ -24,6 +24,7 @@ milestone:
 
 feature-gates:
   - name: SchedulingEquivalenceHashing
+  - name: SchedulingEquivalenceHashingIgnorePodSetName
 disable-supported: true
 
 metrics:

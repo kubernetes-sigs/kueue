@@ -1,0 +1,29 @@
+title: Quota Release Strategy
+kep-number: 10076
+authors:
+  - "@vic-comm"
+status: provisional
+creation-date: 2026-08-15
+reviewers:
+  - @mimowo
+  - @tenzen-y
+  - @kannon92
+approvers:
+  - @sohankunkerkar
+  - @tenzen-y
+
+see-also:
+  - "/keps/6143-pod-quota-release-strategy"
+
+stage: alpha
+latest-milestone: "v0.20"
+
+milestone:
+  alpha: "v0.20"
+  beta: 
+  stable:
+
+feature-gates:
+disable-supported: true
+
+metrics:

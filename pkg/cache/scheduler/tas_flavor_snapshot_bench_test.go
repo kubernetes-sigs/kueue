@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,8 +28,11 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -107,7 +109,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int, name string, mode benchSnapshotMode) {
 	b.Run(name, func(b *testing.B) {
 		b.ReportAllocs()
-		log := logr.Discard()
+		_, log := utiltesting.ContextWithLog(b)
 
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
@@ -141,7 +143,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		// cache-hit-only benchmark and gives the update modes a tree to
 		// invalidate.
 		for _, flavorCache := range flavorCaches {
-			if _, err := flavorCache.snapshot(b.Context(), log, nil); err != nil {
+			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
 				b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 			}
 		}
@@ -169,7 +171,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 				tasCache.SyncNode(invalidatingNodes[update%len(invalidatingNodes)])
 			}
 			for _, flavorCache := range flavorCaches {
-				if _, err := flavorCache.snapshot(b.Context(), log, nil); err != nil {
+				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
 					b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
 			}
@@ -178,30 +180,43 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 	})
 }
 
+// assignmentBenchCase describes one BenchmarkTASFlavorAssignment run. levels
+// selects whether the topology declares the hostname level or gets a virtual
+// one, which decides where usage is accounted and how the counts roll up.
+type assignmentBenchCase struct {
+	name       string
+	topology   benchTopology
+	levels     []string
+	withLeader bool
+}
+
 func BenchmarkTASFlavorAssignment(b *testing.B) {
 	features.SetFeatureGateDuringTest(b, features.TASBalancedPlacement, true)
+	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
 
-	benchmarks := []struct {
-		name       string
-		topology   benchTopology
-		withLeader bool
-	}{
-		{name: "nodes=100/workersOnly", topology: benchTopology{nodes: 100, nodesPerRack: 16, racksPerBlock: 16}},
-		{name: "nodes=500/workersOnly", topology: benchTopology{nodes: 500, nodesPerRack: 16, racksPerBlock: 16}},
-		{name: "nodes=2500/workersOnly", topology: benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}},
-		{name: "nodes=2500/withLeader", topology: benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}, withLeader: true},
-	}
-	for _, benchmark := range benchmarks {
-		runBenchmarkTASFlavorAssignment(b, benchmark.topology, benchmark.name, benchmark.withLeader)
+	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
+	hostnameLowest := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
+	rackLowest := []string{benchBlockLabel, benchRackLabel}
+
+	for _, benchmark := range []assignmentBenchCase{
+		{name: "nodes=100/workersOnly", topology: benchTopology{nodes: 100, nodesPerRack: 16, racksPerBlock: 16}, levels: hostnameLowest},
+		{name: "nodes=500/workersOnly", topology: benchTopology{nodes: 500, nodesPerRack: 16, racksPerBlock: 16}, levels: hostnameLowest},
+		{name: "nodes=2500/workersOnly", topology: topo, levels: hostnameLowest},
+		{name: "nodes=2500/withLeader", topology: topo, levels: hostnameLowest, withLeader: true},
+		{name: "nodes=2500/workersOnly/rackLowest", topology: topo, levels: rackLowest},
+		{name: "nodes=2500/withLeader/rackLowest", topology: topo, levels: rackLowest, withLeader: true},
+	} {
+		runBenchmarkTASFlavorAssignment(b, benchmark)
 	}
 }
 
-func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name string, withLeader bool) {
-	b.Run(name, func(b *testing.B) {
+func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
+	b.Run(tc.name, func(b *testing.B) {
 		b.ReportAllocs()
-		log := logr.Discard()
+		_, log := utiltesting.ContextWithLog(b)
+		topo := tc.topology
 		nodes := buildBenchNodes(topo)
-		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
+		levels := tc.levels
 
 		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 		for i := range nodes {
@@ -211,12 +226,12 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name stri
 			topologyInformation{Levels: levels},
 			flavorInformation{TopologyName: "default"},
 		)
-		snapshot, err := flavorCache.snapshot(b.Context(), log, nil)
+		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil)
 		if err != nil {
 			b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 		}
 
-		requests := balancedPlacementBenchRequests(topo, withLeader)
+		requests := balancedPlacementBenchRequests(topo, tc.withLeader)
 		result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests)
 		if failure := result.Failure(); failure != nil {
 			b.Fatalf("balanced placement preflight failed: %s", failure.Reason)
@@ -242,7 +257,8 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 		PodSet: &kueue.PodSet{
 			Name: "workers",
 			TopologyRequest: &kueue.PodSetTopologyRequest{
-				Preferred: &preferredLevel,
+				Preferred:       &preferredLevel,
+				PodSetGroupName: &groupName,
 			},
 		},
 		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
@@ -253,7 +269,10 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 	}}
 	if withLeader {
 		requests = append(requests, TASPodSetRequests{
-			PodSet: &kueue.PodSet{Name: "leader"},
+			PodSet: &kueue.PodSet{
+				Name:            "leader",
+				TopologyRequest: &kueue.PodSetTopologyRequest{PodSetGroupName: &groupName},
+			},
 			SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 				corev1.ResourceCPU: 72000,
 			}),
@@ -262,4 +281,149 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 		})
 	}
 	return requests
+}
+
+// Measures snapshot construction with admitted-Workload usage recorded, which
+// the modes above leave empty. The level schemes vary how many nodes a usage
+// domain spans: one for hostname-lowest, a rack, and a whole block.
+func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
+	// A no-op for the hostname-lowest scheme, which declares the level anyway.
+	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
+	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
+	levelSchemes := []struct {
+		name   string
+		levels []string
+	}{
+		{name: "hostname-lowest", levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
+		{name: "rack-lowest", levels: []string{benchBlockLabel, benchRackLabel}},
+		{name: "block-lowest", levels: []string{benchBlockLabel}},
+	}
+	for _, scheme := range levelSchemes {
+		for _, admittedWorkloads := range []int{1000, 5000} {
+			name := fmt.Sprintf("levels=%s/workloads=%d", scheme.name, admittedWorkloads)
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+				_, log := utiltesting.ContextWithLog(b)
+				nodes := buildBenchNodes(topo)
+				tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+				for i := range nodes {
+					tasCache.SyncNode(&nodes[i])
+				}
+				fc := tasCache.NewTASFlavorCache(
+					topologyInformation{Levels: scheme.levels},
+					flavorInformation{TopologyName: "default"},
+				)
+				for i := range admittedWorkloads {
+					n := i % topo.nodes
+					rack := n / topo.nodesPerRack
+					block := rack / topo.racksPerBlock
+					var values []string
+					switch len(scheme.levels) {
+					case 3:
+						values = []string{fmt.Sprintf("node-%d", n)}
+					case 2:
+						values = []string{fmt.Sprintf("block-%d", block), fmt.Sprintf("rack-%d", rack)}
+					default:
+						values = []string{fmt.Sprintf("block-%d", block)}
+					}
+					fc.addUsage(log, workload.Reference(fmt.Sprintf("wl-%d", i)), []workload.TopologyDomainRequests{{
+						Values:            values,
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+						Count:             1,
+					}})
+				}
+				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
+				}
+				for b.Loop() {
+					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+					}
+				}
+			})
+		}
+	}
+}
+
+// benchPoolLabel splits the cluster so the workers and the leader want different
+// nodes. Without that split every node is feasible for both and the leader pass
+// costs the same however it is written, which is what the cases above measure.
+const benchPoolLabel = "bench.kueue.x-k8s.io/pool"
+
+// BenchmarkTASLeaderFeasibility measures a PodSet group whose leader only fits on
+// nodes the workers cannot use. The leader pass has to consider every leaf, not just
+// the workers', so this is where the cost of that pass shows up; the workers' pass is
+// served from matchingLeavesCache after the first cycle, so what is left is the
+// leader's.
+func BenchmarkTASLeaderFeasibility(b *testing.B) {
+	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(b, features.TASLeaderPodSetFeasibility, true)
+	features.SetFeatureGateDuringTest(b, features.TASCacheNodeMatchResults, true)
+
+	for _, nodeCount := range []int{500, 2500} {
+		b.Run(fmt.Sprintf("nodes=%d", nodeCount), func(b *testing.B) {
+			b.ReportAllocs()
+			_, log := utiltesting.ContextWithLog(b)
+			topo := benchTopology{nodes: nodeCount, nodesPerRack: 16, racksPerBlock: 16}
+			nodes := buildBenchNodes(topo)
+			for i := range nodes {
+				pool := "workers"
+				if i >= len(nodes)-topo.nodesPerRack {
+					pool = "leader"
+				}
+				nodes[i].Labels[benchPoolLabel] = pool
+			}
+
+			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+			for i := range nodes {
+				tasCache.SyncNode(&nodes[i])
+			}
+			flavorCache := tasCache.NewTASFlavorCache(
+				topologyInformation{Levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
+				flavorInformation{TopologyName: "default"},
+			)
+			snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil)
+			if err != nil {
+				b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+			}
+
+			const groupName = "benchmark-group"
+			requests := FlavorTASRequests{
+				{
+					PodSet: utiltestingapi.MakePodSet("workers", 64).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "workers"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             64,
+					PodSetGroupName:   new(groupName),
+				},
+				{
+					PodSet: utiltestingapi.MakePodSet("leader", 1).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "leader"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             1,
+					PodSetGroupName:   new(groupName),
+				},
+			}
+			// Production always passes a Workload, and matchingLeavesCache is keyed by
+			// its UID, so omitting it would measure an uncached cluster.
+			wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default", Name: "bench", UID: "bench-uid",
+			}})
+			result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkloadInfo(wl))
+			if failure := result.Failure(); failure != nil {
+				b.Fatalf("leader feasibility preflight failed: %s", failure.Reason)
+			}
+
+			for b.Loop() {
+				result = snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkloadInfo(wl))
+			}
+			if failure := result.Failure(); failure != nil {
+				b.Fatalf("repeated leader feasibility failed: %s", failure.Reason)
+			}
+		})
+	}
 }

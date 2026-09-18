@@ -321,7 +321,6 @@ var _ = ginkgo.Describe(
 							createdRayCluster := rayv1.RayCluster{}
 							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
 								To(gomega.Succeed())
-							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 							createdRayCluster.Status.State = rayv1.Ready
 							g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).
 								To(gomega.Succeed())
@@ -330,7 +329,6 @@ var _ = ginkgo.Describe(
 							createdRayCluster := rayv1.RayCluster{}
 							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
 								To(gomega.Succeed())
-							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 							g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
 						}, util.Timeout, util.Interval).Should(gomega.Succeed())
 					},
@@ -423,7 +421,6 @@ var _ = ginkgo.Describe(
 							createdRayCluster := rayv1.RayCluster{}
 							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
 								To(gomega.Succeed())
-							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 							createdRayCluster.Status.State = rayv1.Ready
 							g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdRayCluster)).
 								To(gomega.Succeed())
@@ -432,7 +429,6 @@ var _ = ginkgo.Describe(
 							createdRayCluster := rayv1.RayCluster{}
 							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).
 								To(gomega.Succeed())
-							//nolint:staticcheck //SA1019: createdRayCluster.Status.State is deprecated
 							g.Expect(createdRayCluster.Status.State).To(gomega.Equal(rayv1.Ready))
 						}, util.Timeout, util.Interval).Should(gomega.Succeed())
 					},

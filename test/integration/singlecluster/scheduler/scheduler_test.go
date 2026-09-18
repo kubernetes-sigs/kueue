@@ -1844,6 +1844,78 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1)
 		})
 
+		ginkgo.It("Should not evict admitted workloads after reparenting child cohort to a smaller root", func() {
+			//    root-a (2 CPU)     root-b (1 CPU)
+			//        |
+			//      child (no quota)
+			//        |
+			//       cq (0 CPU)
+			rootA := utiltestingapi.MakeCohort("root-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
+				).Obj()
+			rootB := utiltestingapi.MakeCohort("root-b").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
+			childCohort := utiltestingapi.MakeCohort("child").Parent("root-a").Obj()
+			util.MustCreate(ctx, k8sClient, rootA)
+			util.MustCreate(ctx, k8sClient, rootB)
+			util.MustCreate(ctx, k8sClient, childCohort)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, rootA, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, rootB, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
+			})
+
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			util.MustCreate(ctx, k8sClient, queue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+			ginkgo.By("submitting three workloads that fit under root-a's 2 CPU capacity")
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all three workloads are admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1, wl2, wl3)
+
+			ginkgo.By("reparenting child cohort from root-a to root-b")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childCohort), childCohort)).Should(gomega.Succeed())
+				childCohort.Spec.ParentName = "root-b"
+				g.Expect(k8sClient.Update(ctx, childCohort)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying admitted workloads are NOT evicted after capacity shrink")
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{wl1, wl2, wl3} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying new workload stays pending under reduced root-b capacity")
+			wlNew := utiltestingapi.MakeWorkload("wl-new", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wlNew)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlNew)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+		})
+
 		ginkgo.It("Should admit overflow workload after reparenting child cohort to a larger root", func() {
 			//    root-a (1 CPU)     root-b (2 CPU)
 			//        |
@@ -1913,6 +1985,80 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1, wl2)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 3)
+		})
+
+		ginkgo.It("Should not evict admitted workloads after reducing ancestor cohort quota below usage", func() {
+			//    root (2 CPU → 1 CPU)
+			//         |
+			//       child (no quota)
+			//         |
+			//        cq (0 CPU nominal)
+			//
+			// 3 × 500m workloads admitted (1.5 CPU borrowed from root).
+			// Reducing root to 1 CPU places quota below usage.
+			// Admitted workloads must not be evicted; new workload stays pending.
+			root := utiltestingapi.MakeCohort("").GeneratedName("root-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, root)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
+			})
+
+			childCohort := utiltestingapi.MakeCohort("").GeneratedName("child-").
+				Parent(kueue.CohortReference(root.GetName())).Obj()
+			util.MustCreate(ctx, k8sClient, childCohort)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
+			})
+
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				Cohort(kueue.CohortReference(childCohort.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			util.MustCreate(ctx, k8sClient, queue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+			ginkgo.By("submitting three workloads that fit under root's 2 CPU capacity")
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all three workloads are admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1, wl2, wl3)
+
+			ginkgo.By("reducing root cohort nominal quota to 1 CPU (below 1.5 CPU in use)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(root), root)).Should(gomega.Succeed())
+				root.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1")
+				g.Expect(k8sClient.Update(ctx, root)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying admitted workloads are NOT evicted after quota reduction")
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{wl1, wl2, wl3} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying new workload stays pending under reduced root capacity")
+			wlNew := utiltestingapi.MakeWorkload("wl-new", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wlNew)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlNew)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 		})
 	})
 
@@ -2030,6 +2176,351 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
+	ginkgo.When("Admitted workloads are not evicted when effective cohort capacity shrinks", func() {
+		var (
+			borrowerCq *kueue.ClusterQueue
+			lenderCq   *kueue.ClusterQueue
+		)
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerCq, true)
+			if lenderCq != nil {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lenderCq, true)
+			}
+		})
+
+		ginkgo.It("Should not evict borrowed workloads when lender cohort tightens lendingLimit", func() {
+			//    root (0 CPU)
+			//    ├── lender (2 CPU, lendingLimit=2)
+			//    └── borrower (0 CPU)
+			//           └── borrower-cq (0 CPU nominal)
+			//
+			// 3 × 500m workloads admitted by borrowing from lender.
+			// Tightening lender's lendingLimit from 2 CPU → 0 must not evict
+			// already-admitted workloads; new workload stays pending.
+			root := utiltestingapi.MakeCohort("").GeneratedName("root-").Obj()
+			util.MustCreate(ctx, k8sClient, root)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
+			})
+
+			lender := utiltestingapi.MakeCohort("").GeneratedName("lender-").
+				Parent(kueue.CohortReference(root.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2", "", "2").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, lender)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lender, true)
+			})
+
+			borrowerCohort := utiltestingapi.MakeCohort("").GeneratedName("borrower-").
+				Parent(kueue.CohortReference(root.GetName())).Obj()
+			util.MustCreate(ctx, k8sClient, borrowerCohort)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerCohort, true)
+			})
+
+			borrowerCq = utiltestingapi.MakeClusterQueue("borrower-cq").
+				Cohort(kueue.CohortReference(borrowerCohort.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, borrowerCq)
+
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(borrowerCq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, borrowerCq)
+
+			ginkgo.By("submitting three workloads that borrow from lender cohort")
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all three workloads are admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, borrowerCq.Name, wl1, wl2, wl3)
+
+			ginkgo.By("tightening lender cohort's lendingLimit from 2 CPU to 0")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lender), lender)).Should(gomega.Succeed())
+				lender.Spec.ResourceGroups[0].Flavors[0].Resources[0].LendingLimit = new(resource.MustParse("0"))
+				g.Expect(k8sClient.Update(ctx, lender)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying admitted workloads are NOT evicted after lendingLimit tighten")
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{wl1, wl2, wl3} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying new workload stays pending after lendingLimit tighten")
+			wlNew := utiltestingapi.MakeWorkload("wl-new", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wlNew)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlNew)
+			util.ExpectPendingWorkloadsMetric(borrowerCq, 0, 1)
+		})
+
+		ginkgo.It("Should not evict borrowed workloads when borrower CQ sets borrowingLimit to zero", func() {
+			//    root (2 CPU)
+			//        |
+			//    borrower-cq (0 CPU nominal, no borrowingLimit → borrows freely)
+			//
+			// 3 × 500m workloads admitted via borrowing from root.
+			// Setting borrowingLimit=0 on borrower-cq must not evict already-admitted
+			// workloads; new workload stays pending.
+			root := utiltestingapi.MakeCohort("").GeneratedName("root-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, root)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
+			})
+
+			borrowerCq = utiltestingapi.MakeClusterQueue("borrower-cq").
+				Cohort(kueue.CohortReference(root.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, borrowerCq)
+
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(borrowerCq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, borrowerCq)
+
+			ginkgo.By("submitting three workloads that borrow from root cohort")
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all three workloads are admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, borrowerCq.Name, wl1, wl2, wl3)
+
+			ginkgo.By("setting borrowingLimit to zero on borrower CQ")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrowerCq), borrowerCq)).Should(gomega.Succeed())
+				borrowerCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = new(resource.MustParse("0"))
+				g.Expect(k8sClient.Update(ctx, borrowerCq)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying admitted workloads are NOT evicted after borrowingLimit set to zero")
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{wl1, wl2, wl3} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying new workload stays pending after borrowingLimit set to zero")
+			wlNew := utiltestingapi.MakeWorkload("wl-new", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wlNew)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlNew)
+			util.ExpectPendingWorkloadsMetric(borrowerCq, 0, 1)
+		})
+
+		ginkgo.It("Should not evict borrowed workloads when lender subtree is reparented away", func() {
+			// Before:
+			//     root1 (0 CPU)
+			//     ├── lender (2 CPU, lendingLimit=2)
+			//     └── borrower (0 CPU)
+			//         └── borrower-cq (0 CPU nominal)
+			//             └── 3 × 500m workloads (borrowing from lender)
+			//
+			// After reparenting lender to root2:
+			//     root1 (0 CPU)              root2 (2 CPU)
+			//     └── borrower (0 CPU)       └── lender (2 CPU, lendingLimit=2)
+			//         └── borrower-cq (0 CPU)
+			//             ├── 3 × 500m (still admitted, NOT evicted)
+			//             └── wl-new (PENDING - no capacity source)
+			root1 := utiltestingapi.MakeCohort("").GeneratedName("root1-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, root1)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root1, true)
+			})
+
+			lender := utiltestingapi.MakeCohort("").GeneratedName("lender-").
+				Parent(kueue.CohortReference(root1.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2", "", "2").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, lender)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, lender, true)
+			})
+
+			borrowerCohort := utiltestingapi.MakeCohort("").GeneratedName("borrower-").
+				Parent(kueue.CohortReference(root1.GetName())).Obj()
+			util.MustCreate(ctx, k8sClient, borrowerCohort)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerCohort, true)
+			})
+
+			borrowerCq = utiltestingapi.MakeClusterQueue("borrower-cq").
+				Cohort(kueue.CohortReference(borrowerCohort.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, borrowerCq)
+
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(borrowerCq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, borrowerCq)
+
+			ginkgo.By("submitting three workloads that borrow from lender cohort")
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all three workloads are admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, borrowerCq.Name, wl1, wl2, wl3)
+
+			// Create a separate root for lender before reparenting
+			root2 := utiltestingapi.MakeCohort("").GeneratedName("root2-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, root2)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root2, true)
+			})
+
+			ginkgo.By("reparenting lender cohort from root1 to root2 (isolating lender subtree)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lender), lender)).Should(gomega.Succeed())
+				lender.Spec.ParentName = kueue.CohortReference(root2.GetName())
+				g.Expect(k8sClient.Update(ctx, lender)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectCohortSubtreeQuotaGaugeMetric(root2.Name, "on-demand", corev1.ResourceCPU.String(), 4)
+
+			ginkgo.By("verifying admitted workloads are NOT evicted after lender reparenting")
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{wl1, wl2, wl3} {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying new workload stays pending after lender reparenting")
+			wlNew := utiltestingapi.MakeWorkload("wl-new", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "500m").Obj()
+			util.MustCreate(ctx, k8sClient, wlNew)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlNew)
+			util.ExpectPendingWorkloadsMetric(borrowerCq, 0, 1)
+		})
+
+		ginkgo.It("Should reclaim quota only through preemption after nominal quota is reduced below usage", func() {
+			//     root (0 CPU)
+			//     ├── lender-cq (1 CPU nominal, reclaimWithinCohort=Any)
+			//     └── cq (4 CPU nominal, 1 CPU spare)
+			//         └── 3 × 1 CPU workloads (3 CPU total usage, wl-2 has priority 1)
+			//
+			//     root (0 CPU)
+			//     ├── lender-cq ← wl-reclaim (1 CPU) preempts wl-1 and wl-3
+			//     └── cq (1 CPU nominal ← reduced)
+			//         └── wl-2 (NOT evicted, protected by priority 1)
+			root := utiltestingapi.MakeCohort("").GeneratedName("root-").Obj()
+			util.MustCreate(ctx, k8sClient, root)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
+			})
+
+			lenderCq = utiltestingapi.MakeClusterQueue("lender-cq").
+				Cohort(kueue.CohortReference(root.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lenderCq)
+
+			lenderQueue := utiltestingapi.MakeLocalQueue("lender-queue", ns.Name).ClusterQueue(lenderCq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lenderQueue)
+
+			borrowerCq = utiltestingapi.MakeClusterQueue("shrink-cq").
+				Cohort(kueue.CohortReference(root.GetName())).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "4").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, borrowerCq)
+
+			queue := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(borrowerCq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, queue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, borrowerCq, lenderCq)
+
+			ginkgo.By("submitting three workloads (leaving 1 CPU spare capacity)")
+			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl-2", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Priority(1).
+				Request(corev1.ResourceCPU, "1").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl-3", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all three workloads are admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, borrowerCq.Name, wl1, wl2, wl3)
+
+			ginkgo.By("reducing cluster queue nominal quota from 4 CPU to 1 CPU (below current usage)")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrowerCq), borrowerCq)).Should(gomega.Succeed())
+				borrowerCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1")
+				g.Expect(k8sClient.Update(ctx, borrowerCq)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectCohortSubtreeQuotaGaugeMetric(root.Name, "on-demand", corev1.ResourceCPU.String(), 2)
+
+			ginkgo.By("verifying admitted workloads are NOT evicted after severe quota shrink")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(util.FilterEvictedWorkloads(ctx, k8sClient, wl1, wl2, wl3)).To(gomega.BeEmpty())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("reclaiming lender-cq quota only through preemption on a subsequent admission attempt")
+			wlReclaim := utiltestingapi.MakeWorkload("wl-reclaim", ns.Name).Queue(kueue.LocalQueueName(lenderQueue.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wlReclaim)
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1, wl3)
+			ginkgo.By("finish eviction so quota is freed and wlReclaim can be admitted")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1, wl3)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, lenderCq.Name, wlReclaim)
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).Should(gomega.Succeed())
+				g.Expect(meta.IsStatusConditionTrue(wl2.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
 	ginkgo.When("Queueing with StrictFIFO", func() {
 		var (
 			strictFIFOClusterQ *kueue.ClusterQueue

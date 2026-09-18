@@ -50,14 +50,16 @@ func newSecondPassQueue() *secondPassQueue {
 	}
 }
 
+// takeAllReady removes and returns all workloads currently queued for the second pass.
 func (q *secondPassQueue) takeAllReady() []workload.Info {
 	q.Lock()
 	defer q.Unlock()
+	result := make([]workload.Info, 0, len(q.queued))
 
-	var result []workload.Info
 	for _, v := range q.queued {
 		result = append(result, *v)
 	}
+
 	q.queued = make(map[workload.Reference]*workload.Info)
 	return result
 }

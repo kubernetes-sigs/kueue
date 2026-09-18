@@ -54,7 +54,10 @@ type Assignment struct {
 	// Borrowing is the height of the smallest cohort tree that fits
 	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int
-	LastState workload.AssignmentClusterQueueState
+
+	// FlavorScanState records flavor scan progress from this assignment attempt
+	// for reuse in subsequent scheduling attempts.
+	FlavorScanState workload.FlavorScanState
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned. When workload slicing is enabled and replaceWorkloadSlice
@@ -105,35 +108,70 @@ func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 // ComputeTASNetUsage computes the net TAS usage for the assignment
 func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, prevAdmission *kueue.Admission) workload.TASUsage {
 	result := make(workload.TASUsage)
-	for i, psa := range a.PodSets {
-		if psa.TopologyAssignment != nil {
-			if prevAdmission != nil && prevAdmission.PodSetAssignments[i].TopologyAssignment != nil {
+	for _, psa := range a.PodSets {
+		if psa.TopologyAssignment == nil {
+			continue
+		}
+		// Pods the current admission already places on a domain are accounted for
+		// in the snapshot through the cache, so only the additional pods count
+		// towards the net usage. Comparing per domain rather than skipping the
+		// whole PodSet matters when the assignment changed: a second pass
+		// replacing an unhealthy node moves pods onto a domain nothing has
+		// accounted for yet, and that claim has to be checked and recorded like
+		// any other.
+		accounted := admittedDomainCounts(prevAdmission, psa.Name)
+		podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psa.Name)
+		if podSet == nil {
+			log.Error(nil, "PodSet not found while computing TAS net usage", "podSet", psa.Name)
+			continue
+		}
+		tasFlavor, err := onlyTASFlavor(psa.Flavors, cq.TASFlavors)
+		if err != nil {
+			log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
+			continue
+		}
+		singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpecByName(psa.Name))
+		for _, domain := range psa.TopologyAssignment.Domains {
+			count := domain.Count - accounted[tas.DomainID(domain.Values)]
+			if count <= 0 {
+				// Unchanged, or the domain now holds fewer pods than the
+				// admission already accounts for. Releasing the surplus is not
+				// expressible here, since a Usage value is applied with a single
+				// add or subtract, so the snapshot keeps counting it until the
+				// next one is built.
 				continue
 			}
-			podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psa.Name)
-			if podSet == nil {
-				log.Error(nil, "PodSet not found while computing TAS net usage", "podSet", psa.Name)
-				continue
-			}
-			tasFlavor, err := onlyTASFlavor(psa.Flavors, cq.TASFlavors)
-			if err != nil {
-				log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
-				continue
-			}
-			singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
 			if _, ok := result[*tasFlavor]; !ok {
 				result[*tasFlavor] = make(workload.TASFlavorUsage, 0)
 			}
-			for _, domain := range psa.TopologyAssignment.Domains {
-				result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
-					Values:            domain.Values,
-					SinglePodRequests: singlePodRequests.Clone(),
-					Count:             domain.Count,
-				})
-			}
+			result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
+				Values:            domain.Values,
+				SinglePodRequests: singlePodRequests.Clone(),
+				Count:             count,
+			})
 		}
 	}
 	return result
+}
+
+// admittedDomainCounts returns the number of pods per topology domain that the
+// workload's current admission already contributes to the snapshot, keyed by
+// domain. It returns nil when the PodSet has no admitted topology assignment.
+func admittedDomainCounts(prevAdmission *kueue.Admission, psName kueue.PodSetReference) map[tas.TopologyDomainID]int32 {
+	if prevAdmission == nil {
+		return nil
+	}
+	idx := slices.IndexFunc(prevAdmission.PodSetAssignments, func(psa kueue.PodSetAssignment) bool {
+		return psa.Name == psName
+	})
+	if idx == -1 || prevAdmission.PodSetAssignments[idx].TopologyAssignment == nil {
+		return nil
+	}
+	counts := make(map[tas.TopologyDomainID]int32)
+	for _, domain := range tas.InternalFrom(prevAdmission.PodSetAssignments[idx].TopologyAssignment).Domains {
+		counts[tas.DomainID(domain.Values)] += domain.Count
+	}
+	return counts
 }
 
 // Borrows returns the borrowing level of the assignment.
@@ -693,11 +731,11 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				Unassigned: make(resources.MapRequests),
 			},
 		},
-		LastState: workload.AssignmentClusterQueueState{
-			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
-			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
-			SchedulingCycle:        a.schedulingCycle,
-			SchedulingHash:         a.wl.SchedulingHash,
+		FlavorScanState: workload.FlavorScanState{
+			LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, 0, len(requests)),
+			AllocatableResourceGeneration: a.cq.AllocatableResourceGeneration,
+			SchedulingCycle:               a.schedulingCycle,
+			SchedulingHash:                a.wl.SchedulingHash,
 		},
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
@@ -827,9 +865,15 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
+		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
+			// Elastic placement accounts for the previous assignment itself.
+			// Remove its cached usage during the search to avoid counting it twice.
+			restore := a.cq.SimulateUsageRemoval(workload.Usage{TAS: a.replaceWorkloadSlice.TASUsage()})
+			defer restore()
+		}
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkload(a.wl.Obj))
+			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
@@ -847,7 +891,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				ctx,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkload(a.wl.Obj),
+				schdcache.WithWorkloadInfo(a.wl),
 			)
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit even if
@@ -927,6 +971,7 @@ func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 
 		// Map from resource group index to the minimum severity blocker (alternative flavors) for that group.
 		rgMinReason := make(map[int]string)
+		podSetReason := ps.Status.noFitReason
 
 		for i, att := range ps.FlavorAssignmentAttempts {
 			if att.Mode != NoFit {
@@ -948,7 +993,6 @@ func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 		}
 
 		// Across groups, we take the maximum severity (co-requisites).
-		var podSetReason string
 		for _, reason := range rgMinReason {
 			podSetReason = mostSevereReason(podSetReason, reason)
 		}
@@ -1002,7 +1046,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		a.Usage.Quota.Assigned[fr] = a.Usage.Quota.Assigned[fr].AddInt64(requestAmount)
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
-	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
+	a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, flavorIdx)
 }
 
 // findOldPodSetRequest returns the resource request from the old workload slice
@@ -1037,7 +1081,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 ) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
-		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)), nil
+		status := NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName))
+		status.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
+		return nil, status, nil
 	}
 
 	status := NewStatus()
@@ -1054,7 +1100,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
-	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psIDs[0], resName)
+	idx := a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
@@ -1198,7 +1244,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	for psIdx, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
-			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
+			if message := checkPodSetAndFlavorMatchForTAS(a.cq, a.wl.TopologySpreading, ps, a.wl.PodSpec(psID), flavor, rg); message != nil {
 				log.V(3).Info("Flavor does not match TAS requirements", "reason", *message)
 				status.appendf("%s", *message)
 				return status

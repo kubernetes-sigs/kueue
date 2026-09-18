@@ -40,9 +40,10 @@ type Framework struct {
 	plugins                      map[string]framework.Plugin
 	enforceMLPlugins             []framework.EnforceMLPolicyPlugin
 	enforcePodGroupPolicyPlugins []framework.EnforcePodGroupPolicyPlugin
+	enforcePodSpecPlugins        []framework.EnforcePodSpecPlugin
 	customValidationPlugins      []framework.CustomValidationPlugin
 	watchExtensionPlugins        []framework.WatchExtensionPlugin
-	podNetworkPlugins            []framework.PodNetworkPlugin
+	preComponentBuilderPlugins   []framework.PreComponentBuilderPlugin
 	componentBuilderPlugins      []framework.ComponentBuilderPlugin
 	trainJobStatusPlugin         framework.TrainJobStatusPlugin
 }
@@ -68,14 +69,17 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 		if p, ok := plugin.(framework.EnforcePodGroupPolicyPlugin); ok {
 			f.enforcePodGroupPolicyPlugins = append(f.enforcePodGroupPolicyPlugins, p)
 		}
+		if p, ok := plugin.(framework.EnforcePodSpecPlugin); ok {
+			f.enforcePodSpecPlugins = append(f.enforcePodSpecPlugins, p)
+		}
 		if p, ok := plugin.(framework.CustomValidationPlugin); ok {
 			f.customValidationPlugins = append(f.customValidationPlugins, p)
 		}
 		if p, ok := plugin.(framework.WatchExtensionPlugin); ok {
 			f.watchExtensionPlugins = append(f.watchExtensionPlugins, p)
 		}
-		if p, ok := plugin.(framework.PodNetworkPlugin); ok {
-			f.podNetworkPlugins = append(f.podNetworkPlugins, p)
+		if p, ok := plugin.(framework.PreComponentBuilderPlugin); ok {
+			f.preComponentBuilderPlugins = append(f.preComponentBuilderPlugins, p)
 		}
 		if p, ok := plugin.(framework.ComponentBuilderPlugin); ok {
 			f.componentBuilderPlugins = append(f.componentBuilderPlugins, p)
@@ -91,6 +95,8 @@ func New(ctx context.Context, c client.Client, r fwkplugins.Registry, indexer cl
 	return f, nil
 }
 
+// RunEnforceMLPolicyPlugins configures the ML framework specific parameters declared in
+// the runtime `.spec.mlPolicy` on the Info object.
 func (f *Framework) RunEnforceMLPolicyPlugins(info *runtime.Info, trainJob *trainer.TrainJob) error {
 	for _, plugin := range f.enforceMLPlugins {
 		if err := plugin.EnforceMLPolicy(info, trainJob); err != nil {
@@ -100,9 +106,26 @@ func (f *Framework) RunEnforceMLPolicyPlugins(info *runtime.Info, trainJob *trai
 	return nil
 }
 
+// RunEnforcePodGroupPolicyPlugins configures the gang-scheduling parameters declared in
+// the runtime `.spec.podGroupPolicy` on the Info object. It must run after
+// RunEnforceMLPolicyPlugins, which can still adjust the PodSet counts.
 func (f *Framework) RunEnforcePodGroupPolicyPlugins(info *runtime.Info, trainJob *trainer.TrainJob) error {
 	for _, plugin := range f.enforcePodGroupPolicyPlugins {
 		if err := plugin.EnforcePodGroupPolicy(info, trainJob); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunEnforcePodSpecPlugins mutates the PodSpec of the Info PodSets.
+// It must run after RunEnforceMLPolicyPlugins and RunEnforcePodGroupPolicyPlugins.
+func (f *Framework) RunEnforcePodSpecPlugins(info *runtime.Info, trainJob *trainer.TrainJob) error {
+	if info == nil {
+		return nil
+	}
+	for _, plugin := range f.enforcePodSpecPlugins {
+		if err := plugin.EnforcePodSpec(info.TemplateSpec.PodSets, trainJob); err != nil {
 			return err
 		}
 	}
@@ -124,15 +147,19 @@ func (f *Framework) RunCustomValidationPlugins(ctx context.Context, info *runtim
 	return aggregatedWarnings, aggregatedErrors
 }
 
-func (f *Framework) RunPodNetworkPlugins(info *runtime.Info, trainJob *trainer.TrainJob) error {
-	for _, plugin := range f.podNetworkPlugins {
-		if err := plugin.IdentifyPodNetwork(info, trainJob); err != nil {
+// RunPreComponentBuilderPlugins consolidates the Info object with the concrete runtime
+// template. It must complete before RunComponentBuilderPlugins materializes any object.
+func (f *Framework) RunPreComponentBuilderPlugins(info *runtime.Info, trainJob *trainer.TrainJob) error {
+	for _, plugin := range f.preComponentBuilderPlugins {
+		if err := plugin.PreBuildSync(info, trainJob); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// RunComponentBuilderPlugins materializes the Kubernetes objects for a TrainJob from the
+// consolidated Info object. It must run after RunPreComponentBuilderPlugins.
 func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
 	var objs []apiruntime.ApplyConfiguration
 	for _, plugin := range f.componentBuilderPlugins {

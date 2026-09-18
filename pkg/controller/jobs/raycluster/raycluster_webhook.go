@@ -216,14 +216,14 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 		)
 	}
 
-	// MultiKueue does not support Ray autoscaling yet.
 	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) &&
-		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName {
+		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName &&
+		!features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
 		allErrors = append(
 			allErrors,
 			field.Forbidden(
 				specPath.Child("enableInTreeAutoscaling"),
-				"in-tree autoscaling is not supported for a MultiKueue-managed elastic RayCluster",
+				fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic RayCluster requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
 			),
 		)
 	}
@@ -262,18 +262,18 @@ func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob 
 func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv1.RayCluster) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(newJob) != "" {
-		log.Info("Validating update")
-		allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(ctx, newObj)
-		if err != nil {
-			return nil, err
-		}
-		allErrors = append(allErrors, validationErrs...)
-		return nil, allErrors.ToAggregate()
+	if !jobframework.ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob, w.manageJobsWithoutQueueName) {
+		return nil, nil
 	}
-	return nil, nil
+	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
+	log.V(5).Info("Validating update")
+	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
+	validationErrs, err := w.validateCreate(ctx, newObj)
+	if err != nil {
+		return nil, err
+	}
+	allErrors = append(allErrors, validationErrs...)
+	return nil, allErrors.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

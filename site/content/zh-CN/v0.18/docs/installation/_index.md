@@ -37,7 +37,7 @@ description: >
 - 运行版本为 1.29 或更新的 Kubernetes 集群。了解如何[安装 Kubernetes 工具](https://kubernetes.io/docs/tasks/tools/)。
 - kubectl 命令行工具已与你的集群通信。
 
-Kueue 发布[指标](/v0.18/docs/reference/metrics)以监控其控制器组件。
+Kueue 发布[指标](/zh-cn/v0.18/docs/reference/metrics)以监控其控制器组件。
 你可以使用 Prometheus 采集这些指标。
 如果你没有自己的监控系统，请使用 [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)。
 
@@ -140,7 +140,7 @@ wget https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "versi
 2. 使用你喜欢的编辑器打开 `manifests.yaml`。
 3. 在 `kueue-manager-config` ConfigMap 清单中，编辑
    `controller_manager_config.yaml` 数据条目。该条目代表默认的
-   [KueueConfiguration](/v0.18/docs/reference/kueue-config.v1beta1)。
+   [KueueConfiguration](/zh-cn/v0.18/docs/reference/kueue-config.v1beta2)。
    ConfigMap 的内容类似于以下内容：
 
 ```yaml
@@ -282,4 +282,4 @@ spec:
 
 ## 接下来是什么 {#whats-next}
 
-- 阅读 [`Configuration` 的 API 参考](/v0.18/docs/reference/kueue-config.v1beta1/#Configuration)
+- 阅读 [`Configuration` 的 API 参考](/zh-cn/v0.18/docs/reference/kueue-config.v1beta2/#Configuration)

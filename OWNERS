@@ -48,24 +48,10 @@ filters:
     approvers:
       - release-team
 
-  "^site/content/(en|zh-CN)/v*$":
-    approvers:
-      - release-team
-
-  "^site/static/v*$":
-    approvers:
-      - release-team
-
   # Dependency makefile
   "^hack/make/deps\\.mk$":
     approvers:
       - dependency-approvers
-
-  "^site/hugo\\.toml$":
-    approvers:
-      - hugo-approvers
-      - infra-approvers
-      - release-team
 
   "^netlify\\.toml$":
     approvers:

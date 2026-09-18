@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -33,11 +34,39 @@ import (
 )
 
 // TopologyInformer provides access to a shared informer and lister for
-// Topologies.
+// Topologies. Prefer using the type-safe variant (see [TypedTopologyInformer]).
 type TopologyInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta1.TopologyLister
 }
+
+// TypedTopologyInformer provides access to a shared informer and lister for
+// Topologies, including the type-safe TypedInformer variant.
+// It is a superset of TopologyInformer.
+type TypedTopologyInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() TopologyIndexInformer
+	Lister() kueuev1beta1.TopologyLister
+}
+
+// TopologyIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type TopologyIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta1.Topology]
+
+// TopologyHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for Topology.
+type TopologyHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta1.Topology]
+
+// TopologyDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for Topology.
+type TopologyDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta1.Topology]
+
+// TopologyFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for Topology.
+type TopologyFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta1.Topology]
+
+// TopologyIndexers is a specialization of [cache.TypedIndexers] for Topology.
+type TopologyIndexers = cache.TypedIndexers[*apiskueuev1beta1.Topology]
+
+// DeletedTopology is a specialization of [cache.DeletedObject] for Topology.
+type DeletedTopology = cache.DeletedObject[*apiskueuev1beta1.Topology]
 
 type topologyInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -47,55 +76,132 @@ type topologyInformer struct {
 // NewTopologyInformer constructs a new informer for Topology type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedTopologyInformer]).
 func NewTopologyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredTopologyInformer(client, resyncPeriod, indexers, nil)
+	return NewTopologyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedTopologyInformer constructs a new informer for Topology type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedTopologyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers TopologyIndexers) TopologyIndexInformer {
+	return NewTypedTopologyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredTopologyInformer constructs a new informer for Topology type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredTopologyInformer]).
 func NewFilteredTopologyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
+	return NewTypedTopologyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredTopologyInformer constructs a new informer for Topology type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredTopologyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers TopologyIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) TopologyIndexInformer {
+	return NewTypedTopologyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewTopologyInformerWithOptions constructs a new informer for Topology type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedTopologyInformerWithOptions]).
+func NewTopologyInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedTopologyInformerWithOptions(client, options)
+}
+
+// NewTypedTopologyInformerWithOptions constructs a new informer for Topology type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedTopologyInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) TopologyIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta1", Resource: "topologys"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.Topology](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().Topologies().List(context.Background(), options)
+				return client.KueueV1beta1().Topologies().List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().Topologies().Watch(context.Background(), options)
+				return client.KueueV1beta1().Topologies().Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().Topologies().List(ctx, options)
+				return client.KueueV1beta1().Topologies().List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().Topologies().Watch(ctx, options)
+				return client.KueueV1beta1().Topologies().Watch(ctx, opts)
 			},
 		}, client),
 		&apiskueuev1beta1.Topology{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *topologyInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredTopologyInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedTopologyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *topologyInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta1.Topology{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *topologyInformer) TypedInformer() TopologyIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.Topology](f.factory.InformerFor(&apiskueuev1beta1.Topology{}, f.defaultInformer))
 }
 
 func (f *topologyInformer) Lister() kueuev1beta1.TopologyLister {
 	return kueuev1beta1.NewTopologyLister(f.Informer().GetIndexer())
+}
+
+// ToTypedTopologyInformer converts an untyped informer into a TypedTopologyInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Topology. If that is not the case, calling type-safe methods of the returned
+// TypedTopologyInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedTopologyInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedTopologyInformer(informer TopologyInformer) TypedTopologyInformer {
+	if informer, ok := informer.(TypedTopologyInformer); ok {
+		return informer
+	}
+	return &topologyTypedInformerAdapter{informer}
+}
+
+type topologyTypedInformerAdapter struct {
+	TopologyInformer
+}
+
+func (a *topologyTypedInformerAdapter) TypedInformer() TopologyIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.Topology](a.Informer())
+}
+
+// ToTopologyIndexInformer converts an untyped informer into a TopologyIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Topology. If that is not the case, calling type-safe methods of the returned
+// TopologyIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a TopologyIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTopologyIndexInformer(informer cache.SharedIndexInformer) TopologyIndexInformer {
+	if informer, ok := informer.(TopologyIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.Topology](informer)
 }

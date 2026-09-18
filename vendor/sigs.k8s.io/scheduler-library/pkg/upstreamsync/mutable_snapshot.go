@@ -15,6 +15,8 @@
 package upstreamsync
 
 import (
+	"fmt"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
@@ -35,8 +37,14 @@ We will want to expose AddPod/RemovePod for pods that were originally in the sna
 
 Both cases can be unified under the same Add/Remove operations.
 
+UPSTREAM-DIFF: the whole file is library-only. It has no counterpart in kube-scheduler yet; it
+lives here because it is proposed for the upstream snapshot, not because it was copied from it.
+
 */
 
+// MutatingSnapshot wraps a cache.Snapshot with Add/RemovePod operations that keep track of what
+// was changed, so that the snapshot can be restored to the state it had when the wrapper was
+// created (see RestoreState).
 type MutatingSnapshot struct {
 	*cache.Snapshot
 	addedPods   map[string]func()
@@ -62,6 +70,14 @@ func (s *MutatingSnapshot) RemovePod(logger klog.Logger, podInfo *framework.PodI
 		return err
 	}
 
+	fni, ok := ni.(*framework.NodeInfo)
+	if !ok {
+		return fmt.Errorf("unknown node info type: %T", ni)
+	}
+	oldGen := fni.Generation
+	defer func() {
+		fni.Generation = oldGen
+	}()
 	err = ni.RemovePod(logger, podInfo.Pod)
 	if err != nil {
 		return err
@@ -86,6 +102,14 @@ func (s *MutatingSnapshot) AddPod(logger klog.Logger, podInfo *framework.PodInfo
 		return err
 	}
 
+	fni, ok := ni.(*framework.NodeInfo)
+	if !ok {
+		return fmt.Errorf("unknown node info type: %T", ni)
+	}
+	oldGen := fni.Generation
+	defer func() {
+		fni.Generation = oldGen
+	}()
 	ni.AddPodInfo(podInfo)
 
 	if _, ok := s.removedPods[key]; ok {

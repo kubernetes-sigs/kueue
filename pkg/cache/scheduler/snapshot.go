@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
@@ -53,6 +54,11 @@ type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
+	SimulatorSnapshot        simulator.SimulatorSnapshot
+
+	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
+	// capacity, fixed once the snapshot is built.
+	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
@@ -60,7 +66,7 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.RemoveUsage(wl.Usage())
+	s.removeUsage(cq, wl.Usage())
 }
 
 // AddWorkload adds a workload to its corresponding ClusterQueue and
@@ -68,7 +74,38 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.AddUsage(wl.Usage())
+	s.AddUsage(cq, wl.Usage())
+}
+
+// AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
+func (s *Snapshot) AddUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
+	cq.AddUsage(usage)
+	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, add)
+}
+
+func (s *Snapshot) removeUsage(cq *ClusterQueueSnapshot, usage workload.Usage) {
+	cq.RemoveUsage(usage)
+	s.updateOverlappingTASUsage(cq.TASFlavors, usage.TAS, subtract)
+}
+
+// updateOverlappingTASUsage keeps hostname-leaf flavor snapshots consistent
+// with the cross-flavor usage aggregated when the snapshot is built.
+func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, usage workload.TASUsage, op usageOp) {
+	if len(usage) == 0 || !features.Enabled(features.TASHandleOverlappingFlavors) {
+		return
+	}
+
+	for sourceFlavor, tasUsage := range usage {
+		if sourceFlavors[sourceFlavor] == nil || s.hostnameLeafTASFlavors[sourceFlavor] == nil {
+			continue
+		}
+		for flavor, tasFlavor := range s.hostnameLeafTASFlavors {
+			if flavor == sourceFlavor {
+				continue
+			}
+			tasFlavor.updateTASUsageForHeldDomains(tasUsage, op)
+		}
+	}
 }
 
 // SimulateWorkloadUsageRemoval modifies the snapshot by removing the usage
@@ -85,11 +122,11 @@ func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func
 		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
 	}
 	for _, cqUsage := range cqUsages {
-		s.ClusterQueue(cqUsage.cq).RemoveUsage(cqUsage.usage)
+		s.removeUsage(s.ClusterQueue(cqUsage.cq), cqUsage.usage)
 	}
 	return func() {
 		for _, cqUsage := range cqUsages {
-			s.ClusterQueue(cqUsage.cq).AddUsage(cqUsage.usage)
+			s.AddUsage(s.ClusterQueue(cqUsage.cq), cqUsage.usage)
 		}
 	}
 }
@@ -104,6 +141,16 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	return func() {
 		for _, w := range workloads {
 			s.AddWorkload(w)
+		}
+	}
+}
+
+// ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
+// use it after changing what the scheduling simulator reports.
+func (s *Snapshot) ForgetSimulatedFeasibility() {
+	for _, cq := range s.ClusterQueues() {
+		for _, tasSnapshot := range cq.TASFlavors {
+			tasSnapshot.forgetMatchingLeaves()
 		}
 	}
 }
@@ -180,6 +227,15 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		var err error
+		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for _, cohort := range c.hm.Cohorts() {
 		if hierarchy.HasCycle(cohort) {
 			continue
@@ -206,6 +262,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		flvTASCache := c.tasCache.Clone()
 
 		if features.Enabled(features.TASHandleOverlappingFlavors) {
+			snap.hostnameLeafTASFlavors = make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
 			for _, cache := range flvTASCache {
 				c.snapshotTopologyDomainUsages(cache, aggregatedDomainUsages)
@@ -220,9 +277,17 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
 			}
 			var err error
-			tasSnapshots[flavor], err = cache.snapshot(ctx, log, aggregatedDomainUsagesForFlavor)
+			tasSnapshots[flavor], err = cache.snapshot(
+				ctx,
+				log,
+				snap.SimulatorSnapshot,
+				aggregatedDomainUsagesForFlavor,
+			)
 			if err != nil {
 				return nil, err
+			}
+			if features.Enabled(features.TASHandleOverlappingFlavors) && tasSnapshots[flavor].declaresHostnameLevel() {
+				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
 			}
 		}
 	}

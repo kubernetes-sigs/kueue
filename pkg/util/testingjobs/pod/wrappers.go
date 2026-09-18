@@ -325,6 +325,15 @@ func (p *PodWrapper) NodeName(name string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) Port(container, host int32, protocol corev1.Protocol) *PodWrapper {
+	p.Spec.Containers[0].Ports = append(p.Spec.Containers[0].Ports, corev1.ContainerPort{
+		ContainerPort: container,
+		HostPort:      host,
+		Protocol:      protocol,
+	})
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -356,6 +365,12 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
 	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, new(true), new(true))
+	return p
+}
+
+// OwnerReferenceWithUID adds an ownerReference with a custom UID.
+func (p *PodWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *PodWrapper {
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, uid, new(true), new(true))
 	return p
 }
 

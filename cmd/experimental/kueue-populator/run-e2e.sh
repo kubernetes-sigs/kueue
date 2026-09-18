@@ -55,7 +55,7 @@ echo "Creating Kind cluster (node image: $E2E_KIND_VERSION)..."
 ensure_kind_cluster "$KIND_CLUSTER_NAME" "$KIND_CONFIG" ""
 
 echo "Installing Kueue..."
-kubectl apply --server-side -f "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
+e2e_kubectl_apply_url "https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_VERSION}/manifests.yaml"
 kubectl wait deployment/kueue-controller-manager -n kueue-system --for=condition=available --timeout=5m
 cd "$SCRIPT_DIR"
 

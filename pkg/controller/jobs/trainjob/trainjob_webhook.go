@@ -90,18 +90,19 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if err != nil {
 		return err
 	}
-	runtimePatch := kftrainerapi.RuntimePatch{
-		Manager: runtimePatchManagerName,
-		TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-			Template: &kftrainerapi.JobSetTemplatePatch{
-				Spec: &kftrainerapi.JobSetSpecPatch{},
-			},
-		},
-	}
 	if suspend {
 		trainJob.Suspend()
 	}
-	trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, runtimePatch)
+	if getKueueRuntimePatch(trainJob) == nil {
+		trainJob.Spec.RuntimePatches = append(trainJob.Spec.RuntimePatches, kftrainerapi.RuntimePatch{
+			Manager: runtimePatchManagerName,
+			TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
+				Template: &kftrainerapi.JobSetTemplatePatch{
+					Spec: &kftrainerapi.JobSetSpecPatch{},
+				},
+			},
+		})
+	}
 	return nil
 }
 

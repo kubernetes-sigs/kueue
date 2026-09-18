@@ -103,6 +103,11 @@ func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) TTLSecondsAfterFinished(seconds int32) *JobWrapper {
+	j.Spec.TTLSecondsAfterFinished = new(seconds)
+	return j
+}
+
 func (j *JobWrapper) BackoffLimitPerIndex(limit int32) *JobWrapper {
 	j.Spec.BackoffLimitPerIndex = new(limit)
 	return j

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
@@ -36,6 +37,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
@@ -3586,7 +3588,7 @@ func TestAssignFlavors(t *testing.T) {
 				for fg, val := range tc.featureGates {
 					features.SetFeatureGateDuringTest(t, fg, val)
 				}
-				wlInfo := workload.NewInfo(&kueue.Workload{
+				wlInfo := workload.NewInfo(log, &kueue.Workload{
 					Spec: kueue.WorkloadSpec{
 						PodSets: tc.wlPods,
 					},
@@ -3664,7 +3666,7 @@ func TestAssignFlavors(t *testing.T) {
 					append(cmpOpts,
 						cmpopts.EquateEmpty(),
 						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}),
-						statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+						statusComparer, cmpopts.IgnoreFields(Assignment{}, "FlavorScanState"),
 						cmpopts.IgnoreFields(PodSetAssignment{}, "FlavorAssignmentAttempts"),
 					)...,
 				); diff != "" {
@@ -3781,6 +3783,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
+			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
 			resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 				"uno": utiltestingapi.MakeResourceFlavor("uno").Obj(),
 				"due": utiltestingapi.MakeResourceFlavor("due").Obj(),
@@ -3808,7 +3811,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 					*utiltestingapi.MakeFlavorQuotas("tre").Resource("compute", "0").Resource("gpu", "0").Obj(),
 				).Obj()
 
-			wlInfo := workload.NewInfo(&kueue.Workload{
+			wlInfo := workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						tc.workloadRequests.PodSet,
@@ -3827,7 +3830,6 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			if err := cache.AddClusterQueue(ctx, &otherCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
-			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
 			for _, rf := range resourceFlavors {
 				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
@@ -3953,7 +3955,7 @@ func TestDeletedFlavors(t *testing.T) {
 				log := testr.NewWithOptions(t, testr.Options{
 					Verbosity: 2,
 				})
-				wlInfo := workload.NewInfo(&kueue.Workload{
+				wlInfo := workload.NewInfo(log, &kueue.Workload{
 					Spec: kueue.WorkloadSpec{
 						PodSets: tc.wlPods,
 					},
@@ -4006,7 +4008,7 @@ func TestDeletedFlavors(t *testing.T) {
 				if diff := cmp.Diff(tc.wantAssignment, assignment,
 					append(cmpOpts,
 						cmpopts.EquateEmpty(),
-						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "LastState"),
+						cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), statusComparer, cmpopts.IgnoreFields(Assignment{}, "FlavorScanState"),
 					)...,
 				); diff != "" {
 					t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
@@ -4088,6 +4090,7 @@ func TestHierarchical(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
+			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
 			resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 				"one":   utiltestingapi.MakeResourceFlavor("one").Obj(),
 				"two":   utiltestingapi.MakeResourceFlavor("two").Obj(),
@@ -4126,7 +4129,7 @@ func TestHierarchical(t *testing.T) {
 				*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
 			).Obj()
 
-			wlInfo := workload.NewInfo(&kueue.Workload{
+			wlInfo := workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						tc.workloadRequests.PodSet,
@@ -4149,7 +4152,6 @@ func TestHierarchical(t *testing.T) {
 			if err := cache.AddClusterQueue(ctx, &otherCq); err != nil {
 				t.Fatalf("Failed to add CQ to cache")
 			}
-			log := testr.NewWithOptions(t, testr.Options{Verbosity: 2})
 			for _, rf := range resourceFlavors {
 				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
@@ -4289,6 +4291,7 @@ func TestIsPreferred(t *testing.T) {
 }
 
 func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	cases := map[string]struct {
 		cq         schdcache.ClusterQueueSnapshot
 		assignment Assignment
@@ -4309,7 +4312,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -4335,7 +4338,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -4365,7 +4368,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -4398,6 +4401,7 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 }
 
 func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
@@ -4424,7 +4428,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 				representativeMode: new(Fit),
-				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+				replaceWorkloadSlice: workload.NewInfo(log, &kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
 							PodSetAssignments: []kueue.PodSetAssignment{{
@@ -4435,7 +4439,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				}),
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						"kueue.x-k8s.io/elastic-job": "true",
@@ -4466,7 +4470,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 				representativeMode: new(Fit),
-				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+				replaceWorkloadSlice: workload.NewInfo(log, &kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
 							PodSetAssignments: []kueue.PodSetAssignment{{
@@ -4477,7 +4481,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				}),
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						"kueue.x-k8s.io/elastic-job": "true",
@@ -4508,7 +4512,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						"kueue.x-k8s.io/elastic-job": "true",
@@ -4538,7 +4542,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
-				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
+				replaceWorkloadSlice: workload.NewInfo(log, &kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
 							PodSetAssignments: []kueue.PodSetAssignment{{
@@ -4549,7 +4553,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				}),
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
 						"kueue.x-k8s.io/elastic-job": "true",
@@ -4579,7 +4583,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4604,7 +4608,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Status: *NewStatus(),
 				}},
 			},
-			workload: *workload.NewInfo(&kueue.Workload{
+			workload: *workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4643,6 +4647,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 }
 
 func TestAssignment_TotalRequestsFor(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	type fields struct {
 		PodSets              []PodSetAssignment
 		replaceWorkloadSlice *workload.Info
@@ -4674,7 +4679,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				},
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()). // Has 2 pods.
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4703,7 +4708,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				},
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()). // Has 2 pods.
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4730,14 +4735,14 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 						Count: 71, // Assigned 1 pod.
 					},
 				},
-				replaceWorkloadSlice: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				replaceWorkloadSlice: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
 					Obj()),
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Obj()).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4766,7 +4771,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 				},
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
@@ -4806,7 +4811,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 						Count: 3, // Changed: was 1, now 3
 					},
 				},
-				replaceWorkloadSlice: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				replaceWorkloadSlice: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
 					PodSets(
 						*utiltestingapi.MakePodSet("worker", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -4820,7 +4825,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 					Obj()),
 			},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
 					PodSets(
 						*utiltestingapi.MakePodSet("worker", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -4845,11 +4850,12 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			a := &Assignment{
 				PodSets:              tt.fields.PodSets,
 				replaceWorkloadSlice: tt.fields.replaceWorkloadSlice,
 			}
-			got := a.TotalRequestsFor(logr.Discard(), tt.args.wl)
+			got := a.TotalRequestsFor(log, tt.args.wl)
 			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Errorf("TotalRequestsFor() (-want +got):\n%s", diff)
 			}
@@ -4858,6 +4864,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 }
 
 func TestAssignment_ComputeTASNetUsage(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	tests := map[string]struct {
 		assignment    Assignment
 		wl            *workload.Info
@@ -4889,7 +4896,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 					},
 				}},
 			},
-			wl: workload.NewInfo(&kueue.Workload{
+			wl: workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4922,6 +4929,112 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 				}},
 			},
 		},
+		"accounts for a domain the recomputed assignment moved to, when the previous admission held a different domain": {
+			// A second pass replacing an unhealthy node moves the PodSet to a domain
+			// nothing has accounted for yet. That claim has to reach the net usage,
+			// otherwise the fits check never validates it and AddUsage never records it.
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "tas"},
+						corev1.ResourceMemory: {Name: "tas"},
+					},
+					Count: 2,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-b"},
+							Count:  2,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(log, &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+						Obj(),
+				}},
+			},
+			want: workload.TASUsage{
+				"tas": []workload.TopologyDomainRequests{{
+					Values: []string{"node-b"},
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}),
+					Count: 2,
+				}},
+			},
+		},
+		"counts only the additional pods when the recomputed assignment grew an already admitted domain": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas"},
+					},
+					Count: 3,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  3,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(log, &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+						Obj(),
+				}},
+			},
+			want: workload.TASUsage{
+				"tas": []workload.TopologyDomainRequests{{
+					Values: []string{"node-a"},
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}),
+					Count: 2,
+				}},
+			},
+		},
 		"skips usage already present in previous admission": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -4941,7 +5054,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 					},
 				}},
 			},
-			wl: workload.NewInfo(&kueue.Workload{
+			wl: workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
@@ -4960,8 +5073,59 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 			},
 			prevAdmission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{{
-					Name:               kueue.DefaultPodSetName,
-					TopologyAssignment: &kueue.TopologyAssignment{},
+					Name: kueue.DefaultPodSetName,
+					// Same domain and count as the new assignment, so the snapshot
+					// already accounts for all of it.
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+						Obj(),
+				}},
+			},
+			want: workload.TASUsage{},
+		},
+		"skips a domain whose recomputed count is lower than what the previous admission already accounted for": {
+			// Defensive path: current replacement behavior is expected to
+			// produce equal or increased per-domain counts, but a negative
+			// delta must not be recorded as usage, let alone subtracted.
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas"},
+					},
+					Count: 1,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  1,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(log, &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					// The previous admission held 3 pods in node-a; the
+					// recomputed assignment only claims 1.
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 3).Obj()).
+						Obj(),
 				}},
 			},
 			want: workload.TASUsage{},
@@ -4972,7 +5136,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})
@@ -5069,11 +5233,12 @@ func TestWorkloadsTopologyRequests_ZeroCountPodSetSkipped(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			cq := schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
 			}
 			assignment := Assignment{PodSets: tc.podSets}
-			wl := workload.NewInfo(&kueue.Workload{
+			wl := workload.NewInfo(log, &kueue.Workload{
 				Spec: kueue.WorkloadSpec{PodSets: tc.wlPodSets},
 			})
 
@@ -5153,6 +5318,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
 			wlBuilder := utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "2").Obj())
@@ -5161,9 +5327,8 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			}
 			wl := wlBuilder.Obj()
 
-			wlInfo := workload.NewInfo(wl)
+			wlInfo := workload.NewInfo(log, wl)
 
-			ctx, log := utiltesting.ContextWithLog(t)
 			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &cq); err != nil {
 				t.Fatalf("Failed to add CQ to cache: %v", err)
@@ -5196,6 +5361,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 }
 
 func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 		"flavor-a": utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("type", "a").Obj(),
 		"flavor-b": utiltestingapi.MakeResourceFlavor("flavor-b").
@@ -5333,7 +5499,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				Request(corev1.ResourceCPU, "2").
 				NodeSelector(map[string]string{"type": "a"}).
 				Obj(),
-			replaceWl: workload.NewInfo(
+			replaceWl: workload.NewInfo(log,
 				utiltestingapi.MakeWorkload("wl-old", "ns").
 					PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Admission(utiltestingapi.MakeAdmission("cq", "main").
@@ -5605,6 +5771,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 			for fg, val := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, val)
@@ -5625,9 +5792,8 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				wlBuilder = wlBuilder.AllowedFlavors(tc.allowedFlavors...)
 			}
 			wl := wlBuilder.Obj()
-			wlInfo := workload.NewInfo(wl)
+			wlInfo := workload.NewInfo(log, wl)
 
-			ctx, log := utiltesting.ContextWithLog(t)
 			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &testCQ); err != nil {
 				t.Fatalf("Failed to add CQ to cache: %v", err)
@@ -5878,7 +6044,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
-			wlInfo := workload.NewInfo(&kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}})
+			wlInfo := workload.NewInfo(log, &kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}})
 
 			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
@@ -5947,7 +6113,110 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 	}
 }
 
+// TestAssignFlavors_TopologySpreadingRequiresLevel verifies that a flavor whose
+// topology is missing a level named by a Required topology-spreading rule is
+// rejected during flavor assignment, rather than silently admitted with
+// spreading left unenforced.
+func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, true)
+
+	const spreadingAnnotation = `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"rack","maxShareAllowingPlacement":"0.5","enforcementMode":"Required"}]}`
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"tas-with-rack":    utiltestingapi.MakeResourceFlavor("tas-with-rack").TopologyName("topo-with-rack").Obj(),
+		"tas-without-rack": utiltestingapi.MakeResourceFlavor("tas-without-rack").TopologyName("topo-without-rack").Obj(),
+	}
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeTopology("topo-with-rack").Levels("rack", corev1.LabelHostname).Obj(),
+		utiltestingapi.MakeTopology("topo-without-rack").Levels(corev1.LabelHostname).Obj(),
+	}
+
+	cases := map[string]struct {
+		flavor    kueue.ResourceFlavorReference
+		wantFit   bool
+		wantErrIn string
+	}{
+		"flavor's topology lacks the rule's level: rejected": {
+			flavor:    "tas-without-rack",
+			wantFit:   false,
+			wantErrIn: "topology spreading",
+		},
+		"flavor's topology has the rule's level: admitted": {
+			flavor:  "tas-with-rack",
+			wantFit: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			wlPods := []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation}).
+					Obj(),
+			}
+			wlInfo := workload.NewInfo(log, &kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: wlPods}})
+
+			clusterQueue := utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(string(tc.flavor)).
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj()
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			node := testingnode.MakeNode("tas-node").
+				Label("rack", "rack-a").
+				Label(corev1.LabelHostname, "tas-node").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("32"),
+					corev1.ResourceCPU:  resource.MustParse("4"),
+				}).
+				Ready().
+				Obj()
+			cache.TASCache().SyncNode(node)
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(clusterQueue.Spec.CohortName).Obj()); err != nil {
+				t.Fatalf("Failed to create a cohort: %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+			if cq == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.Assign(ctx, nil)
+
+			status := assignment.PodSets[0].Status
+			if got := status.IsFit(); got != tc.wantFit {
+				t.Errorf("PodSet fit = %v, want %v (message: %q)", got, tc.wantFit, status.Message())
+			}
+			if tc.wantErrIn != "" && !strings.Contains(status.Message(), tc.wantErrIn) {
+				t.Errorf("PodSet status message = %q, want it to contain %q", status.Message(), tc.wantErrIn)
+			}
+		})
+	}
+}
+
 func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 
@@ -5957,7 +6226,7 @@ func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSli
 			{Name: "worker", Flavors: ResourceAssignment{"example.com/gpu": {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 1, Status: *NewStatus()},
 		},
 	}
-	wl := workload.NewInfo(&kueue.Workload{
+	wl := workload.NewInfo(log, &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				"kueue.x-k8s.io/elastic-job": "true",
@@ -6106,8 +6375,8 @@ func newBookmarkSnapshot(
 }
 
 // bookmarkTestWorkload is a single pod requesting cpu on a required hostname topology.
-func bookmarkTestWorkload(request string) *workload.Info {
-	return workload.NewInfo(utiltestingapi.MakeWorkload("wl", "default").
+func bookmarkTestWorkload(log logr.Logger, request string) *workload.Info {
+	return workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "default").
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, request).
@@ -6135,10 +6404,10 @@ const bookmarkTestCycle int64 = 7
 
 // lastTriedFlavorIdx reads the bookmark the assignment recorded for the first PodSet.
 func lastTriedFlavorIdx(a Assignment, res corev1.ResourceName) (int, bool) {
-	if len(a.LastState.LastTriedFlavorIdx) == 0 {
+	if len(a.FlavorScanState.LastTriedFlavorIndexes) == 0 {
 		return 0, false
 	}
-	idx, ok := a.LastState.LastTriedFlavorIdx[0][res]
+	idx, ok := a.FlavorScanState.LastTriedFlavorIndexes[0][res]
 	return idx, ok
 }
 
@@ -6315,7 +6584,7 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 				cqSnapshot.AddUsage(workload.Usage{TAS: tc.nodeUsage})
 			}
 
-			wlInfo := bookmarkTestWorkload(tc.request)
+			wlInfo := bookmarkTestWorkload(log, tc.request)
 			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
@@ -6395,7 +6664,7 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			// Quota is generous at nomination, so both flavors are accepted on quota
 			// grounds and the pod fits an empty node.
 			cqSnapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", fungibility)
-			wlInfo := bookmarkTestWorkload("3")
+			wlInfo := bookmarkTestWorkload(log, "3")
 			flavors := bookmarkTestFlavors()
 
 			// Nomination: quota fits, topology fits, and a placement is produced.
@@ -6422,10 +6691,10 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 				cqSnapshot.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.quotaUsageAtRecompute}})
 			}
 
-			// The scheduler clears LastAssignment and pins the nominated flavors before
+			// The scheduler clears FlavorScanState and pins the nominated flavors before
 			// replaying the assignment, so that the recomputation stays on the flavor
 			// quota was computed for.
-			wlInfo.LastAssignment = nil
+			wlInfo.FlavorScanState = nil
 			mapping := workload.PodSetResourcesToFlavors{}
 			for _, psa := range nominated.PodSets {
 				perResource := workload.ResourceToFlavor{}
@@ -6451,6 +6720,56 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			// distinguish them.
 			if got := recomputed.RepresentativeMode(); got != Preempt {
 				t.Errorf("recomputation RepresentativeMode() = %s, want %s", got, Preempt)
+			}
+		})
+	}
+}
+
+func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+	cases := map[string]struct {
+		otherUsage string
+		wantMode   FlavorAssignmentMode
+	}{
+		"replacement fits when only the old slice occupies the node":       {otherUsage: "0", wantMode: Fit},
+		"replacement does not fit when another workload occupies the node": {otherUsage: "1", wantMode: Preempt},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+			old := utiltestingapi.MakeWorkload("old", "default").
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Assignment(corev1.ResourceCPU, "flavor-1", "2").TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 2).Obj()).Obj()).Obj()).Obj(), time.Now()).
+				AdmittedAt(true, time.Now()).
+				Obj()
+			oldInfo := workload.NewInfo(log, old)
+			cq.AddUsage(oldInfo.Usage())
+			cq.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne(tc.otherUsage)})
+			before, err := cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := workload.NewInfo(
+				log,
+				utiltestingapi.MakeWorkload("new", "default").
+					Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					Obj(),
+			)
+			a := New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+			if got := a.RepresentativeMode(); got != tc.wantMode {
+				t.Errorf("mode=%s, want %s", got, tc.wantMode)
+			}
+			after, err := cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before != after {
+				t.Errorf("assignment changed shared snapshot capacity: before=%s after=%s", before, after)
 			}
 		})
 	}

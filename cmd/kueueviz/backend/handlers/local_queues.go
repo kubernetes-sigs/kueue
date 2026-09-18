@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
+	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -28,9 +29,13 @@ import (
 
 // LocalQueuesWebSocketHandler streams all local queues
 func (h *Handlers) LocalQueuesWebSocketHandler() gin.HandlerFunc {
-	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return h.fetchLocalQueues(ctx)
-	}, LocalQueuesGVK())
+	return func(c *gin.Context) {
+		namespace := c.Query("namespace")
+		identity, _ := middleware.IdentityFromContext(c)
+		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return h.fetchLocalQueues(ctx, namespace, identity)
+		}, LocalQueuesGVK())(c)
+	}
 }
 
 // LocalQueueDetailsWebSocketHandler streams details for a specific local queue
@@ -46,15 +51,22 @@ func (h *Handlers) LocalQueueDetailsWebSocketHandler() gin.HandlerFunc {
 }
 
 // Fetch all local queues
-func (h *Handlers) fetchLocalQueues(ctx context.Context) (any, error) {
+func (h *Handlers) fetchLocalQueues(ctx context.Context, namespace string, identity middleware.Identity) (any, error) {
 	lql := &kueueapi.LocalQueueList{}
-	err := h.client.List(ctx, lql)
+	var err error
+	if namespace != "" {
+		err = h.client.List(ctx, lql, ctrlclient.InNamespace(namespace))
+	} else {
+		err = h.client.List(ctx, lql)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
 
+	items := lql.Items
+
 	var queues []map[string]any
-	for _, item := range lql.Items {
+	for _, item := range items {
 		queues = append(queues, map[string]any{
 			"namespace": item.GetNamespace(),
 			"name":      item.GetName(),
