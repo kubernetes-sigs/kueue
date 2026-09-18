@@ -492,7 +492,13 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	if len(candidates) == 0 {
 		return nil
 	}
+	domainRanks := tasDomainRanks(candidates, preemptionCtx.tasRequests)
 	slices.SortFunc(candidates, func(a, b *workload.Info) int {
+		if domainRanks != nil {
+			if d := cmp.Compare(domainRanks[workload.Key(a.Obj)], domainRanks[workload.Key(b.Obj)]); d != 0 {
+				return d
+			}
+		}
 		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
