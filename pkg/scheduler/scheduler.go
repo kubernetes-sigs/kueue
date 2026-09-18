@@ -1485,7 +1485,7 @@ func (s *Scheduler) findFit(ctx context.Context, wl *workload.Info, snap *schdca
 	if features.Enabled(features.TASSchedulerLibraryDeepIntegration) {
 		simulateScheduling = schedulerLibrarySimulation
 	} else {
-		simulateScheduling = classicalSimulation
+		simulateScheduling = kueueInternalSimulation
 	}
 
 	assignment, targets, fits := simulateScheduling(

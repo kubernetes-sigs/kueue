@@ -40,7 +40,7 @@ type schedulingSimulation func(
 	counts []int32,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
 
-func classicalSimulation(
+func kueueInternalSimulation(
 	ctx context.Context,
 	wl *workload.Info,
 	snapshot *schdcache.Snapshot,
