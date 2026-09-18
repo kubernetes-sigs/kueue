@@ -4283,3 +4283,50 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 	close(start)
 	wg.Wait()
 }
+
+func TestAddOrUpdateWorkloadRetainsQuotaReservedWorkloadOnAdjustmentError(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	client := utiltesting.NewClientBuilder().Build()
+	cache := New(client)
+
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+		Obj()
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+
+	now := time.Now().Truncate(time.Second)
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing").Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Obj()).
+			Obj(), now).
+		Obj()
+
+	if added := cache.AddOrUpdateWorkload(ctx, log, wl); !added {
+		t.Fatal("Quota-reserved workload was not added to cache despite resource resolution error")
+	}
+
+	cachedCq := cache.hm.ClusterQueue("cq")
+	if cachedCq == nil {
+		t.Fatal("ClusterQueue not found in cache")
+	}
+	wi := cachedCq.Workloads[workload.Key(wl)]
+	if wi == nil {
+		t.Fatal("Workload not found in ClusterQueue cache")
+	}
+	if wi.AdjustmentErr == nil {
+		t.Fatal("Expected AdjustmentErr to be set on WorkloadInfo")
+	}
+	stats, err := cache.Usage(cq)
+	if err != nil {
+		t.Fatalf("Getting ClusterQueue usage: %v", err)
+	}
+	if stats.ReservingWorkloads != 1 {
+		t.Fatalf("Expected 1 reserving workload in cache, got %d", stats.ReservingWorkloads)
+	}
+}
+

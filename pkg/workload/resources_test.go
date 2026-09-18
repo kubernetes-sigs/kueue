@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -44,8 +43,10 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 		limitranges    []corev1.LimitRange
 		wl             *kueue.Workload
 		wantWl         *kueue.Workload
+		wantErr        bool
 	}{
 		"Handle runtimeClass with podOverHead": {
+			wantErr: true,
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					PodOverhead(corev1.ResourceList{
@@ -117,6 +118,7 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 				Obj(),
 		},
 		"Handle runtimeClass without podOverHead": {
+			wantErr: true,
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					RuntimeClass,
@@ -564,11 +566,13 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(
 				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
 				&corev1.LimitRangeList{Items: tc.limitranges},
-			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				Build()
+			).Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 			original := tc.wl.DeepCopy()
-			info := NewInfoFromClient(ctx, cl, tc.wl)
+			info, err := NewInfoFromClient(ctx, cl, tc.wl)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("NewInfoFromClient() error = %v, wantErr %v", err, tc.wantErr)
+			}
 			if diff := cmp.Diff(original, tc.wl); diff != "" {
 				t.Errorf("Effective resource calculation mutated the raw Workload: %s", diff)
 			}

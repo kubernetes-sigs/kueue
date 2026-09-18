@@ -876,7 +876,10 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Log
 	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
-	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
+	wi, err := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
+	if err != nil {
+		log.Error(err, "Resolving effective resources for quota-reserved workload", "workload", wlKey)
+	}
 	cq.addOrUpdateWorkload(log, wi)
 
 	return true, nil

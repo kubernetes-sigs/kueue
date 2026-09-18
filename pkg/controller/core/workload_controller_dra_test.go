@@ -678,7 +678,6 @@ func TestDeviceClassHandler_Create(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				WithObjects(pending, reserved).
 				Build()
 			cqCache := schdcache.New(cl)
@@ -755,7 +754,6 @@ func TestDeviceClassHandler_Update(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				WithObjects(oldPending, newPending, reserved).
 				Build()
 			cqCache := schdcache.New(cl)
@@ -812,7 +810,6 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				WithObjects(pending, reserved).
 				Build()
 			cqCache := schdcache.New(cl)
@@ -857,7 +854,6 @@ func TestDeviceClassHandler_Generic(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				WithObjects(pending).
 				Build()
 			cqCache := schdcache.New(cl)

@@ -47,7 +47,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -1048,8 +1047,8 @@ func TestAddOrUpdateWorkloadResourceLookupsRespectCancellation(t *testing.T) {
 	}
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
 		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime").Obj()).Obj()
-	if err := manager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
-		t.Fatal(err)
+	if err := manager.AddOrUpdateWorkload(ctx, log, wl); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Expected context.Canceled, got: %v", err)
 	}
 	if !gotRuntimeClass || !listedLimitRanges {
 		t.Fatalf("Expected both resource lookups: RuntimeClass=%t, LimitRange=%t", gotRuntimeClass, listedLimitRanges)
@@ -1280,9 +1279,7 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			})
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").
 				Request(corev1.ResourceCPU, "1").Obj()
-			cl := utiltesting.NewClientBuilder().
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				Build()
+			cl := utiltesting.NewClientBuilder().Build()
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
 			defer cancel()
@@ -1333,7 +1330,11 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			// A recomputed hash must describe the Info the queue now holds. The
 			// reuse cases cannot be checked this way: what they keep is the probe.
 			if !tc.wantReuse {
-				if want := workload.NewInfoFromClient(ctx, cl, info.Obj).SchedulingHash; info.SchedulingHash != want {
+				wantInfo, err := workload.NewInfoFromClient(ctx, cl, info.Obj)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if want := wantInfo.SchedulingHash; info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, want)
 				}
 			}
