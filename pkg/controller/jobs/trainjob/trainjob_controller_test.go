@@ -599,8 +599,8 @@ func TestStop(t *testing.T) {
 		// actually suspended the TrainJob.
 		wantStoppedNow bool
 		// wantPatches is the number of PATCH requests Stop is expected to issue.
-		wantPatches     int
-		wantErrContains string
+		wantPatches int
+		wantErr     error
 	}{
 		"should suspend a running trainjob and report it as stopped now": {
 			trainJob: testTrainJob.Clone().
@@ -649,9 +649,9 @@ func TestStop(t *testing.T) {
 				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
 				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
 				Obj(),
-			wantStoppedNow:  true,
-			wantPatches:     1,
-			wantErrContains: "jobs are still active",
+			wantStoppedNow: true,
+			wantPatches:    1,
+			wantErr:        errJobsStillActive,
 		},
 		"should fail when the kueue runtime patch is missing": {
 			trainJob: testTrainJob.Clone().
@@ -662,9 +662,9 @@ func TestStop(t *testing.T) {
 				Suspend(true).
 				RuntimePatches([]kftrainerapi.RuntimePatch{*userPatch.DeepCopy()}).
 				Obj(),
-			wantStoppedNow:  false,
-			wantPatches:     0,
-			wantErrContains: "error restoring info to the trainjob",
+			wantStoppedNow: false,
+			wantPatches:    0,
+			wantErr:        errKueueRuntimePatchNotFound,
 		},
 	}
 
@@ -685,13 +685,8 @@ func TestStop(t *testing.T) {
 			kTrainJob := (*TrainJob)(tc.trainJob)
 			stoppedNow, err := kTrainJob.Stop(ctx, kClient, []podset.PodSetInfo{}, jobframework.StopReasonWorkloadEvicted, "by test")
 
-			switch {
-			case tc.wantErrContains == "" && err != nil:
-				t.Errorf("unexpected Stop() error: %v", err)
-			case tc.wantErrContains != "" && err == nil:
-				t.Errorf("expected Stop() to fail with an error containing %q", tc.wantErrContains)
-			case tc.wantErrContains != "" && !strings.Contains(err.Error(), tc.wantErrContains):
-				t.Errorf("Stop() error = %v, want it to contain %q", err, tc.wantErrContains)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Stop() unexpected error (-want,+got):\n%s", diff)
 			}
 			if stoppedNow != tc.wantStoppedNow {
 				t.Errorf("Stop() unexpected stoppedNow. got: %v. want: %v", stoppedNow, tc.wantStoppedNow)
