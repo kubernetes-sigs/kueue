@@ -3549,10 +3549,10 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true")
 
 	testCases := map[string]struct {
-		workloads                 []kueue.Workload
-		pods                      []corev1.Pod
-		wantPods                  []corev1.Pod
-		wantExpectationsSatisfied bool
+		workloads        []kueue.Workload
+		pods             []corev1.Pod
+		wantPods         []corev1.Pod
+		wantExpectedUIDs []types.UID
 	}{
 		"late Pod referencing the origin slice is ungated": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
@@ -3564,6 +3564,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
 				*runningPod.Clone().Obj(),
 			},
+			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
 		"late Pod referencing the origin slice is ungated when the origin slice has been deleted": {
 			workloads: []kueue.Workload{*replacement.Clone().Obj()},
@@ -3575,6 +3576,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
 				*runningPod.Clone().Obj(),
 			},
+			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
 		"late Pod referencing the replacement slice is ungated": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
@@ -3586,6 +3588,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
 				*runningPod.Clone().Obj(),
 			},
+			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
 		"late Pod stays gated when the replacement slice is finished": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Finished().Obj()},
@@ -3597,7 +3600,6 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
 				*runningPod.Clone().Obj(),
 			},
-			wantExpectationsSatisfied: true,
 		},
 		"late Pod stays gated when the replacement slice is evicted": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().EvictedAt(now).Obj()},
@@ -3609,7 +3611,6 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
 				*runningPod.Clone().Obj(),
 			},
-			wantExpectationsSatisfied: true,
 		},
 		"late Pod stays gated when the replacement slice has quota reserved but is not admitted": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().AdmittedAt(false, now).Obj()},
@@ -3621,14 +3622,13 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
 				*runningPod.Clone().Obj(),
 			},
-			wantExpectationsSatisfied: true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{}).
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
@@ -3658,8 +3658,8 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			}
 			// The ungate expectations are tracked by the slice chain name until
 			// the Pod handler observes the Pod update or deletion.
-			if got := topologyUngater.expectationsStore.Satisfied(log, sliceKey); got != tc.wantExpectationsSatisfied {
-				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, tc.wantExpectationsSatisfied)
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, topologyUngater.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -3673,22 +3673,23 @@ func TestPodHandler_ElasticJobs_Create(t *testing.T) {
 		Label(constants.PodSetLabel, "workers")
 
 	testCases := map[string]struct {
-		pod                       *corev1.Pod
-		wantRequests              []reconcile.Request
-		wantExpectationsSatisfied bool
+		pod              *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
 	}{
 		"create of a gated Pod referencing the origin slice enqueues the slice chain": {
-			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
-			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+			pod:              basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+			wantRequests:     []reconcile.Request{{NamespacedName: sliceKey}},
+			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
 		"create of a gated Pod referencing the replacement slice enqueues the slice chain": {
-			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
-			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+			pod:              basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			wantRequests:     []reconcile.Request{{NamespacedName: sliceKey}},
+			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
 		"create of an ungated Pod referencing the replacement slice observes the slice chain expectations": {
-			pod:                       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").Obj(),
-			wantRequests:              []reconcile.Request{{NamespacedName: sliceKey}},
-			wantExpectationsSatisfied: true,
+			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
 		},
 	}
 
@@ -3704,8 +3705,8 @@ func TestPodHandler_ElasticJobs_Create(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if got := h.expectationsStore.Satisfied(log, sliceKey); got != tc.wantExpectationsSatisfied {
-				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, tc.wantExpectationsSatisfied)
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -3719,27 +3720,26 @@ func TestPodHandler_ElasticJobs_Update(t *testing.T) {
 		Label(constants.PodSetLabel, "workers")
 
 	testCases := map[string]struct {
-		oldPod                    *corev1.Pod
-		newPod                    *corev1.Pod
-		wantRequests              []reconcile.Request
-		wantExpectationsSatisfied bool
+		oldPod           *corev1.Pod
+		newPod           *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
 	}{
 		"update ungating a Pod referencing the origin slice observes the slice chain expectations": {
-			oldPod:                    basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
-			newPod:                    basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
-			wantRequests:              []reconcile.Request{{NamespacedName: sliceKey}},
-			wantExpectationsSatisfied: true,
+			oldPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+			newPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
 		},
 		"update ungating a Pod referencing the replacement slice observes the slice chain expectations": {
-			oldPod:                    basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
-			newPod:                    basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
-			wantRequests:              []reconcile.Request{{NamespacedName: sliceKey}},
-			wantExpectationsSatisfied: true,
+			oldPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			newPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
 		},
 		"update of a Pod which is still gated keeps the slice chain expectations pending": {
-			oldPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
-			newPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Label("updated", "true").Obj(),
-			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+			oldPod:           basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			newPod:           basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Label("updated", "true").Obj(),
+			wantRequests:     []reconcile.Request{{NamespacedName: sliceKey}},
+			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
 	}
 
@@ -3755,8 +3755,8 @@ func TestPodHandler_ElasticJobs_Update(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if got := h.expectationsStore.Satisfied(log, sliceKey); got != tc.wantExpectationsSatisfied {
-				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, tc.wantExpectationsSatisfied)
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -3770,19 +3770,17 @@ func TestPodHandler_ElasticJobs_Delete(t *testing.T) {
 		Label(constants.PodSetLabel, "workers")
 
 	testCases := map[string]struct {
-		pod                       *corev1.Pod
-		wantRequests              []reconcile.Request
-		wantExpectationsSatisfied bool
+		pod              *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
 	}{
 		"delete of an ungated Pod referencing the replacement slice observes the slice chain expectations": {
-			pod:                       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
-			wantRequests:              []reconcile.Request{{NamespacedName: sliceKey}},
-			wantExpectationsSatisfied: true,
+			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
 		},
 		"delete of a gated Pod referencing the replacement slice observes the slice chain expectations": {
-			pod:                       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
-			wantRequests:              []reconcile.Request{{NamespacedName: sliceKey}},
-			wantExpectationsSatisfied: true,
+			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
 		},
 	}
 
@@ -3798,8 +3796,8 @@ func TestPodHandler_ElasticJobs_Delete(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if got := h.expectationsStore.Satisfied(log, sliceKey); got != tc.wantExpectationsSatisfied {
-				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, tc.wantExpectationsSatisfied)
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -3813,12 +3811,13 @@ func TestPodHandler_ElasticJobs_Generic(t *testing.T) {
 		Label(constants.PodSetLabel, "workers")
 
 	testCases := map[string]struct {
-		pod                       *corev1.Pod
-		wantRequests              []reconcile.Request
-		wantExpectationsSatisfied bool
+		pod              *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
 	}{
 		"generic event is ignored even for an ungated Pod": {
-			pod: basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			pod:              basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
 	}
 
@@ -3834,8 +3833,8 @@ func TestPodHandler_ElasticJobs_Generic(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if got := h.expectationsStore.Satisfied(log, sliceKey); got != tc.wantExpectationsSatisfied {
-				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, tc.wantExpectationsSatisfied)
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
 	}
