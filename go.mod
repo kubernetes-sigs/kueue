@@ -44,7 +44,7 @@ require (
 	k8s.io/metrics v0.37.0
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
 	sigs.k8s.io/cluster-inventory-api v0.1.3
-	sigs.k8s.io/controller-runtime v0.25.0
+	sigs.k8s.io/controller-runtime v0.25.1
 	sigs.k8s.io/jobset v0.12.0
 	sigs.k8s.io/lws v0.10.0
 	sigs.k8s.io/scheduler-library v0.2.0-alpha1
