@@ -2553,7 +2553,6 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
-					WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							if tc.patchErr != nil {
