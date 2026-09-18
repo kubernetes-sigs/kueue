@@ -278,6 +278,13 @@ func (r *variantReconciler) cleanupParentAndVariants(ctx context.Context, log lo
 		return ctrl.Result{}, fmt.Errorf("syncing admission status: %w", err)
 	}
 
+	if _, ok := parent.Labels[controllerconsts.ConcurrentAdmissionParentLabelKey]; ok {
+		delete(parent.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
+		if err := r.client.Update(ctx, parent); err != nil {
+			return ctrl.Result{}, fmt.Errorf("removing parent label: %w", err)
+		}
+	}
+
 	for i := range variants {
 		v := &variants[i]
 		log.V(2).Info("Deleting variant because ConcurrentAdmission is no longer enabled", "variant", klog.KObj(v))
@@ -291,12 +298,6 @@ func (r *variantReconciler) cleanupParentAndVariants(ctx context.Context, log lo
 		}
 	}
 
-	if _, ok := parent.Labels[controllerconsts.ConcurrentAdmissionParentLabelKey]; ok {
-		delete(parent.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
-		if err := r.client.Update(ctx, parent); err != nil {
-			return ctrl.Result{}, fmt.Errorf("removing parent label: %w", err)
-		}
-	}
 	return ctrl.Result{}, nil
 }
 
