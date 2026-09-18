@@ -14,8 +14,6 @@ spec:
   mainApplicationFile: local:///opt/spark/examples/jars/spark-examples.jar
   arguments:
   - "50000"
-  memoryOverheadFactor: "0"     # spark adds extra memory on memory limits
-                                # for non-JVM tasks. 0 can avoid it.
   driver:
     coreRequest: "1"
     memory: 1g                  # In Java format (e.g. 512m, 2g)

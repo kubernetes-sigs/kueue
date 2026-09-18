@@ -273,7 +273,7 @@ var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareSchedulin
 				Label(utiltesting.DefaultRackTopologyLevel, "r1").
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
 					corev1.ResourcePods:   resource.MustParse("10"),
 				}).
 				Ready().
