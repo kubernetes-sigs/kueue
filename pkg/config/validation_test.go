@@ -2358,16 +2358,17 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                             true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
 				string(features.TASFailedNodeReplacementFailFast):            false,
 				string(features.TASReplaceNodeOnPodTermination):              false,
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
-				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2414,6 +2415,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
 				string(features.ElasticJobsViaWorkloadSlices):                true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASProfileMixed):                             false,
@@ -2446,6 +2448,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASProfileMixed):                             true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASHandleOverlappingFlavors):                 true,
 				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
@@ -2469,6 +2472,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 true,
@@ -2492,6 +2496,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASNodeFeasibilityForAllLevels requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              true,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
@@ -2522,6 +2527,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): true,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2544,6 +2550,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASFailedNodeReplacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2567,6 +2574,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASLeaderPodSetFeasibility requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2591,6 +2599,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASBalancedPlacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2615,6 +2624,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2638,6 +2648,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASMultiLayerTopology requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2661,6 +2672,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASTopologySpreading requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
 				string(features.TASFailedNodeReplacement):                    false,
@@ -2682,9 +2694,34 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"TASRejectFalseUnconstrainedTopology requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         true,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASRejectFalseUnconstrainedTopology is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
 		"TASRespectNodeAffinityPreferred requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2711,6 +2748,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASGroupedPodSetSlicing):                     true,
 				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2763,6 +2801,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
@@ -2785,6 +2824,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		"TASReplaceNodeOnPodTermination requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASProfileMixed):                             false,
 				string(features.TASHandleOverlappingFlavors):                 false,
