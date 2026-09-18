@@ -59,7 +59,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
@@ -259,14 +261,11 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 	}
 	t.Cleanup(manager.EnableIntegrationsForTest(t, "deployment", "statefulset"))
 
-	queueLabel := map[string]string{controllerconsts.QueueLabel: "user-queue"}
-	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-		Name: "test-deployment", Namespace: "ns", UID: "deployment-uid", Labels: queueLabel,
-	}}
-	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
-		Name: "test-statefulset", Namespace: "ns", UID: "statefulset-uid", Labels: queueLabel,
-	}}
-	ownerRef := func(gvk schema.GroupVersionKind, name, uid string) metav1.OwnerReference {
+	deployment := testingdeployment.MakeDeployment("test-deployment", "ns").UID("deployment-uid").Queue("user-queue").Obj()
+	unqueuedDeployment := testingdeployment.MakeDeployment("test-deployment", "ns").UID("deployment-uid").Obj()
+	statefulSet := testingstatefulset.MakeStatefulSet("test-statefulset", "ns").UID("statefulset-uid").Queue("user-queue").Obj()
+
+	ownedBy := func(gvk schema.GroupVersionKind, name, uid string) metav1.OwnerReference {
 		return metav1.OwnerReference{
 			APIVersion: gvk.GroupVersion().String(),
 			Kind:       gvk.Kind,
@@ -275,18 +274,27 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			Controller: new(true),
 		}
 	}
+	deploymentOwner := ownedBy(deploymentGVK, "test-deployment", "deployment-uid")
 	replicaSet := func(name, uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
 		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: "ns", UID: types.UID(uid), OwnerReferences: owners,
 		}}
 	}
-	gatedPod := func() *testingpod.PodWrapper {
-		return testingpod.MakePod("test-pod", "ns").
-			UID("pod-uid").
+	podOwnedBy := func(podName, rsName, rsUID string) *testingpod.PodWrapper {
+		return testingpod.MakePod(podName, "ns").
+			UID(podName+"-uid").
 			SuspendedByParent("deployment").
-			OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
 			Image("", nil)
 	}
+	gatedPod := func() *testingpod.PodWrapper { return podOwnedBy("pod", "test-rs", "rs-uid") }
+	owningReplicaSet := replicaSet("test-rs", "rs-uid", deploymentOwner)
+	rollingUpdate := []client.Object{
+		deployment,
+		replicaSet("test-deployment-old", "old-rs-uid", deploymentOwner),
+		replicaSet("test-deployment-new", "new-rs-uid", deploymentOwner),
+	}
+
 	failMetadataReads := func(err error) interceptor.Funcs {
 		return interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -300,27 +308,53 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 	errAPIDown := errors.New("api is down")
 
 	testCases := map[string]struct {
-		pod           *corev1.Pod
-		ancestors     []client.Object
-		interceptors  interceptor.Funcs
-		enableFeature bool
-		wantJobUID    string
-		wantErr       error
+		pod                        *corev1.Pod
+		ancestors                  []client.Object
+		interceptors               interceptor.Funcs
+		enableFeature              bool
+		manageJobsWithoutQueueName bool
+		wantJobUID                 string
+		wantErr                    error
 	}{
 		"deployment pod is labelled with the deployment UID": {
 			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
+			ancestors:     []client.Object{deployment, owningReplicaSet},
+			enableFeature: true,
+			wantJobUID:    "deployment-uid",
+		},
+		"pod from the outgoing replicaset of a rolling update": {
+			pod:           podOwnedBy("old-pod", "test-deployment-old", "old-rs-uid").Obj(),
+			ancestors:     rollingUpdate,
+			enableFeature: true,
+			wantJobUID:    "deployment-uid",
+		},
+		"pod from the incoming replicaset of a rolling update": {
+			pod:           podOwnedBy("new-pod", "test-deployment-new", "new-rs-uid").Obj(),
+			ancestors:     rollingUpdate,
 			enableFeature: true,
 			wantJobUID:    "deployment-uid",
 		},
 		"feature disabled keeps the pod UID without walking the owners": {
 			pod:          gatedPod().Obj(),
-			ancestors:    []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
+			ancestors:    []client.Object{deployment, owningReplicaSet},
 			interceptors: failMetadataReads(errors.New("owners must not be walked while the feature is disabled")),
 			wantJobUID:   "pod-uid",
 		},
+		"deployment without a queue-name keeps the pod UID": {
+			pod:           gatedPod().Obj(),
+			ancestors:     []client.Object{unqueuedDeployment, owningReplicaSet},
+			enableFeature: true,
+			wantJobUID:    "pod-uid",
+		},
+		"deployment without a queue-name is used when unqueued jobs are managed": {
+			pod:                        gatedPod().Obj(),
+			ancestors:                  []client.Object{unqueuedDeployment, owningReplicaSet},
+			enableFeature:              true,
+			manageJobsWithoutQueueName: true,
+			wantJobUID:                 "deployment-uid",
+		},
 		"ancestor that is not a deployment keeps the pod UID": {
-			pod: testingpod.MakePod("test-pod", "ns").
+			pod: testingpod.MakePod("pod", "ns").
 				UID("pod-uid").
 				SuspendedByParent("statefulset").
 				OwnerReferenceWithUID("test-statefulset", statefulSetGVK, "statefulset-uid").
@@ -331,17 +365,17 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			wantJobUID:    "pod-uid",
 		},
 		"pod not gated by a parent integration keeps the pod UID": {
-			pod: testingpod.MakePod("test-pod", "ns").
+			pod: testingpod.MakePod("pod", "ns").
 				UID("pod-uid").
 				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
 				Image("", nil).
 				Obj(),
-			ancestors:     []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
+			ancestors:     []client.Object{deployment, owningReplicaSet},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
 		"standalone pod keeps the pod UID": {
-			pod:           testingpod.MakePod("test-pod", "ns").UID("pod-uid").Image("", nil).Obj(),
+			pod:           testingpod.MakePod("pod", "ns").UID("pod-uid").Image("", nil).Obj(),
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
@@ -353,7 +387,7 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 		},
 		"replicaset UID not matching the owner reference keeps the pod UID": {
 			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{deployment, replicaSet("test-rs", "recreated-rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
+			ancestors:     []client.Object{deployment, replicaSet("test-rs", "recreated-rs-uid", deploymentOwner)},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
@@ -365,7 +399,7 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 		},
 		"replicaset lookup failure is surfaced for retry": {
 			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
+			ancestors:     []client.Object{deployment, owningReplicaSet},
 			interceptors:  failMetadataReads(errAPIDown),
 			enableFeature: true,
 			wantErr:       errAPIDown,
@@ -382,7 +416,12 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 				WithObjects(tc.ancestors...).
 				Build()
 
-			pod := &Pod{pod: *tc.pod, isFound: true, integrationManager: manager}
+			pod := &Pod{
+				pod:                        *tc.pod,
+				isFound:                    true,
+				integrationManager:         manager,
+				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
+			}
 			wl, gotErr := pod.ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
 
 			if tc.wantErr != nil {
@@ -394,80 +433,17 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			if gotErr != nil {
 				t.Fatalf("unexpected error: %v", gotErr)
 			}
-			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != tc.wantJobUID {
-				t.Errorf("job-uid label = %q, want %q", gotJobUID, tc.wantJobUID)
+			wantJobUID := tc.wantJobUID
+			if wantJobUID == "pod-uid" {
+				wantJobUID = string(tc.pod.UID)
+			}
+			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != wantJobUID {
+				t.Errorf("job-uid label = %q, want %q", gotJobUID, wantJobUID)
 			}
 			// The Deployment UID belongs on the Workload only; patching it onto the Pod
 			// would race with informers that already observed the Pod.
 			if diff := cmp.Diff(*tc.pod, pod.pod); diff != "" {
 				t.Errorf("pod was modified (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestConstructComposableWorkloadDeploymentJobUIDAcrossRollingUpdate(t *testing.T) {
-	deploymentGVK := appsv1.SchemeGroupVersion.WithKind("Deployment")
-	replicaSetGVK := appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
-
-	manager := jobframework.NewIntegrationManager()
-	if err := manager.RegisterIntegration("deployment", jobframework.IntegrationCallbacks{
-		GVK:           deploymentGVK,
-		JobType:       &appsv1.Deployment{},
-		NewReconciler: jobframework.NewNoopReconcilerFactory(deploymentGVK),
-		SetupWebhook:  func(ctrl.Manager, ...jobframework.Option) error { return nil },
-	}); err != nil {
-		t.Fatalf("registering deployment: %v", err)
-	}
-	t.Cleanup(manager.EnableIntegrationsForTest(t, "deployment"))
-
-	deploymentRef := metav1.OwnerReference{
-		APIVersion: deploymentGVK.GroupVersion().String(),
-		Kind:       deploymentGVK.Kind,
-		Name:       "test-deployment",
-		UID:        "deployment-uid",
-		Controller: new(true),
-	}
-	replicaSet := func(name, uid string) *appsv1.ReplicaSet {
-		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
-			Name: name, Namespace: "ns", UID: types.UID(uid),
-			OwnerReferences: []metav1.OwnerReference{deploymentRef},
-		}}
-	}
-	podOf := func(podName, rsName, rsUID string) *corev1.Pod {
-		return testingpod.MakePod(podName, "ns").
-			UID(podName+"-uid").
-			SuspendedByParent("deployment").
-			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
-			Image("", nil).
-			Obj()
-	}
-
-	features.SetFeatureGateDuringTest(t, features.DeploymentJobUIDLabel, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
-	kClient := utiltesting.NewClientBuilder().
-		WithObjects(
-			&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-				Name: "test-deployment", Namespace: "ns", UID: "deployment-uid",
-				Labels: map[string]string{controllerconsts.QueueLabel: "user-queue"},
-			}},
-			replicaSet("test-deployment-old", "old-rs-uid"),
-			replicaSet("test-deployment-new", "new-rs-uid"),
-		).
-		Build()
-
-	for name, pod := range map[string]*corev1.Pod{
-		"pod from the outgoing replicaset": podOf("old-pod", "test-deployment-old", "old-rs-uid"),
-		"pod from the incoming replicaset": podOf("new-pod", "test-deployment-new", "new-rs-uid"),
-	} {
-		t.Run(name, func(t *testing.T) {
-			wl, err := (&Pod{pod: *pod, isFound: true, integrationManager: manager}).
-				ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got := wl.Labels[controllerconsts.JobUIDLabel]; got != "deployment-uid" {
-				t.Errorf("job-uid label = %q, want %q", got, "deployment-uid")
 			}
 		})
 	}

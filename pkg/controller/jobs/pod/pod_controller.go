@@ -1285,12 +1285,8 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 
 // applyDeploymentJobUID replaces the Pod UID that ConstructWorkload put in the job-uid
 // label with the UID of the Deployment the Pod belongs to, so that every Workload of one
-// Deployment shares a single value.
-//
-// The ancestor walk already resolves Pod -> ReplicaSet -> Deployment, reading the interim
-// ReplicaSet as metadata only. It yields an ancestor only when Kueue manages it and it
-// carries the queue-name, which is exactly the user-owned object the label should name, so
-// the returned type is what decides whether the Deployment UID applies.
+// Deployment shares a single value. The ancestor walk yields only an object Kueue manages
+// on the user's behalf, so its type is what decides whether the Deployment UID applies.
 func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if p.integrationManager == nil {
 		return nil
