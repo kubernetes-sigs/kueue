@@ -16,8 +16,6 @@ limitations under the License.
 
 package constants
 
-// FrameworkName lives here rather than in the deployment package so that the pod
-// integration can recognise the Pods a Deployment suspends. A direct import is a
-// cycle: the deployment package's tests reach back into the pod package through
-// test/util.
+// FrameworkName lives here so the pod integration can recognize Deployment-owned
+// Pods without importing the deployment package and creating an import cycle.
 const FrameworkName = "deployment"
