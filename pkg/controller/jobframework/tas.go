@@ -80,7 +80,7 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		if err != nil {
 			return nil, err
 		}
-		if !unconstrained {
+		if !unconstrained && features.Enabled(features.TASRejectFalseUnconstrainedTopology) {
 			return nil, errUnconstrainedTopologyNotTrue
 		}
 		psTopologyReq.Unconstrained = &unconstrained

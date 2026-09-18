@@ -143,7 +143,7 @@ func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *meta
 				),
 			}
 		}
-		if !unconstrained {
+		if !unconstrained && features.Enabled(features.TASRejectFalseUnconstrainedTopology) {
 			return field.ErrorList{
 				field.Invalid(
 					annotationsPath.Key(kueue.PodSetUnconstrainedTopologyAnnotation), val, "must be true",

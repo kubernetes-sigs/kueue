@@ -125,12 +125,28 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 		},
 		"unconstrained annotation (false)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
 					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
 				},
 			},
 			wantErr: errUnconstrainedTopologyNotTrue,
+		},
+		"unconstrained annotation (false) with validation disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: false,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
+				},
+			},
+			wantReq: &kueue.PodSetTopologyRequest{
+				Unconstrained: new(false),
+			},
 		},
 		"slice-only topology": {
 			meta: &metav1.ObjectMeta{

@@ -531,6 +531,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASRejectFalseUnconstrainedTopology
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASReplaceNodeDueToNotReadyOverFixedTime
   versionedSpecs:
   - default: true
