@@ -60,7 +60,7 @@ func classicalSimulation(
 		updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, targets)
 	}()
 
-	preemptionOracle := preemption.NewOracle(preemptor, snapshot)
+	preemptionOracle := preemption.NewInternalOracle(preemptor, snapshot)
 	assignment = flavorAssigner.AssignFlavors(ctx, log, preemptionOracle, counts)
 	if assignment.RepresentativeMode() != flavorassigner.NoFit {
 		flavorAssigner.AssignTopology(ctx, log, &assignment)

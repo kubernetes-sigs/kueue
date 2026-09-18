@@ -28,28 +28,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type PreemptionOracle interface {
-	SimulatePreemption(
-		ctx context.Context,
-		cq *schdcache.ClusterQueueSnapshot,
-		wl workload.Info,
-		fr resources.FlavorResource,
-		quantity resources.Amount,
-	) (preemptioncommon.PreemptionPossibility, int)
+func NewInternalOracle(preemptor *Preemptor, snapshot *schdcache.Snapshot) *InternalPreemptionOracle {
+	return &InternalPreemptionOracle{preemptor, snapshot}
 }
 
-func NewOracle(preemptor *Preemptor, snapshot *schdcache.Snapshot) *ClassicalPreemptionOracle {
-	return &ClassicalPreemptionOracle{preemptor, snapshot}
-}
-
-type ClassicalPreemptionOracle struct {
+type InternalPreemptionOracle struct {
 	preemptor *Preemptor
 	snapshot  *schdcache.Snapshot
 }
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
 // preemption and reclaim are possible in this flavor resource.
-func (p *ClassicalPreemptionOracle) SimulatePreemption(
+func (p *InternalPreemptionOracle) SimulatePreemption(
 	ctx context.Context,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
