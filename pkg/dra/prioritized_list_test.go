@@ -1,0 +1,492 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package dra
+
+import (
+	"fmt"
+	"math"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
+)
+
+// The subrequest name has to be a DNS label, so it cannot be the class name.
+func alt(name, deviceClass string, count int64) resourcev1.DeviceSubRequest {
+	return resourcev1.DeviceSubRequest{
+		Name:            name,
+		DeviceClassName: deviceClass,
+		AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+		Count:           count,
+	}
+}
+
+func faReq(name string, alternatives ...resourcev1.DeviceSubRequest) resourcev1.DeviceRequest {
+	return resourcev1.DeviceRequest{Name: name, FirstAvailable: alternatives}
+}
+
+func specOf(requests ...resourcev1.DeviceRequest) *resourcev1.ResourceClaimSpec {
+	return &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: requests}}
+}
+
+// mapperFor maps every listed DeviceClass onto one logical resource.
+func mapperFor(t *testing.T, logical string, deviceClasses ...corev1.ResourceName) *ResourceMapper {
+	t.Helper()
+	m := NewResourceMapper()
+	if err := m.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+		Name:             corev1.ResourceName(logical),
+		DeviceClassNames: deviceClasses,
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
+	return m
+}
+
+func TestChargeForPrioritizedList(t *testing.T) {
+	twoClassesOneResource := mapperFor(t, "example.com/gpu", "fast.example.com", "slow.example.com")
+	excludedResource := mapperFor(t, "example.com/gpu", "fast.example.com")
+
+	twoResources := NewResourceMapper()
+	if err := twoResources.PopulateFromConfiguration([]configapi.DeviceClassMapping{
+		{Name: "example.com/gpu", DeviceClassNames: []corev1.ResourceName{"fast.example.com"}},
+		{Name: "example.com/cpu", DeviceClassNames: []corev1.ResourceName{"slow.example.com"}},
+	}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
+
+	counterBacked := NewResourceMapper()
+	if err := counterBacked.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+		Name:             "example.com/gpu",
+		DeviceClassNames: []corev1.ResourceName{"fast.example.com"},
+		Sources: []configapi.DeviceClassSourceConfig{{Counter: &configapi.DeviceClassCounterSource{
+			Name:           "memory",
+			Driver:         "fast.example.com",
+			DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
+		}}},
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
+
+	// The refusal checks the counter and capacity sources in one condition, so a
+	// capacity-backed mapping beside the counter-backed one catches the two
+	// drifting apart.
+	capacityBacked := NewResourceMapper()
+	if err := capacityBacked.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+		Name:             "example.com/gpu",
+		DeviceClassNames: []corev1.ResourceName{"fast.example.com"},
+		Sources: []configapi.DeviceClassSourceConfig{{Capacity: &configapi.DeviceClassCapacitySource{
+			Name:           "memory",
+			Driver:         "fast.example.com",
+			DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
+		}}},
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
+
+	// The path the request is reported under, which the cases below index into.
+	const base = "devices.requests[0].firstAvailable"
+
+	cases := map[string]struct {
+		req          resourcev1.DeviceRequest
+		mapper       *ResourceMapper
+		wantResource corev1.ResourceName
+		wantCount    int64
+		wantErr      bool
+		wantField    string
+		wantType     field.ErrorType
+		wantDetail   string
+	}{
+		"the largest count among the alternatives is the charge": {
+			req:          faReq("r", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 3)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    3,
+		},
+		"the order of the alternatives does not change the charge": {
+			req:          faReq("r", alt("slow", "slow.example.com", 3), alt("fast", "fast.example.com", 1)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    3,
+		},
+		"equal counts charge once rather than twice": {
+			req:          faReq("r", alt("fast", "fast.example.com", 2), alt("slow", "slow.example.com", 2)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    2,
+		},
+		"one alternative is still a prioritized list": {
+			req:          faReq("r", alt("fast", "fast.example.com", 4)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    4,
+		},
+		// excludeResourcePrefixes filters the Pod's own requests, and a name an
+		// explicit mapping synthesizes is not one of them. The two task guides
+		// collide here: one excludes example.com while the other maps a
+		// DeviceClass to example.com/gpu, and the Exactly path charges that pair
+		// today.
+		"a logical resource an excluded prefix covers is still charged": {
+			req:          faReq("r", alt("fast", "fast.example.com", 4)),
+			mapper:       excludedResource,
+			wantResource: "example.com/gpu",
+			wantCount:    4,
+		},
+		"alternatives reaching two logical resources are refused": {
+			req:        faReq("r", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 8)),
+			mapper:     twoResources,
+			wantErr:    true,
+			wantField:  base + "[1].deviceClassName",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "every alternative must map to",
+		},
+		"an unmapped DeviceClass is refused": {
+			req:       faReq("r", alt("fast", "fast.example.com", 1), alt("unknown", "unknown.example.com", 1)),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[1].deviceClassName",
+			wantType:  field.ErrorTypeNotFound,
+		},
+		"a counter-backed mapping is refused": {
+			req:        faReq("r", alt("fast", "fast.example.com", 1)),
+			mapper:     counterBacked,
+			wantErr:    true,
+			wantField:  base + "[0].deviceClassName",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "counter-backed or capacity-backed",
+		},
+		"a capacity-backed mapping is refused": {
+			req:        faReq("r", alt("fast", "fast.example.com", 1)),
+			mapper:     capacityBacked,
+			wantErr:    true,
+			wantField:  base + "[0].deviceClassName",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "counter-backed or capacity-backed",
+		},
+		"allocation mode All is refused": {
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+				AllocationMode:  resourcev1.DeviceAllocationModeAll,
+			}),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].allocationMode",
+			wantType:  field.ErrorTypeNotSupported,
+		},
+		"an unknown allocation mode is refused the same way": {
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+				AllocationMode:  resourcev1.DeviceAllocationMode("Some"),
+			}),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].allocationMode",
+			wantType:  field.ErrorTypeNotSupported,
+		},
+		"an unset mode and count mean one device, as the field documents": {
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+			}),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    1,
+		},
+		"an unset count does not lose to a larger sibling": {
+			req: faReq("r",
+				resourcev1.DeviceSubRequest{Name: "a", DeviceClassName: "fast.example.com"},
+				alt("slow", "slow.example.com", 5)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    5,
+		},
+		"a negative count is refused": {
+			req:        faReq("r", alt("fast", "fast.example.com", -1)),
+			mapper:     twoClassesOneResource,
+			wantErr:    true,
+			wantField:  base + "[0].count",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "must not be negative",
+		},
+		"the largest representable count is still charged": {
+			req:          faReq("r", alt("fast", "fast.example.com", math.MaxInt64)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    math.MaxInt64,
+		},
+		"an empty DeviceClass name is refused": {
+			req:       faReq("r", alt("empty", "", 1)),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].deviceClassName",
+			wantType:  field.ErrorTypeRequired,
+		},
+		"a capacity requirement is charged the count beside it": {
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+				AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+				Count:           3,
+				Capacity: &resourcev1.CapacityRequirements{
+					Requests: map[resourcev1.QualifiedName]resource.Quantity{
+						"memory": resource.MustParse("10Gi"),
+					},
+				},
+			}),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    3,
+		},
+		"the same alternative without a capacity requirement is charged the same count": {
+			req:          faReq("r", alt("fast", "fast.example.com", 3)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    3,
+		},
+		"a selector that does not compile is refused": {
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+				AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+				Count:           1,
+				Selectors:       []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "this is not cel("}}},
+			}),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].selectors",
+			wantType:  field.ErrorTypeInvalid,
+		},
+		"a nil mapper leaves every alternative unmapped rather than panicking": {
+			req:       faReq("r", alt("fast", "fast.example.com", 1)),
+			mapper:    nil,
+			wantErr:   true,
+			wantField: base + "[0].deviceClassName",
+			wantType:  field.ErrorTypeNotFound,
+		},
+		"an empty list of alternatives is refused": {
+			req:        resourcev1.DeviceRequest{Name: "r", FirstAvailable: []resourcev1.DeviceSubRequest{}},
+			mapper:     twoClassesOneResource,
+			wantErr:    true,
+			wantField:  "devices.requests[0].firstAvailable",
+			wantType:   field.ErrorTypeRequired,
+			wantDetail: "at least one alternative",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotResource, gotCount, errs := chargeForPrioritizedList(&tc.req, tc.mapper, field.NewPath("devices", "requests").Index(0))
+			if tc.wantErr {
+				if len(errs) != 1 {
+					t.Fatalf("want one error, got %v (charge %s=%d)", errs, gotResource, gotCount)
+				}
+				got := errs[0]
+				if got.Field != tc.wantField || got.Type != tc.wantType {
+					t.Errorf("got %s on %s, want %s on %s", got.Type, got.Field, tc.wantType, tc.wantField)
+				}
+				if tc.wantDetail != "" && !strings.Contains(got.Detail, tc.wantDetail) {
+					t.Errorf("detail %q does not mention %q", got.Detail, tc.wantDetail)
+				}
+				return
+			}
+			if len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if gotResource != tc.wantResource || gotCount != tc.wantCount {
+				t.Errorf("charge = %s:%d, want %s:%d", gotResource, gotCount, tc.wantResource, tc.wantCount)
+			}
+		})
+	}
+}
+
+func TestChargesForClaimSpec(t *testing.T) {
+	mapper := mapperFor(t, "example.com/gpu", "fast.example.com", "slow.example.com")
+
+	cases := map[string]struct {
+		spec        *resourcev1.ResourceClaimSpec
+		gateEnabled bool
+		// perLogicalResource is always allocated, so an empty map is the expectation
+		// when no prioritized list is charged; ToMap reports no class charges as nil.
+		wantLogical map[corev1.ResourceName]resources.Amount
+		wantClasses map[corev1.ResourceName]int64
+		wantErr     bool
+		// Set these when which error comes back is the point of the case, since
+		// several guards on this path reject the same spec for different reasons.
+		wantErrField string
+		wantErrType  field.ErrorType
+	}{
+		"exactly requests on one class add up": {
+			spec:        specOf(exactReq("r0", "gpu", 2), exactReq("r1", "gpu", 3)),
+			wantLogical: map[corev1.ResourceName]resources.Amount{},
+			wantClasses: map[corev1.ResourceName]int64{"gpu": 5},
+		},
+		"an exactly sum saturates at MaxInt64 instead of wrapping negative": {
+			spec:        specOf(exactReq("r0", "gpu", math.MaxInt64), exactReq("r1", "gpu", math.MaxInt64)),
+			wantLogical: map[corev1.ResourceName]resources.Amount{},
+			wantClasses: map[corev1.ResourceName]int64{"gpu": math.MaxInt64},
+		},
+		"with the gate off a prioritized list is still refused": {
+			spec:    specOf(faReq("r", alt("fast", "fast.example.com", 1))),
+			wantErr: true,
+		},
+		"independent requests add their own maxima": {
+			spec: specOf(
+				faReq("r0", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 3)),
+				faReq("r1", alt("fast", "fast.example.com", 2), alt("slow", "slow.example.com", 5)),
+			),
+			gateEnabled: true,
+			wantLogical: map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(8)},
+		},
+		"an Exactly request beside a prioritized list is counted once each": {
+			spec: specOf(
+				exactReq("r0", "fast.example.com", 2),
+				faReq("r1", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 4)),
+			),
+			gateEnabled: true,
+			wantLogical: map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(4)},
+			wantClasses: map[corev1.ResourceName]int64{"fast.example.com": 2},
+		},
+		"a request setting both exactly and firstAvailable is refused": {
+			spec: specOf(resourcev1.DeviceRequest{
+				Name:           "r",
+				Exactly:        &resourcev1.ExactDeviceRequest{DeviceClassName: "fast.example.com", AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 1},
+				FirstAvailable: []resourcev1.DeviceSubRequest{alt("fast", "fast.example.com", 1)},
+			}),
+			gateEnabled: true,
+			wantErr:     true,
+		},
+		"a sum past the int64 range is kept exactly rather than saturated": {
+			spec: specOf(
+				faReq("r0", alt("fast", "fast.example.com", math.MaxInt64)),
+				faReq("r1", alt("fast", "fast.example.com", 1)),
+			),
+			gateEnabled: true,
+			wantLogical: map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(math.MaxInt64).AddInt64(1)},
+		},
+		"an empty firstAvailable is reported against firstAvailable, not as a missing exactly": {
+			spec: specOf(resourcev1.DeviceRequest{
+				Name:           "r",
+				FirstAvailable: []resourcev1.DeviceSubRequest{},
+			}),
+			gateEnabled:  true,
+			wantErr:      true,
+			wantErrField: "devices.requests[0].firstAvailable",
+			wantErrType:  field.ErrorTypeRequired,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.gateEnabled {
+				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPrioritizedList, true)
+			}
+			got, errs := chargesForClaimSpec(tc.spec, mapper)
+			if tc.wantErr {
+				if len(errs) == 0 {
+					t.Fatalf("want an error, got %v", got.perLogicalResource)
+				}
+				if tc.wantErrField != "" {
+					if len(errs) != 1 {
+						t.Fatalf("want one error, got %v", errs)
+					}
+					if errs[0].Field != tc.wantErrField || errs[0].Type != tc.wantErrType {
+						t.Errorf("got %v on %s, want %v on %s", errs[0].Type, errs[0].Field, tc.wantErrType, tc.wantErrField)
+					}
+				}
+				return
+			}
+			if len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if diff := cmp.Diff(tc.wantLogical, got.perLogicalResource, cmp.Comparer(resources.Amount.Equal)); diff != "" {
+				t.Errorf("logical charges (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantClasses, resources.ToMap(got.perDeviceClass)); diff != "" {
+				t.Errorf("class charges (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestEnvelopeBoundsEverySelection is the safety property the envelope exists for:
+// whichever alternative the scheduler picks for each request, the charge it realizes
+// is no larger than what was admitted. Comparing the envelope against the sum of
+// every alternative would only show it is smaller than charging them all, which is
+// not the same claim.
+func TestEnvelopeBoundsEverySelection(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPrioritizedList, true)
+	mapper := mapperFor(t, "example.com/gpu", "a.example.com", "b.example.com", "c.example.com")
+
+	// Counts chosen so no two requests are alike and the maximum is not always
+	// the first or the last alternative.
+	requestCounts := [][]int64{
+		{1},
+		{4, 2},
+		{3, 7, 5},
+		{6, 6},
+		{9, 1, 2, 8},
+	}
+	classes := []string{"a.example.com", "b.example.com", "c.example.com"}
+
+	var requests []resourcev1.DeviceRequest
+	for i, counts := range requestCounts {
+		alternatives := make([]resourcev1.DeviceSubRequest, 0, len(counts))
+		for j, c := range counts {
+			// Indexed, so reusing a class does not repeat a subrequest name.
+			alternatives = append(alternatives, alt(fmt.Sprintf("alt%d", j), classes[j%len(classes)], c))
+		}
+		requests = append(requests, faReq(fmt.Sprintf("r%d", i), alternatives...))
+	}
+
+	charges, errs := chargesForClaimSpec(specOf(requests...), mapper)
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	envelope := charges.perLogicalResource["example.com/gpu"]
+
+	// Every combination of one alternative per request, read off a mixed-radix
+	// counter whose digit i ranges over request i's alternatives.
+	combinations := 1
+	for _, counts := range requestCounts {
+		combinations *= len(counts)
+	}
+	for k := range combinations {
+		var realized int64
+		rest := k
+		for _, counts := range requestCounts {
+			realized += counts[rest%len(counts)]
+			rest /= len(counts)
+		}
+		if envelope.CmpInt64(realized) < 0 {
+			t.Fatalf("combination %d realizes %d, above the admitted envelope %v", k, realized, envelope)
+		}
+	}
+	// The envelope is the sum of the per-request maxima, which is the largest
+	// realizable selection, so the bound is tight rather than merely safe.
+	if worst := int64(1 + 4 + 7 + 6 + 9); envelope.CmpInt64(worst) != 0 {
+		t.Errorf("envelope = %v, want the worst selection %d", envelope, worst)
+	}
+}
