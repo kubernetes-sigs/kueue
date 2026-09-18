@@ -72,6 +72,11 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Capacity Lifecycle Scenarios](#capacity-lifecycle-scenarios)
     - [Validation](#validation-1)
   - [DRA Device Feasibility](#dra-device-feasibility)
+    - [What the check does](#what-the-check-does)
+    - [Extended resources](#extended-resources-1)
+    - [Cost](#cost)
+    - [The allocator](#the-allocator)
+    - [What the check does not decide](#what-the-check-does-not-decide)
     - [Validation](#validation-2)
   - [Architecture Details](#architecture-details)
     - [Queue Manager Extensions](#queue-manager-extensions)
@@ -240,7 +245,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 - Admins can enforce capacity-based quota for devices that allow software-level sharing
   (e.g., GPU memory and compute cores quota for time-sliced or fractional GPU devices).
 - With `KueueDRADeviceFeasibility` and its dependencies enabled, Kueue does not reserve
-  quota for a Workload whose ResourceClaims no single node can satisfy.
+  quota for a Workload whose devices no single node can supply, whether the Pod names a
+  ResourceClaimTemplate or requests a DRA-backed extended resource.
 
 ### Non-Goals
 
@@ -253,6 +259,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
   [DRA Device Feasibility](#dra-device-feasibility) records.
 - Multi-host partitionable devices (e.g., NVLink fabrics spanning multiple nodes) are not
   supported.
+- Kubernetes DRA features that change what kube-scheduler computes outside the allocator
+  are not modeled. [DRA Device Feasibility](#dra-device-feasibility) lists which, and why.
 - Quota accounting stays independent of Topology Aware Scheduling: the two are computed
   separately and neither reads the other's result. The only place they meet is the per-node
   device feasibility check in [DRA Device Feasibility](#dra-device-feasibility), which runs
@@ -266,8 +274,9 @@ scheduling. This includes:
 1. Extending the existing Kueue Configuration API with `DeviceClassMappings` to map device classes to logical resource
    names
 2. Supporting workloads that use ResourceClaimTemplates (ResourceClaims are not supported in alpha)
-3. Supporting workloads that use extended resource requests backed by DRA DeviceClasses with
-   `extendedResourceName` set (requires Kubernetes `DRAExtendedResource` feature gate, alpha in k8s 1.35)
+3. Supporting workloads that use extended resource requests backed by DRA DeviceClasses,
+   named either by the class's `extendedResourceName` or by the implicit name every class
+   carries (requires the Kubernetes `DRAExtendedResource` feature gate, stable in k8s 1.37)
 4. Allowing admins to define quota for DRA resources in ClusterQueues using the logical resource names from device class
    mappings
 5. Implementing validation to prevent device class conflicts and ensure predictable quota behavior
@@ -329,8 +338,9 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
 - **Single-node partitionable devices (e.g., MIG) are supported** via counter-based
   quota. See [Partitionable Devices](#partitionable-devices). Multi-host partitionable
   devices are not supported.
-- **Extended Resources** requires DeviceClasses to have `spec.extendedResourceName` set.
-  This depends on the Kubernetes `DRAExtendedResource` feature gate (alpha in k8s 1.35).
+- **Extended Resources** covers a DeviceClass named by its `spec.extendedResourceName` or
+  by the implicit name every class carries. This depends on the Kubernetes
+  `DRAExtendedResource` feature gate (stable in k8s 1.37).
   When enabled, kube-scheduler automatically creates ResourceClaims for pods requesting extended resources.
   Extended resources support in Kueue is gated behind the `KueueDRAIntegrationExtendedResource` feature gate.
 - **GPU time-slicing and MPS via extended resources are not supported in Alpha.**
@@ -444,8 +454,8 @@ Feature gates controlling DRA support in Kueue:
   See [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled).
 - `KueueDRADeviceFeasibility` (Alpha): gates per-node device availability checking before
   admission, so a Workload using ResourceClaimTemplates is not admitted when no node can
-  satisfy its claims. Requires `KueueDRAIntegration`, `SchedulerLibraryIntegration`,
-  `TopologyAwareScheduling` and `TASNodeFeasibilityForAllLevels`.
+  satisfy its claims. Requires `KueueDRAIntegration`, `TopologyAwareScheduling` and
+  `TASNodeFeasibilityForAllLevels`.
   See [DRA Device Feasibility](#dra-device-feasibility).
 
 The following sections will explain the design in detail.
@@ -878,8 +888,9 @@ status:
 This section is gated behind the `KueueDRAIntegrationExtendedResource` Kueue feature gate.
 
 Kueue also supports workloads requesting DRA devices via `resources.requests` (e.g., `example.com/gpu: 1`).
-When a DeviceClass has `spec.extendedResourceName` set, kube-scheduler automatically creates ResourceClaims.
-This requires the Kubernetes `DRAExtendedResource` feature gate (alpha in k8s 1.35).
+kube-scheduler automatically creates ResourceClaims for a DeviceClass addressed by its
+`spec.extendedResourceName` or by the implicit name every class carries.
+This requires the Kubernetes `DRAExtendedResource` feature gate (stable in k8s 1.37).
 
 An extended resource can be identified by verifying that qualified resource names containing `/` are not in the `kubernetes.io/` or `requests.` namespaces and are not standard resources like `cpu`, `memory`, `ephemeral-storage`, or `hugepages-*`.
 
@@ -1738,16 +1749,40 @@ a per-node check, a Workload whose ResourceClaims no single node can satisfy is 
 on quota alone. Kueue then removes the scheduling gate, kube-scheduler finds no node that
 can allocate the claims, and the Pods remain Pending while the Workload holds quota.
 
+#### What the check does
+
 Before admission, Kueue tries to allocate the PodSet's claims on each candidate node and
 drops the nodes where that allocation fails. When no node is left, the Workload stays
 pending and its condition message counts the nodes dropped for devices as `draNoFit`,
 separately from a generic no-fit.
 
+#### Extended resources
+
+A Pod that requests a DRA-backed extended resource names no claim of its own, because
+kube-scheduler creates one for it only after Kueue has admitted. The check derives the
+same claim from the DeviceClass that declares the extended resource, so both paths are
+filtered alike. It asks for the whole Pod's devices in one request per DeviceClass, which
+is enough to decide whether a node fits because the classes it derives carry no selectors.
+That count can exceed what kube-scheduler ultimately requests, since it lets an init
+container reuse a later container's devices, so the check stays restrictive rather than
+over-admitting.
+
+A DeviceClass that declares an extended resource is what supplies it, so no Node
+advertises it and topology stops counting it against a domain's capacity, leaving it to
+the device check. kube-scheduler leaves the same resources to its own DRA filter. With the
+check disabled the resource keeps being counted, which is why such a Workload finds no
+domain unless a device plugin advertises the resource.
+
+#### Cost
+
 The check costs one allocation attempt per candidate node, so it scales with the number
 of nodes that survive the other filters and with the devices each advertises. Two things
-bound that. A Pod with no ResourceClaims is answered without consulting the allocator, so
-Workloads that do not use devices pay nothing. And the result is reused for the rest of
-the scheduling cycle, so it is not repeated for each preemption the cycle evaluates.
+bound that. A Pod that neither names a claim nor requests a DRA-backed extended resource
+is answered without consulting the allocator, so Workloads that do not use devices pay
+nothing. And the result is reused for the rest of the scheduling cycle, so it is not
+repeated for each preemption the cycle evaluates.
+
+#### The allocator
 
 The check allocates with `structured.Allocator` from
 `k8s.io/dynamic-resource-allocation`, which is what kube-scheduler's `dynamicresources`
@@ -1760,25 +1795,69 @@ allocator may pick, and which of its three implementations (`stable`, `incubatin
 `experimental`) it selects. Kueue and kube-scheduler therefore have to run with the same
 values, and Kueue does not compare them.
 
+#### What the check does not decide
+
 The check asks whether a node can serve one Pod of the PodSet, not how many. A node that
 can satisfy one Pod's claims is kept even when the PodSet asks for more Pods than it has
 devices for, so the extra Pods can still be left Pending. Counting devices per node is a
 Beta criterion below.
 
+Two cases delay the check rather than skip it, both because topology itself is delayed.
+A Workload in a ClusterQueue with a MultiKueue admission check has its topology assigned
+on the worker cluster, so the check is the worker's to run and the manager reserves quota
+without it. A Workload waiting on a ProvisioningRequest has topology delayed on the first
+scheduling pass only; the second pass, once quota is reserved, runs the check as usual.
+
+- reads the Kubernetes DRA gates from Kueue's own process, not from the API server, and
+  does not check that the two agree or enforce a minimum Kubernetes version
+- device state read once per scheduling cycle, not cached across cycles
+- devices held by a preempted Workload are not released, so preemption cannot make a
+  Workload device-feasible; the check stays restrictive rather than over-admitting
+- feasibility filters nodes but does not bound how many device-consuming Pods a domain
+  receives: a PodSet needing more devices than a node has can still be placed there, and
+  the surplus Pods stay Pending. Unlike the other gaps here this one over-admits rather
+  than staying restrictive. Counts are Beta work
+- the per-node allocation attempt is not bounded. kube-scheduler gives its own attempt a
+  deadline and treats a timeout as retryable; here a slow DeviceClass selector stretches
+  the scheduling cycle instead
+
+These Kubernetes DRA features change what kube-scheduler does without changing what Kueue
+predicts, so a cluster running one of them gets a different answer than this check gives:
+
+| Feature | Effect | What it waits on |
+|---|---|---|
+| `DRADeviceTaintRules` | admits onto a node whose devices a rule has tainted | reading the rules with the slices, [#15621](https://github.com/kubernetes-sigs/kueue/issues/15621) |
+| `DRAFractionalCapacityRange` | charges whole units for a fractional policy | charging in the policy's own units |
+| `DRAOptionalNodeOperations` | never admits: the device is rejected on every node | carrying the node's declared features |
+| `DRAPrioritizedList` | refuses a request that offers alternatives | quota for alternatives, [#13601](https://github.com/kubernetes-sigs/kueue/pull/13601) |
+| `DRAWorkloadResourceClaims` | charges a shared claim once per Pod, and spreads a group its allocation pins to one node | a claim shared by a group; upstream owns placement |
+| `DRANodeAllocatableResources` | a domain looks emptier than it is, so it takes more Pods than fit | knowing the device, which Kueue admits without |
+| `DRADeviceBindingConditions` | admits, then waits for the devices to become ready | knowing the device, as above |
+
 #### Validation
 
-- `KueueDRADeviceFeasibility` requires `KueueDRAIntegration`, `SchedulerLibraryIntegration`,
-  `TopologyAwareScheduling` and `TASNodeFeasibilityForAllLevels`. Enabling it without them is
-  rejected while the feature gates are parsed, before the manager starts.
-- Only ResourceClaimTemplate-backed claims reach the check. A Workload that references a
-  ResourceClaim directly is marked inadmissible by the workload controller before
-  scheduling, which is what depending on `KueueDRAIntegration` guarantees.
+- `KueueDRADeviceFeasibility` requires `KueueDRAIntegration`, `TopologyAwareScheduling`
+  and `TASNodeFeasibilityForAllLevels`. Enabling it without them is rejected while the
+  feature gates are parsed, before the manager starts. It does not require
+  `SchedulerLibraryIntegration`: the check wraps whichever simulator is in use, so a
+  cluster not running the scheduler library gets it too.
+- A claim reaches the check from a ResourceClaimTemplate or from a DRA-backed extended
+  resource request. A Workload that references a ResourceClaim directly is marked
+  inadmissible by the workload controller before scheduling, which is what depending on
+  `KueueDRAIntegration` guarantees.
 - With the gate disabled, no per-node device check runs and a Workload using
   ResourceClaimTemplates is admitted on quota alone.
-- Extended resource Workloads are admitted without a device check. kube-scheduler turns
-  such a request into a ResourceClaim of its own while scheduling the Pod, so at admission
-  time, when Kueue has only the PodSet template, there is no claim to evaluate. Alpha
-  therefore skips them rather than guessing which devices that claim would ask for.
+- The extended resource path needs `KueueDRAIntegrationExtendedResource`. Without it no
+  extended resource is treated as DRA-backed, so a Workload requesting one is left to the
+  node filters, which is also what happens for a resource a device plugin advertises.
+
+The three required gates are not alike:
+
+| Gate | Why it is required |
+|---|---|
+| `KueueDRAIntegration` | marks a Workload referencing a ResourceClaim directly inadmissible, which the check relies on rather than repeating |
+| `TopologyAwareScheduling` | the check runs while a topology domain is chosen, so without it nothing asks |
+| `TASNodeFeasibilityForAllLevels` | makes every leaf a single node; without it a leaf can span several, leaving no node to ask about, and the check is skipped silently |
 
 ### Architecture Details
 
@@ -1984,24 +2063,12 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 
 ##### KueueDRADeviceFeasibility (v0.20)
 
-- per-node device feasibility for Workloads with ResourceClaims, so quota is not
-  reserved for a Workload kube-scheduler cannot place
-- requires `KueueDRAIntegration`, `SchedulerLibraryIntegration`, `TopologyAwareScheduling`
-  and `TASNodeFeasibilityForAllLevels`; enabling it without them is rejected at startup
-- reads the Kubernetes DRA gates from Kueue's own process, not from the API server, and
-  does not check that the two agree or enforce a minimum Kubernetes version
-- device state read once per scheduling cycle, not cached across cycles
-- extended resource workloads are admitted without a device check
-- devices held by a preempted Workload are not released, so preemption cannot make a
-  Workload device-feasible; the check stays restrictive rather than over-admitting
-- feasibility filters nodes but does not bound how many device-consuming Pods a domain
-  receives: a PodSet needing more devices than a node has can still be placed there, and
-  the surplus Pods stay Pending. Unlike the other gaps here this one over-admits rather
-  than staying restrictive. Counts are Beta work
-- taints a `DeviceTaintRule` applies are not seen: the check reads ResourceSlices directly,
-  while kube-scheduler reads them through `resourceslice/tracker`, which patches those taints
-  in. Taints written into the slice itself are honored. Tracked in #15621
+- per-node device feasibility for Workloads using ResourceClaimTemplates or DRA-backed
+  extended resources, so quota is not reserved for a Workload kube-scheduler cannot place
+- requires `KueueDRAIntegration`, `TopologyAwareScheduling` and
+  `TASNodeFeasibilityForAllLevels`; enabling it without them is rejected at startup
 - unit and integration tests
+
 
 #### Beta
 
@@ -2146,12 +2213,24 @@ It does not work before the Pods exist. The plugin walks `pod.Spec.ResourceClaim
 fetches the ResourceClaim object each entry names; for a template-backed entry that object
 is created by the Pod controller when the Pods are created, and its generated name is read
 from `pod.Status.ResourceClaimStatuses`. Kueue decides before any of that exists, when it
-has only the PodSet template. The plugin also reaches its claims and slices through a
-`SharedDRAManager` that the scheduler-library builds from live informers, with no way to
-supply one that reflects a simulated cluster.
+has only the PodSet template.
+
+Building the claims ourselves and handing them to the plugin does not bridge that gap.
+The plugin reaches its claims through a `SharedDRAManager` the scheduler-library builds
+from live informers, and offers no way to supply one; the cache behind it refuses an
+object that did not come from the API server, so a made-up claim cannot be seeded. That
+manager is fixed when the simulation is built, while Kueue asks once per PodSet against
+the one simulation, so it is also the wrong lifetime for per-question claims. The
+plugin's own extended resource path shows the shape is otherwise workable: there it
+fabricates a claim in memory and needs no Pod status, and only the manager stands in
+the way.
 
 Kueue therefore calls `structured.Allocator` directly, the same allocator the plugin
 builds, and resolves the claims from the PodSet template instead of from Pod status.
+This is meant to be temporary: once the scheduler-library can be given a simulated view of
+claims, tracked in [scheduler-library#34](https://github.com/kubernetes-sigs/scheduler-library/issues/34),
+Kueue should drop its own check and run the plugin with the other node filters, so the two
+stay in step by construction rather than by sharing an allocator.
 
 ### Webhook Rewriting Extended Resources to ResourceClaimTemplates
 
