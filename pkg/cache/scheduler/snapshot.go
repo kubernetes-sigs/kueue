@@ -392,6 +392,7 @@ func (c *Cache) snapshotClusterQueue(
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
 		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
+		draBackedResources:            c.draBackedResources,
 	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()

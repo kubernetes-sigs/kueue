@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -71,6 +72,14 @@ type Option func(*Cache)
 func WithPodsReadyTracking(f bool) Option {
 	return func(c *Cache) {
 		c.podsReadyTracking = f
+	}
+}
+
+// WithDRABackedResources supplies the extended resources a DeviceClass declares, which
+// placement needs to tell them from ones a device plugin advertises.
+func WithDRABackedResources(cache *dra.ExtendedResourceCache) Option {
+	return func(c *Cache) {
+		c.draBackedResources = cache
 	}
 }
 
@@ -146,6 +155,7 @@ type Cache struct {
 	podsReadyCond sync.Cond
 
 	client                 client.Client
+	draBackedResources     *dra.ExtendedResourceCache
 	resourceFlavors        map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking      bool
 	admissionChecks        map[kueue.AdmissionCheckReference]AdmissionCheck
