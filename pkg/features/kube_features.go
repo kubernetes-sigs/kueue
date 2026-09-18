@@ -95,6 +95,12 @@ const (
 	// Enables clearing ttlSecondsAfterFinished when creating remote batch Jobs.
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster featuregate.Feature = "MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster"
 
+	// owner: @kevin85421
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13243-multikueue-ray-worker-autoscaling
+	//
+	// Enables in-tree autoscaling for MultiKueue-managed Ray workloads.
+	MultiKueueRayInTreeAutoscaling featuregate.Feature = "MultiKueueRayInTreeAutoscaling"
+
 	// owner: @mimowo
 	//
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
@@ -365,6 +371,14 @@ const (
 	// when preempted pods begin terminating rather than waiting for the grace period.
 	FastQuotaReleaseInPodIntegration featuregate.Feature = "FastQuotaReleaseInPodIntegration"
 
+	// owner: @anguszzzz
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15148
+	// When enabled, the Pod integration finalizes a pod group without creating a
+	// Workload when every pod of the group is terminating and no Workload remains
+	// for the group (introduced in https://github.com/kubernetes-sigs/kueue/pull/15154).
+	FinalizeTerminatingPodGroups featuregate.Feature = "FinalizeTerminatingPodGroups"
+
 	// owner: @ShaanveerS
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7259
@@ -458,6 +472,15 @@ const (
 	// total capacity is admitted even when no single node can hold a Pod, and a
 	// rack of CPU-only nodes passes for a Workload requesting devices.
 	TASNodeFeasibilityForAllLevels featuregate.Feature = "TASNodeFeasibilityForAllLevels"
+
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15373
+	// Check the leader PodSet's own node selector, tolerations and node affinity
+	// when choosing a domain for a PodSet group. Without it TAS filters nodes with
+	// the workers' PodSet alone, so a leader with a different template is admitted
+	// onto a node it cannot run on and stays Pending holding quota.
+	TASLeaderPodSetFeasibility featuregate.Feature = "TASLeaderPodSetFeasibility"
 
 	// owner: @j-skiba
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
@@ -652,6 +675,13 @@ const (
 	//
 	// Reuse clientConnection (QPS and Burst) for MultiKueue worker clusters instead of creating a new client for each request.
 	MultiKueueReuseClientConnectionConfigForWorkers featuregate.Feature = "MultiKueueReuseClientConnectionConfigForWorkers"
+
+	// owner: @reruno
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13746-tas-topology-spreading
+	//
+	// Enable cross-Workload topology spreading, limiting how many Workloads
+	// matching a label selector may be placed in a single topology domain.
+	TASTopologySpreading featuregate.Feature = "TASTopologySpreading"
 )
 
 func init() {
@@ -672,15 +702,18 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	UnadmittedWorkloadsExplicitStatus:               {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                     {TopologyAwareScheduling},
 	TASNodeFeasibilityForAllLevels:                  {TopologyAwareScheduling},
+	TASLeaderPodSetFeasibility:                      {TopologyAwareScheduling},
 	TASProfileMixed:                                 {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle:     {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:             {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	MultiKueueRayInTreeAutoscaling:                  {MultiKueue, ElasticJobsViaWorkloadSlices},
 	KueueDRAIntegrationExtendedResource:             {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:         {KueueDRAIntegration},
 	KueueDRAIntegrationConsumableCapacity:           {KueueDRAIntegration},
 	FlavorFungibilityPreserveScanProgress:           {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
+	TASTopologySpreading:                            {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -724,6 +757,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueRayInTreeAutoscaling: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TopologyAwareScheduling: {
@@ -869,6 +905,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FastQuotaReleaseInPodIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
+	FinalizeTerminatingPodGroups: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
 	RejectUpdatesToCQWithInvalidOnFlavors: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
@@ -917,8 +956,12 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASNodeFeasibilityForAllLevels: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
+	TASLeaderPodSetFeasibility: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
 	UnadmittedWorkloadsObservability: {
-		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	TASRecomputeAssignmentWithinSchedulingCycle: {
@@ -926,7 +969,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	UnadmittedWorkloadsExplicitStatus: {
-		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	DeferRayServiceFinalizationForRedisCleanup: {
@@ -1012,6 +1055,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueReuseClientConnectionConfigForWorkers: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASTopologySpreading: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

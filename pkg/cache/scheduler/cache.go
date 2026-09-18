@@ -498,7 +498,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
-		if _, err := c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i]); err != nil {
+		if _, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, &workloads.Items[i]); err != nil {
 			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
 			return err
 		}
@@ -811,20 +811,20 @@ func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) boo
 	return cq.ConcurrentAdmissionEnabled()
 }
 
-func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
+func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
 	c.Lock()
 	defer c.Unlock()
 	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
 		return false
 	}
-	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
+	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
 	}
 	return updated
 }
 
-func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, wl *kueue.Workload, opts ...workload.InfoOption) (bool, error) {
 	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
 		return false, nil
 	}
@@ -854,7 +854,8 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
-	cq.addOrUpdateWorkload(log, wl)
+	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
+	cq.addOrUpdateWorkload(log, wi)
 
 	return true, nil
 }
@@ -1031,13 +1032,12 @@ func (c *Cache) getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueu
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: c.resourceFormatter.ResourceQuantity(rName, used.Int64()),
+					Total: c.resourceFormatter.AmountQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cq.HasParent() {
-					borrowed := used.Sub(rQuota.Nominal).Int64()
-					if borrowed > 0 {
-						rUsage.Borrowed = c.resourceFormatter.ResourceQuantity(rName, borrowed)
+					if borrowed := used.Sub(rQuota.Nominal); borrowed.Sign() > 0 {
+						rUsage.Borrowed = c.resourceFormatter.AmountQuantity(rName, borrowed)
 					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
@@ -1096,7 +1096,7 @@ func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, r
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: c.resourceFormatter.ResourceQuantity(rName, orig[fr].Int64()),
+					Total: c.resourceFormatter.AmountQuantity(rName, orig[fr]),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.

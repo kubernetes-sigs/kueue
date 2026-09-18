@@ -134,6 +134,16 @@ func wrapSSAPatch(patch client.Patch) client.Patch {
 	return patch
 }
 
+// CountSubResourceUpdates returns a SubResourceUpdate interceptor function that increments
+// count on every subresource update before delegating to the client. Use it to assert that a
+// reconciler skips the status update when nothing changed.
+func CountSubResourceUpdates(count *int) func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+	return func(ctx context.Context, clnt client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+		*count++
+		return clnt.SubResource(subResourceName).Update(ctx, obj, opts...)
+	}
+}
+
 func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 	patch, data, err := ConvertApplyConfigToObject(applyConf)
 	if err != nil {

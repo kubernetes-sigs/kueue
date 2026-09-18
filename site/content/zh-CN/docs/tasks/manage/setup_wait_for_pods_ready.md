@@ -36,8 +36,8 @@ description: 基于超时的全有或全无调度实现
 ```yaml
     waitForPodsReady:
       enable: true
-      timeout: 10m
-      recoveryTimeout: 3m
+      timeout: 30m
+      recoveryTimeout: 5m
       blockAdmission: true
       requeuingStrategy:
         timestamp: Eviction | Creation

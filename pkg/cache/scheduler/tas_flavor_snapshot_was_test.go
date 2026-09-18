@@ -34,6 +34,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const wasRackLabel = "cloud.provider.com/topology-rack"
@@ -69,7 +70,7 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	tree := newTopologyTree([]string{wasRackLabel, corev1.LabelHostname}, nodes, 0)
-	return newTASFlavorSnapshot(log, "tas-topology", tree, nil, simSnapshot), simSnapshot
+	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, simSnapshot), simSnapshot
 }
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
@@ -96,15 +97,15 @@ func wantsTheSamePort() FlavorTASRequests {
 func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
 	requests := wantsTheSamePort()
-	wl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}}
+	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
 
-	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkload(wl)).Failure() == nil {
+	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
 		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
 	}
-	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkload(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
+	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
 		t.Errorf("FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", failure)
 	}
 }
@@ -114,13 +115,13 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
 	snapshot, simSnapshot := wasSnapshotWithVictim(t, victim)
 	requests := wantsTheSamePort()
-	wl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}}
+	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
 	fits := func() bool {
-		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkload(wl)).Failure() == nil
+		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil
 	}
 
 	// The flavor assigner asks first, while the victim still holds the port.
@@ -143,5 +144,55 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	// And the answer given while it was released must not outlive it.
 	if fits() {
 		t.Error("FindTopologyAssignmentsForFlavor() found a fit after the victim was restored, want none")
+	}
+}
+
+// The leader is checked against the same cluster as the workers, so asking what would
+// fit if every Workload were preempted must not leave the leader judged against the
+// Pods that are still running.
+func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.TASLeaderPodSetFeasibility, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
+
+	unconstrained := true
+	groupName := "group"
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	podSet := func(name string, count int32) TASPodSetRequests {
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name: kueue.PodSetReference(name),
+				TopologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained:   &unconstrained,
+					PodSetGroupName: &groupName,
+				},
+				// Both PodSets want the host port the victim is holding.
+				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "c",
+						Ports: []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+					}},
+				}},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             count,
+			PodSetGroupName:   &groupName,
+		}
+	}
+	requests := FlavorTASRequests{podSet("workers", 1), podSet("leader", 1)}
+
+	// A Workload is what keys matchingLeavesCache, so without one the leader's answers
+	// are never cached and this would not notice an entry serving the wrong question.
+	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	// Asked twice each way, because the cache only answers from the second cycle.
+	for _, cycle := range []string{"first", "second"} {
+		if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
+			t.Fatalf("%s cycle: FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port", cycle)
+		}
+		if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
+			t.Errorf("%s cycle: FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", cycle, failure)
+		}
 	}
 }

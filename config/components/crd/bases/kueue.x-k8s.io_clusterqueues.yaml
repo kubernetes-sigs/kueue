@@ -822,6 +822,16 @@ spec:
       name: Admitted Workloads
       priority: 1
       type: integer
+    - description: Status of the ClusterQueue's Active condition
+      jsonPath: .status.conditions[?(@.type=='Active')].status
+      name: Active
+      priority: 1
+      type: string
+    - description: Reason for the Active condition
+      jsonPath: .status.conditions[?(@.type=='Active')].reason
+      name: Reason
+      priority: 1
+      type: string
     name: v1beta2
     schema:
       openAPIV3Schema:

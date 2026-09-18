@@ -1024,7 +1024,7 @@ func TestSnapshot(t *testing.T) {
 				cache.AddOrUpdateTopology(log, topology)
 			}
 			for _, wl := range tc.wls {
-				cache.AddOrUpdateWorkload(log, wl)
+				cache.AddOrUpdateWorkload(t.Context(), log, wl)
 			}
 			for _, n := range tc.nodes {
 				cache.TASCache().SyncNode(n)
@@ -1288,7 +1288,7 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 				cache.AddOrUpdateTopology(log, topology)
 			}
 			for _, wl := range tc.wls {
-				cache.AddOrUpdateWorkload(log, wl)
+				cache.AddOrUpdateWorkload(t.Context(), log, wl)
 			}
 			for _, n := range tc.nodes {
 				cache.TASCache().SyncNode(n)

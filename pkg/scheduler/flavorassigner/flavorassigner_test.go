@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
@@ -36,6 +37,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
@@ -6111,6 +6113,108 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 	}
 }
 
+// TestAssignFlavors_TopologySpreadingRequiresLevel verifies that a flavor whose
+// topology is missing a level named by a Required topology-spreading rule is
+// rejected during flavor assignment, rather than silently admitted with
+// spreading left unenforced.
+func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, true)
+
+	const spreadingAnnotation = `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"rack","maxShareAllowingPlacement":"0.5","enforcementMode":"Required"}]}`
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"tas-with-rack":    utiltestingapi.MakeResourceFlavor("tas-with-rack").TopologyName("topo-with-rack").Obj(),
+		"tas-without-rack": utiltestingapi.MakeResourceFlavor("tas-without-rack").TopologyName("topo-without-rack").Obj(),
+	}
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeTopology("topo-with-rack").Levels("rack", corev1.LabelHostname).Obj(),
+		utiltestingapi.MakeTopology("topo-without-rack").Levels(corev1.LabelHostname).Obj(),
+	}
+
+	cases := map[string]struct {
+		flavor    kueue.ResourceFlavorReference
+		wantFit   bool
+		wantErrIn string
+	}{
+		"flavor's topology lacks the rule's level: rejected": {
+			flavor:    "tas-without-rack",
+			wantFit:   false,
+			wantErrIn: "topology spreading",
+		},
+		"flavor's topology has the rule's level: admitted": {
+			flavor:  "tas-with-rack",
+			wantFit: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			wlPods := []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation}).
+					Obj(),
+			}
+			wlInfo := workload.NewInfo(log, &kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: wlPods}})
+
+			clusterQueue := utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(string(tc.flavor)).
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj()
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			node := testingnode.MakeNode("tas-node").
+				Label("rack", "rack-a").
+				Label(corev1.LabelHostname, "tas-node").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("32"),
+					corev1.ResourceCPU:  resource.MustParse("4"),
+				}).
+				Ready().
+				Obj()
+			cache.TASCache().SyncNode(node)
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(clusterQueue.Spec.CohortName).Obj()); err != nil {
+				t.Fatalf("Failed to create a cohort: %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+			if cq == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.Assign(ctx, nil)
+
+			status := assignment.PodSets[0].Status
+			if got := status.IsFit(); got != tc.wantFit {
+				t.Errorf("PodSet fit = %v, want %v (message: %q)", got, tc.wantFit, status.Message())
+			}
+			if tc.wantErrIn != "" && !strings.Contains(status.Message(), tc.wantErrIn) {
+				t.Errorf("PodSet status message = %q, want it to contain %q", status.Message(), tc.wantErrIn)
+			}
+		})
+	}
+}
+
 func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
@@ -6616,6 +6720,56 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			// distinguish them.
 			if got := recomputed.RepresentativeMode(); got != Preempt {
 				t.Errorf("recomputation RepresentativeMode() = %s, want %s", got, Preempt)
+			}
+		})
+	}
+}
+
+func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+	cases := map[string]struct {
+		otherUsage string
+		wantMode   FlavorAssignmentMode
+	}{
+		"replacement fits when only the old slice occupies the node":       {otherUsage: "0", wantMode: Fit},
+		"replacement does not fit when another workload occupies the node": {otherUsage: "1", wantMode: Preempt},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+			old := utiltestingapi.MakeWorkload("old", "default").
+				Annotation(constants.ElasticJobAnnotation, "true").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(2).Assignment(corev1.ResourceCPU, "flavor-1", "2").TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 2).Obj()).Obj()).Obj()).Obj(), time.Now()).
+				AdmittedAt(true, time.Now()).
+				Obj()
+			oldInfo := workload.NewInfo(log, old)
+			cq.AddUsage(oldInfo.Usage())
+			cq.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne(tc.otherUsage)})
+			before, err := cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := workload.NewInfo(
+				log,
+				utiltestingapi.MakeWorkload("new", "default").
+					Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+					Obj(),
+			)
+			a := New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+			if got := a.RepresentativeMode(); got != tc.wantMode {
+				t.Errorf("mode=%s, want %s", got, tc.wantMode)
+			}
+			after, err := cq.TASFlavors["flavor-1"].SerializeFreeCapacityPerDomain()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if before != after {
+				t.Errorf("assignment changed shared snapshot capacity: before=%s after=%s", before, after)
 			}
 		})
 	}

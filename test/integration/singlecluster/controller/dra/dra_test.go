@@ -1297,7 +1297,44 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
-				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(logicalName)))
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKeyWithValue(corev1.ResourceName(logicalName), resource.MustParse("2")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should requeue inadmissible limits-only workload when DeviceClass is created", func() {
+			ginkgo.By("Creating limits-only workload before DeviceClass exists")
+			wl := utiltestingapi.MakeWorkload("dc-create-wl", ns.Name).
+				Queue("dc-tracking-lq").
+				Request(corev1.ResourceName(extendedResourceName), "2").
+				Obj()
+			container := &wl.Spec.PodSets[0].Template.Spec.Containers[0]
+			container.Resources.Limits = container.Resources.Requests
+			container.Resources.Requests = nil
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is pending (no DeviceClass, no translation)")
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+
+			ginkgo.By("Creating DeviceClass with extendedResourceName")
+			deviceClass := utiltesting.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
+			defer func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			}()
+
+			ginkgo.By("Verifying workload is requeued and admitted with logical name as quota key")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKeyWithValue(corev1.ResourceName(logicalName), resource.MustParse("2")))
+				g.Expect(updatedWl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests).To(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

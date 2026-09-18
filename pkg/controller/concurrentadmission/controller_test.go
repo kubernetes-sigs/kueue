@@ -83,6 +83,19 @@ func evaluatedForAdmissionCondition(t time.Time) metav1.Condition {
 	}
 }
 
+// pendingEvaluationCondition returns a WorkloadQuotaReserved=False/PendingEvaluation
+// condition with the given signal time. The Workload controller stamps it during a
+// Variant's first reconciliation when UnadmittedWorkloadsExplicitStatus is enabled.
+func pendingEvaluationCondition(t time.Time) metav1.Condition {
+	return metav1.Condition{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		Message:            "Workload is pending evaluation in the scheduling queue",
+		LastTransitionTime: metav1.NewTime(t),
+	}
+}
+
 func caGate() kueue.PreemptionGate {
 	return kueue.PreemptionGate{Name: constants.ConcurrentAdmissionPreemptionGate}
 }
@@ -619,6 +632,52 @@ func TestReconcile(t *testing.T) {
 					AllowedFlavors("on-demand").
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+		},
+		"waits for a more-preferred variant that is still pending evaluation": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(pendingEvaluationCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(pendingEvaluationCondition(fakeNow)).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
@@ -2205,7 +2264,7 @@ func TestReconcile(t *testing.T) {
 
 				for i := range tc.variantWorkloads {
 					if workload.IsAdmissible(&tc.variantWorkloads[i]) {
-						if err := qManager.AddOrUpdateWorkload(ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
+						if err := qManager.AddOrUpdateWorkload(t.Context(), ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
 							t.Fatalf("Failed to add workload to qManager: %v", err)
 						}
 					}
@@ -2301,6 +2360,13 @@ func TestFirstCandidateVariant(t *testing.T) {
 			first: utiltestingapi.MakeWorkload("preferred", "default").
 				AllowedFlavors("on-demand").
 				PreemptionGates(caGate()).
+				Obj(),
+		},
+		"waits when the preferred variant is only marked pending evaluation": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(pendingEvaluationCondition(now)).
 				Obj(),
 		},
 		"skips a preferred variant with an existing quota reservation condition": {

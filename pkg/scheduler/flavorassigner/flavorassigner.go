@@ -130,7 +130,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
 			continue
 		}
-		singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
+		singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpecByName(psa.Name))
 		for _, domain := range psa.TopologyAssignment.Domains {
 			count := domain.Count - accounted[tas.DomainID(domain.Values)]
 			if count <= 0 {
@@ -865,9 +865,15 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
+		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
+			// Elastic placement accounts for the previous assignment itself.
+			// Remove its cached usage during the search to avoid counting it twice.
+			restore := a.cq.SimulateUsageRemoval(workload.Usage{TAS: a.replaceWorkloadSlice.TASUsage()})
+			defer restore()
+		}
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkload(a.wl.Obj))
+			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
@@ -885,7 +891,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				ctx,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkload(a.wl.Obj),
+				schdcache.WithWorkloadInfo(a.wl),
 			)
 			if failure := result.Failure(); failure != nil {
 				// There is at least one PodSet which does not fit even if
@@ -1238,7 +1244,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	for psIdx, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
-			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
+			if message := checkPodSetAndFlavorMatchForTAS(a.cq, a.wl.TopologySpreading, ps, a.wl.PodSpec(psID), flavor, rg); message != nil {
 				log.V(3).Info("Flavor does not match TAS requirements", "reason", *message)
 				status.appendf("%s", *message)
 				return status
