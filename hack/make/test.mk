@@ -223,6 +223,15 @@ test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay
 test-multikueue-e2e-extended-shard-1: E2E_CONFIG_FOLDER=multikueue/extended-shard-1
 test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-multikueue-e2e-extended-ray-autoscaling
+test-multikueue-e2e-extended-ray-autoscaling: export KUBERAY_VERSION := $(KUBERAY_VERSION)
+test-multikueue-e2e-extended-ray-autoscaling: export RAY_VERSION := $(RAY_VERSION)
+test-multikueue-e2e-extended-ray-autoscaling: export RAYMINI_VERSION := $(RAYMINI_VERSION)
+test-multikueue-e2e-extended-ray-autoscaling: E2E_NPROCS := 5
+test-multikueue-e2e-extended-ray-autoscaling: GINKGO_ARGS=--label-filter=feature:kuberay-multikueue-autoscaling
+test-multikueue-e2e-extended-ray-autoscaling: E2E_CONFIG_FOLDER=multikueue/ray-autoscaling
+test-multikueue-e2e-extended-ray-autoscaling: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended MultiKueue Ray autoscaling e2e test suite.
+
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
 
