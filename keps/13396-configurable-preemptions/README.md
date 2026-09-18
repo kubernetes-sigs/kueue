@@ -401,7 +401,7 @@ Requested functionalities from the community can be satisfied with the following
                  maxValue: 8
    ```
 
-2. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):**
+2. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):** _(Temporary solution — proper handling deferred to [Future Work](FUTURE_WORK.md#priority-selectors))_
    Restricted preemption within the same ClusterQueue targeting only candidates matching a specific priority class using `labelSelector`:
 
    ```yaml
@@ -417,8 +417,14 @@ Requested functionalities from the community can be satisfied with the following
                  kueue.x-k8s.io/priority-class: "batch-low"
    ```
 
+   > [!WARNING]
+   > This is a temporary workaround until dedicated priority selectors are supported (see [Future Work](FUTURE_WORK.md#priority-selectors)).
+   > Requirements and limitations:
+   > - The `kueue.x-k8s.io/priority-class` label must be added to the list of copied labels in the Kueue configuration.
+   > - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in ``kueue.x-k8s.io/priority-class` label.
+
 3. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):** _(Deferred to [Future Work](FUTURE_WORK.md#quota-based-candidate-selectors-preemptionconfigquotaconstraint))_
-   Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `labelSelector`:
+   Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `priority.matchExpressions`:
 
    ```yaml
    spec:
@@ -429,9 +435,11 @@ Requested functionalities from the community can be satisfied with the following
          candidateSelectors:
            - scope: "WithinParentCohort"
              quota: "BorrowingCapacityFromPreemptor"
-             labelSelector:
-               matchLabels:
-                 kueue.x-k8s.io/priority-class: "batch-low"
+             priority:
+              matchExpressions:
+               - operator: "In"
+                 values:
+                   - "batch-low"
    ```
 
 4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):** _(Deferred to [Future Work](FUTURE_WORK.md#time-based-candidate-selectors-execution-and-creation-duration))_
@@ -490,7 +498,8 @@ Requested functionalities from the community can be satisfied with the following
                comparison: "LessThan"
    ```
 
-   Note: As the same cluster queue is also considered `WithinParentCohort`, this config will allow preempting within the same cluster queue based on both boosted and base priorities. This should be enough for many boosting use cases, but if it is required to only preempt using boosted priority (disallowing selection with base priorities `WithinClusterQueue`), this would require an extension to add scopes excluding the same cluster queue.
+   > [!NOTE]
+   > As the same cluster queue is also considered `WithinParentCohort`, this config will allow preempting within the same cluster queue based on both boosted and base priorities. This should be enough for many boosting use cases, but if it is required to only preempt using boosted priority (disallowing selection with base priorities `WithinClusterQueue`), this would require an extension to add scopes excluding the same cluster queue.
 
 ### Notes
 
@@ -752,6 +761,8 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 // You should remember to append the designated labels to the list of labels
 // copied to the workload via the Kueue main configuration
 // if you wish to use a custom label.
+// As Kubernetes label values cannot start with '-', integer labels are always non-negative.
+// A negative fallbackValue can thus ensure workloads without the label compare smaller than any labeled workload if this is desired.
 type PreemptionConfigNumericLabelConstraint struct {
   // key is the label key that stores the integer value in the workload that will
   // be used for candidate selection.
