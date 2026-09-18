@@ -164,23 +164,18 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 		return dep, pod
 	}
 
-	expectJobUID := func(pod *corev1.Pod, want string) {
-		ginkgo.GinkgoHelper()
-		wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
-		createdWorkload := &kueue.Workload{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-			g.Expect(createdWorkload.Labels).To(gomega.HaveKeyWithValue(controllerconsts.JobUIDLabel, want))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
-
 	ginkgo.It("should label the workload with the owning Deployment UID", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DeploymentJobUIDLabel, true)
 
 		dep, pod := createOwnedPod(true)
 
 		ginkgo.By("checking the workload carries the Deployment UID rather than the Pod UID")
-		expectJobUID(pod, string(dep.UID))
+		wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Labels).To(gomega.HaveKeyWithValue(controllerconsts.JobUIDLabel, string(dep.UID)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the Pod itself was not modified")
 		createdPod := &corev1.Pod{}
@@ -194,7 +189,12 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 
 		_, pod := createOwnedPod(true)
 
-		expectJobUID(pod, string(pod.UID))
+		wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Labels).To(gomega.HaveKeyWithValue(controllerconsts.JobUIDLabel, string(pod.UID)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should keep the Pod UID when only the Pod carries the queue-name", func() {
@@ -203,6 +203,11 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 		// Kueue does not manage the Deployment, so the Pod is managed standalone.
 		_, pod := createOwnedPod(false)
 
-		expectJobUID(pod, string(pod.UID))
+		wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Labels).To(gomega.HaveKeyWithValue(controllerconsts.JobUIDLabel, string(pod.UID)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

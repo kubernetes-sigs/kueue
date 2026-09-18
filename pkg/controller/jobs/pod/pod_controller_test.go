@@ -307,50 +307,53 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 		}
 	}
 	errAPIDown := errors.New("api is down")
+	gateEnabled := map[featuregate.Feature]bool{features.DeploymentJobUIDLabel: true}
+	gateDisabled := map[featuregate.Feature]bool{features.DeploymentJobUIDLabel: false}
 
 	testCases := map[string]struct {
+		featureGates               map[featuregate.Feature]bool
 		pod                        *corev1.Pod
 		ancestors                  []client.Object
 		interceptors               interceptor.Funcs
-		enableFeature              bool
 		manageJobsWithoutQueueName bool
 		wantJobUID                 string
 		wantErr                    error
 	}{
 		"deployment pod is labelled with the deployment UID": {
-			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{deployment, owningReplicaSet},
-			enableFeature: true,
-			wantJobUID:    "deployment-uid",
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
 		},
 		"pod from the outgoing replicaset of a rolling update": {
-			pod:           podOwnedBy("old-pod", "test-deployment-old", "old-rs-uid").Obj(),
-			ancestors:     rollingUpdate,
-			enableFeature: true,
-			wantJobUID:    "deployment-uid",
+			pod:          podOwnedBy("old-pod", "test-deployment-old", "old-rs-uid").Obj(),
+			ancestors:    rollingUpdate,
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
 		},
 		"pod from the incoming replicaset of a rolling update": {
-			pod:           podOwnedBy("new-pod", "test-deployment-new", "new-rs-uid").Obj(),
-			ancestors:     rollingUpdate,
-			enableFeature: true,
-			wantJobUID:    "deployment-uid",
+			pod:          podOwnedBy("new-pod", "test-deployment-new", "new-rs-uid").Obj(),
+			ancestors:    rollingUpdate,
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
 		},
 		"feature disabled keeps the pod UID without walking the owners": {
 			pod:          gatedPod().Obj(),
 			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateDisabled,
 			interceptors: failMetadataReads(errors.New("owners must not be walked while the feature is disabled")),
 			wantJobUID:   "pod-uid",
 		},
 		"queue-name on the pod rather than the deployment keeps the pod UID": {
-			pod:           gatedPod().Queue("user-queue").Obj(),
-			ancestors:     []client.Object{unqueuedDeployment, owningReplicaSet},
-			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			pod:          gatedPod().Queue("user-queue").Obj(),
+			ancestors:    []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
 		},
 		"deployment without a queue-name is used when unqueued jobs are managed": {
 			pod:                        gatedPod().Queue("user-queue").Obj(),
 			ancestors:                  []client.Object{unqueuedDeployment, owningReplicaSet},
-			enableFeature:              true,
+			featureGates:               gateEnabled,
 			manageJobsWithoutQueueName: true,
 			wantJobUID:                 "deployment-uid",
 		},
@@ -361,9 +364,9 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 				OwnerReferenceWithUID("test-statefulset", statefulSetGVK, "statefulset-uid").
 				Image("", nil).
 				Obj(),
-			ancestors:     []client.Object{statefulSet},
-			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			ancestors:    []client.Object{statefulSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
 		},
 		"pod gated by an external parent keeps the pod UID": {
 			pod: testingpod.MakePod("pod", "ns").
@@ -372,9 +375,9 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
 				Image("", nil).
 				Obj(),
-			ancestors:     []client.Object{deployment, owningReplicaSet},
-			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
 		},
 		"pod not gated by a parent integration keeps the pod UID": {
 			// The shape a Pod under an unmanaged Deployment actually has: the
@@ -385,45 +388,45 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
 				Image("", nil).
 				Obj(),
-			ancestors:     []client.Object{unqueuedDeployment, owningReplicaSet},
-			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			ancestors:    []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
 		},
 		"standalone pod keeps the pod UID": {
-			pod:           testingpod.MakePod("pod", "ns").UID("pod-uid").Image("", nil).Obj(),
-			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			pod:          testingpod.MakePod("pod", "ns").UID("pod-uid").Image("", nil).Obj(),
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
 		},
 		"replicaset without a deployment owner keeps the pod UID": {
-			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{replicaSet("test-rs", "rs-uid")},
-			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{replicaSet("test-rs", "rs-uid")},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
 		},
 		"replicaset UID not matching the owner reference keeps the pod UID": {
-			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{deployment, replicaSet("test-rs", "recreated-rs-uid", deploymentOwner)},
-			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, replicaSet("test-rs", "recreated-rs-uid", deploymentOwner)},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
 		},
 		"missing replicaset is surfaced for retry": {
-			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{deployment},
-			enableFeature: true,
-			wantErr:       jobframework.ErrWorkloadOwnerNotFound,
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment},
+			featureGates: gateEnabled,
+			wantErr:      jobframework.ErrWorkloadOwnerNotFound,
 		},
 		"replicaset lookup failure is surfaced for retry": {
-			pod:           gatedPod().Obj(),
-			ancestors:     []client.Object{deployment, owningReplicaSet},
-			interceptors:  failMetadataReads(errAPIDown),
-			enableFeature: true,
-			wantErr:       errAPIDown,
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			interceptors: failMetadataReads(errAPIDown),
+			featureGates: gateEnabled,
+			wantErr:      errAPIDown,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.DeploymentJobUIDLabel, tc.enableFeature)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kClient := utiltesting.NewClientBuilder().

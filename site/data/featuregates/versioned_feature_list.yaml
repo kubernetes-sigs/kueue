@@ -57,9 +57,9 @@
     version: "0.20"
 - name: DeploymentJobUIDLabel
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
