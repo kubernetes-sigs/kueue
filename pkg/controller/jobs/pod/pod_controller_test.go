@@ -445,12 +445,8 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			if gotErr != nil {
 				t.Fatalf("unexpected error: %v", gotErr)
 			}
-			wantJobUID := tc.wantJobUID
-			if wantJobUID == "pod-uid" {
-				wantJobUID = string(tc.pod.UID)
-			}
-			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != wantJobUID {
-				t.Errorf("job-uid label = %q, want %q", gotJobUID, wantJobUID)
+			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != tc.wantJobUID {
+				t.Errorf("job-uid label = %q, want %q", gotJobUID, tc.wantJobUID)
 			}
 			// The Deployment UID belongs on the Workload only; patching it onto the Pod
 			// would race with informers that already observed the Pod.

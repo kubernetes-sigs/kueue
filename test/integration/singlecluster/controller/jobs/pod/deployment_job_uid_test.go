@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -121,21 +122,11 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 	// normally produce is created here.
 	createOwnedPod := func(queueOnDeployment bool) (*appsv1.Deployment, *corev1.Pod) {
 		ginkgo.GinkgoHelper()
-		depLabels := map[string]string{}
+		depWrapper := testingdeployment.MakeDeployment("dep", ns.Name)
 		if queueOnDeployment {
-			depLabels[controllerconsts.QueueLabel] = "lq"
+			depWrapper = depWrapper.Queue("lq")
 		}
-		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
-			Name:      "dep",
-			Namespace: ns.Name,
-			Labels:    depLabels,
-		}, Spec: appsv1.DeploymentSpec{
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "dep"}},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "dep"}},
-				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "pause"}}},
-			},
-		}}
+		dep := depWrapper.Obj()
 		util.MustCreate(ctx, k8sClient, dep)
 
 		rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
@@ -149,7 +140,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 				Controller: new(true),
 			}},
 		}, Spec: appsv1.ReplicaSetSpec{
-			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "dep"}},
+			Selector: dep.Spec.Selector,
 			Template: dep.Spec.Template,
 		}}
 		util.MustCreate(ctx, k8sClient, rs)
