@@ -420,7 +420,7 @@ Requested functionalities from the community can be satisfied with the following
 > [!WARNING]
 > Better support for this use case is planned for the future (see [Future Work](FUTURE_WORK.md#priority-selectors)). Current usage of `labelSelector` for this purpose has several requirements and limitations:
 > - The `kueue.x-k8s.io/priority-class` label must be added to the list of copied labels in the Kueue configuration.
-> - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in ``kueue.x-k8s.io/priority-class` label.
+> - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in `kueue.x-k8s.io/priority-class` label.
 >
 > `labelSelector` will be remain supported as it is enabling many other use cases, e.g. filtering of workloads by custom user labels.
 
