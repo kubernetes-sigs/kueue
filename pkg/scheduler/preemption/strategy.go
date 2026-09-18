@@ -66,7 +66,14 @@ func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preempti
 		Requests:          preemptionCtx.workloadUsage.Quota.Assigned,
 		WorkloadOrdering:  preemptor.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, preemptor.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, preemptor.clock, preemptioncommon.CandidatesOrdering)
+	candidatesGenerator := classical.NewCandidateIterator(
+		hierarchicalReclaimCtx,
+		preemptor.enabledAfs,
+		preemptionCtx.frsNeedPreemption,
+		preemptionCtx.snapshot,
+		preemptor.clock,
+		preemptioncommon.CandidatesOrdering,
+	)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:

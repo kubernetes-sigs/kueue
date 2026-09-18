@@ -137,7 +137,7 @@ type planFixture struct {
 // scheduler does: a cache snapshot, a Preemptor and a preemptionCtx built by
 // Preemptor.buildContext, so that frsNeedPreemption and workloadUsage are
 // derived from a real flavor assignment.
-func newPlanFixture(t *testing.T, ctx context.Context, log logr.Logger, cfg planFixtureCfg) planFixture {
+func newPlanFixture(ctx context.Context, t *testing.T, log logr.Logger, cfg planFixtureCfg) planFixture {
 	t.Helper()
 
 	// Set the name as UID so that candidate sorting is deterministic.
@@ -599,7 +599,7 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
-			fixture := newPlanFixture(t, ctx, log, planFixtureCfg{
+			fixture := newPlanFixture(ctx, t, log, planFixtureCfg{
 				flavors:          flavors,
 				clusterQueues:    tc.clusterQueues,
 				cohorts:          tc.cohorts,
@@ -978,7 +978,7 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
-			fixture := newPlanFixture(t, ctx, log, planFixtureCfg{
+			fixture := newPlanFixture(ctx, t, log, planFixtureCfg{
 				flavors:       flavors,
 				clusterQueues: tc.clusterQueues,
 				cohorts:       tc.cohorts,
