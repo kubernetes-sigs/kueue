@@ -260,6 +260,8 @@ type Info struct {
 	// It is nil when the effective specs equal the original specs.
 	// Consumers must treat these specs as read-only. Obj retains the API representation.
 	EffectivePodSpecs []corev1.PodSpec
+	// AdjustmentErr records any error encountered while deriving effective resources.
+	AdjustmentErr error
 	// list of total resources requested by the podsets.
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if

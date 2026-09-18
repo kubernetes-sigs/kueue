@@ -134,7 +134,6 @@ func TestLimitRangeUpdateRetriesWorkloadPoppedWithStaleDefaults(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Obj()
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(ns, oldLr).
-		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 		Build()
 	cache := schdcache.New(cl)
