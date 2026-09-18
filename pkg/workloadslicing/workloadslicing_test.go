@@ -715,20 +715,28 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 
 	// test "constants".
 	now := time.Now()
+	errListWorkloads := errors.New("list workloads failed")
 
 	// test cases.
 	tests := map[string]struct {
 		args    args
 		want    []kueue.Workload
-		wantErr bool
+		wantErr error
 	}{
 		"ListFailure": {
 			args: args{
-				clnt:         fake.NewFakeClient(),
+				clnt: utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+					List: func(_ context.Context, _ client.WithWatch, objs client.ObjectList, _ ...client.ListOption) error {
+						if _, ok := objs.(*kueue.WorkloadList); ok {
+							return errListWorkloads
+						}
+						return nil
+					},
+				}).Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
-			wantErr: true,
+			wantErr: errListWorkloads,
 		},
 		"EmptyList": {
 			args: args{
@@ -857,8 +865,8 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			got, err := FindNotFinishedWorkloads(ctx, tt.args.clnt, tt.args.jobObject, tt.args.jobObjectGVK)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FindActiveSlices() error = %v, wantErr %v", err, tt.wantErr)
+			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("FindActiveSlices() error (-want,+got):\n%s", diff)
 				return
 			}
 			if diff := cmp.Diff(got, tt.want, cmpopts.EquateApproxTime(time.Second)); diff != "" {
@@ -878,7 +886,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	type want struct {
 		workload          *kueue.Workload
 		compatible        bool
-		error             bool
+		error             error
 		finishedWorkloads map[string]string
 	}
 	now := time.Now()
@@ -887,24 +895,33 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	testWorkload := utiltestingapi.MakeWorkload("", testJobObject.Namespace).
 		OwnerReference(testJobGVK, testJobObject.Name, "")
 
+	errTest := errors.New("test error")
+
 	tests := map[string]struct {
 		args args
 		want want
 	}{
 		"FailedListWorkloads": {
 			args: args{
-				clnt: testWorkloadClientBuilder().
-					WithInterceptorFuncs(interceptor.Funcs{
-						List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-							return errors.New("test-list-error")
-						},
-					}).
-					Build(),
+				clnt: func() client.Client {
+					listCalls := 0
+					return testWorkloadClientBuilder().
+						WithInterceptorFuncs(interceptor.Funcs{
+							List: func(ctx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) error {
+								listCalls++
+								if listCalls == 1 {
+									return errTest
+								}
+								return c.List(ctx, obj, opts...)
+							},
+						}).
+						Build()
+				}(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1116,14 +1133,14 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).WithInterceptorFuncs(interceptor.Funcs{
 					Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						return errors.New("test-update-error")
+						return errTest
 					}}).Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1178,7 +1195,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(_ context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return errors.New("test-patch-failure")
+							return errTest
 						},
 					}).
 					Build(),
@@ -1187,7 +1204,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1396,7 +1413,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 							if obj.GetName() != testJobObject.Name+"-2" {
 								t.Errorf("unexptected workload update: %v", obj)
 							}
-							return errors.New("test-update-error")
+							return errTest
 						},
 					}).
 					Build(),
@@ -1405,7 +1422,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1605,8 +1622,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
-			if (gotError != nil) != tt.want.error {
-				t.Errorf("EnsureWorkloadSlices() error = %v, wantErr %v", gotError, tt.want.error)
+			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
 			}
 			if diff := cmp.Diff(tt.want.workload, gotWorkload, cmpopts.EquateApproxTime(time.Second)); diff != "" {
@@ -1614,9 +1631,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if gotCompatible != tt.want.compatible {
 				t.Errorf("EnsureWorkloadSlices() compatible = %v, want %v", gotCompatible, tt.want.compatible)
-			}
-			if gotError != nil {
-				return
 			}
 			var workloads kueue.WorkloadList
 			if err := tt.args.clnt.List(ctx, &workloads); err != nil {
@@ -1648,7 +1662,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	type want struct {
 		survivor     string
 		keptAdmitted string
-		error        bool
+		error        error
 	}
 
 	tests := map[string]struct {
@@ -1801,8 +1815,8 @@ func TestNormalizeActiveSlices(t *testing.T) {
 				Build()
 
 			survivor, err := normalizeActiveSlices(ctx, clnt, fakeClock, tc.workloads)
-			if (err != nil) != tc.want.error {
-				t.Fatalf("normalizeActiveSlices() error = %v, wantErr %v", err, tc.want.error)
+			if diff := cmp.Diff(tc.want.error, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("normalizeActiveSlices() error (-want,+got):\n%s", diff)
 			}
 			gotName := ""
 			if survivor != nil {
