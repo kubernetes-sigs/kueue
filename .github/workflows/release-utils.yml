@@ -42,6 +42,7 @@ jobs:
             ".github/actions/create-release-tag/action.yml"
             ".github/actions/generate-openvex/action.yml"
             ".github/actions/generate-sbom/action.yml"
+            ".github/actions/merge-main-into-website/action.yml"
             ".github/actions/publish-release/action.yml"
             ".github/actions/report-result/action.yml"
             "hack/releasing/authorize_release_actor.py"

@@ -32,11 +32,10 @@ runs:
         # -X theirs resolves content conflicts; rename/delete conflicts need manual resolution.
         if ! git merge -X theirs origin/main; then
           git ls-files --unmerged | awk '{print $4}' | sort -u | while IFS= read -r f; do
-            if [ -f "$f" ]; then
-              git checkout --theirs -- "$f" 2>/dev/null || true
+            if git checkout --theirs -- "$f" 2>/dev/null; then
               git add -- "$f"
             else
-              git rm --cached -- "$f" 2>/dev/null || true
+              git rm -q -- "$f"
             fi
           done
           if ! git commit --no-edit; then
