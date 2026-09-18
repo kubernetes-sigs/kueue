@@ -890,7 +890,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	type want struct {
 		workload          *kueue.Workload
 		compatible        bool
-		error             bool
+		error             error
 		finishedWorkloads map[string]string
 	}
 	now := time.Now()
@@ -898,6 +898,11 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	fiveMinutesAgo := now.Add(-5 * time.Minute)
 	testWorkload := utiltestingapi.MakeWorkload("", testJobObject.Namespace).
 		OwnerReference(testJobGVK, testJobObject.Name, "")
+
+	errFailedListWorkloads := errors.New("test-list-error")
+	errOneWorkloadSliceUpdate := errors.New("test-update-error")
+	errFailedToPatchOldSliceStatus := errors.New("test-patch-failure")
+	errSelectedWorkloadUpdate := errors.New("test-update-error")
 
 	tests := map[string]struct {
 		args args
@@ -908,7 +913,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				clnt: testWorkloadClientBuilder().
 					WithInterceptorFuncs(interceptor.Funcs{
 						List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-							return errors.New("test-list-error")
+							return errFailedListWorkloads
 						},
 					}).
 					Build(),
@@ -916,7 +921,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errFailedListWorkloads,
 				compatible: true,
 			},
 		},
@@ -1128,14 +1133,14 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).WithInterceptorFuncs(interceptor.Funcs{
 					Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						return errors.New("test-update-error")
+						return errOneWorkloadSliceUpdate
 					}}).Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errOneWorkloadSliceUpdate,
 				compatible: true,
 			},
 		},
@@ -1190,7 +1195,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-							return errors.New("test-patch-failure")
+							return errFailedToPatchOldSliceStatus
 						},
 					}).
 					Build(),
@@ -1199,7 +1204,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errFailedToPatchOldSliceStatus,
 				compatible: true,
 			},
 		},
@@ -1408,7 +1413,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 							if obj.GetName() != testJobObject.Name+"-2" {
 								t.Errorf("unexptected workload update: %v", obj)
 							}
-							return errors.New("test-update-error")
+							return errSelectedWorkloadUpdate
 						},
 					}).
 					Build(),
@@ -1417,7 +1422,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errSelectedWorkloadUpdate,
 				compatible: true,
 			},
 		},
@@ -1617,8 +1622,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
-			if (gotError != nil) != tt.want.error {
-				t.Errorf("EnsureWorkloadSlices() error = %v, wantErr %v", gotError, tt.want.error)
+			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
 			}
 			if diff := cmp.Diff(tt.want.workload, gotWorkload, cmpopts.EquateApproxTime(time.Second)); diff != "" {
