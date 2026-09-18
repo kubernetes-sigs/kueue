@@ -214,9 +214,7 @@ func queueReconcileForConfigUsers(ctx context.Context, config string, c client.C
 
 	for _, user := range users.Items {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: user.Name,
-			},
+			Name: user.Name,
 		}
 		q.Add(req)
 	}

@@ -305,12 +305,10 @@ func (c *Controller) syncOwnedProvisionRequest(
 		if shouldCreatePr {
 			log.V(3).Info("Creating ProvisioningRequest", "requestName", requestName, "attempt", attempt)
 			req = &autoscaling.ProvisioningRequest{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      requestName,
-					Namespace: wl.Namespace,
-					Labels: map[string]string{
-						constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-					},
+				Name:      requestName,
+				Namespace: wl.Namespace,
+				Labels: map[string]string{
+					constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 				},
 				Spec: autoscaling.ProvisioningRequestSpec{
 					ProvisioningClassName: prc.Spec.ProvisioningClassName,
@@ -327,7 +325,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			for _, mergedPodSet := range mergedPodSets {
 				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
 
-				pt := &corev1.PodTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: ptName}}
+				pt := &corev1.PodTemplate{Namespace: wl.Namespace, Name: ptName}
 				err := c.client.Get(ctx, client.ObjectKeyFromObject(pt), pt)
 				if client.IgnoreNotFound(err) != nil {
 					return err
@@ -396,12 +394,10 @@ func (c *Controller) isMissingInCache(ctx context.Context, obj client.Object) bo
 
 func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
 	newPt := &corev1.PodTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: wl.Namespace,
-			Labels: map[string]string{
-				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-			},
+		Name:      name,
+		Namespace: wl.Namespace,
+		Labels: map[string]string{
+			constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 		},
 		Template: ps.Template,
 	}
@@ -795,10 +791,8 @@ func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q
 	for i := range wls.Items {
 		wl := &wls.Items[i]
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      wl.Name,
-				Namespace: wl.Namespace,
-			},
+			Name:      wl.Name,
+			Namespace: wl.Namespace,
 		}
 		q.Add(req)
 	}
@@ -868,9 +862,7 @@ func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string,
 			}
 		} else {
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name: user,
-				},
+				Name: user,
 			}
 			q.Add(req)
 		}

@@ -2282,10 +2282,8 @@ func TestReconcile(t *testing.T) {
 				req := tc.req
 				if req.Name == "" && tc.parentWorkload != nil {
 					req = reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Namespace: tc.parentWorkload.Namespace,
-							Name:      tc.parentWorkload.Name,
-						},
+						Namespace: tc.parentWorkload.Namespace,
+						Name:      tc.parentWorkload.Name,
 					}
 				}
 
@@ -2465,7 +2463,7 @@ func TestParentsForClusterQueue(t *testing.T) {
 			Obj()
 	}
 	req := func(name, ns string) reconcile.Request {
-		return reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}
+		return reconcile.Request{Namespace: ns, Name: name}
 	}
 
 	testCases := map[string]struct {

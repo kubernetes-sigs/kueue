@@ -62,7 +62,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 
 	ginkgo.BeforeAll(func() {
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
+			Name: "metrics-reader-rolebinding",
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      "ServiceAccount",
@@ -219,7 +219,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 
 	ginkgo.BeforeAll(func() {
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
+			Name: "metrics-reader-rolebinding",
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      "ServiceAccount",
@@ -366,7 +366,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 
 	ginkgo.BeforeAll(func() {
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
+			Name: "metrics-reader-rolebinding",
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      "ServiceAccount",

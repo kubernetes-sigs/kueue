@@ -4387,9 +4387,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
-			},
+			GenerateName: "core-",
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 

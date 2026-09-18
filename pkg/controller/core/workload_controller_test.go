@@ -2172,11 +2172,9 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			additionalObjects: []client.Object{
 				&batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "ownername",
-						Namespace: "ns",
-						UID:       "owneruid",
-					},
+					Name:      "ownername",
+					Namespace: "ns",
+					UID:       "owneruid",
 				},
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2522,9 +2520,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				objs := []client.Object{testWl}
 				if testWl.Namespace != "" {
 					objs = append(objs, &corev1.Namespace{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: testWl.Namespace,
-						},
+						Name: testWl.Namespace,
 					})
 				}
 				objs = append(objs, tc.additionalObjects...)
@@ -2542,11 +2538,9 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				// provide their own additionalObjects to control ownership).
 				if ref := metav1.GetControllerOf(testWl); ref != nil && !tc.featureGates[features.FinishOrphanedWorkloads] {
 					objs = append(objs, &batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      ref.Name,
-							Namespace: testWl.Namespace,
-							UID:       ref.UID,
-						},
+						Name:      ref.Name,
+						Namespace: testWl.Namespace,
+						UID:       ref.UID,
 					})
 				}
 

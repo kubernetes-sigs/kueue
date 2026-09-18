@@ -556,8 +556,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					return err
 				}
 				clusterQueues := []kueue.ClusterQueue{
-					{ObjectMeta: metav1.ObjectMeta{Name: "a"}},
-					{ObjectMeta: metav1.ObjectMeta{Name: "d"}},
+					{Name: "a"},
+					{Name: "d"},
 				}
 				for _, c := range clusterQueues {
 					cache.DeleteClusterQueue(&c)
@@ -2926,7 +2926,7 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 	go cache.CleanUpOnContext(ctx)
 
 	cq := kueue.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "one"},
+		Name: "one",
 	}
 	if err := cache.AddClusterQueue(ctx, &cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue: %v", err)
@@ -2954,10 +2954,10 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	clusterQueues := []kueue.ClusterQueue{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "one"},
+			Name: "one",
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "two"},
+			Name: "two",
 		},
 	}
 
@@ -3156,20 +3156,16 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 					Name: "ClusterQueue1",
 					Workloads: map[workload.Reference]*workload.Info{"workload_namespace/workload_name": {
 						Obj: &kueue.Workload{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      "workload_name",
-								Namespace: "workload_namespace",
-							},
+							Name:      "workload_name",
+							Namespace: "workload_namespace",
 						},
 					}},
 				}},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "workload_name",
-						Namespace: "workload_namespace",
-					},
+					Name:      "workload_name",
+					Namespace: "workload_namespace",
 				},
 			},
 			expected: true,
@@ -3181,10 +3177,8 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 					Name: "ClusterQueue1",
 					Workloads: map[workload.Reference]*workload.Info{"workload_namespace2/workload_name2": {
 						Obj: &kueue.Workload{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      "workload_name2",
-								Namespace: "workload_namespace2",
-							},
+							Name:      "workload_name2",
+							Namespace: "workload_namespace2",
 						},
 					}},
 				}},
@@ -3192,10 +3186,8 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "workload_name",
-						Namespace: "workload_namespace",
-					},
+					Name:      "workload_name",
+					Namespace: "workload_namespace",
 				},
 			},
 			expected: false,

@@ -590,9 +590,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		ginkgo.It("Should admit workload with CEL selectors", func() {
 			ginkgo.By("Creating a ResourceSlice with devices matching the CEL selector")
 			slice := &resourcev1.ResourceSlice{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cel-test-slice",
-				},
+				Name: "cel-test-slice",
 				Spec: resourcev1.ResourceSliceSpec{
 					Driver: "test-driver",
 					Pool: resourcev1.ResourcePool{
@@ -645,9 +643,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 		ginkgo.It("Should reject workload with unsatisfiable CEL selectors", func() {
 			ginkgo.By("Creating a ResourceSlice with devices that won't match the CEL selector")
 			slice := &resourcev1.ResourceSlice{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cel-reject-slice",
-				},
+				Name: "cel-reject-slice",
 				Spec: resourcev1.ResourceSliceSpec{
 					Driver: "real-driver",
 					Pool: resourcev1.ResourcePool{

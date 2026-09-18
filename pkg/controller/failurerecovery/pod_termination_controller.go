@@ -222,10 +222,8 @@ func (r *TerminatingPodReconciler) mapNodeToPods(ctx context.Context, node *core
 	for _, pod := range pods.Items {
 		if podEligibleForTermination(&pod) {
 			requests = append(requests, ctrl.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: pod.Namespace,
-					Name:      pod.Name,
-				},
+				Namespace: pod.Namespace,
+				Name:      pod.Name,
 			})
 		}
 	}

@@ -25,7 +25,6 @@ import (
 	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -230,9 +229,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should reject resources in a flavor in different order",
 				&kueue.Cohort{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cohort",
-					},
+					Name: "cohort",
 					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -254,9 +251,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject missing resources in a flavor",
 				&kueue.Cohort{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cohort",
-					},
+					Name: "cohort",
 					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -273,9 +268,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject resource not defined in resource group",
 				&kueue.Cohort{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cohort",
-					},
+					Name: "cohort",
 					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{

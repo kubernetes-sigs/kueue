@@ -7666,20 +7666,18 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(30)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-with-expired-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(30)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
-							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+							Name:   "succeeded",
+							Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
-							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+							Name:   "failed",
+							Status: corev1.PodStatus{Phase: corev1.PodFailed},
 						},
 					},
 				},
@@ -7690,28 +7688,24 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(30)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-with-expired-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(30)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
-							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+							Name:   "succeeded",
+							Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
-							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+							Name:   "failed",
+							Status: corev1.PodStatus{Phase: corev1.PodFailed},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7724,12 +7718,10 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7742,12 +7734,10 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7760,16 +7750,14 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "running-pod"},
-							Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:   "running-pod",
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7782,20 +7770,16 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod-1",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod-1",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod-2",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-5 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(300)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod-2",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-5 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(300)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},

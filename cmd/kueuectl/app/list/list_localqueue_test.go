@@ -202,11 +202,11 @@ lq1    cq1            1                   1                    60m
 			args: []string{"-o", "yaml"},
 			listPages: []runtime.Object{
 				&kueue.LocalQueueList{
-					ListMeta: metav1.ListMeta{Continue: "page2"},
-					Items:    []kueue.LocalQueue{{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: metav1.NamespaceDefault}}},
+					Continue: "page2",
+					Items:    []kueue.LocalQueue{{Name: "a", Namespace: metav1.NamespaceDefault}},
 				},
 				&kueue.LocalQueueList{
-					Items: []kueue.LocalQueue{{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: metav1.NamespaceDefault}}},
+					Items: []kueue.LocalQueue{{Name: "b", Namespace: metav1.NamespaceDefault}},
 				},
 			},
 			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2

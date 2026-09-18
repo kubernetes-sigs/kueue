@@ -34,7 +34,6 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -69,7 +68,7 @@ func newFreeCapacityTestSnapshot(capacities map[tas.TopologyDomainID]leafCapacit
 	leaves := make(leafDomainByID, len(capacities))
 	leafCapacities := make([]leafCapacity, 0, len(capacities))
 	for id, capacity := range capacities {
-		leaves[id] = &leafDomain{domain: domain{id: id}, leafIdx: len(leafCapacities)}
+		leaves[id] = &leafDomain{id: id, leafIdx: len(leafCapacities)}
 		leafCapacities = append(leafCapacities, capacity)
 	}
 	return &TASFlavorSnapshot{
@@ -2734,7 +2733,7 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						PodSetGroupName:   new(groupName),
 					},
 				}
-				wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+				wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 
 				want := map[kueue.PodSetReference][]string{"workers": tc.wantWorkers, "leader": tc.wantLeader}
 				// The cache only answers from the second cycle, and the flavor assigner

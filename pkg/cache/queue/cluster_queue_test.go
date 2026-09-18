@@ -1585,22 +1585,16 @@ func TestFIFOClusterQueue(t *testing.T) {
 	now := metav1.Now()
 	ws := []*kueue.Workload{
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "now",
-				CreationTimestamp: now,
-			},
+			Name:              "now",
+			CreationTimestamp: now,
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "before",
-				CreationTimestamp: metav1.NewTime(now.Add(-time.Second)),
-			},
+			Name:              "before",
+			CreationTimestamp: metav1.NewTime(now.Add(-time.Second)),
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "after",
-				CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-			},
+			Name:              "after",
+			CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 		},
 	}
 	for _, w := range ws {
@@ -1614,10 +1608,8 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
 	wlInfo := workload.NewInfo(log, &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "after",
-			CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
-		},
+		Name:              "after",
+		CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
 	})
 	q.PushOrUpdate(wlInfo)
 	got = q.Pop()

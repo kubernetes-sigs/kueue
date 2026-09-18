@@ -964,10 +964,8 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: owner.APIVersion,
-					Kind:       owner.Kind,
-				},
+				APIVersion: owner.APIVersion,
+				Kind:       owner.Kind,
 			}
 		}
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {

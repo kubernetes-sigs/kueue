@@ -151,10 +151,8 @@ func testRestConfigInvalid() *rest.Config {
 
 func makeTestClusterProfile(name string, providerName string) inventoryv1alpha1.ClusterProfile {
 	return inventoryv1alpha1.ClusterProfile{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: TestNamespace,
-		},
+		Name:      name,
+		Namespace: TestNamespace,
 		Status: inventoryv1alpha1.ClusterProfileStatus{
 			AccessProviders: []inventoryv1alpha1.AccessProvider{
 				{
@@ -732,7 +730,7 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			cancelCalledCount = 0
-			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor})
 			if diff := cmp.Diff(gotErr, tc.wantErr, cmp.Comparer(func(a, b error) bool {
 				if a == nil || b == nil {
 					return a == b
@@ -892,7 +890,7 @@ func TestReconnectBackoff(t *testing.T) {
 			reconciler.remoteClients["worker1"] = rc
 			t.Cleanup(rc.StopWatchers)
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}
+			req := reconcile.Request{Name: "worker1"}
 
 			for i, s := range tc.steps {
 				fc.Step(s.advance)
@@ -952,7 +950,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}})
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"})
 	if err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
@@ -1613,7 +1611,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	slowDone := make(chan struct{})
 	go func() {
 		defer close(slowDone)
-		_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}})
+		_, _ = reconciler.Reconcile(ctx, reconcile.Request{Name: "cluster-slow"})
 	}()
 
 	select {
@@ -1624,7 +1622,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 
 	fastDone := make(chan error, 1)
 	go func() {
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}})
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "cluster-fast"})
 		fastDone <- err
 	}()
 
@@ -2062,7 +2060,7 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				return fakeClientBuilder(ctx)(builderCtx, cfg, opts)
 			}
 
-			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}); err != nil {
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
 				t.Fatalf("unexpected reconcile error: %v", err)
 			}
 

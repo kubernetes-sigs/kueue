@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -40,7 +39,7 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{GenerateName: "e2e-cert-manager-"},
+			GenerateName: "e2e-cert-manager-",
 		}
 		util.MustCreate(ctx, k8sClient, ns)
 

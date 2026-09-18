@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -253,7 +252,7 @@ func TestInfoDefaultRefreshWithUnchangedTotalRequests(t *testing.T) {
 func TestInfoValidationUsesEffectiveResources(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("Default", corev1.ResourceCPU, "1").Obj()
-	cl := utiltesting.NewClientBuilder().WithObjects(lr, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}).
+	cl := utiltesting.NewClientBuilder().WithObjects(lr, &corev1.Namespace{Name: "ns"}).
 		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Request(corev1.ResourceCPU, "2").Obj()
 	info := NewInfoFromClient(ctx, cl, wl)

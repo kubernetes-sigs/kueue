@@ -3489,7 +3489,7 @@ func TestElasticTopologyRegrowth(t *testing.T) {
 				if staleRequest {
 					requestName = "slice-0"
 				}
-				req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: requestName}}
+				req := reconcile.Request{Namespace: "ns", Name: requestName}
 				if _, err := r.Reconcile(ctx, req); err != nil {
 					t.Fatalf("resize to %d: %v", count, err)
 				}

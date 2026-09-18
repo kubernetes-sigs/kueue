@@ -713,11 +713,9 @@ wl1    job, pod   job-a, pod-b, pod-c   lq1          cq1            PENDING     
 			},
 			job: []runtime.Object{
 				&batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "job-test",
-						Namespace: "default",
-						UID:       types.UID("job-test-uid"),
-					},
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid"),
 				},
 			},
 			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -843,11 +841,9 @@ wl2    pod        pod-test-1   lq2          cq2            PENDING              
 			},
 			job: []runtime.Object{
 				&rayv1.RayJob{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "job-test",
-						Namespace: "default",
-						UID:       types.UID("job-test-uid-1"),
-					},
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid-1"),
 				},
 			},
 			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -911,11 +907,9 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 			},
 			job: []runtime.Object{
 				&rayv1.RayJob{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "job-test",
-						Namespace: "default",
-						UID:       types.UID("job-test-uid-1"),
-					},
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid-1"),
 				},
 			},
 			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -925,20 +919,16 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 		"should print workload list with position in queue": {
 			pendingWorkloads: []visibility.PendingWorkload{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "wl1",
-						Namespace: metav1.NamespaceDefault,
-					},
+					Name:                   "wl1",
+					Namespace:              metav1.NamespaceDefault,
 					Priority:               10,
 					LocalQueueName:         "lq1",
 					PositionInClusterQueue: 11,
 					PositionInLocalQueue:   12,
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "wl2",
-						Namespace: metav1.NamespaceDefault,
-					},
+					Name:                   "wl2",
+					Namespace:              metav1.NamespaceDefault,
 					Priority:               20,
 					LocalQueueName:         "lq2",
 					PositionInClusterQueue: 21,
@@ -970,11 +960,11 @@ wl2               j2         lq2          cq2            PENDING   22           
 			args: []string{"-o", "yaml"},
 			listPages: []runtime.Object{
 				&kueue.WorkloadList{
-					ListMeta: metav1.ListMeta{Continue: "page2"},
-					Items:    []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Namespace: metav1.NamespaceDefault}}},
+					Continue: "page2",
+					Items:    []kueue.Workload{{Name: "wl1", Namespace: metav1.NamespaceDefault}},
 				},
 				&kueue.WorkloadList{
-					Items: []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl2", Namespace: metav1.NamespaceDefault}}},
+					Items: []kueue.Workload{{Name: "wl2", Namespace: metav1.NamespaceDefault}},
 				},
 			},
 			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2

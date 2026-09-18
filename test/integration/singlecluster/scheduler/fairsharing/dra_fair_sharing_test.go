@@ -97,9 +97,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 
 			// Create DeviceClass for DRA
 			deviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
+				Name: "gpu.example.com",
 			}
 			util.MustCreate(ctx, k8sClient, deviceClass)
 
@@ -330,9 +328,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 
 			// Create DeviceClass for DRA
 			deviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
+				Name: "gpu.example.com",
 			}
 			util.MustCreate(ctx, k8sClient, deviceClass)
 

@@ -266,8 +266,8 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 
 func (o *ClusterQueueOptions) createClusterQueue() *kueue.ClusterQueue {
 	return &kueue.ClusterQueue{
-		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ClusterQueue"},
-		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
+		APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ClusterQueue",
+		Name: o.Name,
 		Spec: kueue.ClusterQueueSpec{
 			CohortName:        kueue.CohortReference(o.Cohort),
 			QueueingStrategy:  o.QueueingStrategy,

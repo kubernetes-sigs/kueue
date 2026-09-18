@@ -236,7 +236,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.AfterEach(func() {
 		// Clean up resources created by the RayService test on all clusters.
-		rayServiceConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rayservice-hello", Namespace: managerNs.Name}}
+		rayServiceConfigMap := &corev1.ConfigMap{Name: "rayservice-hello", Namespace: managerNs.Name}
 		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayServiceConfigMap))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
@@ -636,10 +636,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the PyTorchJob is completed", func() {
 				wl := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      wlLookupKey.Name,
-						Namespace: wlLookupKey.Namespace,
-					},
+					Name:      wlLookupKey.Name,
+					Namespace: wlLookupKey.Namespace,
 				}
 				util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
 				util.ExpectObjectToBeDeletedOnClusters(ctx, pyTorchJob, k8sWorker1Client, k8sWorker2Client)
@@ -697,10 +695,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the MPIJob is completed", func() {
 				wl := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      wlLookupKey.Name,
-						Namespace: wlLookupKey.Namespace,
-					},
+					Name:      wlLookupKey.Name,
+					Namespace: wlLookupKey.Namespace,
 				}
 				util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
 				util.ExpectObjectToBeDeletedOnClusters(ctx, mpijob, k8sWorker1Client, k8sWorker2Client)
@@ -770,10 +766,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {
 					wl := &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      wlLookupKey.Name,
-							Namespace: wlLookupKey.Namespace,
-						},
+						Name:      wlLookupKey.Name,
+						Namespace: wlLookupKey.Namespace,
 					}
 					util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
 					util.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
@@ -891,10 +885,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				// Create ConfigMap with a simple Ray Serve application
 				configMap := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "rayservice-hello",
-						Namespace: managerNs.Name,
-					},
+					Name:      "rayservice-hello",
+					Namespace: managerNs.Name,
 					Data: map[string]string{
 						"hello_serve.py": `from ray import serve
 
@@ -921,16 +913,12 @@ app = HelloWorld.bind()`,
 				volumes := []corev1.Volume{
 					{
 						Name: "code-sample",
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "rayservice-hello",
-								},
-								Items: []corev1.KeyToPath{
-									{
-										Key:  "hello_serve.py",
-										Path: "hello_serve.py",
-									},
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							Name: "rayservice-hello",
+							Items: []corev1.KeyToPath{
+								{
+									Key:  "hello_serve.py",
+									Path: "hello_serve.py",
 								},
 							},
 						},
