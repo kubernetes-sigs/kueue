@@ -96,7 +96,7 @@ jobs:
 
       - name: Verify Actor Authorization
         id: auth
-        uses: ./.github/actions/authorize-release-actor
+        uses: $/.github/actions/authorize-release-actor
         with:
           actor: ${{ github.actor }}
           aliases: |
@@ -170,21 +170,21 @@ jobs:
 
       - name: Report Parse Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           alias: "Authorization"
           message: ${{ steps.parse.outputs.error_message || steps.auth.outputs.error_message || steps.check_published.outputs.error_message }}
 
       - name: Clear Authorization Log
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           alias: "Authorization"
           cleanup: true
 
       - name: Log command start
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ steps.parse.outputs.command }}
           message: "🔄 Authorization successful. Running command..."
@@ -245,14 +245,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.sync.outputs.message || '✅ Release notes have been synced.' }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.sync.outputs.message || '❌ Failed to sync release notes.' }}
@@ -297,7 +297,7 @@ jobs:
 
       - name: Create and Push Tag
         id: tag
-        uses: ./.github/actions/create-release-tag
+        uses: $/.github/actions/create-release-tag
         with:
           version: ${{ steps.rc-version.outputs.version }}
           changelog: ${{ needs.authorize.outputs.changelog }}
@@ -305,7 +305,7 @@ jobs:
 
       - name: Create Draft Release
         id: draft
-        uses: ./.github/actions/create-draft-release
+        uses: $/.github/actions/create-draft-release
         with:
           version: ${{ steps.rc-version.outputs.version }}
           changelog: ${{ needs.authorize.outputs.changelog }}
@@ -314,7 +314,7 @@ jobs:
 
       - name: Publish Release
         id: publish
-        uses: ./.github/actions/publish-release
+        uses: $/.github/actions/publish-release
         with:
           version: ${{ steps.rc-version.outputs.version }}
           repo: ${{ github.repository }}
@@ -322,14 +322,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.check_published.outputs.message || steps.tag.outputs.message || steps.draft.outputs.message || steps.publish.outputs.message || '❌ Failed to create release candidate.' }}
@@ -399,14 +399,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.push.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.push.outputs.message || '❌ Command failed.' }}
@@ -487,14 +487,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.wait_images.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.wait_images.outputs.message || '❌ Wait for images failed.' }}
@@ -634,7 +634,7 @@ jobs:
 
       - name: Publish Release
         id: publish
-        uses: ./.github/actions/publish-release
+        uses: $/.github/actions/publish-release
         with:
           version: ${{ needs.authorize.outputs.version }}
           repo: ${{ github.repository }}
@@ -642,14 +642,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message || '❌ Failed to publish release.' }}
