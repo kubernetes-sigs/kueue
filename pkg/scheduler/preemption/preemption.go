@@ -492,10 +492,10 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	if len(candidates) == 0 {
 		return nil
 	}
-	domainRanks := tasDomainRanks(candidates, preemptionCtx.tasRequests)
+	domainOrder := tasDomainRanks(candidates, preemptionCtx.tasRequests)
 	slices.SortFunc(candidates, func(a, b *workload.Info) int {
-		if domainRanks != nil {
-			if d := cmp.Compare(domainRanks[workload.Key(a.Obj)], domainRanks[workload.Key(b.Obj)]); d != 0 {
+		if domainOrder != nil {
+			if d := cmp.Compare(domainOrder.ranks[workload.Key(a.Obj)], domainOrder.ranks[workload.Key(b.Obj)]); d != 0 {
 				return d
 			}
 		}
@@ -513,6 +513,25 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		)
 	}
 
+	if targets := p.runFsStrategies(preemptionCtx, candidates, strategies); targets != nil {
+		return targets
+	}
+	// The queue ordering is share-based, so one pass can spend a queue's whole
+	// borrowing budget across several domains and finish none of them. Retry
+	// with candidates confined to a single domain to force convergence.
+	if domainOrder != nil && len(domainOrder.viable) > 1 {
+		for _, scoped := range domainOrder.viable {
+			if targets := p.runFsStrategies(preemptionCtx, scoped, strategies); targets != nil {
+				return targets
+			}
+		}
+	}
+	return nil
+}
+
+// runFsStrategies runs the configured fair sharing strategies over one candidate
+// set, returning nil when no subset of it admits the preemptor.
+func (p *Preemptor) runFsStrategies(preemptionCtx *preemptionCtx, candidates []*workload.Info, strategies []fairsharing.Strategy) []*Target {
 	// DRS values must include incoming workload.
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 

@@ -28,20 +28,34 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// maxTASDomainRetries bounds the domain-scoped preemption retries so a cluster
+// with many topology domains cannot turn one scheduling cycle into a full scan.
+const maxTASDomainRetries = 8
+
 // domainKey identifies one topology domain within a resource flavor.
 type domainKey struct {
 	flavor kueue.ResourceFlavorReference
 	domain utiltas.TopologyDomainID
 }
 
-// tasDomainRanks ranks every candidate by how promising its topology domain is,
-// lowest rank first, so that victims freeing the same domain are popped
-// consecutively. Returns nil when the preemptor has no TAS requests.
+// tasDomainOrder ranks topology domains by how well the preemption candidates
+// inside them cover what the preemptor needs.
+type tasDomainOrder struct {
+	// ranks orders candidates so that victims freeing the same domain are
+	// popped consecutively; lowest rank first.
+	ranks map[workload.Reference]int
+	// viable lists candidates per domain, best domain first, restricted to
+	// domains whose candidates could fully satisfy the preemptor.
+	viable [][]*workload.Info
+}
+
+// tasDomainRanks ranks candidates by how promising their topology domain is.
+// Returns nil when the preemptor has no TAS requests.
 //
 // CandidatesOrdering has no topology term, so victims otherwise come out spread
 // across domains and a workload needing a whole domain never fits, even when a
 // set that would free one exists (kubernetes-sigs/kueue#10497).
-func tasDomainRanks(candidates []*workload.Info, tasRequests schdcache.WorkloadTASRequests) map[workload.Reference]int {
+func tasDomainRanks(candidates []*workload.Info, tasRequests schdcache.WorkloadTASRequests) *tasDomainOrder {
 	if len(tasRequests) == 0 {
 		return nil
 	}
@@ -60,7 +74,7 @@ func tasDomainRanks(candidates []*workload.Info, tasRequests schdcache.WorkloadT
 	}
 
 	freed := make(map[domainKey]resources.Requests)
-	victims := make(map[domainKey]int)
+	members := make(map[domainKey][]*workload.Info)
 	occupies := make(map[workload.Reference][]domainKey, len(candidates))
 	for _, c := range candidates {
 		key := workload.Key(c.Obj)
@@ -74,7 +88,7 @@ func tasDomainRanks(candidates []*workload.Info, tasRequests schdcache.WorkloadT
 					freed[dk] = resources.Requests{}
 				}
 				freed[dk].Add(dr.TotalRequests())
-				victims[dk]++
+				members[dk] = append(members[dk], c)
 				occupies[key] = append(occupies[key], dk)
 			}
 		}
@@ -101,7 +115,7 @@ func tasDomainRanks(candidates []*workload.Info, tasRequests schdcache.WorkloadT
 	slices.SortFunc(domains, func(a, b domainKey) int {
 		return cmp.Or(
 			cmp.Compare(coverage(b), coverage(a)),
-			cmp.Compare(victims[a], victims[b]),
+			cmp.Compare(len(members[a]), len(members[b])),
 			cmp.Compare(a.flavor, b.flavor),
 			cmp.Compare(a.domain, b.domain),
 		)
@@ -122,5 +136,18 @@ func tasDomainRanks(candidates []*workload.Info, tasRequests schdcache.WorkloadT
 		}
 		ranks[key] = best
 	}
-	return ranks
+
+	// A domain covering less than the whole requirement can never complete the
+	// fit on its own, so it is not worth a scoped retry.
+	var viable [][]*workload.Info
+	for _, dk := range domains {
+		if len(viable) == maxTASDomainRetries {
+			break
+		}
+		if coverage(dk) < 1 {
+			break
+		}
+		viable = append(viable, members[dk])
+	}
+	return &tasDomainOrder{ranks: ranks, viable: viable}
 }
