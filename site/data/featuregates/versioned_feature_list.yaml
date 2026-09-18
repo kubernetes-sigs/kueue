@@ -391,6 +391,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: RuntimeClassScheduling
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
   - default: false

@@ -78,6 +78,15 @@ func (rc *RuntimeClassWrapper) PodOverhead(resources corev1.ResourceList) *Runti
 	return rc
 }
 
+// Scheduling adds the Scheduling constraints to the RuntimeClass.
+func (rc *RuntimeClassWrapper) Scheduling(nodeSelector map[string]string, tolerations ...corev1.Toleration) *RuntimeClassWrapper {
+	rc.RuntimeClass.Scheduling = &nodev1.Scheduling{
+		NodeSelector: nodeSelector,
+		Tolerations:  tolerations,
+	}
+	return rc
+}
+
 // Obj returns the inner flavor.
 func (rc *RuntimeClassWrapper) Obj() *nodev1.RuntimeClass {
 	return &rc.RuntimeClass
