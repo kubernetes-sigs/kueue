@@ -4,7 +4,7 @@
   command = "npm install && hugo --gc --minify && ./scripts/build-search.sh"
 
 [build.environment]
-  HUGO_VERSION = "0.165.0"
+  HUGO_VERSION = "0.166.0"
   NODE_VERSION = "23"
 
 [context.production.environment]
