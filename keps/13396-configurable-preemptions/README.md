@@ -784,10 +784,12 @@ type PreemptionConfigNumericLabelConstraint struct {
 
   // minValue specifies the lowest label value a candidate workload can have to be considered for preemption.
   // +optional
+  // +kubebuilder:validation:Minimum=0
   MinValue *int32 `json:"minValue,omitempty"`
 
   // maxValue specifies the highest label value a candidate workload can have to be considered for preemption.
   // +optional
+  // +kubebuilder:validation:Minimum=0
   MaxValue *int32 `json:"maxValue,omitempty"`
 }
 
