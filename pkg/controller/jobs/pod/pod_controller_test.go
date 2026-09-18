@@ -34,6 +34,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
@@ -50,7 +51,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -233,117 +233,140 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 }
 
 func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
-	makeReplicaSet := func(uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
-		return &appsv1.ReplicaSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            "test-rs",
-				Namespace:       "ns",
-				UID:             types.UID(uid),
-				OwnerReferences: owners,
-			},
+	deploymentGVK := appsv1.SchemeGroupVersion.WithKind("Deployment")
+	statefulSetGVK := appsv1.SchemeGroupVersion.WithKind("StatefulSet")
+	replicaSetGVK := appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
+
+	// The pod integration cannot import the parent integrations, so the ancestor walk is
+	// given equivalent registrations to resolve against.
+	manager := jobframework.NewIntegrationManager()
+	for _, parent := range []struct {
+		name    string
+		gvk     schema.GroupVersionKind
+		jobType runtime.Object
+	}{
+		{"deployment", deploymentGVK, &appsv1.Deployment{}},
+		{"statefulset", statefulSetGVK, &appsv1.StatefulSet{}},
+	} {
+		if err := manager.RegisterIntegration(parent.name, jobframework.IntegrationCallbacks{
+			GVK:           parent.gvk,
+			JobType:       parent.jobType,
+			NewReconciler: jobframework.NewNoopReconcilerFactory(parent.gvk),
+			SetupWebhook:  func(ctrl.Manager, ...jobframework.Option) error { return nil },
+		}); err != nil {
+			t.Fatalf("registering %s: %v", parent.name, err)
 		}
 	}
-	deploymentOwner := metav1.OwnerReference{
-		APIVersion: appsv1.SchemeGroupVersion.String(),
-		Kind:       "Deployment",
-		Name:       "test-deployment",
-		UID:        "deployment-uid",
-		Controller: new(true),
+	t.Cleanup(manager.EnableIntegrationsForTest(t, "deployment", "statefulset"))
+
+	queueLabel := map[string]string{controllerconsts.QueueLabel: "user-queue"}
+	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name: "test-deployment", Namespace: "ns", UID: "deployment-uid", Labels: queueLabel,
+	}}
+	statefulSet := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{
+		Name: "test-statefulset", Namespace: "ns", UID: "statefulset-uid", Labels: queueLabel,
+	}}
+	ownerRef := func(gvk schema.GroupVersionKind, name, uid string) metav1.OwnerReference {
+		return metav1.OwnerReference{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       name,
+			UID:        types.UID(uid),
+			Controller: new(true),
+		}
 	}
-	deploymentPod := func() *testingpod.PodWrapper {
+	replicaSet := func(name, uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
+		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: "ns", UID: types.UID(uid), OwnerReferences: owners,
+		}}
+	}
+	gatedPod := func() *testingpod.PodWrapper {
 		return testingpod.MakePod("test-pod", "ns").
 			UID("pod-uid").
-			Queue("user-queue").
-			SuspendedByParent(deploymentconstants.FrameworkName).
+			SuspendedByParent("deployment").
 			OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
 			Image("", nil)
 	}
-
+	failMetadataReads := func(err error) interceptor.Funcs {
+		return interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, isMetadata := obj.(*metav1.PartialObjectMetadata); isMetadata {
+					return err
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}
+	}
 	errAPIDown := errors.New("api is down")
 
 	testCases := map[string]struct {
 		pod           *corev1.Pod
-		replicaSet    *appsv1.ReplicaSet
+		ancestors     []client.Object
 		interceptors  interceptor.Funcs
 		enableFeature bool
 		wantJobUID    string
 		wantErr       error
 	}{
 		"deployment pod is labelled with the deployment UID": {
-			pod:           deploymentPod().Obj(),
-			replicaSet:    makeReplicaSet("rs-uid", deploymentOwner),
+			pod:           gatedPod().Obj(),
+			ancestors:     []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
 			enableFeature: true,
 			wantJobUID:    "deployment-uid",
 		},
-		"feature disabled keeps the pod UID without reading the replicaset": {
-			pod:        deploymentPod().Obj(),
-			replicaSet: makeReplicaSet("rs-uid", deploymentOwner),
-			interceptors: interceptor.Funcs{
-				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, isMetadata := obj.(*metav1.PartialObjectMetadata); isMetadata {
-						return errors.New("replicaset must not be read while the feature is disabled")
-					}
-					return c.Get(ctx, key, obj, opts...)
-				},
-			},
-			wantJobUID: "pod-uid",
+		"feature disabled keeps the pod UID without walking the owners": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
+			interceptors: failMetadataReads(errors.New("owners must not be walked while the feature is disabled")),
+			wantJobUID:   "pod-uid",
 		},
-		"pod gated by another parent integration keeps the pod UID": {
-			pod: deploymentPod().
+		"ancestor that is not a deployment keeps the pod UID": {
+			pod: testingpod.MakePod("test-pod", "ns").
+				UID("pod-uid").
 				SuspendedByParent("statefulset").
+				OwnerReferenceWithUID("test-statefulset", statefulSetGVK, "statefulset-uid").
+				Image("", nil).
 				Obj(),
-			replicaSet:    makeReplicaSet("rs-uid", deploymentOwner),
+			ancestors:     []client.Object{statefulSet},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
 		"pod not gated by a parent integration keeps the pod UID": {
 			pod: testingpod.MakePod("test-pod", "ns").
 				UID("pod-uid").
-				Queue("user-queue").
 				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
 				Image("", nil).
 				Obj(),
-			replicaSet:    makeReplicaSet("rs-uid", deploymentOwner),
+			ancestors:     []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
 		"standalone pod keeps the pod UID": {
-			pod: testingpod.MakePod("test-pod", "ns").
-				UID("pod-uid").
-				Queue("user-queue").
-				Image("", nil).
-				Obj(),
+			pod:           testingpod.MakePod("test-pod", "ns").UID("pod-uid").Image("", nil).Obj(),
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
 		"replicaset without a deployment owner keeps the pod UID": {
-			pod:           deploymentPod().Obj(),
-			replicaSet:    makeReplicaSet("rs-uid"),
+			pod:           gatedPod().Obj(),
+			ancestors:     []client.Object{replicaSet("test-rs", "rs-uid")},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
 		"replicaset UID not matching the owner reference keeps the pod UID": {
-			pod:           deploymentPod().Obj(),
-			replicaSet:    makeReplicaSet("recreated-rs-uid", deploymentOwner),
+			pod:           gatedPod().Obj(),
+			ancestors:     []client.Object{deployment, replicaSet("test-rs", "recreated-rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
-		"missing replicaset keeps the pod UID rather than blocking the workload": {
-			pod:           deploymentPod().Obj(),
+		"missing replicaset is surfaced for retry": {
+			pod:           gatedPod().Obj(),
+			ancestors:     []client.Object{deployment},
 			enableFeature: true,
-			wantJobUID:    "pod-uid",
+			wantErr:       jobframework.ErrWorkloadOwnerNotFound,
 		},
 		"replicaset lookup failure is surfaced for retry": {
-			pod:        deploymentPod().Obj(),
-			replicaSet: makeReplicaSet("rs-uid", deploymentOwner),
-			interceptors: interceptor.Funcs{
-				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, isMetadata := obj.(*metav1.PartialObjectMetadata); isMetadata {
-						return errAPIDown
-					}
-					return c.Get(ctx, key, obj, opts...)
-				},
-			},
+			pod:           gatedPod().Obj(),
+			ancestors:     []client.Object{deployment, replicaSet("test-rs", "rs-uid", ownerRef(deploymentGVK, "test-deployment", "deployment-uid"))},
+			interceptors:  failMetadataReads(errAPIDown),
 			enableFeature: true,
 			wantErr:       errAPIDown,
 		},
@@ -354,13 +377,12 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.DeploymentJobUIDLabel, tc.enableFeature)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			builder := utiltesting.NewClientBuilder().WithInterceptorFuncs(tc.interceptors)
-			if tc.replicaSet != nil {
-				builder = builder.WithObjects(tc.replicaSet)
-			}
-			kClient := builder.Build()
+			kClient := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(tc.interceptors).
+				WithObjects(tc.ancestors...).
+				Build()
 
-			pod := &Pod{pod: *tc.pod, isFound: true}
+			pod := &Pod{pod: *tc.pod, isFound: true, integrationManager: manager}
 			wl, gotErr := pod.ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
 
 			if tc.wantErr != nil {
@@ -385,26 +407,37 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 }
 
 func TestConstructComposableWorkloadDeploymentJobUIDAcrossRollingUpdate(t *testing.T) {
-	deploymentOwner := metav1.OwnerReference{
-		APIVersion: appsv1.SchemeGroupVersion.String(),
-		Kind:       "Deployment",
+	deploymentGVK := appsv1.SchemeGroupVersion.WithKind("Deployment")
+	replicaSetGVK := appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
+
+	manager := jobframework.NewIntegrationManager()
+	if err := manager.RegisterIntegration("deployment", jobframework.IntegrationCallbacks{
+		GVK:           deploymentGVK,
+		JobType:       &appsv1.Deployment{},
+		NewReconciler: jobframework.NewNoopReconcilerFactory(deploymentGVK),
+		SetupWebhook:  func(ctrl.Manager, ...jobframework.Option) error { return nil },
+	}); err != nil {
+		t.Fatalf("registering deployment: %v", err)
+	}
+	t.Cleanup(manager.EnableIntegrationsForTest(t, "deployment"))
+
+	deploymentRef := metav1.OwnerReference{
+		APIVersion: deploymentGVK.GroupVersion().String(),
+		Kind:       deploymentGVK.Kind,
 		Name:       "test-deployment",
 		UID:        "deployment-uid",
 		Controller: new(true),
 	}
 	replicaSet := func(name, uid string) *appsv1.ReplicaSet {
 		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       "ns",
-			UID:             types.UID(uid),
-			OwnerReferences: []metav1.OwnerReference{deploymentOwner},
+			Name: name, Namespace: "ns", UID: types.UID(uid),
+			OwnerReferences: []metav1.OwnerReference{deploymentRef},
 		}}
 	}
-	replicaSetGVKRef := func(podName, rsName, rsUID string) *corev1.Pod {
+	podOf := func(podName, rsName, rsUID string) *corev1.Pod {
 		return testingpod.MakePod(podName, "ns").
 			UID(podName+"-uid").
-			Queue("user-queue").
-			SuspendedByParent(deploymentconstants.FrameworkName).
+			SuspendedByParent("deployment").
 			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
 			Image("", nil).
 			Obj()
@@ -413,15 +446,23 @@ func TestConstructComposableWorkloadDeploymentJobUIDAcrossRollingUpdate(t *testi
 	features.SetFeatureGateDuringTest(t, features.DeploymentJobUIDLabel, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	kClient := utiltesting.NewClientBuilder().
-		WithObjects(replicaSet("test-deployment-old", "old-rs-uid"), replicaSet("test-deployment-new", "new-rs-uid")).
+		WithObjects(
+			&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+				Name: "test-deployment", Namespace: "ns", UID: "deployment-uid",
+				Labels: map[string]string{controllerconsts.QueueLabel: "user-queue"},
+			}},
+			replicaSet("test-deployment-old", "old-rs-uid"),
+			replicaSet("test-deployment-new", "new-rs-uid"),
+		).
 		Build()
 
 	for name, pod := range map[string]*corev1.Pod{
-		"pod from the outgoing replicaset": replicaSetGVKRef("old-pod", "test-deployment-old", "old-rs-uid"),
-		"pod from the incoming replicaset": replicaSetGVKRef("new-pod", "test-deployment-new", "new-rs-uid"),
+		"pod from the outgoing replicaset": podOf("old-pod", "test-deployment-old", "old-rs-uid"),
+		"pod from the incoming replicaset": podOf("new-pod", "test-deployment-new", "new-rs-uid"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			wl, err := (&Pod{pod: *pod, isFound: true}).ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
+			wl, err := (&Pod{pod: *pod, isFound: true, integrationManager: manager}).
+				ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

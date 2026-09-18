@@ -25,7 +25,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 )
 
 var (
@@ -33,7 +32,7 @@ var (
 )
 
 const (
-	FrameworkName = deploymentconstants.FrameworkName
+	FrameworkName = "deployment"
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
