@@ -732,7 +732,7 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 	tests := map[string]struct {
 		args    args
 		want    []kueue.Workload
-		wantErr bool
+		wantErr error
 	}{
 		"ListFailure": {
 			args: args{
@@ -740,7 +740,7 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
-			wantErr: true,
+			wantErr: cmpopts.AnyError,
 		},
 		"EmptyList": {
 			args: args{
@@ -869,8 +869,8 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			got, err := FindNotFinishedWorkloads(ctx, tt.args.clnt, tt.args.jobObject, tt.args.jobObjectGVK)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FindActiveSlices() error = %v, wantErr %v", err, tt.wantErr)
+			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("FindActiveSlices() error (-want,+got):\n%s", diff)
 				return
 			}
 			if diff := cmp.Diff(got, tt.want, cmpopts.EquateApproxTime(time.Second)); diff != "" {
@@ -1665,7 +1665,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	type want struct {
 		survivor     string
 		keptAdmitted string
-		error        bool
+		error        error
 	}
 
 	tests := map[string]struct {
@@ -1818,8 +1818,8 @@ func TestNormalizeActiveSlices(t *testing.T) {
 				Build()
 
 			survivor, err := normalizeActiveSlices(ctx, clnt, fakeClock, tc.workloads)
-			if (err != nil) != tc.want.error {
-				t.Fatalf("normalizeActiveSlices() error = %v, wantErr %v", err, tc.want.error)
+			if diff := cmp.Diff(tc.want.error, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("normalizeActiveSlices() error (-want,+got):\n%s", diff)
 			}
 			gotName := ""
 			if survivor != nil {
