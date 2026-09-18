@@ -306,10 +306,7 @@ func TestGetWorkloadNameForVariant(t *testing.T) {
 					t.Fatalf("Unexpected workloadName (-want,+got):\n%s", diff)
 				}
 			}
-			parentPrefix := tc.parentName
-			if i := strings.LastIndex(tc.parentName, "-"); i != -1 {
-				parentPrefix = tc.parentName[:i]
-			}
+			parentPrefix := getWorkloadBaseName(tc.parentName)
 			prefixWithFlavor := truncate(fmt.Sprintf("%s-variant-%s", parentPrefix, tc.flavor), maxPrefixLength())
 			wantLength := len(prefixWithFlavor) + 1 + hashLength
 			if len(got) != wantLength {
