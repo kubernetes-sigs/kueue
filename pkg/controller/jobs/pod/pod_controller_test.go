@@ -364,6 +364,17 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
+		"pod gated by an external parent keeps the pod UID": {
+			pod: testingpod.MakePod("pod", "ns").
+				UID("pod-uid").
+				SuspendedByParent("spark-driver").
+				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+				Image("", nil).
+				Obj(),
+			ancestors:     []client.Object{deployment, owningReplicaSet},
+			enableFeature: true,
+			wantJobUID:    "pod-uid",
+		},
 		"pod not gated by a parent integration keeps the pod UID": {
 			pod: testingpod.MakePod("pod", "ns").
 				UID("pod-uid").

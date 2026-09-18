@@ -1291,7 +1291,9 @@ func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *ku
 	if p.integrationManager == nil {
 		return nil
 	}
-	if parent := p.pod.Annotations[podconstants.SuspendedByParentAnnotation]; parent == "deployment" {
+	// The annotation value is free-form and may name an external controller, and the
+	// deployment package cannot be imported here without a cycle in its own tests.
+	if p.pod.Annotations[podconstants.SuspendedByParentAnnotation] != "deployment" {
 		return nil
 	}
 
