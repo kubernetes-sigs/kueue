@@ -77,6 +77,11 @@ func init() {
 
 const runtimePatchManagerName = "kueue.x-k8s.io/manager"
 
+var (
+	errJobsStillActive           = errors.New("jobs are still active")
+	errKueueRuntimePatchNotFound = errors.New("error restoring info to the trainjob")
+)
+
 var newReconciler = jobframework.NewGenericReconcilerFactory(NewJob,
 	func(b *builder.Builder, _ client.Client) *builder.Builder {
 		return b.Owns(&jobsetapi.JobSet{})
@@ -350,11 +355,11 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 	}
 
 	if t.IsActive() {
-		return stoppedNow, errors.New("jobs are still active")
+		return stoppedNow, errJobsStillActive
 	}
 
 	if getKueueRuntimePatch(t) == nil {
-		return stoppedNow, errors.New("error restoring info to the trainjob")
+		return stoppedNow, errKueueRuntimePatchNotFound
 	}
 	// RestorePodSetsInfo reports whether it changed anything, so clientutil.Patch
 	// issues no request for a TrainJob that was already restored by an earlier
