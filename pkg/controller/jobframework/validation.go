@@ -117,7 +117,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
-	allErrs = append(allErrs, validateUpdateForPodsReadyTimeout(oldJob, newJob, maxTimeoutOnWorkload)...)
+	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotation(newJob.Object(), maxTimeoutOnWorkload)...)
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
 	}
@@ -333,20 +333,6 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 
 	return allErrs
-}
-
-func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
-	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		return nil
-	}
-	if !newJob.IsSuspended() || !oldJob.IsSuspended() {
-		return apivalidation.ValidateImmutableField(
-			newJob.Object().GetAnnotations()[constants.WaitForPodsReadyAnnotation],
-			oldJob.Object().GetAnnotations()[constants.WaitForPodsReadyAnnotation],
-			waitForPodsReadyAnnotationPath,
-		)
-	}
-	return ValidateWaitForPodsReadyAnnotation(newJob.Object(), maxTimeoutOnWorkload)
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {
