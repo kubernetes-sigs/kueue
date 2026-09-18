@@ -417,11 +417,11 @@ Requested functionalities from the community can be satisfied with the following
                  kueue.x-k8s.io/priority-class: "batch-low"
    ```
 
-   > [!WARNING]
-   > This is a temporary workaround until dedicated priority selectors are supported (see [Future Work](FUTURE_WORK.md#priority-selectors)).
-   > Requirements and limitations:
-   > - The `kueue.x-k8s.io/priority-class` label must be added to the list of copied labels in the Kueue configuration.
-   > - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in ``kueue.x-k8s.io/priority-class` label.
+> [!WARNING]
+> This is a temporary workaround until dedicated priority selectors are supported (see [Future Work](FUTURE_WORK.md#priority-selectors)).
+> Requirements and limitations:
+> - The `kueue.x-k8s.io/priority-class` label must be added to the list of copied labels in the Kueue configuration.
+> - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in ``kueue.x-k8s.io/priority-class` label.
 
 3. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):** _(Deferred to [Future Work](FUTURE_WORK.md#quota-based-candidate-selectors-preemptionconfigquotaconstraint))_
    Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `priority.matchExpressions`:
@@ -498,8 +498,8 @@ Requested functionalities from the community can be satisfied with the following
                comparison: "LessThan"
    ```
 
-   > [!NOTE]
-   > As the same cluster queue is also considered `WithinParentCohort`, this config will allow preempting within the same cluster queue based on both boosted and base priorities. This should be enough for many boosting use cases, but if it is required to only preempt using boosted priority (disallowing selection with base priorities `WithinClusterQueue`), this would require an extension to add scopes excluding the same cluster queue.
+> [!NOTE]
+> As the same cluster queue is also considered `WithinParentCohort`, this config will allow preempting within the same cluster queue based on both boosted and base priorities. This should be enough for many boosting use cases, but if it is required to only preempt using boosted priority (disallowing selection with base priorities `WithinClusterQueue`), this would require an extension to add scopes excluding the same cluster queue.
 
 ### Notes
 
