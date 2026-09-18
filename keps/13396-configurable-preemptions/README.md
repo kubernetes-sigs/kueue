@@ -422,7 +422,7 @@ Requested functionalities from the community can be satisfied with the following
 > - The `kueue.x-k8s.io/priority-class` label must be added to the list of copied labels in the Kueue configuration.
 > - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in `kueue.x-k8s.io/priority-class` label.
 >
-> `labelSelector` will be remain supported as it is enabling many other use cases, e.g. filtering of workloads by custom user labels.
+> `labelSelector` will remain supported as it is enabling many other use cases, e.g. filtering of workloads by custom user labels.
 
 3. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):** _(Deferred to [Future Work](FUTURE_WORK.md#quota-based-candidate-selectors-preemptionconfigquotaconstraint))_
    Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `priority.matchNames`:
