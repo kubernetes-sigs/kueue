@@ -17,6 +17,8 @@ limitations under the License.
 package jobframework
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -513,9 +515,12 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 	replicaPath := field.NewPath("spec", "template", "metadata")
 
 	testCases := map[string]struct {
-		annotations map[string]string
-		podSetCount int32
-		wantErrNum  int
+		featureGates map[featuregate.Feature]bool
+		annotations  map[string]string
+		podSetCount  int32
+		wantErrNum   int
+		// wantErrDetail, when set, has to appear in one of the errors.
+		wantErrDetail string
 	}{
 		"valid: PodSetSliceSizeAnnotation within bound": {
 			annotations: map[string]string{
@@ -551,10 +556,43 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 			podSetCount: 10,
 			wantErrNum:  1,
 		},
+		// An incomplete last slice is only supported for a single layer, so
+		// with the feature on a multi-layer request has to divide evenly. The
+		// two cases above pass only because the feature is off by default.
+		"invalid: partial slices, multi-layer outermost size does not divide the pod count": {
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
+			},
+			podSetCount:   20,
+			wantErrNum:    1,
+			wantErrDetail: "must evenly divide pod set count 20 when more than one layer is specified",
+		},
+		"valid: partial slices, multi-layer outermost size divides the pod count": {
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
+			},
+			podSetCount: 32,
+			wantErrNum:  0,
+		},
+		"valid: partial slices, a single layer may leave an incomplete slice": {
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16}]`,
+			},
+			podSetCount: 20,
+			wantErrNum:  0,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			meta := &metav1.ObjectMeta{
 				Annotations: tc.annotations,
 			}
@@ -562,6 +600,11 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 			errs := ValidateSliceSizeAnnotationUpperBound(replicaPath, meta, podSet)
 			if got := len(errs); got != tc.wantErrNum {
 				t.Errorf("ValidateSliceSizeAnnotationUpperBound() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			}
+			if tc.wantErrDetail != "" && !slices.ContainsFunc(errs, func(err *field.Error) bool {
+				return strings.Contains(err.Detail, tc.wantErrDetail)
+			}) {
+				t.Errorf("ValidateSliceSizeAnnotationUpperBound() did not report %q:\n%v", tc.wantErrDetail, errs)
 			}
 		})
 	}

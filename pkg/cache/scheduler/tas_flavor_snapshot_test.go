@@ -2231,7 +2231,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
 		dom := &domain{id: "rack-1", idx: 0}
 		snapshot.domainStateOf(dom).podCount = 1
-		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, 1, false, false)
+		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, sliceShape{size: 1}, false, false)
 	}
 	wantErrorFields := map[string]any{
 		"error":                "code assumptions violated",
@@ -2760,5 +2760,292 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// sliceLevelUsages has to report the domains in the order they appear in the
+// assignment, which is the order the ungater ranks pods in. Both callers depend
+// on it: they single out the last domain as the one allowed to hold an
+// incomplete slice.
+func TestSliceLevelUsagesPreserveAssignmentOrder(t *testing.T) {
+	const rackLabel = "cloud.provider.com/topology-rack"
+	_, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready()
+	newNode := func(name, rack string) *corev1.Node {
+		return rackNode.Clone().Name(name).Label(corev1.LabelHostname, name).Label(rackLabel, rack).Obj()
+	}
+	nodes := []*corev1.Node{
+		newNode("n1", "r1"), newNode("n2", "r1"),
+		newNode("n3", "r2"), newNode("n4", "r2"),
+		newNode("n5", "r3"),
+	}
+
+	assignment := func(hostnames ...string) *tas.TopologyAssignment {
+		ta := &tas.TopologyAssignment{Levels: []string{corev1.LabelHostname}}
+		for _, hostname := range hostnames {
+			ta.Domains = append(ta.Domains, tas.TopologyDomainAssignment{Values: []string{hostname}, Count: 1})
+		}
+		return ta
+	}
+
+	cases := map[string]struct {
+		assignment *tas.TopologyAssignment
+		want       []sliceLevelUsage
+	}{
+		"nodes of one rack are summed into a single entry": {
+			assignment: assignment("n1", "n2", "n3"),
+			want: []sliceLevelUsage{
+				{domainID: "r1", count: 2},
+				{domainID: "r2", count: 1},
+			},
+		},
+		"the racks keep the order of the assignment, not their names": {
+			assignment: assignment("n5", "n3", "n1"),
+			want: []sliceLevelUsage{
+				{domainID: "r3", count: 1},
+				{domainID: "r2", count: 1},
+				{domainID: "r1", count: 1},
+			},
+		},
+		"a rack revisited later keeps the position of its first appearance": {
+			assignment: assignment("n1", "n3", "n2"),
+			want: []sliceLevelUsage{
+				{domainID: "r1", count: 2},
+				{domainID: "r2", count: 1},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, nodes, 0)
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+
+			// Repeat, so that a map-order dependency cannot pass by chance.
+			for range 20 {
+				got := snapshot.sliceLevelUsages(tc.assignment, 0)
+				if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(sliceLevelUsage{})); diff != "" {
+					t.Fatalf("sliceLevelUsages() mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+// TestAssignmentSliceAligned drives the check that refuses to publish an
+// assignment in which a slice is spread over more than one domain. The
+// placement is not expected to produce such an assignment, so the predicate is
+// fed hand-built ones here rather than through a scheduling run.
+func TestAssignmentSliceAligned(t *testing.T) {
+	const (
+		rackLabel = "cloud.provider.com/topology-rack"
+		zoneLabel = "cloud.provider.com/topology-zone"
+	)
+	_, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready()
+	newNode := func(name, rack string) *corev1.Node {
+		return rackNode.Clone().Name(name).Label(corev1.LabelHostname, name).Label(rackLabel, rack).Obj()
+	}
+	nodes := []*corev1.Node{
+		newNode("n1", "r1"), newNode("n2", "r1"),
+		newNode("n3", "r2"), newNode("n4", "r2"),
+	}
+
+	type hostCount struct {
+		hostname string
+		count    int32
+	}
+	assignment := func(entries ...hostCount) *tas.TopologyAssignment {
+		ta := &tas.TopologyAssignment{Levels: []string{corev1.LabelHostname}}
+		for _, entry := range entries {
+			ta.Domains = append(ta.Domains, tas.TopologyDomainAssignment{
+				Values: []string{entry.hostname},
+				Count:  entry.count,
+			})
+		}
+		return ta
+	}
+	rackAssignment := func(entries ...hostCount) *tas.TopologyAssignment {
+		ta := &tas.TopologyAssignment{Levels: []string{rackLabel}}
+		for _, entry := range entries {
+			ta.Domains = append(ta.Domains, tas.TopologyDomainAssignment{
+				Values: []string{entry.hostname},
+				Count:  entry.count,
+			})
+		}
+		return ta
+	}
+	sliceRequest := func(topology string, size int32) *kueue.PodSetTopologyRequest {
+		return &kueue.PodSetTopologyRequest{
+			PodSetSliceRequiredTopology: &topology,
+			PodSetSliceSize:             &size,
+		}
+	}
+
+	cases := map[string]struct {
+		disableGate     bool
+		virtualHostname bool
+		assignment      *tas.TopologyAssignment
+		request         *kueue.PodSetTopologyRequest
+		sliceSize       int32
+		want            bool
+	}{
+		"a whole slice per rack": {
+			assignment: assignment(hostCount{"n1", 1}, hostCount{"n2", 1}, hostCount{"n3", 2}),
+			request:    sliceRequest(rackLabel, 2),
+			sliceSize:  2,
+			want:       true,
+		},
+		"the incomplete slice is last": {
+			assignment: assignment(hostCount{"n1", 2}, hostCount{"n3", 1}),
+			request:    sliceRequest(rackLabel, 2),
+			sliceSize:  2,
+			want:       true,
+		},
+		"the incomplete slice is not last": {
+			assignment: assignment(hostCount{"n1", 1}, hostCount{"n3", 2}),
+			request:    sliceRequest(rackLabel, 2),
+			sliceSize:  2,
+			want:       false,
+		},
+		"a whole slice is split over two racks": {
+			assignment: assignment(hostCount{"n1", 1}, hostCount{"n3", 1}),
+			request:    sliceRequest(rackLabel, 2),
+			sliceSize:  2,
+			want:       false,
+		},
+		"a slice of a single pod is always aligned": {
+			assignment: assignment(hostCount{"n1", 1}, hostCount{"n3", 2}),
+			request:    sliceRequest(rackLabel, 1),
+			sliceSize:  1,
+			want:       true,
+		},
+		"a PodSet that does not ask for slices is not checked": {
+			assignment: assignment(hostCount{"n1", 1}, hostCount{"n3", 2}),
+			request:    nil,
+			sliceSize:  2,
+			want:       true,
+		},
+		"a slice level the topology does not declare is not checked": {
+			assignment: assignment(hostCount{"n1", 1}, hostCount{"n3", 2}),
+			request:    sliceRequest(zoneLabel, 2),
+			sliceSize:  2,
+			want:       true,
+		},
+		"the check is skipped while the feature gate is off": {
+			disableGate: true,
+			assignment:  assignment(hostCount{"n1", 1}, hostCount{"n3", 2}),
+			request:     sliceRequest(rackLabel, 2),
+			sliceSize:   2,
+			want:        true,
+		},
+		"virtual hostname topology with incomplete slice last": {
+			virtualHostname: true,
+			assignment:      rackAssignment(hostCount{"r2", 2}, hostCount{"r1", 1}),
+			request:         sliceRequest(rackLabel, 2),
+			sliceSize:       2,
+			want:            true,
+		},
+		"virtual hostname topology with incomplete slice not last": {
+			virtualHostname: true,
+			assignment:      rackAssignment(hostCount{"r1", 1}, hostCount{"r2", 2}),
+			request:         sliceRequest(rackLabel, 2),
+			sliceSize:       2,
+			want:            false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASPartialSlices, !tc.disableGate)
+
+			levels := []string{rackLabel, corev1.LabelHostname}
+			if tc.virtualHostname {
+				levels = []string{rackLabel}
+			}
+			tree := newTopologyTree(levels, nodes, 0)
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+
+			if got := snapshot.assignmentSliceAligned(tc.assignment, tc.request, tc.sliceSize); got != tc.want {
+				t.Errorf("assignmentSliceAligned() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFillTailCountsWithCapacityBound(t *testing.T) {
+	shape := sliceShape{size: 4, tailSize: 2}
+
+	cases := map[string]struct {
+		child                       domainState
+		hasLeaders                  bool
+		parent                      domainState
+		childrenSliceCapacity       int32
+		wantSliceCountWithTail      int32
+		wantSliceCountLeaderAndTail int32
+	}{
+		"capped domain that still fits the tail is not rejected by child penalty": {
+			child: domainState{
+				podCount:           4,
+				sliceCount:         1,
+				sliceCountWithTail: 0,
+			},
+			parent: domainState{
+				podCount:   2,
+				sliceCount: 0,
+			},
+			childrenSliceCapacity:       1,
+			wantSliceCountWithTail:      0,
+			wantSliceCountLeaderAndTail: noTailFit,
+		},
+		"capped domain with zero capacity stays at noTailFit instead of going below -1": {
+			child: domainState{
+				podCount:                    5,
+				podCountWithLeader:          4,
+				leaderCount:                 1,
+				sliceCount:                  1,
+				sliceCountWithLeader:        1,
+				sliceCountWithTail:          0,
+				sliceCountWithLeaderAndTail: 0,
+			},
+			hasLeaders: true,
+			parent: domainState{
+				podCount:           0,
+				podCountWithLeader: 0,
+				sliceCount:         0,
+			},
+			childrenSliceCapacity:       1,
+			wantSliceCountWithTail:      noTailFit,
+			wantSliceCountLeaderAndTail: noTailFit,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var penalties tailPenaltyTracker
+			child := tc.child
+			penalties.add(0, &child, tc.hasLeaders)
+
+			parent := tc.parent
+			fillTailCounts(&parent, shape, false, tc.childrenSliceCapacity, &penalties)
+			if parent.sliceCountWithTail != tc.wantSliceCountWithTail {
+				t.Errorf("sliceCountWithTail = %d, want %d", parent.sliceCountWithTail, tc.wantSliceCountWithTail)
+			}
+			if parent.sliceCountWithLeaderAndTail != tc.wantSliceCountLeaderAndTail {
+				t.Errorf("sliceCountWithLeaderAndTail = %d, want %d", parent.sliceCountWithLeaderAndTail, tc.wantSliceCountLeaderAndTail)
+			}
+		})
 	}
 }

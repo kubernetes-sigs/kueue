@@ -245,6 +245,17 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 					fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
 				))
 			}
+			// An incomplete last slice is supported for a single layer only.
+			// The inner layers subdivide a slice further, and the trailing
+			// pods generally do not divide by their sizes.
+			if features.Enabled(features.TASPartialSlices) && len(constraints) > 1 &&
+				constraints[0].Size > 0 && podSet.Count%constraints[0].Size != 0 {
+				allErrs = append(allErrs, field.Invalid(
+					annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
+					constraints[0].Size,
+					fmt.Sprintf("must evenly divide pod set count %d when more than one layer is specified", podSet.Count),
+				))
+			}
 		}
 	}
 

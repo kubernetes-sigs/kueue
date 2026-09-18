@@ -9226,6 +9226,792 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: resource "cpu": 1, topologyDomain: 1`,
 			}},
 		},
+		"partial slice with a leader: the odd worker gets a second domain": {
+			//        b1
+			//        |
+			//        r1
+			//     /     \
+			//   x1:3    x2:3
+			// leader: 1, workers: 3, sliceSize: 2
+			//
+			// The LeaderWorkerSet shape. 3 workers is one whole slice plus one
+			// trailing pod, so the group spreads over two hosts instead of
+			// leaving the third worker unassigned.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasRackLabel)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasRackLabel)),
+						PodSetSliceSize:             new(int32(2)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           3,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x1"}},
+							{Count: 1, Values: []string{"x2"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice with a leader: the odd worker is left unassigned when the feature is disabled": {
+			// Same input as above with the feature off: 3 workers round down to
+			// a single slice, so only 2 of them are assigned and the third pod
+			// stays gated.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: false},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasRackLabel)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasRackLabel)),
+						PodSetSliceSize:             new(int32(2)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           3,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice with a leader: the leader gives way to the incomplete slice": {
+			//              b1
+			//        /            \
+			//       r1             r2
+			//    /      \           |
+			//  x1:4     x2:3       x3:2
+			// leader: 1, workers: 7, sliceSize: 4, slices at the rack level
+			//
+			// r1 is the only rack that fits a whole slice, and the three pods
+			// it has left over are also the only room for the incomplete
+			// slice. The leader therefore has to take r2, even though r1 holds
+			// the same number of whole slices with the leader as without it.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasBlockLabel)),
+						PodSetSliceRequiredTopology: new(string(tasRackLabel)),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x3"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasBlockLabel)),
+						PodSetSliceSize:             new(int32(4)),
+						PodSetSliceRequiredTopology: new(string(tasRackLabel)),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           7,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 4, Values: []string{"x1"}},
+							{Count: 3, Values: []string{"x2"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice with a leader: the group fits a topology with no spare room": {
+			//        b1
+			//        |
+			//        r1
+			//     /     \
+			//   x1:2    x2:2
+			// leader: 1, workers: 3, sliceSize: 2
+			//
+			// The 4 pods fit exactly. The whole slice and the trailing worker
+			// are placed separately, so the trailing worker is charged for
+			// itself rather than for a whole slice, and the group is admitted.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasRackLabel)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasRackLabel)),
+						PodSetSliceSize:             new(int32(2)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests:        map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					podSetGroupName: new("sameGroup"),
+					count:           3,
+					// x2 holds the whole slice and comes first, so the pods of
+					// that slice get the lower ranks and the trailing pod on x1
+					// is ranked last.
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x2"}},
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: a rack with no room for the incomplete slice is skipped": {
+			//            b1
+			//        /        \
+			//       r1         r2
+			//     /    \        |
+			//   x1:2   x2:2   x3:6
+			// workers: 5, sliceSize: 2, required: rack
+			//
+			// r1 holds exactly the two whole slices and nothing more, so it
+			// cannot hold the incomplete slice as well and its capacity counts
+			// as one slice rather than two. r2 is the only rack that fits the
+			// PodSet, and all 5 pods go there.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("6"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new(string(tasRackLabel)),
+						PodSetSliceSize:             new(int32(2)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    5,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 5, Values: []string{"x3"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: descent from block to rack prefers the rack that also holds the incomplete slice": {
+			//            b1
+			//        /        \
+			//       r1         r2
+			//       |        /    \
+			//     x1:4     x2:4   x3:2
+			// workers: 6, sliceSize: 4, required: block, slices at hostname
+			//
+			// Both racks hold 1 whole slice, and r1 sorts before r2 because its
+			// podCount is smaller (4 < 6). When descending from b1 to the rack
+			// level, best-fit must look past r1 to r2 so all 6 pods stay in a
+			// single rack rather than splitting across r1 and r2.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new(string(tasBlockLabel)),
+						PodSetSliceSize:             new(int32(4)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    6,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 4, Values: []string{"x2"}},
+							{Count: 2, Values: []string{"x3"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: best fit prefers a tighter whole-slice block when both hold the same number of slices with tail": {
+			//               b1                        b2
+			//        /      |      \             /    |    \
+			//       r1      r2     r3           r4    r5   r6
+			//       |       |      |            |     |    |
+			//     x1:4    x2:4   x3:4         x4:4  x5:4  x6:2
+			// workers: 10, sliceSize: 4, required: block, slices at the rack level
+			//
+			// Both blocks hold 2 whole slices alongside the 2-pod incomplete
+			// slice (sliceCountWithTail = 2), and b1 sorts first because it
+			// holds 3 whole slices without the tail (sliceCount = 3 > 2). Best
+			// fit must prefer b2 (10 pods, 2 whole slices) over b1 (12 pods, 3
+			// whole slices).
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r4-x4").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r4").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r5-x5").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r5").Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r6-x6").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r6").Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new(string(tasBlockLabel)),
+						PodSetSliceSize:             new(int32(4)),
+						PodSetSliceRequiredTopology: new(string(tasRackLabel)),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    10,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 4, Values: []string{"x4"}},
+							{Count: 4, Values: []string{"x5"}},
+							{Count: 2, Values: []string{"x6"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: the block holding the incomplete slice is preferred over an equally large one": {
+			//                b1                            b2
+			//        /    /     \    \              /      |      \
+			//      r1     r2    r3    r4          r5      r6      r7
+			//      |      |      |     |           |       |       |
+			//    x1:4   x2:4   x3:1  x4:1        x5:4    x6:4    x7:2
+			// request: 10, sliceSize: 4, required: block, slices at the rack level
+			//
+			// Both blocks hold 10 pods and two whole slices, and b1 sorts
+			// first, but only b2 has a rack with room for the 2 trailing pods.
+			// Counting the whole slices alone would pick b1 and leave the
+			// trailing pods stranded; reserving a third full slice would reject
+			// both blocks, since neither has room for 12 pods in whole slices.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r4-x4").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r4").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r5-x5").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r5").Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r6-x6").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r6").Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r7-x7").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r7").Label(corev1.LabelHostname, "x7").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new(string(tasBlockLabel)),
+						PodSetSliceSize:             new(int32(4)),
+						PodSetSliceRequiredTopology: new(tasRackLabel),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    10,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 4, Values: []string{"x5"}},
+							{Count: 4, Values: []string{"x6"}},
+							{Count: 2, Values: []string{"x7"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: a second block is opened for the incomplete slice alone": {
+			//            b1                 b2
+			//        /        \              |
+			//       r1         r2            r3
+			//       |          |             |
+			//     x1:4       x2:4          x3:2
+			// request: 10, sliceSize: 4, preferred: block, slices at the rack level
+			//
+			// b1 holds both whole slices and nothing else, so the incomplete
+			// slice has to open b2. Charging it for a whole slice would need a
+			// rack with 4 free slots, which b2 does not have.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r3-x3").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasBlockLabel)),
+						PodSetSliceSize:             new(int32(4)),
+						PodSetSliceRequiredTopology: new(tasRackLabel),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    10,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 4, Values: []string{"x1"}},
+							{Count: 4, Values: []string{"x2"}},
+							{Count: 2, Values: []string{"x3"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: a block passed over by best fit still takes the incomplete slice": {
+			//        b1          b2              b3
+			//        |           |           /        \
+			//        r1          r2         r3         r4
+			//        |           |          |          |
+			//      x1:2        x2:4       x3:4       x4:2
+			// request: 9, sliceSize: 2, preferred: block, slices at the rack level
+			//
+			// The four whole slices are taken from b3 and b2, and best fit
+			// closes the count with racks that end up exactly full, so neither
+			// block has room left for the trailing pod. b1 is the only block
+			// that can still take it, and it was passed over while the whole
+			// slices were placed, so it is only found if the search for a home
+			// for the incomplete slice looks at every block rather than at
+			// those after the one that closed the count.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r2-x2").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b3-r3-x3").
+					Label(tasBlockLabel, "b3").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b3-r4-x4").
+					Label(tasBlockLabel, "b3").Label(tasRackLabel, "r4").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Preferred:                   new(string(tasBlockLabel)),
+						PodSetSliceSize:             new(int32(2)),
+						PodSetSliceRequiredTopology: new(tasRackLabel),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    9,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 4, Values: []string{"x2"}},
+							{Count: 4, Values: []string{"x3"}},
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: a PodSet shorter than a slice is placed as one incomplete slice": {
+			//        b1
+			//        |
+			//        r1
+			//        |
+			//       x1:3
+			// request: 3, sliceSize: 4
+			//
+			// There are no whole slices, so the PodSet is the incomplete slice
+			// and is placed as a slice of its own size. Reserving a full slice
+			// would need a fourth slot that the topology does not have.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new(string(tasRackLabel)),
+						PodSetSliceSize:             new(int32(4)),
+						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    3,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 3, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: the incomplete slice is moved last when the slice level is above the hostname": {
+			//            b1
+			//        /        \
+			//       r1         r2
+			//       |        /    \
+			//     x1:2     x2:2   x3:2
+			// request: 6, sliceSize: 4, slices at the rack level
+			//
+			// The whole slice fills r2, and the trailing pods go to r1. r1 sorts
+			// before r2, so without reordering the ranks of the whole slice
+			// would be split across the two racks. The whole r2 group, which is
+			// two assignment entries, has to move ahead of r1.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{"example.com/gpu": resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "worker",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:                    new(string(tasBlockLabel)),
+						PodSetSliceSize:             new(int32(4)),
+						PodSetSliceRequiredTopology: new(tasRackLabel),
+					},
+					requests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:    6,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x2"}},
+							{Count: 2, Values: []string{"x3"}},
+							{Count: 2, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+		},
+		"partial slice: the trailing pods form an incomplete last slice": {
+			//        b1
+			//        |
+			//        r1
+			//    /   |    \
+			//  x1:8 x2:4  x3:4
+			// request: 10, sliceSize: 4
+			//
+			// 10 pods is 2 whole slices plus 2 trailing pods. The trailing
+			// pods stay together in the last domain of the assignment, so the
+			// rank ordering keeps every slice within a single domain.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   new(tasBlockLabel),
+					PodSetSliceSize:             new(int32(4)),
+					PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    10,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 8, Values: []string{"x1"}},
+						{Count: 2, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"partial slice: the trailing pods are dropped when the feature is disabled": {
+			// Same input as above with the feature off: the incomplete slice is
+			// rounded away and only 8 of the 10 pods are assigned.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: false},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Preferred:                   new(tasBlockLabel),
+					PodSetSliceSize:             new(int32(4)),
+					PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    10,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 8, Values: []string{"x1"}},
+					},
+				},
+			}},
+		},
+		"partial slice: a node is not replaced in an assignment that holds an incomplete slice": {
+			//       b1
+			//        |
+			//       r1
+			//    /   |   \
+			//   x1   x2   x3
+			//   ^(NotReady)
+			//
+			// 3 pods in slices of 2 leave one trailing pod. Merging a
+			// replacement into such an assignment could put the two pods of a
+			// slice in different domains, which the rank-based ungating relies
+			// on not happening, so the replacement is refused and the Workload
+			// is rescheduled from scratch instead.
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(3).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+							Domain(tas.TopologyDomainAssignment{Count: 2, Values: []string{"x1"}}).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x2"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required:                    new(tasBlockLabel),
+					PodSetSliceRequiredTopology: new(string(corev1.LabelHostname)),
+					PodSetSliceSize:             new(int32(2)),
+				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      3,
+				wantReason: "cannot replace the node x1 in an assignment that holds an incomplete PodSet slice",
+			}},
+		},
 		"multi-layer replacement: replace unhealthy node in incomplete rack slice": {
 			//       b1
 			//   /        \

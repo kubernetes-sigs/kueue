@@ -521,6 +521,32 @@ crowded domains last. Multi-Pod replicas must share one
 evaluated per namespace at admission time - admitted workloads are never
 rebalanced.
 
+### Incomplete slices
+
+By default the slice size has to evenly divide the number of pods in the PodSet.
+When it does not, the trailing pods are left out of the topology assignment and
+remain gated.
+
+With the `TASPartialSlices` feature gate enabled, the trailing pods form one
+incomplete slice, which is placed in a single topology domain just like a full
+slice. For example, 10 pods with a slice size of 4 are placed as two slices of
+4 pods and one slice of 2 pods.
+
+The incomplete slice is charged for the pods it actually holds, so a PodSet is
+admitted into a topology that has exactly as many free slots as the PodSet has
+pods. Kueue takes it into account while it chooses the domains, so a domain that
+has room for the full slices but not for the trailing pods is passed over, and
+the trailing pods share a domain with full slices whenever one of them has room
+for them.
+
+The incomplete slice is always the last one, so that the pod ranks of every
+other slice stay within a single domain.
+
+Incomplete slices are supported for a single slice layer only. The inner layers
+of `kueue.x-k8s.io/podset-slice-required-topology-constraints` subdivide a slice
+further, and the trailing pods generally do not divide by their sizes, so the
+outermost size still has to evenly divide the PodSet.
+
 ## Drawbacks
 
 When enabling the feature Kueue starts to keep track of all Pods and all nodes

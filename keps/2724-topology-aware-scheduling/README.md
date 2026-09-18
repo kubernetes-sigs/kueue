@@ -39,6 +39,7 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
     - [PodSet Slice size validation](#podset-slice-size-validation)
+    - [Incomplete slices](#incomplete-slices)
   - [Internal APIs](#internal-apis)
     - [Topology assignment representation](#topology-assignment-representation)
       - [Until v1beta1](#until-v1beta1)
@@ -938,7 +939,9 @@ the rules is deactivated):
   `kueue.x-k8s.io/podset-slice-size` is also required (unless the Workload type
   specified its own default. See [Slice size validation](#slice-size-validation))
 - the value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
-  than 1. It has to evenly divide the size of a PodSet.
+  than 1. It has to evenly divide the size of a PodSet, unless the `TASPartialSlices`
+  feature gate is enabled, in which case the trailing pods form one incomplete
+  slice (see [Incomplete slices](#incomplete-slices))
 - multi-layer topology constraints (`kueue.x-k8s.io/podset-slice-required-topology-constraints`):
   - it is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`
   - it must be ordered from coarsest to finest
@@ -963,6 +966,63 @@ is not defined for JobSet it defaults to `parallelism`.
 For `kueue.x-k8s.io/podset-slice-required-topology-constraints`, each entry in the
 JSON array must specify both `topology` and `size`. No defaulting logic is applied
 here even for JobSet.
+
+#### Incomplete slices
+
+By default the slice size has to evenly divide the PodSet count, and the trailing
+pods are otherwise left out of the topology assignment. Behind the
+`TASPartialSlices` feature gate the trailing pods instead form one incomplete
+slice, placed within a single topology domain like any other slice.
+
+The incomplete slice is placed by the same algorithm that places the whole ones,
+which is told how big it is instead of being made to reason about it as a full
+slice. Exactly one domain at the slice level holds it, so alongside the number of
+whole slices a domain can hold, the capacity roll-up computes the number it can
+hold while it also holds the incomplete slice:
+
+```
+at the slice level:  sliceCountWithTail(d) = (podCount(d) − tailSize) / sliceSize
+above:               sliceCountWithTail(d) = sliceCount(d) − min_c tailPenalty(c)
+```
+
+where `tailPenalty(c) = sliceCount(c) − sliceCountWithTail(c)` is what the child
+subtree `c` gives up by taking the incomplete slice, and the minimum runs over
+the children that can hold it at all. This is the same shape as the leader
+capacity, which is computed in the same pass; a fourth figure covers the domain
+holding both the leader and the incomplete slice, which may go to one child or to
+two different ones.
+
+Domain selection then compares against these figures, so a set of domains is only
+chosen when the incomplete slice has a home inside it, and the descent hands the
+incomplete slice to a domain that already holds whole slices of the PodSet
+whenever one of them has the room, and opens another domain only when none does.
+
+The cost of the incomplete slice is therefore the pods it actually holds. A
+PodSet is admitted into a topology with exactly as many free slots as it has
+pods, and a domain that cannot hold the incomplete slice is passed over before
+the whole slices are committed to it, rather than after.
+
+The balanced placement algorithm distributes whole slices only, so a PodSet with
+an incomplete slice falls back to the default path and does not get the
+spreading. Teaching balanced placement about the incomplete slice is left as
+follow-up work.
+
+The incomplete slice is always the last one. Pods are ranked in the order the
+domains appear in the assignment, so a shorter domain anywhere else would make a
+full slice straddle two domains in rank space, even though the pods are
+physically co-located. Domains are otherwise ordered by their level values, which
+says nothing about where the incomplete slice ends up, so the order is corrected
+before the assignment is published. Which domain holds the incomplete slice is
+recomputed from the assignment rather than remembered, which makes the correction
+idempotent.
+
+Replacing a failed node under an assignment that holds an incomplete slice is
+not supported yet: the replacement is declined and the Workload is rescheduled
+from scratch. Repairing such an assignment in place is left as follow-up work.
+
+Incomplete slices are supported for a single slice layer only: the inner layers
+of `kueue.x-k8s.io/podset-slice-required-topology-constraints` subdivide a slice
+further, and the trailing pods generally do not divide by their sizes.
 
 ### Internal APIs
 
