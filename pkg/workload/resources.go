@@ -147,6 +147,10 @@ func ValidateAdmissibility(
 	wi *Info,
 	cqNamespaceSelector labels.Selector,
 ) error {
+	if wi.AdjustmentErr != nil {
+		return wi.AdjustmentErr
+	}
+
 	var ns corev1.Namespace
 	if err := c.Get(ctx, types.NamespacedName{Name: wi.Obj.Namespace}, &ns); err != nil {
 		if apierrors.IsNotFound(err) {

@@ -20,8 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -57,7 +59,8 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 		WithIndex(&kueuealpha.DynamicQuotaOrchestrator{}, indexer.DynamicQuotaOrchestratorCapacityProviderKey, indexer.IndexDynamicQuotaOrchestratorCapacityProvider).
 		WithIndex(&kueuealpha.DynamicQuotaOrchestrator{}, indexer.DynamicQuotaOrchestratorIsDistributingKey, indexer.IndexDynamicQuotaOrchestratorIsDistributing).
 		WithIndex(&kueue.ClusterQueue{}, indexer.ClusterQueueCohortKey, indexer.IndexClusterQueueCohort).
-		WithIndex(&kueue.Cohort{}, indexer.CohortParentKey, indexer.IndexCohortParent)
+		WithIndex(&kueue.Cohort{}, indexer.CohortParentKey, indexer.IndexCohortParent).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType)
 }
 
 type builderIndexer struct {
@@ -65,6 +68,17 @@ type builderIndexer struct {
 }
 
 func (b *builderIndexer) IndexField(_ context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
+	defer func() {
+		if r := recover(); r != nil {
+			if s, ok := r.(error); ok && strings.Contains(s.Error(), "already indexed") {
+				return
+			}
+			if s, ok := r.(string); ok && strings.Contains(s, "already indexed") {
+				return
+			}
+			panic(r)
+		}
+	}()
 	b.ClientBuilder = b.WithIndex(obj, field, extractValue)
 	return nil
 }

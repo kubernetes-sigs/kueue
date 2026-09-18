@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -138,12 +137,7 @@ func TestDeleteClusterQueueReleasesTASReservation(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			features.SetFeatureGateDuringTest(t, features.TASResidualPodAccounting, enabled)
 			ctx, log := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
-			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.LimitRange{},
-				coreindexer.LimitRangeHasContainerOrPodType, coreindexer.IndexLimitRangeHasContainerOrPodType); err != nil {
-				t.Fatalf("setting up client indexes: %v", err)
-			}
-			cache := New(clientBuilder.Build())
+			cache := New(utiltesting.NewClientBuilder().Build())
 			topology := utiltestingapi.MakeDefaultOneLevelTopology("topology")
 			cache.AddOrUpdateTopology(log, topology)
 			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj())

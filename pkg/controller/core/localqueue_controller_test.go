@@ -39,7 +39,6 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -1351,7 +1350,6 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			updatedLQ.Labels["team"] = "beta"
 
 			cl := utiltesting.NewClientBuilder().
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				WithObjects(cq, updatedLQ).WithStatusSubresource(cq, updatedLQ).Build()
 			cqCache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {

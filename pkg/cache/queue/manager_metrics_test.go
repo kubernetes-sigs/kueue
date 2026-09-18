@@ -19,11 +19,9 @@ package queue
 import (
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -48,8 +46,7 @@ func TestAddLocalQueueReportsPendingMetrics(t *testing.T) {
 			metrics.InitMetricVectors(nil)
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
-			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).Build()
 			manager := NewManagerForUnitTests(cl, nil, WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{Enabled: tc.enabled, QueueSelector: tc.selector}))
 			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
 				t.Fatal(err)
@@ -104,8 +101,7 @@ func TestLocalQueueDeleteAndMoveReportsPendingMetrics(t *testing.T) {
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			ctx, log := utiltesting.ContextWithLog(t)
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
-			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), wl).Build()
 			manager := NewManagerForUnitTests(cl, nil)
 			for cqName, missing := range map[string]bool{"old": tc.missingOldCQ, "new": tc.missingNewCQ} {
 				if !missing {

@@ -34,7 +34,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
@@ -68,12 +67,7 @@ func TestWorkloadEventPreservesResidualTASReleaseIntent(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, log := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
-			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.LimitRange{},
-				coreindexer.LimitRangeHasContainerOrPodType, coreindexer.IndexLimitRangeHasContainerOrPodType); err != nil {
-				t.Fatalf("setting up client indexes: %v", err)
-			}
-			cl := clientBuilder.Build()
+			cl := utiltesting.NewClientBuilder().Build()
 			cache := schdcache.New(cl)
 			queues := qcache.NewManagerForUnitTests(cl, cache,
 				qcache.WithPreemptionExpectations(preemptexpectations.New()))
