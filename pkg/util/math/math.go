@@ -105,3 +105,31 @@ func SaturatingMul(a, b int64) int64 {
 	}
 	return res
 }
+
+// BoundedAdd is SaturatingAdd for a quota amount, which cannot saturate:
+// resources.Unlimited is math.MaxInt64, so a sum that reaches it would report no
+// limit at all rather than a conservative one. Operands and result must all lie
+// in [0, math.MaxInt64), and a negative one is refused rather than treated as a
+// credit against what was asked for.
+func BoundedAdd(a, b int64) (int64, bool) {
+	if a < 0 || b < 0 {
+		return 0, false
+	}
+	if a > stdmath.MaxInt64-1-b {
+		return 0, false
+	}
+	return a + b, true
+}
+
+// BoundedMul is BoundedAdd's counterpart. Negative operands are refused the same
+// way, and the product must land below resources.Unlimited, but an operand is
+// free to reach it: multiplying the sentinel by zero is answered, not refused.
+func BoundedMul(a, b int64) (int64, bool) {
+	if a < 0 || b < 0 {
+		return 0, false
+	}
+	if a != 0 && b > (stdmath.MaxInt64-1)/a {
+		return 0, false
+	}
+	return a * b, true
+}

@@ -47,7 +47,9 @@ ResourceClaimTemplate path.
 
 When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 `deviceClassName` from the template's `exactly` field and looks it up in
-`deviceClassMappings`. This mapping tells Kueue which logical resource name
+`deviceClassMappings`. With `KueueDRAIntegrationPrioritizedList` enabled it
+reads a request's `firstAvailable` alternatives as well; see the limitations
+below for what that charges. This mapping tells Kueue which logical resource name
 to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
@@ -118,7 +120,8 @@ a configured timeout.
 
 ## MultiKueue
 
-DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue).
+DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue),
+except for prioritized lists; see the limitations below.
 MultiKueue syncs the workload and its owning job to worker clusters, but
 `ResourceClaimTemplate` and `DeviceClass` objects are not automatically
 synced. These must be created on each worker cluster separately by the
@@ -258,9 +261,11 @@ The following limitations apply:
 - **ResourceClaimTemplates only**: Only `ResourceClaimTemplate` references
   are supported. Direct `ResourceClaim` references in the Pod spec are not
   supported and will result in inadmissible workloads.
-- **ExactCount allocation mode only**: Only device requests using `exactly`
-  are supported. `FirstAvailable` device selection and the `All` allocation
-  mode are not supported.
+- **ExactCount allocation mode only**: the `All` allocation mode is not
+  supported, in an `exactly` request or in an alternative of a `firstAvailable`
+  one. A `firstAvailable` request is read only with the
+  `KueueDRAIntegrationPrioritizedList` feature gate, which is alpha and off by
+  default; see the note below for what it covers.
 - **No device constraints or config**: Device `constraints` (MatchAttribute)
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not
@@ -268,5 +273,18 @@ The following limitations apply:
 - **No DRA + Topology Aware Scheduling (TAS)**: DRA resources are not
   accounted for in TAS capacity calculations. Using both features together
   may result in incorrect topology assignments for DRA devices.
-- **No support for DRADeviceTaints or DRAPrioritizedLists**: These Kubernetes
-  DRA features are not factored into Kueue's quota decisions.
+- **No support for DRADeviceTaints**: This Kubernetes DRA feature is not
+  factored into Kueue's quota decisions.
+- **Prioritized lists are charged, within limits**: With
+  `KueueDRAIntegrationPrioritizedList` enabled, a `firstAvailable` request is
+  charged the largest count among its alternatives, which is an upper bound on
+  whichever one the scheduler picks. Every alternative of a request has to map
+  to the same logical resource, and an alternative on a counter-backed or
+  capacity-backed mapping is refused rather than charged. An alternative that
+  sets `capacity` on the subrequest is charged its declared count like any
+  other. Kueue does not check that any alternative can be satisfied by the
+  cluster, so a request whose alternatives are all infeasible holds its quota
+  until the Workload is evicted, for example by
+  [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) where it is
+  configured. MultiKueue does not support prioritized lists: a manager and a
+  worker may resolve different templates.
