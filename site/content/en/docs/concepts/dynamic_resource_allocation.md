@@ -287,4 +287,5 @@ The following limitations apply:
   until the Workload is evicted, for example by
   [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) where it is
   configured. MultiKueue does not support prioritized lists: a manager and a
-  worker may resolve different templates.
+  worker may resolve different templates, and nothing refuses such a Workload
+  before dispatch yet.
