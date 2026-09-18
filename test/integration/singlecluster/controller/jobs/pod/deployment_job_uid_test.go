@@ -119,12 +119,16 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 
 	// envtest runs no controller-manager, so the ownership chain a Deployment would
 	// normally produce is created here.
-	createOwnedPod := func() (*appsv1.Deployment, *corev1.Pod) {
+	createOwnedPod := func(queueOnDeployment bool) (*appsv1.Deployment, *corev1.Pod) {
 		ginkgo.GinkgoHelper()
+		depLabels := map[string]string{}
+		if queueOnDeployment {
+			depLabels[controllerconsts.QueueLabel] = "lq"
+		}
 		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
 			Name:      "dep",
 			Namespace: ns.Name,
-			Labels:    map[string]string{controllerconsts.QueueLabel: "lq"},
+			Labels:    depLabels,
 		}, Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "dep"}},
 			Template: corev1.PodTemplateSpec{
@@ -182,7 +186,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 	ginkgo.It("should label the workload with the owning Deployment UID", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DeploymentJobUIDLabel, true)
 
-		dep, pod := createOwnedPod()
+		dep, pod := createOwnedPod(true)
 
 		ginkgo.By("checking the workload carries the Deployment UID rather than the Pod UID")
 		expectJobUID(pod, string(dep.UID))
@@ -197,7 +201,16 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 	ginkgo.It("should keep the Pod UID when the feature gate is disabled", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DeploymentJobUIDLabel, false)
 
-		_, pod := createOwnedPod()
+		_, pod := createOwnedPod(true)
+
+		expectJobUID(pod, string(pod.UID))
+	})
+
+	ginkgo.It("should keep the Pod UID when only the Pod carries the queue-name", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DeploymentJobUIDLabel, true)
+
+		// Kueue does not manage the Deployment, so the Pod is managed standalone.
+		_, pod := createOwnedPod(false)
 
 		expectJobUID(pod, string(pod.UID))
 	})

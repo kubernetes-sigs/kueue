@@ -341,14 +341,14 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			interceptors: failMetadataReads(errors.New("owners must not be walked while the feature is disabled")),
 			wantJobUID:   "pod-uid",
 		},
-		"deployment without a queue-name keeps the pod UID": {
-			pod:           gatedPod().Obj(),
+		"queue-name on the pod rather than the deployment keeps the pod UID": {
+			pod:           gatedPod().Queue("user-queue").Obj(),
 			ancestors:     []client.Object{unqueuedDeployment, owningReplicaSet},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
 		"deployment without a queue-name is used when unqueued jobs are managed": {
-			pod:                        gatedPod().Obj(),
+			pod:                        gatedPod().Queue("user-queue").Obj(),
 			ancestors:                  []client.Object{unqueuedDeployment, owningReplicaSet},
 			enableFeature:              true,
 			manageJobsWithoutQueueName: true,
