@@ -78,11 +78,6 @@ type Configuration struct {
 	// is exceeded, then the workload is evicted.
 	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 
-	// QuotaReleaseStrategy controls when Kueue releases a workload's quota
-	// reservation after the workload begins terminating. Defaults to OnTerminating.
-	// +optional
-	QuotaReleaseStrategy *QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
-
 	// ClientConnection provides additional configuration options for Kubernetes
 	// API server client.
 	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
@@ -117,6 +112,10 @@ type Configuration struct {
 	// VisibilityServer configures the visibility server.
 	// +optional
 	VisibilityServer *VisibilityServerConfiguration `json:"visibilityServer,omitempty"`
+
+	// QuotaReleaseStrategy provides configuration options for controlling quota release timing.
+	// +optional
+	QuotaReleaseStrategy *QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
 }
 
 type ControllerManager struct {
@@ -307,22 +306,20 @@ type ControllerConfigurationSpec struct {
 // QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.
 //
 // Valid values are:
-// - "OnTerminating" (default): releases quota as soon as all pods have a deletionTimestamp set.
-// - "OnTerminal": holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).
+// - "OnTerminating": releases quota as soon as deletion is initiated or the workload is marked finished.
+// - "OnTerminal": holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed).
 //
 // +kubebuilder:validation:Enum=OnTerminating;OnTerminal
 // +enum
 type QuotaReleaseStrategy string
 
 const (
-	// QuotaReleaseOnTerminating releases quota as soon as all pods have a
-	// deletionTimestamp set. This is the default and matches the existing
-	// behaviour of the batch/v1 Job integration.
+	// QuotaReleaseOnTerminating releases quota as soon as deletion is initiated
+	// or the workload is marked finished.
 	QuotaReleaseOnTerminating QuotaReleaseStrategy = "OnTerminating"
+
 	// QuotaReleaseOnTerminal holds quota until all underlying pods
-	// have fully reached a terminal phase (Succeeded or Failed). This prevents
-	// scheduling failures for TopologyAwareScheduling (TAS) workloads where new
-	// pods cannot be placed until old pods physically release the hardware.
+	// have reached a terminal phase (Succeeded or Failed).
 	QuotaReleaseOnTerminal QuotaReleaseStrategy = "OnTerminal"
 )
 
@@ -583,6 +580,7 @@ type Integrations struct {
 	//  - "statefulset"
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
 	Frameworks []string `json:"frameworks,omitempty"`
+
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`

@@ -5024,19 +5024,19 @@ func TestJob_IsActive(t *testing.T) {
 		strategy    configapi.QuotaReleaseStrategy
 		want        bool
 	}{
-		"Active == 0, Terminating == nil, OnTerminating": {
+		"Active == 0, Terminating == nil, OnQuotaReleased": {
 			active:      0,
 			terminating: nil,
 			strategy:    configapi.QuotaReleaseOnTerminating,
 			want:        false,
 		},
-		"Active == 0, Terminating == 0, OnTerminating": {
+		"Active == 0, Terminating == 0, OnQuotaReleased": {
 			active:      0,
 			terminating: ptr.To[int32](0),
 			strategy:    configapi.QuotaReleaseOnTerminating,
 			want:        false,
 		},
-		"Active > 0, Terminating == 0, OnTerminating": {
+		"Active > 0, Terminating == 0, OnQuotaReleased": {
 			active:      2,
 			terminating: ptr.To[int32](0),
 			strategy:    configapi.QuotaReleaseOnTerminating,
@@ -5048,7 +5048,7 @@ func TestJob_IsActive(t *testing.T) {
 			strategy:    configapi.QuotaReleaseOnTerminal,
 			want:        true,
 		},
-		"Active == 0, Terminating > 0, OnTerminating": {
+		"Active == 0, Terminating > 0, OnQuotaReleased": {
 			active:      0,
 			terminating: ptr.To[int32](2),
 			strategy:    configapi.QuotaReleaseOnTerminating,

@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -102,6 +103,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	defaultVisibilityServer := &VisibilityServerConfiguration{
 		BindPort: new(int32(8082)),
 	}
+	defaultQuotaReleaseStrategy := ptr.To(DefaultQuotaReleaseStrategy)
 	defaultWaitForPodsReady := &WaitForPodsReady{
 		Timeout: metav1.Duration{
 			Duration: 30 * time.Minute,
@@ -131,8 +133,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -143,6 +143,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -158,8 +159,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
@@ -192,6 +191,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -223,12 +223,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
-				Integrations:     defaultIntegrations,
-				VisibilityServer: defaultVisibilityServer,
+				Integrations:         defaultIntegrations,
+				VisibilityServer:     defaultVisibilityServer,
+				QuotaReleaseStrategy: defaultQuotaReleaseStrategy,
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
@@ -261,6 +260,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -276,8 +276,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace: new(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
@@ -310,6 +308,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -318,8 +317,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: new(overwriteNamespace),
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -332,6 +329,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -343,8 +341,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -355,6 +351,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -370,8 +367,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -385,6 +380,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -397,8 +393,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: &ClientConnection{},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -409,6 +403,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -420,8 +415,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout: metav1.Duration{
 						Duration: 30 * time.Minute,
@@ -446,6 +439,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 			},
 		},
 		"defaulting waitForPodsReady recoveryTimeout to timeout": {
@@ -458,8 +452,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout:         customTimeout,
 					BlockAdmission:  new(false),
@@ -480,6 +472,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 			},
 		},
 		"respecting provided waitForPodsReady values": {
@@ -498,8 +491,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				WaitForPodsReady: &WaitForPodsReady{
 					BlockAdmission:  new(false),
 					Timeout:         podsReadyTimeoutOverwrite,
@@ -520,6 +511,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 			},
 		},
 		"disabling waitForPodsReady recoveryTimeout with zero value": {
@@ -533,8 +525,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				WaitForPodsReady: &WaitForPodsReady{
 					Timeout:         customTimeout,
 					BlockAdmission:  new(false),
@@ -555,6 +545,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 			},
 		},
 		"integrations": {
@@ -567,8 +558,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -581,6 +570,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -597,8 +587,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -617,6 +605,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -633,8 +622,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -650,6 +637,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -664,8 +652,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -681,6 +667,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         defaultQuotaReleaseStrategy,
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
@@ -697,8 +684,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -714,8 +699,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						AfterDeactivatedByKueue: &metav1.Duration{Duration: 30 * time.Minute},
 					},
 				},
-				VisibilityServer: defaultVisibilityServer,
-				WaitForPodsReady: defaultWaitForPodsReady,
+				VisibilityServer:     defaultVisibilityServer,
+				QuotaReleaseStrategy: defaultQuotaReleaseStrategy,
+				WaitForPodsReady:     defaultWaitForPodsReady,
 			},
 		},
 		"resources.transformations strategy": {
@@ -732,8 +718,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
-
 				Namespace:         new(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
@@ -750,8 +734,31 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						{Input: corev1.ResourceEphemeralStorage, Strategy: new(DefaultResourceTransformationStrategy)},
 					},
 				},
-				VisibilityServer: defaultVisibilityServer,
-				WaitForPodsReady: defaultWaitForPodsReady,
+				VisibilityServer:     defaultVisibilityServer,
+				QuotaReleaseStrategy: defaultQuotaReleaseStrategy,
+				WaitForPodsReady:     defaultWaitForPodsReady,
+			},
+		},
+		"preserving custom QuotaReleaseStrategy": {
+			original: &Configuration{
+				QuotaReleaseStrategy: ptr.To(QuotaReleaseOnTerminal),
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				QuotaReleaseStrategy:         ptr.To(QuotaReleaseOnTerminal),
+				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
 	}

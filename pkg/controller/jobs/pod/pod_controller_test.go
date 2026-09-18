@@ -7146,6 +7146,7 @@ func TestPod_IsActive(t *testing.T) {
 			},
 		},
 		"PodGroup_Active": {
+			strategy: configapi.QuotaReleaseOnTerminal,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{

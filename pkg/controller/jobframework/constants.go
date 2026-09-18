@@ -34,11 +34,12 @@ const (
 
 func GetQuotaReleaseStrategy(ctx context.Context) configapi.QuotaReleaseStrategy {
 	strategy, ok := ctx.Value(quotaReleaseStrategyKey).(configapi.QuotaReleaseStrategy)
-	if !ok {
+	if !ok || strategy == "" {
 		return configapi.QuotaReleaseOnTerminating
 	}
 	return strategy
 }
+
 func ContextWithQuotaReleaseStrategy(ctx context.Context, strategy configapi.QuotaReleaseStrategy) context.Context {
 	return context.WithValue(ctx, quotaReleaseStrategyKey, strategy)
 }

@@ -336,7 +336,6 @@ func autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuratio
 	} else {
 		out.WaitForPodsReady = nil
 	}
-	// WARNING: in.Scheduling requires manual conversion: does not exist in peer-type
 	out.ClientConnection = (*v1beta2.ClientConnection)(unsafe.Pointer(in.ClientConnection))
 	if in.Integrations != nil {
 		in, out := &in.Integrations, &out.Integrations
@@ -398,7 +397,6 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	} else {
 		out.WaitForPodsReady = nil
 	}
-	// WARNING: in.QuotaReleaseStrategy requires manual conversion: does not exist in peer-type
 	out.ClientConnection = (*ClientConnection)(unsafe.Pointer(in.ClientConnection))
 	if in.Integrations != nil {
 		in, out := &in.Integrations, &out.Integrations
@@ -440,6 +438,7 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	out.FeatureGates = *(*map[string]bool)(unsafe.Pointer(&in.FeatureGates))
 	out.ObjectRetentionPolicies = (*ObjectRetentionPolicies)(unsafe.Pointer(in.ObjectRetentionPolicies))
 	// WARNING: in.VisibilityServer requires manual conversion: does not exist in peer-type
+	// WARNING: in.QuotaReleaseStrategy requires manual conversion: does not exist in peer-type
 	return nil
 }
 

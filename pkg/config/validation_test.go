@@ -76,6 +76,12 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid quota release strategy": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnTerminal),
+			},
+		},
 		"invalid quota release strategy": {
 			cfg: &configapi.Configuration{
 				Integrations:         defaultIntegrations,
