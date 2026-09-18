@@ -14,19 +14,40 @@
 
 package fairsharing
 
-import schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+import (
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
+)
 
 // almostLCA is defined on two ClusterQueues, as the two nodes before
 // the lowest shared node - the LeastCommonAncestor (LCA). While LCA
 // is always a Cohort, almostLCA may be a ClusterQueue or a Cohort.
 type almostLCA interface {
 	DominantResourceShare() schdcache.DRS
+	BorrowingWith(resources.FlavorResource, resources.Amount) bool
 }
 
 // getAlmostLCAs returns almostLCAs of (preemptor, target).
 func getAlmostLCAs(t *TargetClusterQueue) (almostLCA, almostLCA) {
 	lca := getLCA(t)
 	return getAlmostLCA(t.ordering.preemptorCq, lca), getAlmostLCA(t.targetCq, lca)
+}
+
+// preemptorPathToAlmostLCA returns the nodes on the path from the
+// preemptor ClusterQueue up to, and including, its almostLCA with the
+// target. Nodes above the almostLCA are shared ancestors of both
+// ClusterQueues, so their nominal quota is not contested between them.
+func preemptorPathToAlmostLCA(t *TargetClusterQueue) []almostLCA {
+	lca := getLCA(t)
+	nodes := []almostLCA{t.ordering.preemptorCq}
+	for ancestor := range t.ordering.preemptorCq.PathParentToRoot() {
+		if ancestor == lca {
+			return nodes
+		}
+		nodes = append(nodes, ancestor)
+	}
+	// to make the compiler happy
+	panic("serious bug: could not find AlmostLeastCommonAncestor")
 }
 
 // getLCA traverses from a ClusterQueue towards the root Cohort,
