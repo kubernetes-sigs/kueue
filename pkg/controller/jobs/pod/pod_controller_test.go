@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -283,7 +284,7 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 	podOwnedBy := func(podName, rsName, rsUID string) *testingpod.PodWrapper {
 		return testingpod.MakePod(podName, "ns").
 			UID(podName+"-uid").
-			SuspendedByParent("deployment").
+			SuspendedByParent(deploymentconstants.FrameworkName).
 			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
 			Image("", nil)
 	}

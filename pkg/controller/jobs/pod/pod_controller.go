@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -1292,8 +1293,7 @@ func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *ku
 		return nil
 	}
 	// The annotation value is free-form and may refer to an external controller.
-	// Use the literal to avoid importing the deployment package and creating a cycle.
-	if p.pod.Annotations[podconstants.SuspendedByParentAnnotation] != "deployment" {
+	if p.pod.Annotations[podconstants.SuspendedByParentAnnotation] != deploymentconstants.FrameworkName {
 		return nil
 	}
 
