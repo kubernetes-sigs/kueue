@@ -266,6 +266,13 @@ func TestGetWorkloadNameForVariant(t *testing.T) {
 			flavor:     "spot",
 			want:       "job-my-job-variant-spot-6320b",
 		},
+		"parent name without a separator": {
+			parentName: "wl",
+			ownerUID:   "uid-123",
+			ownerGVK:   gvk,
+			flavor:     "spot",
+			want:       "wl-variant-spot-4fd92",
+		},
 		"flavor name exceeding max length (ShortWorkloadNames=false)": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ShortWorkloadNames: false,
@@ -299,7 +306,10 @@ func TestGetWorkloadNameForVariant(t *testing.T) {
 					t.Fatalf("Unexpected workloadName (-want,+got):\n%s", diff)
 				}
 			}
-			parentPrefix := tc.parentName[:strings.LastIndex(tc.parentName, "-")]
+			parentPrefix := tc.parentName
+			if i := strings.LastIndex(tc.parentName, "-"); i != -1 {
+				parentPrefix = tc.parentName[:i]
+			}
 			prefixWithFlavor := truncate(fmt.Sprintf("%s-variant-%s", parentPrefix, tc.flavor), maxPrefixLength())
 			wantLength := len(prefixWithFlavor) + 1 + hashLength
 			if len(got) != wantLength {
