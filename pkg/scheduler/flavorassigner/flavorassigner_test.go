@@ -6093,8 +6093,8 @@ func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
 				t.Fatalf("Failed to create CQ snapshot")
 			}
 
-			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.AssignFlavors(ctx, log, &testOracle{}, nil)
 
 			status := assignment.PodSets[0].Status
 			if got := status.IsFit(); got != tc.wantFit {
