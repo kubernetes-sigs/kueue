@@ -64,6 +64,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			clusterQueue  *kueue.ClusterQueue
 			localQueue    *kueue.LocalQueue
 			deviceClass   *resourceapi.DeviceClass
+			extendedClass *resourceapi.DeviceClass
 			claimTemplate *resourceapi.ResourceClaimTemplate
 			tooBigClaim   *resourceapi.ResourceClaimTemplate
 			nodes         []corev1.Node
@@ -102,6 +103,13 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			deviceClass = testingdra.MakeDeviceClass("gpu.test.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
 
+			// Declares an extended resource instead of being named by a claim. It
+			// carries no selectors, so it draws on the same devices as the class above.
+			extendedClass = testingdra.MakeDeviceClass("gpu-extended.test.com").
+				ExtendedResourceName("test.com/gpu").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, extendedClass)).To(gomega.Succeed())
+
 			// The GPUs sit on was-n2 on purpose. TAS breaks ties by level values,
 			// so it picks was-n1 on its own; asserting was-n2 therefore fails
 			// unless DRA feasibility actively steered the assignment.
@@ -125,6 +133,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
 					Resource(corev1.ResourceCPU, "10").
 					Resource("test-gpus", "4").
+					Resource("test.com/gpu", "4").
 					Obj()).
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
@@ -160,6 +169,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, gpuSlice, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, extendedClass, true)
 			for _, node := range nodes {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 			}
@@ -180,6 +190,28 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					ResourceClaimTemplateName: new("gpu-claim"),
 				},
 			}
+			wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
+				Required: ptr.To[string](corev1.LabelHostname),
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
+			gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
+		})
+
+		// The Pod names no claim: kube-scheduler would create one for the extended
+		// resource only after admission. Feasibility has to derive it, or was-n1 wins
+		// the tie and the Pods never run.
+		ginkgo.It("should assign an extended resource workload only to the node with matching devices", func() {
+			wl := utiltestingapi.MakeWorkload("wl-dra-extended", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Request("test.com/gpu", "1").
+				Obj()
 			wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
 				Required: ptr.To[string](corev1.LabelHostname),
 			}

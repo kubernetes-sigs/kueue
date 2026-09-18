@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
@@ -30,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -51,6 +53,7 @@ type PodSetTestCase struct {
 
 	count              int32
 	resourceClaims     []corev1.PodResourceClaim
+	containerRequests  corev1.ResourceList
 	tolerations        []corev1.Toleration
 	nodeSelector       map[string]string
 	nodeAffinity       *corev1.NodeAffinity
@@ -1432,6 +1435,60 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Count: 1, Values: []string{"x5"}},
 						{Count: 1, Values: []string{"x2"}},
 						{Count: 2, Values: []string{"x6"}},
+					},
+				},
+			}},
+		},
+		"a PodSet's DRA-backed extended resources are only satisfied by the node publishing the device": {
+			// kube-scheduler creates the ResourceClaim for an extended resource after
+			// Kueue admits, so the PodSet names no claim and the device check has to
+			// derive one. Both hosts fit the CPU request and x1 sorts first, so an
+			// assignment landing on x2 can only come from that check.
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:             1,
+				containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x2"}},
 					},
 				},
 			}},
@@ -10192,6 +10249,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 				clientBuilder := utiltesting.NewClientBuilder()
 				clientBuilder.WithObjects(initialObjects...)
 				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				_ = utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &resourcev1.DeviceClass{},
+					coreindexer.DeviceClassExtendedResourceNameIndex, coreindexer.IndexDeviceClassExtendedResourceName)
 				client := clientBuilder.Build()
 
 				tasCache := NewTASCache(client, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
@@ -10266,6 +10325,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 						}
 						topologyRequest.PodSetGroupName = ps.podSetGroupName
 					}
+					// Extended resources are read off the containers, not from
+					// SinglePodRequests, which is where the device check looks.
+					var containers []corev1.Container
+					if len(ps.containerRequests) > 0 {
+						containers = []corev1.Container{{
+							Name:      "c",
+							Resources: corev1.ResourceRequirements{Requests: ps.containerRequests},
+						}}
+					}
 					tasInput := TASPodSetRequests{
 						PodSet: &kueue.PodSet{
 							Name:            kueue.NewPodSetReference(ps.podSetName),
@@ -10276,6 +10344,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 									NodeSelector:   ps.nodeSelector,
 									Affinity:       affinity,
 									ResourceClaims: ps.resourceClaims,
+									Containers:     containers,
 								},
 							},
 						},

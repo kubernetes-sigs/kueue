@@ -117,6 +117,21 @@ func extendedResourceRequests(container corev1.Container) corev1.ResourceList {
 	return result
 }
 
+// ResolveDeviceClass returns the DeviceClass kube-scheduler would allocate resourceName
+// from, or nil when the name is an ordinary extended resource that no DeviceClass backs.
+func ResolveDeviceClass(ctx context.Context, cl client.Client, resourceName corev1.ResourceName) (*resourceapi.DeviceClass, error) {
+	var dcList resourceapi.DeviceClassList
+	if err := cl.List(ctx, &dcList, client.MatchingFields{
+		"spec.extendedResourceName": string(resourceName),
+	}); err != nil {
+		return nil, fmt.Errorf("listing DeviceClasses for extended resource %q: %w", resourceName, err)
+	}
+	if len(dcList.Items) == 0 {
+		return nil, nil
+	}
+	return selectedDeviceClass(dcList.Items), nil
+}
+
 // resolveQuotaKey looks up the DeviceClasses backing resourceName by
 // spec.extendedResourceName, selects the one the scheduler would allocate from, and
 // returns that class's deviceClassMappings entry as the quota key; otherwise
@@ -132,23 +147,16 @@ func resolveQuotaKey(
 	log := ctrl.LoggerFrom(ctx)
 	log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName)
 
-	var deviceClasses resourceapi.DeviceClassList
-	if err := cl.List(ctx, &deviceClasses, client.MatchingFields{
-		"spec.extendedResourceName": string(resourceName),
-	}); err != nil {
+	selected, err := ResolveDeviceClass(ctx, cl, resourceName)
+	if err != nil {
 		return "", field.ErrorList{field.InternalError(
-			path.Child("resources", "requests", string(resourceName)),
-			fmt.Errorf("failed to list DeviceClasses for extended resource %q: %w", resourceName, err),
+			path.Child("resources", "requests", string(resourceName)), err,
 		)}
 	}
-
-	if len(deviceClasses.Items) == 0 {
+	if selected == nil {
 		log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
 		return "", nil
 	}
-
-	// The class the scheduler will allocate from, not whichever List returned first.
-	selected := selectedDeviceClass(deviceClasses.Items)
 
 	// Determine the quota key. If the DeviceClass is also in deviceClassMappings,
 	// use the mapped logical name to unify quota with the ResourceClaimTemplate path.

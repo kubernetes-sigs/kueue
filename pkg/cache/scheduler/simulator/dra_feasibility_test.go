@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,6 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -67,6 +70,7 @@ func (p *passthroughChecker) FindFeasibleNodes(_ context.Context, candidates ite
 }
 
 func TestDRACheckerFindFeasibleNodes(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = resourceapi.AddToScheme(scheme)
@@ -81,6 +85,19 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 	gpuDeviceClass := &resourceapi.DeviceClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"},
 	}
+	// Backs an extended resource rather than being named by a claim, so kube-scheduler
+	// creates the claim itself once the Pod is scheduled. It carries no selectors, so it
+	// draws from the same devices as the class above.
+	gpuExtendedClass := &resourceapi.DeviceClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-extended.example.com"},
+		Spec: resourceapi.DeviceClassSpec{
+			ExtendedResourceName: new("example.com/gpu"),
+		},
+	}
+	extendedGPU := func(count string) corev1.ResourceList {
+		return corev1.ResourceList{"example.com/gpu": resource.MustParse(count)}
+	}
+
 	gpuClaimTemplate := &resourceapi.ResourceClaimTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "default"},
 		Spec: resourceapi.ResourceClaimTemplateSpec{
@@ -179,6 +196,136 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 				{node: cpuNode, id: "cpu-node"},
 			},
 			wantFeasible: []string{"gpu-node", "cpu-node"},
+		},
+		"extended resource pod filters out nodes without matching devices": {
+			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:      "c",
+						Image:     "busybox",
+						Resources: corev1.ResourceRequirements{Requests: extendedGPU("1")},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			},
+			wantFeasible: []string{"gpu-node"},
+			wantDRANoFit: 1,
+		},
+		"extended resource beyond what any node holds excludes every node": {
+			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:      "c",
+						Image:     "busybox",
+						Resources: corev1.ResourceRequirements{Requests: extendedGPU("4")},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			},
+			wantDRANoFit: 2,
+		},
+		"an extended resource no DeviceClass backs is left to the node filters": {
+			objects: []runtime.Object{gpuSlice},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:      "c",
+						Image:     "busybox",
+						Resources: corev1.ResourceRequirements{Requests: extendedGPU("1")},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			},
+			wantFeasible: []string{"gpu-node", "cpu-node"},
+		},
+		"a plain init container raises the count rather than adding to it": {
+			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{{
+						Name:      "setup",
+						Image:     "busybox",
+						Resources: corev1.ResourceRequirements{Requests: extendedGPU("2")},
+					}},
+					Containers: []corev1.Container{{
+						Name:      "c",
+						Image:     "busybox",
+						Resources: corev1.ResourceRequirements{Requests: extendedGPU("2")},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			},
+			wantFeasible: []string{"gpu-node"},
+			wantDRANoFit: 1,
+		},
+		"a plain init container is counted alongside the sidecars that precede it": {
+			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{
+						{
+							Name:          "sidecar",
+							Image:         "busybox",
+							RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
+							Resources:     corev1.ResourceRequirements{Requests: extendedGPU("1")},
+						},
+						{
+							Name:      "setup",
+							Image:     "busybox",
+							Resources: corev1.ResourceRequirements{Requests: extendedGPU("2")},
+						},
+					},
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			},
+			wantDRANoFit: 2,
+		},
+		"a sidecar's devices add to the Pod's total": {
+			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{{
+						Name:          "sidecar",
+						Image:         "busybox",
+						RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
+						Resources:     corev1.ResourceRequirements{Requests: extendedGPU("2")},
+					}},
+					Containers: []corev1.Container{{
+						Name:      "c",
+						Image:     "busybox",
+						Resources: corev1.ResourceRequirements{Requests: extendedGPU("1")},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			},
+			wantDRANoFit: 2,
 		},
 		"nil PodTemplate passes through": {
 			objects:     []runtime.Object{gpuSlice, gpuDeviceClass},
@@ -486,7 +633,10 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(tc.objects...).Build()
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(tc.objects...).
+				WithIndex(&resourceapi.DeviceClass{}, indexer.DeviceClassExtendedResourceNameIndex,
+					indexer.IndexDeviceClassExtendedResourceName).
+				Build()
 			inner := &passthroughChecker{}
 			checker := NewDRAChecker(inner, cl)
 
