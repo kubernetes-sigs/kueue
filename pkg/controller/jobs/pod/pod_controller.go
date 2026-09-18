@@ -1291,7 +1291,7 @@ func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *ku
 	if p.integrationManager == nil {
 		return nil
 	}
-	if _, suspendedByParent := p.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendedByParent {
+	if parent := p.pod.Annotations[podconstants.SuspendedByParentAnnotation]; parent == "deployment" {
 		return nil
 	}
 
