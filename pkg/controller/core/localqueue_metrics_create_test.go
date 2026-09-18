@@ -20,14 +20,12 @@ import (
 	"errors"
 	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -46,7 +44,6 @@ func TestLocalQueueCreateReportsPendingWorkloadsWithCustomLabels(t *testing.T) {
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Label("team", "alpha").Obj()
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
 	cl := utiltesting.NewClientBuilder().WithObjects(cq, wl).
-		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 		Build()
 	ctx, log := utiltesting.ContextWithLog(t)
 	cqCache := schdcache.New(cl, schdcache.WithCustomLabels(customLabels))

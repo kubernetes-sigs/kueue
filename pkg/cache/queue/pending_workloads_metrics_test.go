@@ -25,7 +25,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -170,8 +169,7 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 			cq := utiltestingapi.MakeClusterQueue("cq").Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "Ready", "Ready").Obj()
 			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue(cq.Name).Obj()
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Label("workload-kind", "kind1").Request(corev1.ResourceCPU, "1").Obj()
-			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
+			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns")).Build()
 			checker := &pendingWorkloadsStatusChecker{active: true}
 			m, requeuer := NewManagerForUnitTestsWithRequeuer(cl, checker,
 				WithCustomLabels(customLabels), WithPreemptionExpectations(preemptexpectations.New()))

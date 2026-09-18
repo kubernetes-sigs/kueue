@@ -519,7 +519,26 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+		wInfo, err := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+		if err != nil {
+			log := ctrl.LoggerFrom(ctx)
+			if errors.Is(err, workload.ErrInternal) && ctx.Err() == nil {
+				log.Error(err, "Failed to resolve effective resources for workload in queue; will retry", "workload", klog.KObj(&w))
+				delete(m.workloadAssignedQueues, workload.Key(&w))
+				wlCopy := w.DeepCopy()
+				go m.clock.AfterFunc(initialBackoff, func() {
+					if err := m.AddOrUpdateWorkload(context.Background(), log, wlCopy); err != nil {
+						log.Error(err, "Failed to retry adding workload to queue after internal error", "workload", klog.KObj(wlCopy))
+					}
+				})
+				continue
+			}
+			log.Error(err, "Failed to resolve effective resources for workload in queue", "workload", klog.KObj(&w))
+			if ctx.Err() != nil {
+				delete(m.workloadAssignedQueues, workload.Key(&w))
+				continue
+			}
+		}
 		if dra.NeedsDRAReconcile(wInfo, m.draBackedResources) {
 			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
 			// stable pointer since the range variable is reused each iteration.
@@ -729,7 +748,10 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
-	wInfo := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), m.client, w, allOptions...)
+	wInfo, err := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), m.client, w, allOptions...)
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
@@ -819,7 +841,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	if q == nil {
 		return false, nil
 	}
-	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+	fresh, _ := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
 	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
 		// DRA quota charges are resolved by the workload controller and cannot be
@@ -836,6 +858,7 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
 	info.Update(log, &w, options...)
+	info.AdjustmentErr = fresh.AdjustmentErr
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -1183,7 +1206,17 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 		m.retrySecondPassRead(ctx, nsName, iteration+1)
 		return
 	}
-	wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+	wInfo, err := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+	if err != nil {
+		if errors.Is(err, workload.ErrInternal) {
+			log.Error(err, "Failed to resolve effective resources for second pass; will retry", "workload", wlKey)
+			m.retrySecondPassRead(ctx, nsName, iteration+1)
+			return
+		}
+		log.Error(err, "Failed to resolve effective resources for second pass", "workload", wlKey)
+		m.secondPassQueue.deleteByKey(wlKey)
+		return
+	}
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queueLocked(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
