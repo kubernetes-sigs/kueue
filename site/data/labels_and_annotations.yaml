@@ -104,7 +104,8 @@
     The label key in the workload resource holds the UID of the owner job. With the
     `DeploymentJobUIDLabel` feature gate enabled, the Workload of a Pod that Kueue manages
     through a Deployment holds that Deployment's UID instead. The Pod UID is kept for Pods
-    that Kueue does not manage through a Deployment.
+    that Kueue does not manage through a Deployment. The label is set when the Workload is
+    created, so enabling the feature gate does not relabel Workloads that already exist.
 
 - key: kueue.x-k8s.io/local-queue-name
   type: Label

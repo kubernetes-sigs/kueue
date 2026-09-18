@@ -377,12 +377,15 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 			wantJobUID:    "pod-uid",
 		},
 		"pod not gated by a parent integration keeps the pod UID": {
+			// The shape a Pod under an unmanaged Deployment actually has: the
+			// queue-name is its own and the Deployment webhook stamped nothing.
 			pod: testingpod.MakePod("pod", "ns").
 				UID("pod-uid").
+				Queue("user-queue").
 				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
 				Image("", nil).
 				Obj(),
-			ancestors:     []client.Object{deployment, owningReplicaSet},
+			ancestors:     []client.Object{unqueuedDeployment, owningReplicaSet},
 			enableFeature: true,
 			wantJobUID:    "pod-uid",
 		},
