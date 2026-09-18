@@ -1664,8 +1664,9 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		workloads []kueue.Workload
-		want      want
+		partialScaleUp bool
+		workloads      []kueue.Workload
+		want           want
 	}{
 		"two admitted, keep newest": {
 			workloads: []kueue.Workload{
@@ -1693,6 +1694,39 @@ func TestNormalizeActiveSlices(t *testing.T) {
 					EvictedAt(now).Obj(),
 				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		// Unlike the case above, wl-b is a partial scale-up probe (it carries a
+		// minCount) replacing the evicted wl-a, not an unrelated pending workload.
+		// Its floor was computed relative to wl-a's admission, which is gone, so it
+		// can never be satisfied either - both must be finished, letting the job's
+		// next reconcile start over from zero workloads instead of leaving the probe
+		// stranded forever. See https://github.com/kubernetes-sigs/kueue/issues/15399.
+		"evicted admitted with unsatisfiable probe, finish both": {
+			partialScaleUp: true,
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").SetMinimumCount(2).Obj()).Obj(),
+			},
+			want: want{survivor: ""},
+		},
+		// Same shape as above, but without the feature enabled: minCount could only
+		// have come from classic PartialAdmission here, so this must not be treated
+		// as a partial scale-up probe - wl-b survives exactly like the case without a
+		// minCount at all.
+		"evicted admitted with minCount but feature disabled, keep pending and finish evicted": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").SetMinimumCount(2).Obj()).Obj(),
 			},
 			want: want{survivor: "wl-b"},
 		},
@@ -1799,6 +1833,9 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: tc.partialScaleUp,
+			})
 			ctx, _ := utiltesting.ContextWithLog(t)
 			testSchema := runtime.NewScheme()
 			_ = kueue.AddToScheme(testSchema)

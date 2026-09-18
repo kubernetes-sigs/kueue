@@ -1782,41 +1782,62 @@ func shouldCreatePartialScaleUpProbe(job GenericJob) bool {
 
 func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job GenericJob, podSets []kueue.PodSet) (string, error) {
 	object := job.Object()
-	prevWl, err := workloadslicing.FindLatestActiveWorkload(ctx, c, object, job.GVK())
+	sourceWl, err := workloadslicing.FindLatestActiveWorkload(ctx, c, object, job.GVK())
 	if err != nil {
 		return "", err
 	}
+
+	fromHistory := false
+	if sourceWl == nil {
+		// No live slice to compare against (issue #15399): fall back to the last
+		// count this job actually held, instead of demanding the full request.
+		sourceWl, err = workloadslicing.FindMostRecentlyGrantedWorkload(ctx, c, object, job.GVK())
+		if err != nil {
+			return "", err
+		}
+		fromHistory = sourceWl != nil
+	}
+	if sourceWl == nil {
+		// Nothing was ever admitted for this job: ordinary first creation.
+		return "", nil
+	}
+	grantedCounts := workload.ExtractGrantedPodSetCounts(sourceWl)
+
+	// sourceWl's UID keeps this name from colliding with anything else - including
+	// an earlier, now-finished probe or slice that happened to reach the same
+	// admitted count - while staying stable across retries against this same
+	// sourceWl.
 	extra := ""
-	if prevWl != nil {
-		extra = scaleUpProbeExtra
-		if len(prevWl.Spec.PodSets) != len(podSets) {
-			extra = ""
-		} else {
-			for i := range podSets {
-				if prevWl.Spec.PodSets[i].Count != podSets[i].Count {
-					extra = ""
-				}
-			}
+	switch {
+	case fromHistory:
+		extra = string(sourceWl.UID)
+	case workload.ExtractPodSetCounts(sourceWl.Spec.PodSets).EqualTo(workload.ExtractPodSetCounts(podSets)):
+		extra = scaleUpProbeExtra + "-" + string(sourceWl.UID)
+	}
+
+	admitted := int32(0)
+	for i := range podSets {
+		prevAdmittedCount, ok := grantedCounts[podSets[i].Name]
+		if !ok {
+			continue
 		}
-		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
-		admitted := int32(0)
-		for i := range podSets {
-			prevAdmittedCount, ok := grantedCounts[podSets[i].Name]
-			if !ok {
-				continue
+		admitted += prevAdmittedCount
+		if podSets[i].Count > prevAdmittedCount {
+			minCount := prevAdmittedCount
+			if !fromHistory {
+				// A live predecessor must be strictly beaten by at least one to be
+				// worth replacing. Recovering from history has no rival to beat -
+				// it only needs to match what was already proven to fit.
+				minCount++
 			}
-			admitted += prevAdmittedCount
-			if podSets[i].Count > prevAdmittedCount {
-				minCount := prevAdmittedCount + 1
-				podSets[i].MinCount = &minCount
-			}
+			podSets[i].MinCount = &minCount
 		}
-		if extra != "" {
-			// The admitted level the probe is issued against. It grows with every partial
-			// admission, so successive probes within one scale event get distinct names,
-			// while a retry against an unchanged level reuses the same one.
-			extra = fmt.Sprintf("%s-%d", extra, admitted)
-		}
+	}
+	if extra != "" {
+		// The admitted level the probe is issued against. It grows with every partial
+		// admission, so successive probes within one scale event get distinct names,
+		// while a retry against an unchanged level reuses the same one.
+		extra = fmt.Sprintf("%s-%d", extra, admitted)
 	}
 	return extra, nil
 }
