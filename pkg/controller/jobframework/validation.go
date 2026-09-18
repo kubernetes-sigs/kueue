@@ -90,7 +90,7 @@ func ValidateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) 
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
-	allErrs = append(allErrs, validateCreateForPodsReadyTimeout(job, maxTimeoutOnWorkload)...)
+	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotation(job.Object(), maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(job.Object())...)
@@ -302,11 +302,11 @@ func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *co
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
 }
 
-func validateCreateForPodsReadyTimeout(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
+func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		return nil
 	}
-	annotationValue, exists := job.Object().GetAnnotations()[constants.WaitForPodsReadyAnnotation]
+	annotationValue, exists := obj.GetAnnotations()[constants.WaitForPodsReadyAnnotation]
 	if !exists || annotationValue == "" {
 		return nil
 	}
@@ -346,7 +346,7 @@ func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob, maxTimeoutOnWo
 			waitForPodsReadyAnnotationPath,
 		)
 	}
-	return validateCreateForPodsReadyTimeout(newJob, maxTimeoutOnWorkload)
+	return ValidateWaitForPodsReadyAnnotation(newJob.Object(), maxTimeoutOnWorkload)
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {

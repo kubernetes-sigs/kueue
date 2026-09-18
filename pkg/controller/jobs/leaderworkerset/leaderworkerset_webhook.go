@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -48,6 +49,7 @@ type Webhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
@@ -58,6 +60,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &leaderworkersetv1.LeaderWorkerSet{}
 	if options.NoopWebhook {
@@ -163,7 +166,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating create")
 
-	validationErrs, err := validateCreate(lws)
+	validationErrs, err := validateCreate(lws, wh.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +181,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs, err := validateCreate(newLeaderWorkerSet)
+	allErrs, err := validateCreate(newLeaderWorkerSet, wh.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +252,7 @@ func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
 }
 
-func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
+func validateCreate(lws *LeaderWorkerSet, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(lws.Object(), lws.GVK())...)
@@ -266,6 +269,7 @@ func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 		}
 		allErrs = append(allErrs, validationErrs...)
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), maxTimeoutOnWorkload)...)
 	return allErrs, nil
 }
 
