@@ -92,5 +92,20 @@ func schedulerLibrarySimulation(
 	preemptionPlanFactory preemption.PreemptionPlanFactory,
 	counts []int32,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
-	panic("not implemented")
+	log := log.FromContext(ctx)
+	cq := snapshot.ClusterQueue(wl.ClusterQueue)
+
+	defer func() {
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			assignment.ResolveNoFitReason(cq)
+		}
+	}()
+
+	preemptionOracle := preemption.NewSchedulerLibraryOracle(&snapshot.SimulatorSnapshot)
+	assignment = flavorAssigner.AssignFlavors(ctx, log, preemptionOracle, counts)
+	if assignment.RepresentativeMode() == flavorassigner.NoFit {
+		return
+	}
+
+	panic("SchedulerLibrary ScheduleWorkload support not implemented")
 }
