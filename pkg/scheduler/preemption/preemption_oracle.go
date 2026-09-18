@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
@@ -81,19 +82,19 @@ func (p *InternalPreemptionOracle) SimulatePreemption(
 	return preemptioncommon.Reclaim, borrowAfterPreemptions
 }
 
-func NewSchedulerLibraryOracle(snapshot *schdcache.Snapshot) *SchedulerLibraryPreemptionOracle {
-	return &SchedulerLibraryPreemptionOracle{
+func NewSchedulerLibraryOracle(snapshot *simulator.SimulatorSnapshot) *SchedulerLibraryOracle {
+	return &SchedulerLibraryOracle{
 		snapshot: snapshot,
 	}
 }
 
-type SchedulerLibraryPreemptionOracle struct {
-	snapshot *schdcache.Snapshot
+type SchedulerLibraryOracle struct {
+	snapshot *simulator.SimulatorSnapshot
 }
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
 // preemption and reclaim are possible in this flavor resource.
-func (s *SchedulerLibraryPreemptionOracle) SimulatePreemption(
+func (s *SchedulerLibraryOracle) SimulatePreemption(
 	ctx context.Context,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl workload.Info,
