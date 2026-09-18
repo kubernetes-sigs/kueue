@@ -36,16 +36,17 @@ func PodsScheduledTrackingEnabled(cfg *configapi.WaitForPodsReady) bool {
 		cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0
 }
 
-// AnnotationConfig holds the parsed content of the WaitForPodsReadyAnnotation,
+// WorkloadLevelConfig holds the parsed content of the WaitForPodsReadyAnnotation,
 // with integer seconds already converted to time.Duration.
-type AnnotationConfig struct {
+type WorkloadLevelConfig struct {
 	Timeout         time.Duration
 	RecoveryTimeout *time.Duration
 }
 
 // ParseAnnotation parses the JSON value of the WaitForPodsReadyAnnotation into
-// an AnnotationConfig. Returns nil, nil when the annotation value is empty.
-func ParseAnnotation(value string) (*AnnotationConfig, error) {
+// a WorkloadLevelConfig. Returns nil, nil when the annotation value is empty or
+// the WorkloadLevelWaitForPodsReady feature is not enabled.
+func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 	if !WorkloadLevelWaitForPodsReadyEnabled() {
 		return nil, nil
 	}
@@ -59,11 +60,9 @@ func ParseAnnotation(value string) (*AnnotationConfig, error) {
 	if err := json.Unmarshal([]byte(value), &raw); err != nil {
 		return nil, err
 	}
-	cfg := &AnnotationConfig{
+	cfg := &WorkloadLevelConfig{
 		Timeout: time.Duration(raw.TimeoutSeconds) * time.Second,
 	}
-	// Mirror the cluster-wide recoveryTimeout semantics: only set when strictly
-	// positive.
 	if raw.RecoveryTimeoutSeconds != nil {
 		rt := time.Duration(*raw.RecoveryTimeoutSeconds) * time.Second
 		cfg.RecoveryTimeout = &rt

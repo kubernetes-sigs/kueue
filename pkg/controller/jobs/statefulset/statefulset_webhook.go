@@ -21,6 +21,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -45,6 +46,7 @@ type Webhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
@@ -55,6 +57,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &appsv1.StatefulSet{}
 	if options.NoopWebhook {
@@ -130,6 +133,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSe
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(sts.Object())...)
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(sts.Object(), wh.maxTimeoutOnWorkload)...)
 
 	return nil, allErrs.ToAggregate()
 }
@@ -178,6 +182,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object())...)
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(newStatefulSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,

@@ -1679,19 +1679,13 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
-// admittedNotReadyWorkload returns the underlying cause and remaining time for
-// a workload that is admitted but not yet in PodsReady condition.
-//
-// If the workload is not admitted, PodsReady is true, or no timeout is configured,
-// it returns an empty underlyingCause and zero duration.
-func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	// Resolve the effective WaitForStart timeout: per-workload takes precedence.
-	var timeout time.Duration
-	var recoveryTimeout *time.Duration
+// determineTimeouts returns the timeout and recovery timeout for the workload,
+// giving precedence to the per-workload annotation over the cluster-level configuration.
+// It returns ok=false when no timeout and recovery timeout are configured at either level.
+func (r *WorkloadReconciler) determineTimeouts(wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
 	cfg, err := utilwfpr.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
 	if err != nil {
-		r.logger().Error(err, "Failed to unmarshal WaitForPodsReady annotation", "workload", klog.KObj(wl))
-		return "", 0
+		r.logger().Error(err, "Failed to unmarshal WaitForPodsReady annotation; falling back to cluster-level configuration", "workload", klog.KObj(wl))
 	}
 	switch {
 	case cfg != nil:
@@ -1707,6 +1701,19 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
 	default:
 		// No timeout configured at either level.
+		return 0, nil, false
+	}
+	return timeout, recoveryTimeout, true
+}
+
+// admittedNotReadyWorkload returns the underlying cause and remaining time for
+// a workload that is admitted but not yet in PodsReady condition.
+//
+// If the workload is not admitted, PodsReady is true, or no timeout is configured,
+// it returns an empty underlyingCause and zero duration.
+func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
+	timeout, recoveryTimeout, ok := r.determineTimeouts(wl)
+	if !ok {
 		return "", 0
 	}
 	if !workload.IsAdmitted(wl) {
