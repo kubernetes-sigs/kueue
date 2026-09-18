@@ -19,9 +19,11 @@ package dra
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -118,7 +120,21 @@ func extendedResourceRequests(container corev1.Container) corev1.ResourceList {
 
 // ResolveDeviceClass returns the DeviceClass kube-scheduler would allocate resourceName
 // from, or nil when the name is an ordinary extended resource that no DeviceClass backs.
+//
+// A class answers to the extended resource name it declares and to an implicit name it
+// carries either way.
 func ResolveDeviceClass(ctx context.Context, cl client.Client, resourceName corev1.ResourceName) (*resourceapi.DeviceClass, error) {
+	if className, ok := strings.CutPrefix(string(resourceName), resourceapi.ResourceDeviceClassPrefix); ok {
+		deviceClass := &resourceapi.DeviceClass{}
+		if err := cl.Get(ctx, client.ObjectKey{Name: className}, deviceClass); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("getting DeviceClass %q for extended resource %q: %w", className, resourceName, err)
+		}
+		return deviceClass, nil
+	}
+
 	var dcList resourceapi.DeviceClassList
 	if err := cl.List(ctx, &dcList, client.MatchingFields{
 		"spec.extendedResourceName": string(resourceName),

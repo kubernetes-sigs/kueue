@@ -49,8 +49,8 @@ type NodeExclusionStats struct {
 	SchedulerLibraryNoFit int
 
 	// DRANoFit counts nodes that cannot satisfy the Pod's ResourceClaims. The device
-	// check does not go through the scheduler-library and runs against the default
-	// simulator too, so folding it into SchedulerLibraryNoFit would misreport it.
+	// check is layered on top of the simulator rather than being one of its filters,
+	// so folding it into SchedulerLibraryNoFit would misreport it.
 	DRANoFit int
 }
 

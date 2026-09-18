@@ -216,6 +216,30 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			wantFeasible: []string{"gpu-node"},
 			wantDRANoFit: 1,
 		},
+		"a DeviceClass is reachable by its implicit extended resource name": {
+			// Every DeviceClass carries deviceclass.resource.kubernetes.io/<name>
+			// whether or not it declares an extendedResourceName, so a Pod asking for
+			// the implicit form is DRA-backed and has to be checked.
+			objects: []runtime.Object{gpuSlice, gpuDeviceClass},
+			podTemplate: &corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "c",
+						Image: "busybox",
+						Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+							"deviceclass.resource.kubernetes.io/gpu.example.com": resource.MustParse("1"),
+						}},
+					}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+				{node: cpuNode, id: "cpu-node"},
+			},
+			wantFeasible: []string{"gpu-node"},
+			wantDRANoFit: 1,
+		},
 		"extended resource beyond what any node holds excludes every node": {
 			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
 			podTemplate: &corev1.PodTemplateSpec{
