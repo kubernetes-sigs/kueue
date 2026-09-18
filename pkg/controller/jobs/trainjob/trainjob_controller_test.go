@@ -575,20 +575,13 @@ func TestRestorePodSetsInfo(t *testing.T) {
 
 func TestStop(t *testing.T) {
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns")
-	// A RuntimePatch holds its spec behind a pointer, so every case deep copies the
-	// patch it uses: Stop restores the spec in place, and sharing one value across
-	// cases would let a case that already restored it change what the others start
-	// from.
 	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
 		EmptyMetadata().
-		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj()).
-		Obj()
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj())
 	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
-		EmptyMetadata().
-		Obj()
+		EmptyMetadata()
 	userPatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").
-		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj()).
-		Obj()
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj())
 
 	cases := map[string]struct {
 		trainJob *kftrainerapi.TrainJob
@@ -605,11 +598,11 @@ func TestStop(t *testing.T) {
 		"should suspend a running trainjob and report it as stopped now": {
 			trainJob: testTrainJob.Clone().
 				Suspend(false).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow: true,
 			wantPatches:    2,
@@ -617,11 +610,11 @@ func TestStop(t *testing.T) {
 		"should restore without reporting stopped now when the trainjob is already suspended": {
 			trainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow: false,
 			wantPatches:    1,
@@ -629,11 +622,11 @@ func TestStop(t *testing.T) {
 		"should send no patch when the trainjob is already suspended and restored": {
 			trainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow: false,
 			wantPatches:    0,
@@ -642,12 +635,12 @@ func TestStop(t *testing.T) {
 			trainJob: testTrainJob.Clone().
 				Suspend(false).
 				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
 				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow:  true,
 			wantPatches:     1,
@@ -656,11 +649,11 @@ func TestStop(t *testing.T) {
 		"should fail when the kueue runtime patch is missing": {
 			trainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*userPatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*userPatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow:  false,
 			wantPatches:     0,

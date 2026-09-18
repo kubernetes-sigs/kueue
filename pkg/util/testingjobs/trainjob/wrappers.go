@@ -198,6 +198,11 @@ func (r *RuntimePatchWrapper) Obj() kftrainerapi.RuntimePatch {
 	return r.RuntimePatch
 }
 
+// Clone returns deep copy of the RuntimePatchWrapper
+func (r *RuntimePatchWrapper) Clone() *RuntimePatchWrapper {
+	return &RuntimePatchWrapper{RuntimePatch: *r.DeepCopy()}
+}
+
 func (r *RuntimePatchWrapper) EmptyMetadata() *RuntimePatchWrapper {
 	r.ensureTemplate().Metadata = &metav1.ObjectMeta{}
 	return r
