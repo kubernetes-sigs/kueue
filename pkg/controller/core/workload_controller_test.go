@@ -3337,7 +3337,7 @@ func TestAdmitEvictReadmitDoesNotDoubleChargeAfsEntryPenalty(t *testing.T) {
 		WithPreemptionExpectations(preemptexpectations.New()))
 	reconciler.clock = fakeClock
 
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").
 		AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 		Active(metav1.ConditionTrue).
@@ -3349,14 +3349,14 @@ func TestAdmitEvictReadmitDoesNotDoubleChargeAfsEntryPenalty(t *testing.T) {
 		t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
 	}
 
-	seeded := afs.CalculateEntryPenalty(workload.NewInfo(admitted).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
+	seeded := afs.CalculateEntryPenalty(workload.NewInfo(log, admitted).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
 	if len(seeded) == 0 {
 		t.Fatal("the seeded penalty is empty, so the settlement would fold nothing and the test would pass")
 	}
 	wlRef := queueafs.WorkloadReference(workload.Key(admitted))
 	qManager.AfsUsageLedger.PushPenalty(lqKey, wlRef, seeded, now)
 
-	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: pending.DeepCopy(),
 		ObjectNew: admitted.DeepCopy(),
 	})
@@ -3373,7 +3373,7 @@ func TestAdmitEvictReadmitDoesNotDoubleChargeAfsEntryPenalty(t *testing.T) {
 		t.Fatal("expected the Workload identity to be retained after the first settlement")
 	}
 
-	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: admitted.DeepCopy(),
 		ObjectNew: pending.DeepCopy(),
 	})
@@ -3393,7 +3393,7 @@ func TestAdmitEvictReadmitDoesNotDoubleChargeAfsEntryPenalty(t *testing.T) {
 		t.Errorf("re-push after settlement inflated pending usage: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 
-	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: pending.DeepCopy(),
 		ObjectNew: admitted.DeepCopy(),
 	})
@@ -3457,7 +3457,7 @@ func TestDifferentUIDUpdateDoesNotInheritSettledAfsEntryPenalty(t *testing.T) {
 		WithPreemptionExpectations(preemptexpectations.New()))
 	reconciler.clock = fakeClock
 
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").
 		AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 		Active(metav1.ConditionTrue).
@@ -3469,14 +3469,14 @@ func TestDifferentUIDUpdateDoesNotInheritSettledAfsEntryPenalty(t *testing.T) {
 		t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
 	}
 
-	seeded := afs.CalculateEntryPenalty(workload.NewInfo(admittedA).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
+	seeded := afs.CalculateEntryPenalty(workload.NewInfo(log, admittedA).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
 	if len(seeded) == 0 {
 		t.Fatal("the seeded penalty is empty, so the settlement would fold nothing and the test would pass")
 	}
 	wlRef := queueafs.WorkloadReference(workload.Key(admittedA))
 	qManager.AfsUsageLedger.PushPenalty(lqKey, wlRef, seeded, now)
 
-	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: pendingA.DeepCopy(),
 		ObjectNew: admittedA.DeepCopy(),
 	})
@@ -3493,7 +3493,7 @@ func TestDifferentUIDUpdateDoesNotInheritSettledAfsEntryPenalty(t *testing.T) {
 		t.Fatal("expected UID A's settled identity after the first settlement")
 	}
 
-	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: admittedA.DeepCopy(),
 		ObjectNew: pendingB.DeepCopy(),
 	})
@@ -3511,7 +3511,7 @@ func TestDifferentUIDUpdateDoesNotInheritSettledAfsEntryPenalty(t *testing.T) {
 		t.Fatal("PushPenalty for UID B was suppressed by A's settled marker")
 	}
 
-	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: pendingB.DeepCopy(),
 		ObjectNew: admittedB.DeepCopy(),
 	})
