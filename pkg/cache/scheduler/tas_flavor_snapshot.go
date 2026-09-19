@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -1011,14 +1012,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if reason != "" {
 			return nil, reason
 		}
-		// The scheduler-library filters with the Pod template alone, so the merged
-		// PodSetUpdates have to be written onto it. The workers' template has the
-		// same gap, left alone here because fixing it changes today's filtering.
-		if err := podset.Merge(s.log, &leaderPodRequirements.PodTemplate.ObjectMeta,
-			&leaderPodRequirements.PodTemplate.Spec, leaderInfo); err != nil {
-			return nil, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s",
-				leaderTasPodSetRequests.PodSet.Name, err.Error())
-		}
 		requirements.leader.podRequirements = &leaderPodRequirements
 	}
 
@@ -1886,11 +1879,12 @@ func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string)
 	return info, ""
 }
 
-// buildPodRequirements turns a PodSet into the node filters TAS applies to it.
-// A non-empty second return value is the reason the PodSet cannot be placed.
+// buildPodRequirements turns a PodSet into the node filters TAS applies to it, in the
+// field form the default simulator reads and in the Pod template the scheduler library
+// reads. A non-empty second return value is the reason the PodSet cannot be placed.
 func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
 	var podRequirements simulator.PodRequirements
-	podRequirements.Tolerations = append(info.Tolerations, s.tolerations...)
+	podRequirements.Tolerations = utiltolerations.Merge(info.Tolerations, s.tolerations)
 
 	if s.isLowestLevelNode {
 		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
@@ -1922,7 +1916,12 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 		}
 	}
 
+	// The template must carry the same constraints as the field form rather than the
+	// bare PodSet template: the flavor's tolerations and the nodeSelector and
+	// tolerations set by admission checks.
 	podRequirements.PodTemplate = podSet.Template.DeepCopy()
+	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
+	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
 	return podRequirements, ""
 }
 
