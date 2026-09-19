@@ -361,8 +361,6 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 		UpscalingMode:      &aggressive,
 		IdleTimeoutSeconds: &idleTimeoutSeconds,
 	}
-	// Must set suspend to false for autoscaling, since Kueue needs KubeRay to create underlying RayCluster and then manages that RayCluster
-	j.Spec.Suspend = false
 	return j
 }
 
