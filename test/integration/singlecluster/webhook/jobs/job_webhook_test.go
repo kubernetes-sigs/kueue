@@ -118,6 +118,26 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 		}, util.ShortTimeout, util.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should not set the default WorkloadPriorityClass label for a Job in an unmanaged namespace", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
+
+		defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
+		util.MustCreate(ctx, k8sClient, defaultWPC)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(k8sClient.Delete(ctx, defaultWPC)).To(gomega.Succeed())
+		})
+
+		j := testingjob.MakeJob("job-wpc-unmanaged", unmanagedNs.Name).Suspend(false).Obj()
+		util.MustCreate(ctx, k8sClient, j)
+
+		lookupKey := types.NamespacedName{Name: j.Name, Namespace: j.Namespace}
+		createdJob := &batchv1.Job{}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Labels).ShouldNot(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should not update unsuspend Job successfully when adding queue name", func() {
 		job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
 		util.MustCreate(ctx, k8sClient, job)

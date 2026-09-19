@@ -24,10 +24,8 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -227,55 +225,76 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	integrationManager := newDefaultsIntegrationManager(t)
 	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
-	parent := utiltestingjob.MakeJob("parent", "default").UID("parent").Queue("default").Obj()
+	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
+	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
+	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
+	ls := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{unmanagedNamespace.Name},
+			},
+		},
+	}
+	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
 		Value:      100,
 	}
 
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
-
 	cases := map[string]struct {
-		job                    client.Object
-		wpcObjects             []client.Object
-		featureGates           map[featuregate.Feature]bool
-		wantPriorityClassLabel string
+		job                      client.Object
+		wpcObjects               []client.Object
+		featureGates             map[featuregate.Feature]bool
+		withoutNamespaceSelector bool
+		wantPriorityClassLabel   string
 	}{
 		"feature gate enabled, no label, default WPC exists": {
-			job:                    utiltestingjob.MakeJob("test-job", "default").Obj(),
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
 			wantPriorityClassLabel: constants.DefaultWorkloadPriorityClassName,
 		},
 		"feature gate disabled, no label, default WPC exists": {
-			job:                    utiltestingjob.MakeJob("test-job", "default").Obj(),
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: false},
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, label already set": {
-			job:                    utiltestingjob.MakeJob("test-job", "default").WorkloadPriorityClass("high").Obj(),
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).WorkloadPriorityClass("high").Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
 			wantPriorityClassLabel: "high",
 		},
 		"feature gate enabled, no label, default WPC does not exist": {
-			job:                    utiltestingjob.MakeJob("test-job", "default").Obj(),
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             nil,
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, owner managed by kueue": {
-			job: utiltestingjob.MakeJob("test-job", "default").
+			job: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
 				OwnerReference(parent.Name, batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
 			wantPriorityClassLabel: "",
+		},
+		"feature gate enabled, job in unmanaged namespace": {
+			job:                    utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			wantPriorityClassLabel: "",
+		},
+		"feature gate enabled, no namespace selector configured": {
+			job:                      utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
+			wpcObjects:               []client.Object{defaultWPC},
+			featureGates:             map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			withoutNamespaceSelector: true,
+			wantPriorityClassLabel:   constants.DefaultWorkloadPriorityClassName,
 		},
 	}
 
@@ -283,12 +302,18 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := utiltesting.NewClientBuilder().WithObjects(managedNamespace, unmanagedNamespace)
 			if len(tc.wpcObjects) > 0 {
 				builder = builder.WithObjects(tc.wpcObjects...)
 			}
 			k8sClient := builder.Build()
-			integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job)
+			selector := namespaceSelector
+			if tc.withoutNamespaceSelector {
+				selector = nil
+			}
+			if err := integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job, selector); err != nil {
+				t.Fatalf("ApplyDefaultWorkloadPriorityClass() returned error: %v", err)
+			}
 			got := tc.job.GetLabels()[constants.WorkloadPriorityClassLabel]
 			if got != tc.wantPriorityClassLabel {
 				t.Errorf("unexpected priority class label: got %q, want %q", got, tc.wantPriorityClassLabel)

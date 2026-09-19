@@ -45,10 +45,28 @@ import (
 )
 
 func TestBaseWebhookDefault(t *testing.T) {
+	unmanagedNsSelector := func() labels.Selector {
+		ls := &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      corev1.LabelMetadataName,
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"unmanaged-ns"},
+				},
+			},
+		}
+		sel, _ := metav1.LabelSelectorAsSelector(ls)
+		return sel
+	}()
+	unmanagedNs := []*corev1.Namespace{
+		utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj(),
+	}
+
 	testcases := map[string]struct {
 		manageJobsWithoutQueueName   bool
 		managedJobsNamespaceSelector labels.Selector
 		defaultLqExist               bool
+		defaultWpcExist              bool
 		withoutIntegrationManager    bool
 		featureGates                 map[featuregate.Feature]bool
 		job                          *batchv1.Job
@@ -116,25 +134,29 @@ func TestBaseWebhookDefault(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		"job in unmanaged namespace with default lq should not get queue label or be suspended": {
-			defaultLqExist: true,
-			managedJobsNamespaceSelector: func() labels.Selector {
-				ls := &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"unmanaged-ns"},
-						},
-					},
-				}
-				sel, _ := metav1.LabelSelectorAsSelector(ls)
-				return sel
-			}(),
-			job:  utiljob.MakeJob("job", "unmanaged-ns").Obj(),
-			want: utiljob.MakeJob("job", "unmanaged-ns").Obj(),
-			namespaces: []*corev1.Namespace{
-				utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj(),
-			},
+			defaultLqExist:               true,
+			managedJobsNamespaceSelector: unmanagedNsSelector,
+			job:                          utiljob.MakeJob("job", "unmanaged-ns").Obj(),
+			want:                         utiljob.MakeJob("job", "unmanaged-ns").Obj(),
+			namespaces:                   unmanagedNs,
+		},
+		"job in managed namespace gets the default workload priority class label": {
+			defaultWpcExist:              true,
+			managedJobsNamespaceSelector: unmanagedNsSelector,
+			featureGates:                 map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			job:                          utiljob.MakeJob("job", metav1.NamespaceDefault).Obj(),
+			want: utiljob.MakeJob("job", metav1.NamespaceDefault).
+				WorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+			namespaces: unmanagedNs,
+		},
+		"job in unmanaged namespace should not get the default workload priority class label": {
+			defaultWpcExist:              true,
+			managedJobsNamespaceSelector: unmanagedNsSelector,
+			featureGates:                 map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			job:                          utiljob.MakeJob("job", "unmanaged-ns").Obj(),
+			want:                         utiljob.MakeJob("job", "unmanaged-ns").Obj(),
+			namespaces:                   unmanagedNs,
 		},
 	}
 	for name, tc := range testcases {
@@ -147,6 +169,9 @@ func TestBaseWebhookDefault(t *testing.T) {
 				)
 			for _, ns := range tc.namespaces {
 				clientBuilder.WithObjects(ns)
+			}
+			if tc.defaultWpcExist {
+				clientBuilder.WithObjects(utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj())
 			}
 			cl := clientBuilder.Build()
 			cqCache := schdcache.New(cl)
