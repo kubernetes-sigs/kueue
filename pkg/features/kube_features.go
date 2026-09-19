@@ -564,6 +564,14 @@ const (
 	// Rejects Workloads with non-positive TAS slice sizes in PodSet topology requests.
 	TASValidateWorkloadSliceSize featuregate.Feature = "TASValidateWorkloadSliceSize"
 
+	// owner: @cryo-zd
+	//
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/15262
+	// Rejects an explicit false value for the unconstrained TAS annotation.
+	// Disable temporarily to preserve compatibility with existing workloads that
+	// used the previously accepted value while they are corrected.
+	TASRejectFalseUnconstrainedTopology featuregate.Feature = "TASRejectFalseUnconstrainedTopology"
+
 	// owner: @Dasmat13
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/12775
 	//
@@ -982,6 +990,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASValidateWorkloadSliceSize: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
+	},
+
+	TASRejectFalseUnconstrainedTopology: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	WorkloadValidationForPodSetMetadata: {
