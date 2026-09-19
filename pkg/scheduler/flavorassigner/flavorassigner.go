@@ -692,14 +692,17 @@ func New(
 	}
 }
 
-// Assign assigns a flavor to each of the resources requested in each pod set.
-// The result for each pod set is accompanied with reasons why the flavor can't
-// be assigned immediately. Each assigned flavor is accompanied with a
-// FlavorAssignmentMode.
-func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment {
+// AssignWithTopology calls AssignFlavors to find flavor assignments for each resource requested in each pod set.
+// Then it finds topology assignments for the given flavor assignment if TopologyAwareScheduling is enabled.
+func (a *FlavorAssigner) AssignWithTopology(ctx context.Context, counts []int32) Assignment {
 	log := log.FromContext(ctx)
-
-	return a.assignFlavors(ctx, log, counts)
+	assignment, failed := a.AssignFlavors(ctx, log, counts)
+	if failed {
+		return assignment
+	}
+	a.assignTopology(ctx, log, &assignment)
+	assignment.ResolveNoFitReason(a.cq)
+	return assignment
 }
 
 type indexedPodSet struct {
@@ -708,7 +711,11 @@ type indexedPodSet struct {
 	podSetAssignment *PodSetAssignment
 }
 
-func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts []int32) Assignment {
+// AssignFlavors assigns a flavor to each of the resources requested in each pod set.
+// The result for each pod set is accompanied with reasons why the flavor can't
+// be assigned immediately. Each assigned flavor is accompanied with a
+// FlavorAssignmentMode.
+func (a *FlavorAssigner) AssignFlavors(ctx context.Context, log logr.Logger, counts []int32) (_ Assignment, failed bool) {
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
 		for i, ps := range a.wl.TotalRequests {
@@ -851,19 +858,19 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			}
 		}
 		if atLeastOnePodsAssignmentFailed {
-			if features.Enabled(features.UnadmittedWorkloadsObservability) {
-				assignment.resolveNoFitReason(a.cq)
-			}
-			return assignment
+			assignment.ResolveNoFitReason(a.cq)
+			return assignment, true
 		}
 	}
 	if assignment.RepresentativeMode() == NoFit {
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			assignment.resolveNoFitReason(a.cq)
-		}
-		return assignment
+		assignment.ResolveNoFitReason(a.cq)
+		return assignment, true
 	}
 
+	return assignment, false
+}
+
+func (a *FlavorAssigner) assignTopology(ctx context.Context, log logr.Logger, assignment *Assignment) {
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
 			// Elastic placement accounts for the previous assignment itself.
@@ -910,10 +917,6 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			}
 		}
 	}
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		assignment.resolveNoFitReason(a.cq)
-	}
-	return assignment
 }
 
 // resolvePodSetFlavors returns the flavors podSet should be assigned, given the flavors
@@ -953,7 +956,12 @@ func (a *FlavorAssigner) resolvePodSetFlavors(log logr.Logger, idxPodSet indexed
 	return nil
 }
 
-func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
+// ResolveNoFitReason adjusts the NoFitReason of a NoFit assignment if UnadmittedWorkloadsObservability is enabled.
+// It scans all fail reasons for assignment attempts and records the most severe reason present.
+func (a *Assignment) ResolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
+	if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+		return
+	}
 	if a.RepresentativeMode() != NoFit {
 		return
 	}

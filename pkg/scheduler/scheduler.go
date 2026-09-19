@@ -916,19 +916,21 @@ func flavorScanStateOutdated(last *workload.FlavorScanState, currentCQGeneration
 func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
+	// Prepare the base assignment. Include TAS topology assignment if relevant.
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
 		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
-	fullAssignment := flvAssigner.Assign(ctx, nil)
+	fullAssignment := flvAssigner.AssignWithTopology(ctx, nil)
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
 		return fullAssignment, preemptionTargets
 	}
 
+	// Find preemption targets.
 	if arm == flavorassigner.Preempt {
 		faPreemptionTargets := s.preemptor.GetTargets(ctx, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
@@ -936,9 +938,10 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		}
 	}
 
+	// Handle partial admissions.
 	if workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			assignment := flvAssigner.Assign(ctx, nextCounts)
+			assignment := flvAssigner.AssignWithTopology(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
