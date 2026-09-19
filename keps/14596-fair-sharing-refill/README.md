@@ -104,6 +104,7 @@ The fair-sharing ordering decides who receives the freed capacity, not who happe
 
 ### Terminology
 
+- **Poorer / richer ClusterQueue**: informal shorthand for a lower / higher DominantResourceShare within the same cohort.
 - **Successor**: the next Workload in a ClusterQueue's active queue.
 - **Refill pop**: taking a successor out of the queue and into the running cycle.
 - **Refill budget**: the number of refill pops a cycle may make.
@@ -147,7 +148,8 @@ If the cluster changes while a refilled Workload is being evaluated, that Worklo
 
 Each scheduling cycle has one refill budget, shared across all cohorts, so the extra work refill adds has an upper bound no matter how many cohorts exist.
 Every Workload that refill pulls into the cycle costs one unit, whether or not it ends up admitted.
-This is deliberate: the budget bounds how much extra scheduling work a cycle does, not how many extra admissions it makes.
+This is deliberate: the budget bounds how many additional Workloads refill brings into a cycle, not how many extra admissions it makes.
+It does not bound in-cycle assignment recomputations, such as those for TAS or overlapping preemption targets; refill can make those more frequent by bringing more Workloads into the cycle.
 Once the budget is spent, refill stops pulling in Workloads, and the ones already in the cycle finish normally.
 
 The Alpha default is 8 per cycle and is not yet user-configurable.
@@ -248,7 +250,7 @@ Preemption benchmarking in particular requires simulating the workload controlle
 
 ### Beta
 
-- Select and document the refill-budget allocation model.
+- Select and document the refill-budget allocation model, including whether it should also bound in-cycle assignment recomputations.
 - Validate the Alpha budget-exhaustion tradeoff with production data.
 - Decide whether refill remains Fair-Sharing-only.
 - Introduce the user-facing configuration surface and default, if required by the selected budget model, following the scheduler configuration work in [#14190](https://github.com/kubernetes-sigs/kueue/issues/14190).
