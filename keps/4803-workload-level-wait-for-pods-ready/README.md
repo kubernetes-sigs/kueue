@@ -96,7 +96,8 @@ As a platform administrator, I want to configure Kueue with `blockAdmission: tru
 ### Notes/Constraints/Caveats
 
 - When a per-workload timeout is enforced and `DisableWaitForPodsReady` feature gate is enabled
-the timeout is ignored and a log warns about incompatible combination.
+  the timeout is ignored.
+- Enabling `DisableWaitForPodsReady` and `WorkloadLevelWaitForPodsReady` feature gates is not allowed.
 
 ### Risks and Mitigations
 
@@ -171,12 +172,6 @@ When a workload is constructed for a managed resource, the
 copied to the resulting workload's annotations. This covers most integrations
 (Job, StatefulSet, RayJob, PyTorchJob, JobSet, etc.).
 
-The **Deployment** integration is an exception: Kueue tracks Deployment-owned
-workloads via the Pod integration rather than directly from the Deployment object.
-Users must therefore place the annotation on the Pod template
-(`spec.template.metadata.annotations`), from where it is read when the workload
-is constructed for the Pod — no additional propagation logic is needed in Kueue.
-
 ### Webhooks
 
 #### Managed resources (Jobs, Deployments, StatefulSets, etc.)
@@ -185,11 +180,11 @@ is constructed for the Pod — no additional propagation logic is needed in Kueu
   positive integers and does not exceed the maximum value set by the admin in the
   cluster configuration.
 - Setting a recoveryTimeout without timeout set is not supported.
-- The annotation is immutable while the job is unsuspended. Changes are allowed
-  while the job is suspended (i.e. between eviction cycles), which is the
-  intended window for a user to adjust the timeout before re-admission. When a
-  change is detected during reconciliation, the workload's own annotation is
-  updated in place — no delete-and-recreate occurs.
+- To make the update behavior match all integrations, the annotation is always
+  allowed to be updated given it's valid. The annotation is updated in place,
+  no delete-and-recreate occurs.
+- The **Deployment** webhook copies the annotation from the metadata to the Template
+  to make sure it's propagated to the Pods and then to the workloads.
 
 ### Future Work
 

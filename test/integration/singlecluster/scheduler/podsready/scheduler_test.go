@@ -31,8 +31,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -117,6 +120,47 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		podsReadyTimeout = defaultPodsReadyTimeout
 		requeuingTimestamp = defaultRequeuingTimestamp
 		requeueingBackoffLimitCount = defaultRequeuingBackoffLimitCount
+	})
+
+	ginkgo.Context("Per-workload WaitForPodsReady timeout", ginkgo.Label("feature:workloadlevelwaitforpodsready"), func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+			// The cluster-level timeout is intentionally large so it can never fire
+			// within the test window: any PodsReady-timeout eviction observed here must
+			// have been driven by the (much smaller) per-workload annotation, not by the
+			// cluster-level configuration.
+			podsReadyTimeout = util.LongTimeout
+		})
+
+		ginkgo.It("Should evict the workload when the per-workload timeout is updated to a smaller value", func() {
+			ginkgo.By("creating a workload with a large per-workload timeout annotation")
+			wl := utiltestingapi.MakeWorkload("wfpr-wl", ns.Name).
+				Queue(kueue.LocalQueueName(prodQueue.Name)).
+				Annotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("checking the workload is admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl)
+
+			ginkgo.By("verifying the workload is not evicted while the large timeout applies")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				g.Expect(workloadevict.IsEvicted(wl)).Should(gomega.BeFalse())
+			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("updating the annotation to a smaller timeout")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
+				wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":1}`
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the workload is now evicted under the smaller timeout")
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl), 0)
+			util.ExpectEvictedWorkloadsOnceTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "", 1)
+		})
 	})
 
 	ginkgo.Context("Long PodsReady timeout", func() {
