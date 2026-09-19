@@ -1,0 +1,4 @@
+interface:
+  display_name: "KEP General Guidelines"
+  short_description: "Apply project-wide guidance to Kueue KEPs"
+  default_prompt: "Use $kep-general-guidelines to draft or review a Kueue KEP for project-wide design concerns."
