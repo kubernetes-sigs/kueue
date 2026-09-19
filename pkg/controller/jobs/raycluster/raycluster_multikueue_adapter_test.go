@@ -171,61 +171,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace})
 			},
 		},
-		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/15380:
-		// same class of bug as the RayJob case, same generic adapter. The manager
-		// raycluster's state only ever changes via MultiKueue's mirror, so a
-		// remote deleted mid-Ready must not leave the manager stuck reporting
-		// Ready forever.
-		"remote raycluster deleted while manager raycluster still shows ready": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			managersRayClusters: []rayv1.RayCluster{
-				*rayClusterBuilder.Clone().
-					Suspend(true).
-					State(rayv1.Ready).
-					Obj(),
-			},
-			workerRayClusters: []rayv1.RayCluster{
-				*rayClusterBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					State(rayv1.Ready).
-					Obj(),
-			},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace})
-			},
-			wantManagersRayClusters: []rayv1.RayCluster{
-				*rayClusterBuilder.Clone().
-					Suspend(true).
-					State(rayv1.Suspended).
-					Obj(),
-			},
-		},
-		"remote raycluster deleted after the manager raycluster already failed": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			managersRayClusters: []rayv1.RayCluster{
-				*rayClusterBuilder.Clone().
-					Suspend(true).
-					State(rayv1.Failed).
-					Obj(),
-			},
-			workerRayClusters: []rayv1.RayCluster{
-				*rayClusterBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					State(rayv1.Failed).
-					Obj(),
-			},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace})
-			},
-			wantManagersRayClusters: []rayv1.RayCluster{
-				*rayClusterBuilder.Clone().
-					Suspend(true).
-					State(rayv1.Failed).
-					Obj(),
-			},
-		},
 		"raycluster with wrong managedBy is not considered managed": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayClusters: []rayv1.RayCluster{
@@ -611,8 +556,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-				ray.WithElasticReplicaSync(elasticReplicaSync()),
-				ray.WithMarkInactiveOnDelete(markInactive))
+				ray.WithElasticReplicaSync(elasticReplicaSync()))
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 

@@ -18,8 +18,6 @@ package rayservice
 
 import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -27,29 +25,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
-var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
-	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-	ray.WithMarkInactiveOnDelete(markInactive),
-)
-
-// markInactive clears the manager RayService's mirrored Ready condition once
-// MultiKueue has confirmed its remote copy is gone - see
-// ray.WithMarkInactiveOnDelete.
-//
-// If the condition already reports False for some other reason, leave it:
-// that's already what IsActive() needs, and relabelling it RemoteDeleted
-// would throw away the real reason.
-func markInactive(job *rayv1.RayService) {
-	if cond := meta.FindStatusCondition(job.Status.Conditions, string(rayv1.RayServiceReady)); cond != nil && cond.Status == metav1.ConditionFalse {
-		return
-	}
-	meta.SetStatusCondition(&job.Status.Conditions, metav1.Condition{
-		Type:    string(rayv1.RayServiceReady),
-		Status:  metav1.ConditionFalse,
-		Reason:  "RemoteDeleted",
-		Message: "The remote RayService was deleted by MultiKueue",
-	})
-}
+var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy)
 
 // remoteSpecSyncer is RayService's RemoteSpecSyncer for MultiKueue.
 type remoteSpecSyncer struct{}

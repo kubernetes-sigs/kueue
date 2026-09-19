@@ -59,10 +59,6 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	// changes onto the remote copy on the worker cluster after admission (see
 	// RemoteSpecSyncer).
 	remoteSpecSync RemoteSpecSyncer[PtrT]
-	// markInactive is optional. When set, it is applied to the local (manager)
-	// job's status right after its remote copy is deleted (see
-	// WithMarkInactiveOnDelete).
-	markInactive func(PtrT)
 }
 
 // RemoteSpecSyncer lets a job type forward selected spec changes from the manager
@@ -149,38 +145,6 @@ func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT,
 func WithRemoteSpecSync[PtrT objAsPtr[T], T any](s RemoteSpecSyncer[PtrT]) Option[PtrT, T] {
 	return func(a *adapter[PtrT, T]) {
 		a.remoteSpecSync = s
-	}
-}
-
-// WithMarkInactiveOnDelete supplies the type-specific status update applied to
-// the local (manager) job right after its remote copy is deleted.
-//
-// A MultiKueue-managed Ray object's status only ever changes because MultiKueue
-// mirrors it from the remote copy. The manager-side Ray operator never touches
-// it, since spec.managedBy points at MultiKueue instead. If the remote gets
-// deleted before its stopped status makes it back to the manager, the manager
-// copy is stuck on whatever it last saw, Initializing say, forever. IsActive()
-// reads straight from that status, so the job looks active forever too, and
-// eviction can never finish or release the workload's quota. See
-// https://github.com/kubernetes-sigs/kueue/issues/15380.
-//
-// Two other approaches were considered first:
-//
-//   - Sync the remote's status one more time right before deleting it. Dropped
-//     because it is still a race: the remote may not have reached a stopped
-//     state yet at the moment we read it, same bug, just narrower.
-//   - Fix this in the generic scheduler instead, treating any workload whose
-//     remote is gone as inactive wherever Kueue checks that. Dropped because it
-//     is a much bigger change, touches code every job type shares, and a mistake
-//     there has a lot more blast radius than a mistake in one adapter.
-//
-// What we do instead: once delete succeeds, that is proof nothing is running
-// anywhere for this job. We do not need to ask the remote what happened, we
-// already know. So the type-specific function passed here just writes the
-// manager status straight to whatever its own IsActive() treats as inactive.
-func WithMarkInactiveOnDelete[PtrT objAsPtr[T], T any](fn func(PtrT)) Option[PtrT, T] {
-	return func(a *adapter[PtrT, T]) {
-		a.markInactive = fn
 	}
 }
 
@@ -432,25 +396,11 @@ func totalReplicas(counts map[kueue.PodSetReference]int32) int32 {
 	return total
 }
 
-func (a *adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
+func (a *adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	job := PtrT(new(T))
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
-	if err := client.IgnoreNotFound(remoteClient.Delete(ctx, job)); err != nil {
-		return err
-	}
-
-	if a.markInactive == nil {
-		return nil
-	}
-	localJob := PtrT(new(T))
-	if err := localClient.Get(ctx, key, localJob); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	return clientutil.PatchStatus(ctx, localClient, localJob, func() (bool, error) {
-		a.markInactive(localJob)
-		return true, nil
-	})
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, job))
 }
 
 func (a *adapter[PtrT, T]) GetEmptyList() client.ObjectList {

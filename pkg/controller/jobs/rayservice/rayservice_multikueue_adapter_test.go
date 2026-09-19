@@ -46,7 +46,6 @@ const (
 func TestMultiKueueAdapter(t *testing.T) {
 	objCheckOpts := cmp.Options{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
-		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.EquateEmpty(),
 	}
 
@@ -211,89 +210,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace})
 			},
 		},
-		// Regression test for https://github.com/kubernetes-sigs/kueue/issues/15380:
-		// same class of bug as the RayJob case, same generic adapter. The manager
-		// rayservice's Ready condition only ever changes via MultiKueue's mirror,
-		// so a remote deleted while still Ready must not leave the manager stuck
-		// reporting Ready forever.
-		"remote rayservice deleted while manager rayservice still shows ready": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			managersRayServices: []rayv1.RayService{
-				*rayServiceBuilder.Clone().
-					Suspend(true).
-					StatusConditions(metav1.Condition{
-						Type:   string(rayv1.RayServiceReady),
-						Status: metav1.ConditionTrue,
-						Reason: string(rayv1.NonZeroServeEndpoints),
-					}).
-					Obj(),
-			},
-			workerRayServices: []rayv1.RayService{
-				*rayServiceBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					StatusConditions(metav1.Condition{
-						Type:   string(rayv1.RayServiceReady),
-						Status: metav1.ConditionTrue,
-						Reason: string(rayv1.NonZeroServeEndpoints),
-					}).
-					Obj(),
-			},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace})
-			},
-			wantManagersRayServices: []rayv1.RayService{
-				*rayServiceBuilder.Clone().
-					Suspend(true).
-					StatusConditions(metav1.Condition{
-						Type:    string(rayv1.RayServiceReady),
-						Status:  metav1.ConditionFalse,
-						Reason:  "RemoteDeleted",
-						Message: "The remote RayService was deleted by MultiKueue",
-					}).
-					Obj(),
-			},
-		},
-		"remote rayservice deleted while manager rayservice already reports not ready": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
-			managersRayServices: []rayv1.RayService{
-				*rayServiceBuilder.Clone().
-					Suspend(true).
-					StatusConditions(metav1.Condition{
-						Type:    string(rayv1.RayServiceReady),
-						Status:  metav1.ConditionFalse,
-						Reason:  "SomeOtherReason",
-						Message: "a message worth keeping",
-					}).
-					Obj(),
-			},
-			workerRayServices: []rayv1.RayService{
-				*rayServiceBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, "origin1").
-					StatusConditions(metav1.Condition{
-						Type:    string(rayv1.RayServiceReady),
-						Status:  metav1.ConditionFalse,
-						Reason:  "SomeOtherReason",
-						Message: "a message worth keeping",
-					}).
-					Obj(),
-			},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace})
-			},
-			wantManagersRayServices: []rayv1.RayService{
-				*rayServiceBuilder.Clone().
-					Suspend(true).
-					StatusConditions(metav1.Condition{
-						Type:    string(rayv1.RayServiceReady),
-						Status:  metav1.ConditionFalse,
-						Reason:  "SomeOtherReason",
-						Message: "a message worth keeping",
-					}).
-					Obj(),
-			},
-		},
 		"job with wrong managedBy is not considered managed": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayServices: []rayv1.RayService{
@@ -381,8 +297,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-				ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}),
-				ray.WithMarkInactiveOnDelete(markInactive))
+				ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}))
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 
