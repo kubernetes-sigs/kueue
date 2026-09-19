@@ -3590,6 +3590,17 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			},
 			wantExpectedUIDs: []types.UID{"late-uid"},
 		},
+		"late Pod that is already ungated leaves no pending expectations": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+		},
 		"late Pod stays gated when the replacement slice is finished": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Finished().Obj()},
 			pods: []corev1.Pod{
@@ -3628,7 +3639,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{}).
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
@@ -3658,8 +3669,11 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			}
 			// The ungate expectations are tracked by the slice chain name until
 			// the Pod handler observes the Pod update or deletion.
-			if diff := gocmp.Diff(tc.wantExpectedUIDs, topologyUngater.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, topologyUngater.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
 				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
+			}
+			if got, want := topologyUngater.expectationsStore.Satisfied(log, sliceKey), len(tc.wantExpectedUIDs) == 0; got != want {
+				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, want)
 			}
 		})
 	}
@@ -3705,7 +3719,7 @@ func TestPodHandler_ElasticJobs_Create(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
 				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
@@ -3755,7 +3769,7 @@ func TestPodHandler_ElasticJobs_Update(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
 				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
@@ -3796,7 +3810,7 @@ func TestPodHandler_ElasticJobs_Delete(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
 				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
@@ -3833,7 +3847,7 @@ func TestPodHandler_ElasticJobs_Generic(t *testing.T) {
 			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
-			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey), cmpopts.EquateEmpty()); diff != "" {
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
 				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
