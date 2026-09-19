@@ -153,6 +153,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("group2", 3).
 						PodSpec(*rayJob.Spec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						SubGroupCount(new(int32(3))).
 						Obj(),
 				}
 			},
@@ -207,6 +208,7 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.WorkerGroupSpecs[1].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						SubGroupCount(new(int32(3))).
 						Obj(),
 				}
 			},
