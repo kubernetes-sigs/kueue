@@ -2537,38 +2537,29 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 	}
 }
 
+func mustNewNodeSelector(t *testing.T, nodeSelector *corev1.NodeSelector) *nodeaffinity.NodeSelector {
+	t.Helper()
+	selector, err := nodeaffinity.NewNodeSelector(nodeSelector)
+	if err != nil {
+		t.Fatalf("NewNodeSelector() = %v, want no error", err)
+	}
+	return selector
+}
+
+func mustNewPreferredSchedulingTerms(t *testing.T, terms []corev1.PreferredSchedulingTerm) *nodeaffinity.PreferredSchedulingTerms {
+	t.Helper()
+	preferredSchedulingTerms, err := nodeaffinity.NewPreferredSchedulingTerms(terms)
+	if err != nil {
+		t.Fatalf("NewPreferredSchedulingTerms() = %v, want no error", err)
+	}
+	return preferredSchedulingTerms
+}
+
 func TestBuildPodRequirements(t *testing.T) {
 	tolerateGPU := corev1.Toleration{Key: "example.com/gpu", Operator: corev1.TolerationOpExists}
 	tolerateDrain := corev1.Toleration{Key: "example.com/drain", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
 	basePodSet := utiltestingapi.MakePodSet("main", 1)
 
-	poolA := corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
-		{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
-	}}
-	// An In requirement needs at least one value.
-	poolWithoutValues := corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
-		{Key: "pool", Operator: corev1.NodeSelectorOpIn},
-	}}
-	requirePoolA := &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{poolA}},
-	}}
-	requirePoolWithoutValues := &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{poolWithoutValues}},
-	}}
-	preferPoolA := &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{{Weight: 10, Preference: poolA}},
-	}}
-	preferPoolWithoutValues := &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{{Weight: 10, Preference: poolWithoutValues}},
-	}}
-	wantRequirePoolA, err := nodeaffinity.NewNodeSelector(requirePoolA.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution)
-	if err != nil {
-		t.Fatalf("NewNodeSelector() = %v, want no error", err)
-	}
-	wantPreferPoolA, err := nodeaffinity.NewPreferredSchedulingTerms(preferPoolA.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution)
-	if err != nil {
-		t.Fatalf("NewPreferredSchedulingTerms() = %v, want no error", err)
-	}
 	podRequirementsCmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		// nodeaffinity keeps the compiled terms in unexported fields of unexported
@@ -2668,22 +2659,42 @@ func TestBuildPodRequirements(t *testing.T) {
 			wantReasonPrefix: "invalid node selectors: ",
 		},
 		"required node affinity is compiled into the affinity selector": {
-			info:   podset.PodSetInfo{Affinity: requirePoolA},
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}},
+			}}},
 			podSet: basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
 			wantPodRequirements: simulator.PodRequirements{
-				Selector:         labels.Everything(),
-				AffinitySelector: wantRequirePoolA,
-				PodTemplate:      &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+				Selector: labels.Everything(),
+				AffinitySelector: mustNewNodeSelector(t, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}}),
+				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
 			},
 		},
 		"required node affinity without preferred terms when TASRespectNodeAffinityPreferred is enabled": {
 			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
-			info:         podset.PodSetInfo{Affinity: requirePoolA},
-			podSet:       basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}},
+			}}},
+			podSet: basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
 			wantPodRequirements: simulator.PodRequirements{
-				Selector:         labels.Everything(),
-				AffinitySelector: wantRequirePoolA,
-				PodTemplate:      &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+				Selector: labels.Everything(),
+				AffinitySelector: mustNewNodeSelector(t, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}}),
+				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
 			},
 		},
 		"affinity without node affinity is not compiled": {
@@ -2695,32 +2706,62 @@ func TestBuildPodRequirements(t *testing.T) {
 			},
 		},
 		"invalid required node affinity": {
-			info:             podset.PodSetInfo{Affinity: requirePoolWithoutValues},
+			// An In requirement needs at least one value.
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn},
+					}},
+				}},
+			}}},
 			podSet:           basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn).Obj(),
 			wantReasonPrefix: "invalid affinity node selectors: ",
 		},
 		"preferred node affinity is compiled when TASRespectNodeAffinityPreferred is enabled": {
 			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
-			info:         podset.PodSetInfo{Affinity: preferPoolA},
-			podSet:       basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}}},
+				},
+			}}},
+			podSet: basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
 			wantPodRequirements: simulator.PodRequirements{
-				Selector:                 labels.Everything(),
-				PreferredSchedulingTerms: wantPreferPoolA,
-				PodTemplate:              &basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+				Selector: labels.Everything(),
+				PreferredSchedulingTerms: mustNewPreferredSchedulingTerms(t, []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}}},
+				}),
+				PodTemplate: &basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
 			},
 		},
 		"preferred node affinity is ignored when TASRespectNodeAffinityPreferred is disabled": {
 			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: false},
-			info:         podset.PodSetInfo{Affinity: preferPoolA},
-			podSet:       basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}}},
+				},
+			}}},
+			podSet: basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
 			wantPodRequirements: simulator.PodRequirements{
 				Selector:    labels.Everything(),
 				PodTemplate: &basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
 			},
 		},
 		"invalid preferred node affinity": {
-			featureGates:     map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
-			info:             podset.PodSetInfo{Affinity: preferPoolWithoutValues},
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			// An In requirement needs at least one value.
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn},
+					}}},
+				},
+			}}},
 			podSet:           basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn).Obj(),
 			wantReasonPrefix: "invalid preferred node affinity terms: ",
 		},
