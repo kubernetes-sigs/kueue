@@ -174,8 +174,34 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulato
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, workloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
 	allPods, podsByWorkload := s.pods.snapshot()
+
+	for _, wl := range workloads {
+		if wl == nil || wl.Status.Admission == nil {
+			continue
+		}
+
+		wlKey := client.ObjectKeyFromObject(wl)
+		realPods := podsByWorkload[wlKey]
+		virtualPods := PodsForWorkload(wl)
+
+		if len(virtualPods) == 0 {
+			continue
+		}
+
+		// Deduplication
+		numRealPods := len(realPods)
+		if numRealPods < len(virtualPods) {
+			missingVirtualPods := virtualPods[numRealPods:]
+			for _, vPod := range missingVirtualPods {
+				allPods = append(allPods, vPod)
+
+				podsByWorkload.recordPod(wlKey, client.ObjectKeyFromObject(vPod), vPod)
+			}
+		}
+	}
+
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
