@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -102,7 +101,7 @@ func TestExpectations(t *testing.T) {
 		{Name: "g3"}: {"z"},
 	}
 	for key, want := range wantExpectedUIDs {
-		if diff := cmp.Diff(want, expectations.ExpectedUIDs(key), cmpopts.EquateEmpty()); diff != "" {
+		if diff := cmp.Diff(want, expectations.ExpectedUIDs(key)); diff != "" {
 			t.Errorf("Unexpected pending UIDs for key %s (-want,+got):\n%s", key, diff)
 		}
 	}
