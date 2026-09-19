@@ -308,7 +308,27 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 				b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 			}
 
-			requests := leaderFeasibilityBenchRequests()
+			const groupName = "benchmark-group"
+			requests := FlavorTASRequests{
+				{
+					PodSet: utiltestingapi.MakePodSet("workers", 64).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "workers"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             64,
+					PodSetGroupName:   new(groupName),
+				},
+				{
+					PodSet: utiltestingapi.MakePodSet("leader", 1).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "leader"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             1,
+					PodSetGroupName:   new(groupName),
+				},
+			}
 			// Production always passes a Workload, and matchingLeavesCache is keyed by
 			// its UID, so omitting it would measure an uncached cluster.
 			wl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
@@ -326,30 +346,5 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 				b.Fatalf("repeated leader feasibility failed: %s", failure.Reason)
 			}
 		})
-	}
-}
-
-func leaderFeasibilityBenchRequests() FlavorTASRequests {
-	const groupName = "benchmark-group"
-	eightCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000})
-	return FlavorTASRequests{
-		{
-			PodSet: utiltestingapi.MakePodSet("workers", 64).
-				UnconstrainedTopologyRequest().
-				PodSetGroup(groupName).
-				NodeSelector(map[string]string{benchPoolLabel: "workers"}).Obj(),
-			SinglePodRequests: eightCPU,
-			Count:             64,
-			PodSetGroupName:   new(groupName),
-		},
-		{
-			PodSet: utiltestingapi.MakePodSet("leader", 1).
-				UnconstrainedTopologyRequest().
-				PodSetGroup(groupName).
-				NodeSelector(map[string]string{benchPoolLabel: "leader"}).Obj(),
-			SinglePodRequests: eightCPU,
-			Count:             1,
-			PodSetGroupName:   new(groupName),
-		},
 	}
 }
