@@ -784,6 +784,14 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 		if jobFound && wl.DeletionTimestamp.IsZero() {
 			continue
 		}
+		if jobFinalizer, ok := job.(JobWithCustomWorkloadFinalization); ok &&
+			!jobFinalizer.CanFinalizeWorkload(wl) {
+			ctrl.LoggerFrom(ctx).V(2).Info(
+				"Workload cannot be finalized by the job",
+				"workload", klog.KObj(wl),
+			)
+			continue
+		}
 		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
 		if client.IgnoreNotFound(err) != nil {
 			return err

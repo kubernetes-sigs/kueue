@@ -3305,9 +3305,9 @@ func TestReconciler(t *testing.T) {
 			// notably: the pod lingers (foreign finalizer), the foreign Workload keeps its own finalizer, no CreatedWorkload event
 		},
 		"all-terminating group is not finalized when the same-named Workload is controller-owned by someone else": {
-			// With PodIntegrationValidateGroupOwner, ListChildWorkloads masks a same-named
-			// foreign-owned Workload as "no workload remains". The all-terminating gate must
-			// see through that: a Workload that remains blocks finalization of this group.
+			// With PodIntegrationValidateGroupOwner, a same-named foreign-owned Workload
+			// remains visible to the finalization logic. The all-terminating gate must
+			// see it: a Workload that remains blocks finalization of this group.
 			featureGates: map[featuregate.Feature]bool{
 				features.PodIntegrationValidateGroupOwner: true,
 				features.FinalizeTerminatingPodGroups:     true,
@@ -8047,6 +8047,81 @@ func TestPod_IsActive(t *testing.T) {
 			}
 			if got := p.IsActive(); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPod_CanFinalizeWorkload(t *testing.T) {
+	tests := map[string]struct {
+		enableValidateGroupOwner bool
+		isGroup                  bool
+		groupWorkload            bool
+		controllerOwned          bool
+		want                     bool
+	}{
+		"feature gate disabled": {
+			enableValidateGroupOwner: false,
+			controllerOwned:          true,
+			want:                     true,
+		},
+		"group workload": {
+			enableValidateGroupOwner: true,
+			isGroup:                  true,
+			groupWorkload:            true,
+			controllerOwned:          true,
+			want:                     true,
+		},
+		"foreign controller-owned workload": {
+			enableValidateGroupOwner: true,
+			isGroup:                  true,
+			controllerOwned:          true,
+			want:                     false,
+		},
+		"workload without controller owner": {
+			enableValidateGroupOwner: true,
+			isGroup:                  true,
+			want:                     true,
+		},
+		"standalone pod with controller-owned workload": {
+			enableValidateGroupOwner: true,
+			controllerOwned:          true,
+			want:                     true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PodIntegrationValidateGroupOwner, tt.enableValidateGroupOwner)
+
+			wl := &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{},
+			}
+
+			if tt.groupWorkload {
+				wl.Annotations = map[string]string{
+					podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+				}
+			}
+
+			if tt.controllerOwned {
+				controller := true
+				wl.OwnerReferences = []metav1.OwnerReference{
+					{
+						APIVersion: corev1.SchemeGroupVersion.String(),
+						Kind:       "Pod",
+						Name:       "other-pod",
+						UID:        "other-uid",
+						Controller: &controller,
+					},
+				}
+			}
+
+			p := &Pod{
+				isGroup: tt.isGroup,
+			}
+			if got := p.CanFinalizeWorkload(wl); got != tt.want {
+				t.Errorf("CanFinalizeWorkload() = %v, want %v", got, tt.want)
 			}
 		})
 	}
