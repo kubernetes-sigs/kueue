@@ -396,6 +396,48 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantEvents: nil,
 		},
+		"running admitted elastic job does not refresh PodSets or emit another admission event": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			req: baseReq,
+			job: baseJob.Clone().
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Annotations(map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						kueue.WorkloadSliceNameAnnotation:    "job-test-job-root",
+					}).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("default-cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
+							Obj(),
+						reservedAt,
+					).
+					AdmittedAt(true, reservedAt).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					Annotations(map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						kueue.WorkloadSliceNameAnnotation:    "job-test-job-root",
+					}).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("default-cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
+							Obj(),
+						reservedAt,
+					).
+					AdmittedAt(true, reservedAt).
+					Obj(),
+			},
+			wantEvents: nil,
+		},
 		"MultiKueue worker pod label is propagated to PodTemplate if workload has Multikueue origin label": {
 			req: baseReq,
 			job: baseJob.Clone().Label(kueue.MultiKueueOriginLabel, "origin").
@@ -1008,7 +1050,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				if diff := cmp.Diff(sets.New(tc.wantWorkloadNames...), gotNames); diff != "" {
 					t.Errorf("Workload names mismatch (-want +got):\n%s", diff)
 				}
-			} else if diff := cmp.Diff(tc.wantWorkloads, wls.Items, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
+			} else if diff := cmp.Diff(tc.wantWorkloads, wls.Items, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
 				t.Errorf("Workloads mismatch (-want +got):\n%s", diff)
 			}
 

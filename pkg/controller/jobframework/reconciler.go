@@ -713,8 +713,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// workload is admitted and job is running, nothing to do.
-	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
+	// Workload is admitted and job is running, nothing to do. For elastic jobs,
+	// pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
 }
@@ -1824,6 +1824,8 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 
 // prepareWorkloadSlice adds necessary workload slice annotations.
 func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	// Annotate the workload to indicate that elastic-job support is enabled.
 	// This annotation makes it possible to distinguish workloads with elastic-job
 	// support directly at the workload level, without requiring access to the
@@ -1851,6 +1853,40 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 			originName = oldSlice.Name
 		}
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, kueue.WorkloadSliceNameAnnotation, originName)
+
+		// Snapshot the old slice's effective counts now, while it's guaranteed to still
+		// exist, so a later incremental-capacity lookup (e.g. for a ProvisioningRequest)
+		// doesn't depend on the predecessor surviving workload retention's GC.
+		//
+		// Guard on the old slice being fully Admitted, not merely quota-reserved.
+		// EnsureWorkloadSlices only ever lets a *new* replacement slice be created
+		// (reaching this branch) once the old slice it's superseding has a quota
+		// reservation, so HasQuotaReservation alone is always true here and would make
+		// this check a no-op. What actually matters for a ProvisioningRequest-backed
+		// PodSet is whether the old slice's own admission checks (e.g. its
+		// ProvisioningRequest) finished: EffectivePodSetCounts reports Kueue's intended
+		// flavor assignment, which exists as soon as quota is reserved, but the
+		// corresponding cluster capacity is only guaranteed once admission actually
+		// completes. Snapshotting an unfinished old slice would let the new
+		// ProvisioningRequest subtract capacity that was never provisioned. This must
+		// match the (stricter) condition previousSlicePodSetCounts's live chain-walk
+		// fallback already requires of a predecessor, so the fast annotation path and
+		// the fallback agree on what counts as usable prior capacity.
+		if workload.IsAdmitted(&oldSlice) {
+			if encoded, err := workloadslicing.EncodePreviousPodSetCounts(workloadslicing.EffectivePodSetCounts(&oldSlice)); err == nil {
+				metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.PreviousPodSetCountsAnnotation, encoded)
+			} else {
+				log.V(2).Info("Failed to encode previous PodSet counts onto replacement slice", "workload", klog.KObj(wl), "error", err)
+			}
+		} else if encoded, found := oldSlice.Annotations[workloadslicing.PreviousPodSetCountsAnnotation]; found {
+			// oldSlice itself isn't (yet) fully admitted, so it has no fresh, provisioned
+			// capacity of its own to snapshot. But if it already carries a
+			// PreviousPodSetCountsAnnotation inherited from its own predecessor, carry
+			// that forward rather than losing it, so previousSlicePodSetCounts's fast
+			// path keeps working instead of always falling back to a live chain-walk
+			// from here on.
+			metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.PreviousPodSetCountsAnnotation, encoded)
+		}
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.
