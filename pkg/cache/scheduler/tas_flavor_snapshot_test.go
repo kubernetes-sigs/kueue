@@ -2200,6 +2200,72 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	}
 }
 
+// A node marked unhealthy on an already-admitted Workload must be swapped for
+// a healthy one without touching any other Workload's usage or falling back
+// to a fresh, unconstrained placement. The failed node itself is no longer in
+// the snapshot's node inventory by the time this runs - like the rest of TAS,
+// health filtering happens when nodes are synced into the tree, not here -
+// so only the healthy node (n2) is ever a candidate.
+func TestFindTopologyAssignmentsForFlavor_NodeReplacement(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := metav1.Now()
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	healthyNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready()
+	nodes := []*corev1.Node{
+		healthyNode.Clone().Name("n2").Label(corev1.LabelHostname, "n2").Obj(),
+	}
+
+	newWorkload := func() *workload.Info {
+		wl := utiltestingapi.MakeWorkload("wl", "default").
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"n1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+				now.Time,
+			).
+			AdmittedAt(true, now.Time).
+			UnhealthyNodes("n1").
+			Obj()
+		return workload.NewInfo(log, wl)
+	}
+
+	podSet := TASPodSetRequests{
+		PodSet: &kueue.PodSet{
+			Name:            kueue.DefaultPodSetName,
+			TopologyRequest: &kueue.PodSetTopologyRequest{Required: new(corev1.LabelHostname)},
+		},
+		SinglePodRequests: oneCPU,
+		Count:             1,
+	}
+
+	tree := newTopologyTree([]string{corev1.LabelHostname}, nodes, 0)
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+
+	result := snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{podSet}, WithWorkloadInfo(newWorkload()))
+	if failure := result.Failure(); failure != nil {
+		t.Fatalf("FindTopologyAssignmentsForFlavor() = %q, want a replacement on the healthy node", failure.Reason)
+	}
+	got := result[kueue.DefaultPodSetName].TopologyAssignment
+	if len(got.Domains) != 1 || got.Domains[0].Values[0] != "n2" {
+		t.Errorf("FindTopologyAssignmentsForFlavor() domains = %+v, want a single domain on n2", got.Domains)
+	}
+
+	// The only healthy node is now also taken: nothing free remains to replace onto.
+	snapshot.updateTASUsage(tas.DomainID([]string{"n2"}), oneCPU, add, 1)
+	result = snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{podSet}, WithWorkloadInfo(newWorkload()))
+	if failure := result.Failure(); failure == nil {
+		t.Errorf("FindTopologyAssignmentsForFlavor() with no healthy capacity left = fit, want a failure")
+	}
+}
+
 func newObservedLogger(level zapcore.Level) (logr.Logger, *observer.ObservedLogs) {
 	logsObserver, observedLogs := observer.New(level)
 	logger := crzap.New(

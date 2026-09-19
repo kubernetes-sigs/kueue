@@ -828,6 +828,20 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				// PodSets with the Node to replace, so we match PodSetAssignment
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
+					// This PodSet has no existing assignment to replace a domain
+					// in - e.g. one PodSet in the workload is replacing a failed
+					// node while another has never been placed at all. There's
+					// nothing to diff against, so give it a fresh placement
+					// instead of a replacement, still without simulating
+					// preemption: a failed-node repair must only use capacity
+					// that's genuinely free right now (see WithSimulateEmpty
+					// above), the same as the replacement path below.
+					assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, tr, nil, assumedUsage, false, "", opts.workload, nil)
+					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignments[tr.PodSet.Name], FailureReason: reason}
+					if reason != "" {
+						return result
+					}
+					addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
 					continue
 				}
 				if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wlObj) {
