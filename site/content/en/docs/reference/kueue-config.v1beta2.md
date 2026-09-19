@@ -162,6 +162,13 @@ of Kueue-managed objects. A nil value disables all automatic deletions.</p>
    <p>VisibilityServer configures the visibility server.</p>
 </td>
 </tr>
+<tr><td><code>quotaReleaseStrategy</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy"><code>QuotaReleaseStrategy</code></a>
+</td>
+<td>
+   <p>QuotaReleaseStrategy provides configuration options for controlling quota release timing.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1251,6 +1258,25 @@ A nil value disables automatic deletion of Workloads.</p>
 
 <p>QuotaCheckStrategy determines how Kueue checks resources against quota
 during admission.</p>
+
+
+
+
+## `QuotaReleaseStrategy`     {#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.</p>
+<p>Valid values are:</p>
+<ul>
+<li>&quot;OnTerminating&quot;: releases quota as soon as deletion is initiated or the workload is marked finished.</li>
+<li>&quot;OnTerminal&quot;: holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed).</li>
+</ul>
 
 
 

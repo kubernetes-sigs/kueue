@@ -123,7 +123,7 @@ func (t *TrainJob) IsSuspended() bool {
 	return ptr.Deref(t.Spec.Suspend, false)
 }
 
-func (t *TrainJob) IsActive() bool {
+func (t *TrainJob) IsActive(_ context.Context) bool {
 	for i := range t.Status.JobsStatus {
 		active := ptr.Deref(t.Status.JobsStatus[i].Active, 0)
 		if active > 0 {
@@ -345,7 +345,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		stoppedNow = true
 	}
 
-	if t.IsActive() {
+	if t.IsActive(ctx) {
 		return stoppedNow, errJobsStillActive
 	}
 

@@ -276,19 +276,18 @@ type ControllerConfigurationSpec struct {
 // which is used to ensure that all Pods are ready within the specified time.
 type WaitForPodsReady struct {
 	// Enable indicates whether to enable wait for pods ready feature.
-	// WaitForPodsReady is enabled by default.
+	// Defaults to false.
 	Enable bool `json:"enable,omitempty"`
 
 	// Timeout defines the time for an admitted workload to reach the
 	// PodsReady=true condition. When the timeout is exceeded, the workload
-	// is evicted and requeued in the same cluster queue.
-	// Defaults to 30min.
+	// evicted and requeued in the same cluster queue.
+	// Defaults to 5min.
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
-	// BlockAdmission when true, Kueue blocks admission of all workloads across
-	// all ClusterQueues until every previously-admitted workload reaches the
-	// PodsReady=true condition.
+	// BlockAdmission when true, cluster queue will block admissions for all
+	// subsequent jobs until the jobs reach the PodsReady=true condition.
 	// This setting is only honored when `Enable` is set to true.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
@@ -301,7 +300,7 @@ type WaitForPodsReady struct {
 	// Such a transition may happen when a Pod failed and the replacement Pod
 	// is awaited to be scheduled.
 	// After exceeding the timeout the corresponding job gets suspended again
-	// and requeued after the backoff delay.
+	// and requeued after the backoff delay. The timeout is enforced only if waitForPodsReady.enable=true.
 	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
@@ -659,13 +658,6 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
-	//
-	// Only the following lists are supported:
-	// - ["LessThanOrEqualToFinalShare"]
-	// - ["LessThanInitialShare"]
-	// - ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
-	//
-	// Any other combination or ordering fails configuration validation.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
 }

@@ -87,7 +87,7 @@ func (j *RayCluster) IsSuspended() bool {
 	return j.Spec.Suspend != nil && *j.Spec.Suspend
 }
 
-func (j *RayCluster) IsActive() bool {
+func (j *RayCluster) IsActive(_ context.Context) bool {
 	return j.Status.State == rayv1.Ready
 }
 

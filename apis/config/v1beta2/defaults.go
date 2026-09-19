@@ -53,6 +53,7 @@ const (
 	DefaultResourceTransformationStrategy         = Retain
 	DefaultVisibilityBindPort                     = 8082
 	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
+	DefaultQuotaReleaseStrategy                   = QuotaReleaseOnTerminating
 )
 
 func getOperatorNamespace() string {
@@ -152,5 +153,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		for idx := range cfg.Resources.Transformations {
 			cfg.Resources.Transformations[idx].Strategy = new(cmp.Or(ptr.Deref(cfg.Resources.Transformations[idx].Strategy, ""), DefaultResourceTransformationStrategy))
 		}
+	}
+
+	if cfg.QuotaReleaseStrategy == nil {
+		cfg.QuotaReleaseStrategy = new(DefaultQuotaReleaseStrategy)
 	}
 }
