@@ -18,11 +18,13 @@ package workload
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -50,10 +52,11 @@ type AdjustmentInputs struct {
 }
 
 // ResolveAdjustmentInputs reads the RuntimeClasses and LimitRanges the
-// workload's effective resources depend on. The returned errors mirror the
-// historical AdjustResources logging: one entry per PodSet whose RuntimeClass
-// could not be read, plus at most one for the LimitRange listing.
-func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Workload) (AdjustmentInputs, []error) {
+// workload's effective resources depend on. The returned error joins all
+// lookup failures encountered. Missing RuntimeClasses return an error where
+// apierrors.IsNotFound is true; listing LimitRanges or transient client
+// failures are wrapped with ErrInternal.
+func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Workload) (AdjustmentInputs, error) {
 	var errs []error
 	in := AdjustmentInputs{}
 	if cl == nil {
@@ -71,7 +74,11 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 		}
 		var runtimeClass nodev1.RuntimeClass
 		if err := cl.Get(ctx, types.NamespacedName{Name: name}, &runtimeClass); err != nil {
-			errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
+			if apierrors.IsNotFound(err) {
+				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
+			} else {
+				errs = append(errs, fmt.Errorf("%w: in podSet %s: %w", ErrInternal, wl.Spec.PodSets[i].Name, err))
+			}
 			continue
 		}
 		if runtimeClass.Overhead != nil {
@@ -84,12 +91,12 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 
 	var limitRanges corev1.LimitRangeList
 	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
-		errs = append(errs, err)
+		errs = append(errs, fmt.Errorf("%w: listing LimitRanges in namespace %q: %w", ErrInternal, wl.Namespace, err))
 	} else if len(limitRanges.Items) > 0 {
 		in.LimitRangeSummary = limitrange.Summarize(limitRanges.Items...)
 	}
 
-	return in, errs
+	return in, errors.Join(errs...)
 }
 
 // applyAdjustmentsToPodSpec rewrites the given PodSpec into its effective
@@ -148,29 +155,33 @@ func WithAdjustmentInputs(in AdjustmentInputs) InfoOption {
 
 // NewInfoFromClient resolves resource defaults before constructing an Info.
 // The workload itself is retained without modification.
-func NewInfoFromClient(ctx context.Context, cl client.Client, wl *kueue.Workload, opts ...InfoOption) *Info {
+func NewInfoFromClient(ctx context.Context, cl client.Client, wl *kueue.Workload, opts ...InfoOption) (*Info, error) {
 	info := &Info{}
-	info.UpdateFromClient(ctx, cl, wl, opts...)
-	return info
+	err := info.UpdateFromClient(ctx, cl, wl, opts...)
+	return info, err
 }
 
 // UpdateFromClient refreshes external defaults and updates the effective resource
 // view, total requests and scheduling hash together. It also refreshes defaults
 // when the API workload's resource version has not changed.
-func (i *Info) UpdateFromClient(ctx context.Context, cl client.Client, wl *kueue.Workload, opts ...InfoOption) {
+func (i *Info) UpdateFromClient(ctx context.Context, cl client.Client, wl *kueue.Workload, opts ...InfoOption) error {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	log := ctrl.LoggerFrom(ctx)
+	var err error
 	if options.effectivePodSpecs == nil {
-		in, errs := ResolveAdjustmentInputs(ctx, cl, wl)
-		for _, err := range errs {
+		var in AdjustmentInputs
+		in, err = ResolveAdjustmentInputs(ctx, cl, wl)
+		if err != nil {
 			log.Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
 		}
 		opts = append([]InfoOption{WithAdjustmentInputs(in)}, opts...)
 	}
+	i.AdjustmentErr = err
 	i.Update(log, wl, opts...)
+	return err
 }
 
 // PodSpec returns the read-only effective PodSpec for a PodSet index.

@@ -845,6 +845,11 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Log
 		return false, ErrCqNotFound
 	}
 
+	wi, err := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
+	if err != nil {
+		return false, fmt.Errorf("resolving effective resources for workload %s: %w", wlKey, err)
+	}
+
 	if assigned && assignedCqName != cq.Name {
 		c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
 	}
@@ -854,7 +859,6 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Log
 	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
-	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
 	cq.addOrUpdateWorkload(log, wi)
 
 	return true, nil
