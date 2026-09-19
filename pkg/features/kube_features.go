@@ -691,6 +691,15 @@ const (
 	// share a job-uid value. The Pod UID is kept when the gate is disabled, and for Pods
 	// that Kueue does not manage through a Deployment.
 	DeploymentJobUIDLabel featuregate.Feature = "DeploymentJobUIDLabel"
+
+	// owner: @henry3260
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/15734
+	//
+	// Counts a Succeeded pod as ready when the pod integration evaluates PodsReady.
+	// The kubelet sets PodReady to False once a pod completes, so when disabled a pod
+	// group reports PodsReady=False as soon as any member finishes, which can evict a
+	// healthy group once waitForPodsReady.recoveryTimeout elapses.
+	PodIntegrationCountSucceededPodsAsReady featuregate.Feature = "PodIntegrationCountSucceededPodsAsReady"
 )
 
 func init() {
@@ -1071,6 +1080,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeploymentJobUIDLabel: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodIntegrationCountSucceededPodsAsReady: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
