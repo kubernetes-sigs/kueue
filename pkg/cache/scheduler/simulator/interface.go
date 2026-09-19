@@ -21,7 +21,6 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // SchedulingSimulator acts as a factory for SimulatorSnapshots.
@@ -34,7 +33,7 @@ type SchedulingSimulator interface {
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
-	UntrackPod(ctx context.Context, key client.ObjectKey)
+	UntrackPod(ctx context.Context, key WorkloadKey)
 }
 
 // SimulatorSnapshot allows running simulations on a snapshotted cluster state.
@@ -53,7 +52,18 @@ type SimulatorSnapshot interface {
 	// When run inside Simulate, any changes made by the method or the returned revert function
 	// will be reverted regardless of their outcome (error vs success).
 	// The default implementation does not perform any logic here.
-	PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revert func() error, err error)
+	PreemptWorkload(ctx context.Context, wlKey WorkloadKey) (revert func() error, err error)
+	// ScheduleWorkload finds Pod assignments and required preemptions' targets to fit the workload on the cluster.
+	// It pulls preemption targets from the preemptionCandidates slice.
+	// It simulates the preemptions of workloads listed in preemptedWorkloads.
+	// The result is the bindings of Pods to Nodes for the calculated placement
+	// and the information on which workloads need preempting to make the placement feasible.
+	ScheduleWorkload(
+		ctx context.Context,
+		wlKey WorkloadKey,
+		preemptionCandidates []WorkloadKey,
+		preemptedWorkloads []WorkloadKey,
+	) (SchedulingResult, PreemptionResult, error)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
