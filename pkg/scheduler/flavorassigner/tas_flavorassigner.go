@@ -26,8 +26,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -112,6 +114,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	podSet.Template.Spec = *wl.PodSpec(podSetIndex)
 	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
 	singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpec(podSetIndex))
+	delegateDRABackedExtendedResources(wl.PodSpec(podSetIndex), cq.DRABackedResources(), singlePodRequests)
 	var podSetUpdates []*kueue.PodSetUpdate
 	for _, ac := range wl.Obj.Status.AdmissionChecks {
 		if ac.State == kueue.CheckStateReady {
@@ -132,6 +135,26 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		PodSetGroupName:    podSetGroupName(podSet),
 		PreviousAssignment: previousAssignment,
 	}, nil
+}
+
+// delegateDRABackedExtendedResources zeroes the PodSet's DRA-backed extended resources so
+// the domain's capacity does not decide them. Nothing advertises such a resource on a Node,
+// so counting it against node allocatable rejects every domain; the per-node device check
+// answers it instead. kube-scheduler delegates the same way in its noderesources plugin.
+// Without that check the resource stays counted, which keeps the gate-off behaviour.
+func delegateDRABackedExtendedResources(spec *corev1.PodSpec, erCache *dra.ExtendedResourceCache, requests resources.Requests) {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) || erCache == nil {
+		return
+	}
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for i := range containers {
+			for name, quantity := range containers[i].Resources.Requests {
+				if !quantity.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) {
+					requests.Set(name, 0)
+				}
+			}
+		}
+	}
 }
 
 // podSetGroupName returns ps's PodSetGroupName, or nil if ps has no TopologyRequest.
