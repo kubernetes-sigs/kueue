@@ -3988,7 +3988,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -4060,7 +4060,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							NodeName("test-node").
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
