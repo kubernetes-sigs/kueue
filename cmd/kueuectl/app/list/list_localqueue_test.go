@@ -124,8 +124,8 @@ func TestLocalQueueCmd(t *testing.T) {
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
 		},
 		"should print local queue list with clusterqueue filter": {
@@ -144,8 +144,8 @@ lq1    cq1            1                   1                    60m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
 		},
 		"should print local queue list with label selector filter": {
@@ -166,8 +166,8 @@ lq1    cq1            1                   1                    60m
 					Label("key", "value2").
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
 		},
 		"should print local queue list with label selector filter (short flag)": {
@@ -187,8 +187,8 @@ lq1    cq1            1                   1                    60m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
 		},
 		"should print not found error": {

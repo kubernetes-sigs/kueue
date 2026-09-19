@@ -81,8 +81,8 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            0                   0                    %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            0                   0                    false    %s
 `,
 				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
 			)))
@@ -102,10 +102,10 @@ lq1    cq1            0                   0                    %s
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1                          cq1                            0                   0                    %s
-lq2                          very-long-cluster-queue-name   0                   0                    %s
-very-long-local-queue-name   cq1                            0                   0                    %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1                          cq1                            0                   0                    false    %s
+lq2                          very-long-cluster-queue-name   0                   0                    false    %s
+very-long-local-queue-name   cq1                            0                   0                    false    %s
 `,
 				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(lq2.CreationTimestamp.Time)),

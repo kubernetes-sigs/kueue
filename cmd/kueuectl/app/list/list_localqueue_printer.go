@@ -20,6 +20,7 @@ import (
 	"errors"
 	"io"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/duration"
@@ -50,6 +51,7 @@ func (p *listLocalQueuePrinter) PrintObj(obj runtime.Object, out io.Writer) erro
 			{Name: "ClusterQueue", Type: "string"},
 			{Name: "Pending Workloads", Type: "integer"},
 			{Name: "Admitted Workloads", Type: "integer"},
+			{Name: "Active", Type: "boolean"},
 			{Name: "Age", Type: "string"},
 		},
 		Rows: p.printLocalQueueList(list),
@@ -96,7 +98,12 @@ func (p *listLocalQueuePrinter) printLocalQueue(localQueue *kueue.LocalQueue) me
 		localQueue.Spec.ClusterQueue,
 		localQueue.Status.PendingWorkloads,
 		localQueue.Status.AdmittedWorkloads,
+		isLocalQueueActive(localQueue),
 		duration.HumanDuration(p.clock.Since(localQueue.CreationTimestamp.Time)),
 	}
 	return row
+}
+
+func isLocalQueueActive(lq *kueue.LocalQueue) bool {
+	return meta.IsStatusConditionTrue(lq.Status.Conditions, kueue.LocalQueueActive)
 }
