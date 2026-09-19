@@ -2560,15 +2560,6 @@ func TestBuildPodRequirements(t *testing.T) {
 	tolerateDrain := corev1.Toleration{Key: "example.com/drain", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
 	basePodSet := utiltestingapi.MakePodSet("main", 1)
 
-	podRequirementsCmpOpts := cmp.Options{
-		cmpopts.EquateEmpty(),
-		// nodeaffinity keeps the compiled terms in unexported fields of unexported
-		// types, which cmp.AllowUnexported cannot name.
-		cmp.Exporter(func(t reflect.Type) bool {
-			return t.PkgPath() == reflect.TypeFor[nodeaffinity.NodeSelector]().PkgPath()
-		}),
-	}
-
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 		// levels are the levels the Topology declares. A leaf is a node when the lowest
@@ -2790,7 +2781,12 @@ func TestBuildPodRequirements(t *testing.T) {
 			if gotReason != "" {
 				t.Errorf("buildPodRequirements() = %q, want no reason", gotReason)
 			}
-			if diff := cmp.Diff(tc.wantPodRequirements, gotPodRequirements, podRequirementsCmpOpts); diff != "" {
+			if diff := cmp.Diff(tc.wantPodRequirements, gotPodRequirements,
+				// nodeaffinity keeps the compiled terms in unexported fields of unexported
+				// types, which cmp.AllowUnexported cannot name.
+				cmp.Exporter(func(t reflect.Type) bool {
+					return t.PkgPath() == reflect.TypeFor[nodeaffinity.NodeSelector]().PkgPath()
+				})); diff != "" {
 				t.Errorf("unexpected PodRequirements (-want,+got):\n%s", diff)
 			}
 		})
