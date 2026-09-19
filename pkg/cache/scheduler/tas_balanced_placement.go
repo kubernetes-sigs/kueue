@@ -17,9 +17,12 @@ limitations under the License.
 package scheduler
 
 import (
+	"cmp"
 	"maps"
 	"math"
 	"slices"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // evaluateGreedyAssignment simulates placement of a (leaderCount, sliceCount) request on the given domains.
@@ -86,7 +89,7 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 	if prioritizeByEntropy {
 		slices.SortFunc(orderedDomains, s.compareDomainCapacityAndEntropy)
 	} else {
-		slices.SortFunc(orderedDomains, compareDomainLevelValues)
+		slices.SortFunc(orderedDomains, s.compareDomainsForBalancedPlacement)
 	}
 
 	// domain_placements[i][j][k] stores a list of domains that uses 'i' domains with
@@ -211,6 +214,10 @@ func (s *TASFlavorSnapshot) calculateDomainsEntropy(domains []*domain) float64 {
 	return entropy
 }
 
+// compareDomainCapacityAndEntropy orders domains for entropy-prioritized
+// selection. Remaining ties go through compareDomainsForBalancedPlacement so
+// preferred node affinity can change which domains are chosen, not only how
+// slices are later packed onto an already selected set.
 func (s *TASFlavorSnapshot) compareDomainCapacityAndEntropy(a, b *domain) int {
 	if r := s.domainStateOf(b).leaderCount - s.domainStateOf(a).leaderCount; r != 0 {
 		return int(r)
@@ -225,6 +232,20 @@ func (s *TASFlavorSnapshot) compareDomainCapacityAndEntropy(a, b *domain) int {
 	}
 	if bEntropy < aEntropy {
 		return -1
+	}
+	return s.compareDomainsForBalancedPlacement(a, b)
+}
+
+// compareDomainsForBalancedPlacement orders domains for balanced placement.
+// When the TASRespectNodeAffinityPreferred feature gate is enabled, it prefers
+// domains with a higher preferred node affinity score before falling back to
+// level values as a stable tiebreaker. This ensures balanced placement honors
+// preferred node affinity when selecting between otherwise equivalent domains.
+func (s *TASFlavorSnapshot) compareDomainsForBalancedPlacement(a, b *domain) int {
+	if features.Enabled(features.TASRespectNodeAffinityPreferred) {
+		if r := cmp.Compare(s.domainStateOf(b).affinityScore, s.domainStateOf(a).affinityScore); r != 0 {
+			return r
+		}
 	}
 	return compareDomainLevelValues(a, b)
 }
