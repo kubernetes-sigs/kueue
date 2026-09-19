@@ -36,4 +36,5 @@ const (
 	RetriableInGroupAnnotationValue   = "false"
 	IsGroupWorkloadAnnotationKey      = "kueue.x-k8s.io/is-group-workload"
 	IsGroupWorkloadAnnotationValue    = "true"
+	PodSchedulingShapeHashAnnotation  = "kueue.x-k8s.io/pod-scheduling-shape-hash"
 )
