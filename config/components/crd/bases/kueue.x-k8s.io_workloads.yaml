@@ -19656,6 +19656,16 @@ spec:
                     format: int32
                     minimum: 0
                     type: integer
+                  firstEvictedAt:
+                    description: |-
+                      firstEvictedAt records the time of the first eviction with the PodsReadyTimeout
+                      reason since the workload last reached the PodsReady=true condition.
+                      It is only recorded when waitForPodsReady.requeuingStrategy.backoffLimitTimeout
+                      is configured and is used to enforce that timeout.
+                      It is reset to null when the workload reaches PodsReady=true, and when a
+                      deactivated (`.spec.active`=`false`) workload is reactivated (`.spec.active`=`true`).
+                    format: date-time
+                    type: string
                   requeueAt:
                     description: |-
                       requeueAt records the time when a workload will be re-queued.

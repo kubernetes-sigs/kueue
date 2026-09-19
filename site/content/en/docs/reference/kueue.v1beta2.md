@@ -3150,6 +3150,18 @@ When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is 
 this time would be reset to null.</p>
 </td>
 </tr>
+<tr><td><code>firstEvictedAt</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>firstEvictedAt records the time of the first eviction with the PodsReadyTimeout
+reason since the workload last reached the PodsReady=true condition.
+It is only recorded when waitForPodsReady.requeuingStrategy.backoffLimitTimeout
+is configured and is used to enforce that timeout.
+It is reset to null when the workload reaches PodsReady=true, and when a
+deactivated (<code>.spec.active</code>=<code>false</code>) workload is reactivated (<code>.spec.active</code>=<code>true</code>).</p>
+</td>
+</tr>
 </tbody>
 </table>
 

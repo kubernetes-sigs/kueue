@@ -452,6 +452,23 @@ type RequeuingStrategy struct {
 	// Defaults to 3600.
 	// +optional
 	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
+
+	// BackoffLimitTimeout defines the maximum time a workload can spend being
+	// re-queued due to evictions with the PodsReadyTimeout reason. The time is
+	// measured from the first such eviction since the workload last reached the
+	// PodsReady=true condition, recorded in `.status.requeueState.firstEvictedAt`.
+	// When the timeout has elapsed and the workload is about to be evicted with the
+	// PodsReadyTimeout reason again, it is deactivated (`.spec.active`=`false`)
+	// instead of being re-queued.
+	// Reaching PodsReady=true resets the measurement, so the timeout bounds the
+	// time spent cycling through evictions rather than the total time in the queue.
+	// BackoffLimitCount is applied independently; whichever limit is reached first
+	// deactivates the workload.
+	// When it is null, the re-queuing time is not limited.
+	//
+	// Defaults to null.
+	// +optional
+	BackoffLimitTimeout *metav1.Duration `json:"backoffLimitTimeout,omitempty"`
 }
 
 type RequeuingTimestamp string
