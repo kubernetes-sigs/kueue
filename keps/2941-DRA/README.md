@@ -2201,8 +2201,12 @@ Namespace `ResourceQuota` and `ClusterQueue` quota may both apply to one Workloa
   ([#13842](https://github.com/kubernetes-sigs/kueue/issues/13842)). The gap is inherited from the
   `Exactly` path; the gate stays Alpha and off by default while it is open, and the binding is
   re-evaluated before Beta.
-- Feasibility is not checked at admission on this path, so an unschedulable Workload can hold its
-  reservation until `WaitForPodsReady`, when enabled, evicts it.
+- Feasibility is not checked at admission on this path. With `KueueDRADeviceFeasibility` off, an
+  unschedulable Workload can hold its reservation until `WaitForPodsReady`, when enabled, evicts
+  it. With it on, the per-node check refuses a request that offers alternatives rather than
+  evaluating them, as [DRA Device Feasibility](#dra-device-feasibility) records, so such a
+  Workload is not admitted until that check learns alternatives; quota and feasibility agreeing
+  on one predicate is a Beta criterion.
 
 ### Integration with Admission Fair Sharing
 
