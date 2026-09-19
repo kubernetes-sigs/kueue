@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -71,6 +72,9 @@ import (
 const (
 	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
 )
+
+// errStaleEntrySnapshot means the live workload moved since the entry was evaluated; the write is aborted and the workload requeued from live state.
+var errStaleEntrySnapshot = errors.New("workload state changed since evaluation")
 
 var (
 	realClock = clock.RealClock{}
@@ -1095,7 +1099,15 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 	newWorkload := e.Obj.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {
+		// The entry's snapshot may be outdated: verify against live state inside every
+		// patch attempt (the merge-retry path refetches and re-runs this closure).
+		var liveWl *kueue.Workload // set by the closure when the workload moved on during the write
 		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
+			var chkErr error
+			liveWl, chkErr = s.checkEntrySnapshotCurrent(ctx, e)
+			if chkErr != nil {
+				return false, chkErr
+			}
 			s.prepareWorkload(log, wl, cq, admission)
 			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
 				log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
@@ -1126,6 +1138,27 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		}
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Workload not admitted because it was deleted")
+			return
+		}
+		if errors.Is(err, errStaleEntrySnapshot) {
+			// Nothing was written. Requeue the live object read by the check; never fall back to the
+			// evaluated-but-outdated entry (a second pass built from it would compute a replacement
+			// for a state that no longer exists).
+			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling", "workload", klog.KObj(e.Obj))
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
+				api.TruncateEventMessage("Skipped admission write: workload state changed while the entry was being scheduled"))
+			if liveWl != nil {
+				// The failure cleanup above dropped the workload from the ClusterQueue cache along
+				// with the could-not-be-written assumption. If the live workload still holds a quota
+				// reservation (i.e. this was a second pass), that reservation is real usage that
+				// was accounted before this abort; restore it so the CQ usage doesn't under-count.
+				if workload.HasQuotaReservation(liveWl) {
+					s.cache.AddOrUpdateWorkload(ctx, log, liveWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs))
+				}
+				e2 := *e
+				e2.Obj = liveWl
+				s.requeueAndUpdate(ctx, e2)
+			}
 			return
 		}
 
@@ -1252,6 +1285,35 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 	return &classicalIterator{
 		entries: entries,
 	}
+}
+
+// checkEntrySnapshotCurrent compares against the live workload on the fields that shape the write (generation, admission, unhealthy-node set); resourceVersion is excluded because condition-only updates bump it too.
+// It returns the live object on every successful read so callers can requeue/reuse it directly.
+func (s *Scheduler) checkEntrySnapshotCurrent(ctx context.Context, e *entry) (*kueue.Workload, error) {
+	live := &kueue.Workload{}
+	if err := s.client.Get(ctx, client.ObjectKeyFromObject(e.Obj), live); err != nil {
+		return nil, err
+	}
+	if live.Generation != e.Obj.Generation {
+		return live, errStaleEntrySnapshot
+	}
+	if !apiequality.Semantic.DeepEqual(live.Status.Admission, e.Obj.Status.Admission) {
+		return live, errStaleEntrySnapshot
+	}
+	if !slices.Equal(unhealthyNodeNames(live.Status.UnhealthyNodes), unhealthyNodeNames(e.Obj.Status.UnhealthyNodes)) {
+		return live, errStaleEntrySnapshot
+	}
+	return live, nil
+}
+
+// unhealthyNodeNames returns the mark names sorted, so a reorder alone doesn't read as a change.
+func unhealthyNodeNames(nodes []kueue.UnhealthyNode) []string {
+	names := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		names = append(names, n.Name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
