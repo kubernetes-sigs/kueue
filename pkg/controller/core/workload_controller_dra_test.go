@@ -228,16 +228,13 @@ func TestReconcileDRA(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
-		"reconcile DRA workload waiting for backoff should preprocess and queue as inadmissible": {
+		"reconcile DRA workload waiting for backoff should preprocess but not queue": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
-			wantDRAResourceTotal:     new(int64(1)),
-			wantWorkloadsInQueue:     new(1),
-			wantWorkloadInHeap:       new(false),
-			wantWorkloadInadmissible: new(true),
-			wantResult:               reconcile.Result{RequeueAfter: time.Hour},
+			wantWorkloadsInQueue: new(0),
+			wantResult:           reconcile.Result{RequeueAfter: time.Hour},
 			workload: utiltestingapi.MakeWorkload("wlDRAWaitingForBackoff", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
