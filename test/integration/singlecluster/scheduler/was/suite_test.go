@@ -119,7 +119,7 @@ func managerSetup() func(ctx context.Context, mgr manager.Manager) {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		resourceFormatter := resources.NewResourceFormatter()
 
-		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig(), was.WithDRA(mgr.GetClient()))
+		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		draBackedResources := dra.NewExtendedResourceCache()

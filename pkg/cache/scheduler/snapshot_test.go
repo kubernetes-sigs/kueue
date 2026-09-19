@@ -38,6 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -2261,6 +2262,40 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// The device check wraps whichever simulator the cache holds, so it is available to a
+// cluster that does not run the scheduler library. Its gate no longer names that one.
+func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
+	cases := map[string]struct {
+		simulator      simulator.SchedulingSimulator
+		featureEnabled bool
+		wantChecker    bool
+	}{
+		"default simulator, gate on":  {featureEnabled: true, wantChecker: true},
+		"default simulator, gate off": {},
+		"another simulator, gate on":  {simulator: newDefaultSimulator(), featureEnabled: true, wantChecker: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.featureEnabled)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			opts := []Option{}
+			if tc.simulator != nil {
+				opts = append(opts, WithSchedulingSimulator(tc.simulator))
+			}
+			cache := New(utiltesting.NewFakeClient(), opts...)
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() returned error: %v", err)
+			}
+			if _, got := snap.SimulatorSnapshot.(*simulator.DRAChecker); got != tc.wantChecker {
+				t.Errorf("snapshot holds a *simulator.DRAChecker = %v, want %v", got, tc.wantChecker)
 			}
 		})
 	}

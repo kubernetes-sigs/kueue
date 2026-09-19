@@ -2489,7 +2489,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				// them report their own unmet dependency and bury the one under test.
 				string(features.KueueDRAIntegrationExtendedResource):         false,
 				string(features.KueueDRAIntegrationPartitionableDevices):     false,
-				string(features.SchedulerLibraryIntegration):                 false,
 				string(features.TopologyAwareScheduling):                     false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASGroupedPodSetSlicing):                     false,
@@ -2507,7 +2506,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "KueueDRADeviceFeasibility is enabled, but depends on features that are disabled: [KueueDRAIntegration SchedulerLibraryIntegration TASNodeFeasibilityForAllLevels TopologyAwareScheduling]",
+					Detail: "KueueDRADeviceFeasibility is enabled, but depends on features that are disabled: [KueueDRAIntegration TASNodeFeasibilityForAllLevels TopologyAwareScheduling]",
 				},
 			},
 		},
