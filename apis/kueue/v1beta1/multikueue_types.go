@@ -68,6 +68,11 @@ type MultiKueueClusterSpec struct {
 	// It has no effect in v1beta1.
 	// +optional
 	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
+
+	// supportedFrameworks is only used to prevent data loss when converting between v1beta2 and v1beta1.
+	// It has no effect in v1beta1.
+	// +optional
+	SupportedFrameworks []string `json:"supportedFrameworks,omitempty"`
 }
 
 type ClusterProfileReference struct {
