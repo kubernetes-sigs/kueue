@@ -86,9 +86,11 @@ The fair-sharing ordering was never wrong here. CQ-B loses the second GPU becaus
 
 A ClusterQueue has 100 pending Workloads and the lowest fair share in its cohort.
 It admits one Workload per cycle, and each cycle re-snapshots the cache and re-evaluates every ClusterQueue's head for that single admission.
+At 30s per scheduling cycle, 100 one-admission cycles would amount to roughly 50 minutes, even while capacity is available.
 
 With refill, the queue's next Workload competes in the same cycle after each admission.
-Each extra admission costs one evaluation instead of a whole cycle, so the backlog drains in less wall time.
+Each extra admission costs one evaluation instead of a whole cycle.
+The gain is stated as measured wall time rather than derived from the cycle count, for the reason given under [Notes, Constraints, and Caveats](#notes-constraints-and-caveats).
 
 #### Story 2: available capacity goes to a ClusterQueue with a higher share
 
@@ -157,11 +159,12 @@ See the drain benchmark in [#13730](https://github.com/kubernetes-sigs/kueue/pul
 
 | Feature | With refill | Why |
 |---|---|---|
-| `ConcurrentAdmission` | Refill stops after a Variant is admitted. | `ConcurrentAdmission` clones a Workload into several Variants, one per candidate set of ResourceFlavors, and only one may win. The scheduler admits at most one Variant per cycle so it can cancel the siblings before the next; refilling could admit a sibling of the same job in the same cycle. |
+| `ConcurrentAdmission` | The ClusterQueue that admitted a Variant does not refill. Other ClusterQueues in the cycle are unaffected. | `ConcurrentAdmission` clones a Workload into several Variants, one per candidate set of ResourceFlavors, and only one may win. The scheduler admits at most one Variant per cycle so it can cancel the siblings before the next; refilling could admit a sibling of the same job in the same cycle. |
 | Preemption | A refilled Workload never preempts. It waits for the next cycle. | See [How refill works](#how-refill-works). |
 | `WaitForPodsReady` with `blockAdmission` | Refill is off. | The cycle is already limited to one admission, so a second candidate could not make progress. |
+| In-cycle assignment recomputation | Refill uses the latest assignment available in the cycle. TAS recomputation remains compatible with refill, while a refilled Workload that still needs overlapping-preemption handling is deferred to a later cycle. | This keeps refill focused on Workloads that can make progress immediately, without introducing a second preemption decision in the same cycle. |
 | Topology Aware Scheduling | Unchanged. A refilled Workload is placed like any other candidate in the cycle. A Workload that already holds quota and is only finishing placement does not start a refill. | That Workload uses no new quota, so its admission leaves no room for a successor. Correctness is covered at Alpha. Scheduler cost on topology-heavy workloads is a Beta item. |
-| Admission Fair Sharing | Unchanged accounting. Each refilled admission records its entry penalty as usual. | Usage is read once at cycle start, so several admissions in one cycle all see the same usage. What a refilled candidate observes is characterized and tested before Beta. |
+| Admission Fair Sharing | Unchanged accounting. Each refilled admission records its entry penalty as usual, and the next candidate already reflects that penalty. | Settled usage is read once at cycle start, so several admissions in one cycle all see the same settled usage. |
 | Sticky ClusterQueue Head Policy | Compatible. Refill takes Workloads in the same queue order, so a sticky Workload still comes first. | It decides which Workload a `BestEffortFIFO` ClusterQueue offers first across cycles; refill lets a ClusterQueue offer another one within a cycle. A future generalization of either should account for the other. |
 
 ### Observability
@@ -249,7 +252,7 @@ Preemption benchmarking in particular requires simulating the workload controlle
 - Validate the Alpha budget-exhaustion tradeoff with production data.
 - Decide whether refill remains Fair-Sharing-only.
 - Introduce the user-facing configuration surface and default, if required by the selected budget model, following the scheduler configuration work in [#14190](https://github.com/kubernetes-sigs/kueue/issues/14190).
-- Define and test the interaction with Admission Fair Sharing.
+- Cover the Admission Fair Sharing interaction in refill's own tests, including the pending entry penalty seen by a mid-cycle successor.
 - Validate scheduler cost on preemption-heavy and topology-aware workloads.
 - Add metrics for refill termination and exhaustion, sufficient to evaluate the chosen policy in production.
 - Demonstrate no known correctness regressions with the gate enabled by default.
