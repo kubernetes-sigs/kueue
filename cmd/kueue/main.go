@@ -354,11 +354,7 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	if features.Enabled(features.SchedulerLibraryIntegration) {
-		var wasOpts []was.WASOption
-		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			wasOpts = append(wasOpts, was.WithDRA(mgr.GetClient()))
-		}
-		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig(), wasOpts...)
+		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize scheduling simulator")
 			os.Exit(1)
