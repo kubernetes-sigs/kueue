@@ -174,9 +174,9 @@ type ClusterQueue struct {
 
 	finishedWorkloads sets.Set[workload.Reference]
 
-	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
-	// popCycle and queueInadmissibleCycle are used to track when there is a requeuing
-	// of inadmissible workloads while a workload is being scheduled.
+	// popCycle identifies the current evaluation epoch. popCycle and
+	// queueInadmissibleCycle are used to track when there is a requeuing of
+	// inadmissible workloads while a workload is being scheduled.
 	popCycle int64
 
 	// queueInadmissibleCycle stores the popId at the time when
@@ -308,6 +308,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, cl *metrics.
 			inadmissibleTracker:   metrics.NewLabelValsTracker(),
 			pendingResourcesTotal: make(map[corev1.ResourceName]int64),
 			schedulingHashes:      newSchedulingHashCounts(),
+			inflight:              make(map[workload.Reference]*workload.Info),
 		},
 		hashToBulkMoveReason:   make(map[workload.EquivalenceHash]QuotaReservedReason),
 		finishedWorkloads:      sets.New[workload.Reference](),
@@ -522,6 +523,7 @@ func (c *ClusterQueue) DeleteFromLocalQueue(log logr.Logger, q *LocalQueue, role
 		wlKey := workloadKey(w)
 		c.delete(log, wlKey)
 	}
+	c.workloads.ForgetInflightFromLocalQueue(q.Key)
 	for fw := range q.finishedWorkloads {
 		c.finishedWorkloads.Delete(fw)
 	}
@@ -612,6 +614,12 @@ func (c *ClusterQueue) forgetInflight(key workload.Reference) {
 	c.workloads.ForgetInflightByKey(key)
 }
 
+func (c *ClusterQueue) hasQueuedWorkloads() bool {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.workloads.hasActive()
+}
+
 // handleInadmissibleHash bulk-moves all heap workloads matching the given
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
@@ -676,6 +684,19 @@ func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueRe
 // Pop removes the head of the queue and returns it. It returns nil if the
 // queue is empty.
 func (c *ClusterQueue) Pop() *workload.Info {
+	return c.pop(true)
+}
+
+// PopMidCycle removes the head of the queue like Pop, but does not advance
+// popCycle. Advancing it declares the previous scheduling attempt over and its
+// signals consumed; a mid-cycle pop (refill) is part of an attempt still in
+// progress, whose pending "requeue the inadmissible workloads" signal must stay
+// fresh.
+func (c *ClusterQueue) PopMidCycle() *workload.Info {
+	return c.pop(false)
+}
+
+func (c *ClusterQueue) pop(newEpoch bool) *workload.Info {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 
@@ -688,7 +709,9 @@ func (c *ClusterQueue) Pop() *workload.Info {
 		c.workloads.RebuildActiveHeap()
 	}
 
-	c.popCycle++
+	if newEpoch {
+		c.popCycle++
+	}
 	return c.workloads.PopActive()
 }
 
@@ -718,6 +741,12 @@ func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.workloads.DumpInadmissible()
+}
+
+func (c *ClusterQueue) DumpInflight() ([]workload.Reference, bool) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.workloads.DumpInflight()
 }
 
 // Snapshot returns a copy of pending workloads in queue order.
