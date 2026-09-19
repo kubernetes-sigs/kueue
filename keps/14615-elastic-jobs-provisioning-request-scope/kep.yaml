@@ -1,0 +1,38 @@
+title: Elastic Jobs and ProvisioningRequest Compatibility Constraints
+kep-number: 14615
+authors:
+  - "@neilb-dotcom"
+status: provisional
+creation-date: 2026-08-19
+reviewers:
+  - "@sohankunkerkar"
+  - "@yaroslava-serdiuk"
+approvers:
+  - TBD
+
+see-also:
+  - "/keps/1136-provisioning-request-support"
+  - "/keps/1788-pass-parameters-to-ProvReq"
+replaces:
+  -
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: beta
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.18"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.15"
+  beta: "v0.18"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: ElasticJobsViaWorkloadSlices
+    components:
+      - kueue-controller-manager
+disable-supported: true
