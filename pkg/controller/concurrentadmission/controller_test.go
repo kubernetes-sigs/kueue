@@ -227,6 +227,44 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"parent workload whose name has no separator creates variants": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-c405a", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-cba55", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonCreatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-spot-c405a\" created",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonCreatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-on-demand-cba55\" created",
+				},
+			},
+		},
 		"parent workload with missing variants; creates missing": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
