@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -310,6 +311,9 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			wantPreemptionTargetRecomputations: map[string]map[string]int{
 				"cq-hero": {"new_targets": 1},
 			},
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{
+				{clusterQueue: "cq-hero", beforeMode: "Preempt", afterMode: "Preempt", reason: metrics.AssignmentRecomputationReasonOverlappingPreemptionTargets}: 1,
+			},
 		},
 		"with fair sharing: two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
 			enableFairSharing: true,
@@ -474,6 +478,9 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			},
 		},
 		"two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{
+				{clusterQueue: "cq-hero", beforeMode: "Preempt", afterMode: "DeferredFit", reason: metrics.AssignmentRecomputationReasonOverlappingPreemptionTargets}: 1,
+			},
 			enableFairSharing: false,
 			cohorts:           defaultCohorts(),
 			workloads: []kueue.Workload{
@@ -795,6 +802,9 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			// resolve the overlap — skipped.
 			wantPreemptionTargetRecomputations: map[string]map[string]int{
 				"cq-1": {"skipped": 1},
+			},
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{
+				{clusterQueue: "cq-1", beforeMode: "Preempt", afterMode: "Preempt", reason: metrics.AssignmentRecomputationReasonOverlappingPreemptionTargets}: 1,
 			},
 		},
 
@@ -1184,6 +1194,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		},
 
 		"legacy overlap skip with RecomputePreemptionTargetsUponOverlap disabled": {
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{},
 			featureGates: map[featuregate.Feature]bool{
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: false,
 				features.TopologyAwareScheduling:                         false,
