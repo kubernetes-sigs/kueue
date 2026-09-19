@@ -25,30 +25,39 @@ import (
 
 func TestGetQuotaReleaseStrategy(t *testing.T) {
 	cases := map[string]struct {
-		ctx  context.Context
-		want configapi.QuotaReleaseStrategy
+		setContext func(ctx context.Context) context.Context
+		want       configapi.QuotaReleaseStrategy
 	}{
 		"empty context returns default OnTerminating": {
-			ctx:  context.Background(),
 			want: configapi.QuotaReleaseOnTerminating,
 		},
 		"context with OnTerminal": {
-			ctx:  ContextWithQuotaReleaseStrategy(context.Background(), configapi.QuotaReleaseOnTerminal),
+			setContext: func(ctx context.Context) context.Context {
+				return ContextWithQuotaReleaseStrategy(ctx, configapi.QuotaReleaseOnTerminal)
+			},
 			want: configapi.QuotaReleaseOnTerminal,
 		},
 		"context with OnTerminating": {
-			ctx:  ContextWithQuotaReleaseStrategy(context.Background(), configapi.QuotaReleaseOnTerminating),
+			setContext: func(ctx context.Context) context.Context {
+				return ContextWithQuotaReleaseStrategy(ctx, configapi.QuotaReleaseOnTerminating)
+			},
 			want: configapi.QuotaReleaseOnTerminating,
 		},
 		"context with empty strategy returns default OnTerminating": {
-			ctx:  ContextWithQuotaReleaseStrategy(context.Background(), configapi.QuotaReleaseStrategy("")),
+			setContext: func(ctx context.Context) context.Context {
+				return ContextWithQuotaReleaseStrategy(ctx, configapi.QuotaReleaseStrategy(""))
+			},
 			want: configapi.QuotaReleaseOnTerminating,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := GetQuotaReleaseStrategy(tc.ctx)
+			ctx := t.Context()
+			if tc.setContext != nil {
+				ctx = tc.setContext(ctx)
+			}
+			got := GetQuotaReleaseStrategy(ctx)
 			if got != tc.want {
 				t.Errorf("GetQuotaReleaseStrategy() = %v, want %v", got, tc.want)
 			}

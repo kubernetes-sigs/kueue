@@ -156,6 +156,6 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 
 	if cfg.QuotaReleaseStrategy == nil {
-		cfg.QuotaReleaseStrategy = ptr.To(DefaultQuotaReleaseStrategy)
+		cfg.QuotaReleaseStrategy = new(DefaultQuotaReleaseStrategy)
 	}
 }

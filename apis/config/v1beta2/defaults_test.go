@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -103,7 +102,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	defaultVisibilityServer := &VisibilityServerConfiguration{
 		BindPort: new(int32(8082)),
 	}
-	defaultQuotaReleaseStrategy := ptr.To(DefaultQuotaReleaseStrategy)
+	defaultQuotaReleaseStrategy := new(DefaultQuotaReleaseStrategy)
 	defaultWaitForPodsReady := &WaitForPodsReady{
 		Timeout: metav1.Duration{
 			Duration: 30 * time.Minute,
@@ -743,7 +742,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"preserving custom QuotaReleaseStrategy": {
 			original: &Configuration{
-				QuotaReleaseStrategy: ptr.To(QuotaReleaseOnTerminal),
+				QuotaReleaseStrategy: new(QuotaReleaseOnTerminal),
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -759,7 +758,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
-				QuotaReleaseStrategy:         ptr.To(QuotaReleaseOnTerminal),
+				QuotaReleaseStrategy:         new(QuotaReleaseOnTerminal),
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
