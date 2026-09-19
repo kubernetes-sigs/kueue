@@ -836,7 +836,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 					// preemption: a failed-node repair must only use capacity
 					// that's genuinely free right now (see WithSimulateEmpty
 					// above), the same as the replacement path below.
-					assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, tr, nil, assumedUsage, false, "", opts.workload)
+					assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, tr, nil, assumedUsage, false, "", opts.workload, nil)
 					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignments[tr.PodSet.Name], FailureReason: reason}
 					if reason != "" {
 						return result
