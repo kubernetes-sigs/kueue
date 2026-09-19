@@ -5413,6 +5413,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.It("relocates to the free node instead of preempting the other workload", func() {
 				var wlLowPrio, wlNeedsReplacement *kueue.Workload
 
+				var lowPrioNode string
 				ginkgo.By("admitting a low-priority workload holding half of the quota", func() {
 					wlLowPrio = utiltestingapi.MakeWorkload("low-prio", ns.Name).
 						Priority(1).
@@ -5422,6 +5423,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
 					util.MustCreate(ctx, k8sClient, wlLowPrio)
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlLowPrio)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLowPrio), wlLowPrio)).To(gomega.Succeed())
+					domains := utiltas.InternalFrom(wlLowPrio.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains
+					gomega.Expect(domains).To(gomega.HaveLen(1))
+					lowPrioNode = domains[0].Values[0]
 				})
 
 				var failedNode string
@@ -5471,7 +5476,16 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						newDomains := utiltas.InternalFrom(updated.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains
 						g.Expect(newDomains).To(gomega.HaveLen(1))
 						g.Expect(newDomains[0].Values[0]).ToNot(gomega.Equal(failedNode))
+						g.Expect(newDomains[0].Values[0]).ToNot(gomega.Equal(lowPrioNode))
 						g.Expect(apimeta.FindStatusCondition(updated.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeNil())
+
+						// Re-check low-prio here too: Consistently above only
+						// guarantees it wasn't touched during that window, not
+						// that it stays untouched until the replacement settles.
+						updatedLowPrio := &kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLowPrio), updatedLowPrio)).To(gomega.Succeed())
+						g.Expect(updatedLowPrio.Status.Admission).ShouldNot(gomega.BeNil())
+						g.Expect(apimeta.FindStatusCondition(updatedLowPrio.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeNil())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
