@@ -940,9 +940,12 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				// function that deliberately doesn't fall back to simulating
 				// preemption on a miss, so it must not leave a PodSet
 				// half-assigned.
-				for _, reqs := range tasRequests {
+				for flavor, reqs := range tasRequests {
 					for _, req := range reqs {
 						if psAssignment := assignment.podSetAssignmentByName(req.PodSet.Name); psAssignment != nil && psAssignment.TopologyAssignment == nil {
+							if features.Enabled(features.UnadmittedWorkloadsObservability) {
+								psAssignment.markFlavorAttempt(flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+							}
 							assignment.updateMode(req.PodSet.Name, NoFit)
 						}
 					}

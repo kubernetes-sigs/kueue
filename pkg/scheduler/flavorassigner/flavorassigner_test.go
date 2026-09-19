@@ -5172,6 +5172,149 @@ func TestAssignment_RequiresBorrowing(t *testing.T) {
 }
 
 // TestWorkloadsTopologyRequests_ZeroCountPodSetSkipped verifies that count=0
+func TestMissingTopologyAssignment(t *testing.T) {
+	tasFlavor := &schdcache.TASFlavorSnapshot{}
+	placedAssignment := &tas.TopologyAssignment{
+		Levels: []string{corev1.LabelHostname},
+		Domains: []tas.TopologyDomainAssignment{{
+			Values: []string{"node-a"},
+			Count:  1,
+		}},
+	}
+
+	cases := map[string]struct {
+		podSets     []PodSetAssignment
+		wlPodSets   []kueue.PodSet
+		wantPodSet  kueue.PodSetReference
+		wantMissing bool
+	}{
+		"NoFit representative mode short-circuits without checking placement": {
+			podSets: []PodSetAssignment{
+				{
+					Name:    kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: NoFit, TriedFlavorIdx: -1}},
+					Count:   1,
+					// A non-empty Status is what makes RepresentativeMode() fall
+					// through to the per-flavor Mode below instead of short-circuiting
+					// on Status.IsFit(). TopologyAssignment is intentionally left nil:
+					// even a missing placement must not be reported once NoFit.
+					Status: *NewStatus("insufficient quota"),
+				},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			wantMissing: false,
+		},
+		"pod set requires topology and has a placement: nothing missing": {
+			podSets: []PodSetAssignment{
+				{
+					Name:               kueue.DefaultPodSetName,
+					Flavors:            ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}},
+					Count:              1,
+					Status:             *NewStatus(),
+					TopologyAssignment: placedAssignment,
+				},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			wantMissing: false,
+		},
+		"pod set requires topology but has no placement: reported missing": {
+			podSets: []PodSetAssignment{
+				{
+					Name:    kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}},
+					Count:   1,
+					Status:  *NewStatus(),
+				},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			wantPodSet:  kueue.DefaultPodSetName,
+			wantMissing: true,
+		},
+		"count=0 pod set with no placement is skipped, not reported missing": {
+			podSets: []PodSetAssignment{
+				{
+					Name:    "completed-job",
+					Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}},
+					Count:   0,
+					Status:  *NewStatus(),
+				},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("completed-job", 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			wantMissing: false,
+		},
+		"mixed pod sets: only the one missing a placement is reported": {
+			podSets: []PodSetAssignment{
+				{
+					Name:               "placed",
+					Flavors:            ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}},
+					Count:              1,
+					Status:             *NewStatus(),
+					TopologyAssignment: placedAssignment,
+				},
+				{
+					Name:    "unplaced",
+					Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}},
+					Count:   1,
+					Status:  *NewStatus(),
+				},
+			},
+			wlPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("placed", 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+				*utiltestingapi.MakePodSet("unplaced", 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			wantPodSet:  "unplaced",
+			wantMissing: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			cq := &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
+			}
+			assignment := Assignment{PodSets: tc.podSets}
+			wl := workload.NewInfo(log, &kueue.Workload{
+				Spec: kueue.WorkloadSpec{PodSets: tc.wlPodSets},
+			})
+
+			gotPodSet, gotMissing := assignment.MissingTopologyAssignment(testr.New(t), wl, cq)
+			if gotMissing != tc.wantMissing {
+				t.Errorf("MissingTopologyAssignment() missing = %v, want %v", gotMissing, tc.wantMissing)
+			}
+			if gotPodSet != tc.wantPodSet {
+				t.Errorf("MissingTopologyAssignment() podSet = %q, want %q", gotPodSet, tc.wantPodSet)
+			}
+		})
+	}
+}
+
 // podSets (completed/reclaimable after preemption) are skipped in TAS request
 // generation, preventing empty TopologyAssignment slices that cause CRD
 // validation errors and infinite scheduling loops.
