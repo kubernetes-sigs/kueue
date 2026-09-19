@@ -26,7 +26,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -552,10 +551,8 @@ func (h *qWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q wo
 		return
 	}
 	req := reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      string(w.Spec.QueueName),
-			Namespace: w.Namespace,
-		},
+		Name:      string(w.Spec.QueueName),
+		Namespace: w.Namespace,
 	}
 	q.AddAfter(req, constants.UpdatesBatchPeriod)
 }

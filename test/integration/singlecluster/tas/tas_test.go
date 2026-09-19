@@ -2972,7 +2972,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("deleting the node to trigger node reconciliation", func() {
-					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+					nodeToDelete := &corev1.Node{Name: nodeName}
 					gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
 				})
@@ -3079,7 +3079,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("delete node object entirely", func() {
-					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeName}}
+					nodeToDelete := &corev1.Node{Name: nodeName}
 					gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
 				})
 
@@ -3536,13 +3536,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("deleting the first assigned node: "+node1Name, func() {
-					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: node1Name}}
+					nodeToDelete := &corev1.Node{Name: node1Name}
 					gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
 				})
 
 				ginkgo.By("deleting the second assigned node: "+node2Name, func() {
-					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: node2Name}}
+					nodeToDelete := &corev1.Node{Name: node2Name}
 					gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
 				})
@@ -9148,7 +9148,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should isolate workloads with same name in different namespaces", func() {
-			ns2 := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "tas-elastic-ns2-"}}
+			ns2 := &corev1.Namespace{GenerateName: "tas-elastic-ns2-"}
 			gomega.Expect(k8sClient.Create(ctx, ns2)).To(gomega.Succeed())
 			defer func() {
 				gomega.Expect(forceDeleteNamespace(ctx, k8sClient, ns2)).To(gomega.Succeed())

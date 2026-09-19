@@ -56,8 +56,8 @@ func TestCreateClusterQueue(t *testing.T) {
 				},
 			},
 			expected: &kueue.ClusterQueue{
-				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "ClusterQueue"},
-				ObjectMeta: metav1.ObjectMeta{Name: "cq1"},
+				APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "ClusterQueue",
+				Name: "cq1",
 				Spec: kueue.ClusterQueueSpec{
 					CohortName:       "cohort",
 					QueueingStrategy: kueue.StrictFIFO,

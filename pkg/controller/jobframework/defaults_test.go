@@ -230,8 +230,8 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	parent := utiltestingjob.MakeJob("parent", "default").UID("parent").Queue("default").Obj()
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
-		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
-		Value:      100,
+		Name:  constants.DefaultWorkloadPriorityClassName,
+		Value: 100,
 	}
 
 	scheme := runtime.NewScheme()

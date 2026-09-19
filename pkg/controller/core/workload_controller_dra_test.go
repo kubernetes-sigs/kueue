@@ -27,7 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -602,7 +601,7 @@ func TestDeviceClassHandler_Create(t *testing.T) {
 		"create of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
 			dc: utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
 			wantRequests: []reconcile.Request{
-				{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-pending"}},
+				{Namespace: "ns", Name: "wl-pending"},
 			},
 		},
 		"create of a DeviceClass without an extended resource name is ignored": {
@@ -669,16 +668,16 @@ func TestDeviceClassHandler_Update(t *testing.T) {
 			oldDC: utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
 			newDC: utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(newExtResource).Obj(),
 			wantRequests: []reconcile.Request{
-				{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-new-pending"}},
-				{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-old-pending"}},
+				{Namespace: "ns", Name: "wl-new-pending"},
+				{Namespace: "ns", Name: "wl-old-pending"},
 			},
 		},
 		"update keeping the same extended resource name requeues pending workloads once per resource occurrence and skips reserved workloads": {
 			oldDC: utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
 			newDC: utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(oldExtResource).Obj(),
 			wantRequests: []reconcile.Request{
-				{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-old-pending"}},
-				{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-old-pending"}},
+				{Namespace: "ns", Name: "wl-old-pending"},
+				{Namespace: "ns", Name: "wl-old-pending"},
 			},
 		},
 		"update of a DeviceClass without an extended resource name is ignored": {
@@ -736,7 +735,7 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 		"delete of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
 			dc: utiltesting.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
 			wantRequests: []reconcile.Request{
-				{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-pending"}},
+				{Namespace: "ns", Name: "wl-pending"},
 			},
 		},
 		"delete of a DeviceClass without an extended resource name is ignored": {

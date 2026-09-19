@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
@@ -665,10 +664,8 @@ func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q w
 			)
 			q.AddAfter(
 				reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Namespace: wl.Namespace,
-						Name:      ownerRef.Name,
-					},
+					Namespace: wl.Namespace,
+					Name:      ownerRef.Name,
 				},
 				constants.UpdatesBatchPeriod,
 			)
@@ -726,10 +723,8 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 
 	q.AddAfter(
 		reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: pod.Namespace,
-				Name:      lwsName,
-			},
+			Namespace: pod.Namespace,
+			Name:      lwsName,
 		},
 		constants.UpdatesBatchPeriod,
 	)
@@ -794,10 +789,8 @@ func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 
 	q.AddAfter(
 		reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: sts.Namespace,
-				Name:      lwsName,
-			},
+			Namespace: sts.Namespace,
+			Name:      lwsName,
 		},
 		constants.UpdatesBatchPeriod,
 	)

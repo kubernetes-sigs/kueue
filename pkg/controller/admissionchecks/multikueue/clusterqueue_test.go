@@ -476,7 +476,7 @@ func TestCQReconcile(t *testing.T) {
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 			reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.cq.Name}})
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.cq.Name})
 			if gotErr != nil {
 				t.Errorf("unexpected reconcile error: %v", gotErr)
 			}

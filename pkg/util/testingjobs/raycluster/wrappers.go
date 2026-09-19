@@ -103,11 +103,9 @@ type ClusterWrapper struct{ rayv1.RayCluster }
 // MakeCluster creates a wrapper for rayCluster
 func MakeCluster(name, ns string) *ClusterWrapper {
 	return &ClusterWrapper{rayv1.RayCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayClusterSpec{
 			RayVersion: utiltesting.TestRayVersion(),
 			HeadGroupSpec: rayv1.HeadGroupSpec{

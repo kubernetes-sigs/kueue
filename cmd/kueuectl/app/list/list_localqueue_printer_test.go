@@ -41,12 +41,10 @@ func TestLocalQueuePrint(t *testing.T) {
 			in: &kueue.LocalQueueList{
 				Items: []kueue.LocalQueue{
 					{
-						TypeMeta: metav1.TypeMeta{},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "lq",
-							CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
-						},
-						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
+						TypeMeta:          metav1.TypeMeta{},
+						Name:              "lq",
+						CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
+						Spec:              kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 						Status: kueue.LocalQueueStatus{
 							PendingWorkloads:  1,
 							AdmittedWorkloads: 2,
@@ -59,12 +57,10 @@ func TestLocalQueuePrint(t *testing.T) {
 					Cells: []any{"lq", kueue.ClusterQueueReference("cq1"), int32(1), int32(2), "60m"},
 					Object: runtime.RawExtension{
 						Object: &kueue.LocalQueue{
-							TypeMeta: metav1.TypeMeta{},
-							ObjectMeta: metav1.ObjectMeta{
-								Name:              "lq",
-								CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
-							},
-							Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
+							TypeMeta:          metav1.TypeMeta{},
+							Name:              "lq",
+							CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
+							Spec:              kueue.LocalQueueSpec{ClusterQueue: "cq1"},
 							Status: kueue.LocalQueueStatus{
 								PendingWorkloads:  1,
 								AdmittedWorkloads: 2,

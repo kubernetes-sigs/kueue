@@ -101,10 +101,8 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		managerMultiKueueSecret1 = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "multikueue1",
-				Namespace: managersConfigNamespace.Name,
-			},
+			Name:      "multikueue1",
+			Namespace: managersConfigNamespace.Name,
 			Data: map[string][]byte{
 				kueue.MultiKueueConfigSecretKey: w1Kubeconfig,
 			},
@@ -112,10 +110,8 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
 
 		managerMultiKueueSecret2 = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "multikueue2",
-				Namespace: managersConfigNamespace.Name,
-			},
+			Name:      "multikueue2",
+			Namespace: managersConfigNamespace.Name,
 			Data: map[string][]byte{
 				kueue.MultiKueueConfigSecretKey: w2Kubeconfig,
 			},

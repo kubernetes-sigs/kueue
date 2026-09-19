@@ -470,10 +470,8 @@ func TestLocalQueueConversion_RoundTrip(t *testing.T) {
 	}{
 		"complete LocalQueue with multiple flavors": {
 			v1beta1Obj: &LocalQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-localqueue",
-					Namespace: "default",
-				},
+				Name:      "test-localqueue",
+				Namespace: "default",
 				Spec: LocalQueueSpec{
 					ClusterQueue: "main-cluster-queue",
 				},
@@ -504,10 +502,8 @@ func TestLocalQueueConversion_RoundTrip(t *testing.T) {
 		},
 		"LocalQueue with nil FlavorUsage": {
 			v1beta1Obj: &LocalQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "simple-localqueue",
-					Namespace: "test-ns",
-				},
+				Name:      "simple-localqueue",
+				Namespace: "test-ns",
 				Status: LocalQueueStatus{
 					FlavorUsage: nil,
 				},
@@ -515,10 +511,8 @@ func TestLocalQueueConversion_RoundTrip(t *testing.T) {
 		},
 		"LocalQueue with empty FlavorUsage": {
 			v1beta1Obj: &LocalQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "empty-flavor-localqueue",
-					Namespace: "test-ns",
-				},
+				Name:      "empty-flavor-localqueue",
+				Namespace: "test-ns",
 				Status: LocalQueueStatus{
 					FlavorUsage: []LocalQueueFlavorUsage{},
 				},

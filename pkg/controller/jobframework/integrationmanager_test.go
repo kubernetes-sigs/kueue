@@ -274,7 +274,7 @@ func TestRegisterExternal(t *testing.T) {
 		"successful 2": {
 			manager: &IntegrationManager{
 				externalIntegrations: map[string]runtime.Object{
-					"Job.v1.batch": &batchv1.Job{TypeMeta: metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"}},
+					"Job.v1.batch": &batchv1.Job{Kind: "Job", APIVersion: "batch/v1"},
 				},
 			},
 			kindArg:   "AppWrapper.v1beta2.workload.codeflare.dev",
@@ -366,22 +366,22 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	manageK1 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K1"}
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1", APIVersion: "test-group/v1"}}
+		ret.JobType = &metav1.PartialObjectMetadata{Kind: "K1", APIVersion: "test-group/v1"}
 		return ret
 	}()
 	manageK2 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K2"}
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2", APIVersion: "test-group/v1"}}
+		ret.JobType = &metav1.PartialObjectMetadata{Kind: "K2", APIVersion: "test-group/v1"}
 		return ret
 	}()
 	externalK3 := func() runtime.Object {
-		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3", APIVersion: "test-group/v1"}}
+		return &metav1.PartialObjectMetadata{Kind: "K3", APIVersion: "test-group/v1"}
 	}()
 	disabledK4 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K4"}
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K4", APIVersion: "test-group/v1"}}
+		ret.JobType = &metav1.PartialObjectMetadata{Kind: "K4", APIVersion: "test-group/v1"}
 		return ret
 	}()
 
@@ -463,11 +463,11 @@ func TestIntegrationManagersAreIsolated(t *testing.T) {
 	}
 
 	controller := true
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{OwnerReferences: []metav1.OwnerReference{{
+	pod := &corev1.Pod{OwnerReferences: []metav1.OwnerReference{{
 		APIVersion: corev1.SchemeGroupVersion.String(),
 		Kind:       "Pod",
 		Controller: &controller,
-	}}}}
+	}}}
 	if !first.IsOwnerManagedByKueueForObject(pod) {
 		t.Error("first manager did not manage its enabled integration")
 	}

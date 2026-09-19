@@ -130,10 +130,8 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, o
 	for _, childJob := range childJobs.Items {
 		log.V(5).Info("Queueing reconcile for child job", "job", klog.KObj(&childJob))
 		q.Add(reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      childJob.Name,
-				Namespace: w.Namespace,
-			},
+			Name:      childJob.Name,
+			Namespace: w.Namespace,
 		})
 	}
 }

@@ -452,9 +452,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			// Create a DeviceClass with extendedResourceName that uses the same driver
 			// as dra-example-driver but exposes GPUs as extended resources
 			extendedResDevClass = &resourceapi.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: extendedResDevClassName,
-				},
+				Name: extendedResDevClassName,
 				Spec: resourceapi.DeviceClassSpec{
 					// Use the same selector as the default dra-example-driver DeviceClass
 					Selectors: []resourceapi.DeviceSelector{
@@ -768,9 +766,7 @@ var _ = ginkgo.Describe("DRA", func() {
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName")
 			deviceClass := &resourceapi.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: lateDeviceClassName,
-				},
+				Name: lateDeviceClassName,
 				Spec: resourceapi.DeviceClassSpec{
 					Selectors: []resourceapi.DeviceSelector{
 						{

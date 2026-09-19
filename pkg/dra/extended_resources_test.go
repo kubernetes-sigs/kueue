@@ -118,7 +118,7 @@ func TestIsExtendedResourceName(t *testing.T) {
 func TestSelectedDeviceClass(t *testing.T) {
 	at := func(sec int64) metav1.Time { return metav1.Unix(sec, 0) }
 	class := func(name string, created metav1.Time) resourceapi.DeviceClass {
-		return resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: created}}
+		return resourceapi.DeviceClass{Name: name, CreationTimestamp: created}
 	}
 	cases := map[string]struct {
 		items []resourceapi.DeviceClass
@@ -164,47 +164,37 @@ func TestSelectedDeviceClass(t *testing.T) {
 
 func TestResolveExtendedResourceQuota(t *testing.T) {
 	gpuDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "gpu.nvidia.com",
-		},
+		Name: "gpu.nvidia.com",
 		Spec: resourceapi.DeviceClassSpec{
 			ExtendedResourceName: new("example.com/gpu"),
 		},
 	}
 
 	migDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "mig.nvidia.com",
-		},
+		Name: "mig.nvidia.com",
 		Spec: resourceapi.DeviceClassSpec{
 			ExtendedResourceName: new("nvidia.com/mig-1g.10gb"),
 		},
 	}
 
 	plainDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "plain.nvidia.com",
-		},
+		Name: "plain.nvidia.com",
 		Spec: resourceapi.DeviceClassSpec{},
 	}
 
 	// Two classes on one extendedResourceName. The names sort against the
 	// timestamps, so only the creation order can explain the class picked.
 	alphaDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "alpha.example.com",
-			CreationTimestamp: metav1.Unix(100, 0),
-		},
+		Name:              "alpha.example.com",
+		CreationTimestamp: metav1.Unix(100, 0),
 		Spec: resourceapi.DeviceClassSpec{
 			ExtendedResourceName: new("example.com/gpu"),
 		},
 	}
 
 	omegaDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "omega.example.com",
-			CreationTimestamp: metav1.Unix(200, 0),
-		},
+		Name:              "omega.example.com",
+		CreationTimestamp: metav1.Unix(200, 0),
 		Spec: resourceapi.DeviceClassSpec{
 			ExtendedResourceName: new("example.com/gpu"),
 		},
@@ -213,18 +203,14 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 	// Two distinct extendedResourceNames, both mapped by the same deviceClassMappings
 	// entry to the logical key "gpu-claims".
 	classADeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "class-a",
-		},
+		Name: "class-a",
 		Spec: resourceapi.DeviceClassSpec{
 			ExtendedResourceName: new("vendor.example/a"),
 		},
 	}
 
 	classBDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "class-b",
-		},
+		Name: "class-b",
 		Spec: resourceapi.DeviceClassSpec{
 			ExtendedResourceName: new("vendor.example/b"),
 		},
@@ -243,7 +229,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with extended resource backed by DRA",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -278,7 +264,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with negative extended resource request is not charged",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -305,7 +291,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with multiple extended resources",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -341,7 +327,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with extended resource not backed by DRA (no matching DeviceClass)",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -368,7 +354,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with fractional quantity for extended resource not backed by DRA (no matching DeviceClass)",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -395,7 +381,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with no extended resources",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -423,7 +409,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with DeviceClass that has no extendedResourceName",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -450,7 +436,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with multiple containers",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -495,7 +481,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "init containers use max, regular containers use sum",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -568,7 +554,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			// max(5, 5) = 5.
 			name: "two extended resource names sharing a quota key are not collapsed by cross-container aggregation",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -624,7 +610,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			// merged in and left to offset a's positive charge.
 			name: "positive and negative extended resource names sharing a quota key: negative does not offset positive",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -665,7 +651,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "workload with non-integer extended resource quantity",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -703,7 +689,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			// silently charge nothing instead of rejecting the request.
 			name: "workload with per-container integer quantities that overflow int64 when summed",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -749,7 +735,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "extended resource uses deviceClassMappings logical name when DeviceClass is mapped",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -790,7 +776,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			name:     "extended resource with counters is rejected",
 			enablePD: true,
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -839,7 +825,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "the mapping of the later DeviceClass decides the quota key",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -883,7 +869,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name: "an unmapped later DeviceClass leaves the extended resource name as the quota key",
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Name: "wl", Namespace: "ns1",
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{{
 						Name:  "main",
@@ -1173,7 +1159,7 @@ func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
 			if !NeedsDRAReconcile(info, cache) {
 				t.Fatal("effective GPU requests did not trigger DRA processing")
 			}
-			dc := &resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"}, Spec: resourceapi.DeviceClassSpec{ExtendedResourceName: new(string(gpu))}}
+			dc := &resourceapi.DeviceClass{Name: "gpu.example.com", Spec: resourceapi.DeviceClassSpec{ExtendedResourceName: new(string(gpu))}}
 			got, replaced, errs := ResolveExtendedResourceQuota(ctx, newFakeClient(dc), NewResourceMapper(), info)
 			if len(errs) != 0 {
 				t.Fatal(errs)

@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
 
@@ -61,7 +60,7 @@ func makeDeviceWithMultipleCounters(name string, profile string, memory string, 
 
 func makeResourceSlice(name, driver, poolName string, gen int64, sliceCount int64, devices []resourcev1.Device) resourcev1.ResourceSlice {
 	return resourcev1.ResourceSlice{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Name: name,
 		Spec: resourcev1.ResourceSliceSpec{
 			Driver: driver,
 			Pool: resourcev1.ResourcePool{
@@ -453,7 +452,7 @@ func TestGroupSlicesByPool(t *testing.T) {
 func TestSelectorErrorPaths(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithObjects(&resourcev1.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{Name: "valid-device-class"},
+		Name: "valid-device-class",
 	}).Build()
 	claimPath := field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0)
 	reqPath := claimPath.Child("devices", "requests").Index(1)
