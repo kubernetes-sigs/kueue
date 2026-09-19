@@ -2365,10 +2365,10 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast):            false,
 				string(features.TASReplaceNodeOnPodTermination):              false,
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
-				string(features.TASLeaderPodSetFeasibility):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
