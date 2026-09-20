@@ -1746,7 +1746,7 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 
 	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
 	if r.podsScheduledTrackingEnabled() && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
-		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt, timeout))
 	}
 
 	switch {
@@ -1761,8 +1761,8 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 	return "", 0
 }
 
-func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time) time.Time {
-	deadline := metav1.NewTime(admittedAt.Add(r.waitForPodsReady.timeout))
+func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time, timeout time.Duration) time.Time {
+	deadline := metav1.NewTime(admittedAt.Add(timeout))
 	if r.waitForPodsReady.unscheduledTimeout == nil {
 		return deadline.Time
 	}
