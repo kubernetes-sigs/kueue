@@ -236,7 +236,7 @@ func TestNodePortsFeasibility(t *testing.T) {
 				sim.TrackPod(ctx, unmanagedPod)
 			}
 			snapshot, err := sim.Snapshot(ctx, nodes, nil)
-      
+
 			if err != nil {
 				t.Fatalf("CreateSnapshot failed: %v", err)
 			}

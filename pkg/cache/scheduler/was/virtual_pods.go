@@ -91,7 +91,7 @@ func PodsForWorkload(wl *kueue.Workload) []*corev1.Pod {
 			nodeName, hasNode := utiltas.NodeNameFromDomainID(levels, utiltas.DomainID(domain.Values))
 			domainLabels := utiltas.NodeLabelsFromKeysAndValues(levels, domain.Values)
 
-			for i := 0; i < int(domain.Count); i++ {
+			for range domain.Count {
 				pod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:        VirtualPodName(wl.Name, string(psa.Name), replicaIdx),

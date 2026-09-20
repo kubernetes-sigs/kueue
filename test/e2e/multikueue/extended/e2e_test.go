@@ -274,6 +274,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
+	registerRayAutoscalingTests(func() rayAutoscalingTestContext {
+		return rayAutoscalingTestContext{
+			managerNs:         managerNs,
+			managerCq:         managerCq,
+			managerLq:         managerLq,
+			multiKueueAc:      multiKueueAc,
+			kubernetesClients: kubernetesClients,
+		}
+	})
+
 	ginkgo.When("Creating a multikueue integration workload", func() {
 		ginkgo.It("Should sync a LeaderWorkerSet and run replicas on worker cluster", ginkgo.Label("feature:leaderworkerset"), func() {
 			lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).

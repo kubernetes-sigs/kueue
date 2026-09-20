@@ -30,6 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const rayActorNamespace = "kueue-e2e"
+
 // GetRayClusterHeadPod returns the only head Pod associated with the RayCluster.
 func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey) (*corev1.Pod, error) {
 	pods := &corev1.PodList{}
@@ -83,6 +85,58 @@ func ExecuteCommandInRayClusterHead(
 		)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+// CreateDetachedRayActor creates a detached actor that requests the specified
+// custom resource from the RayCluster.
+func CreateDetachedRayActor(
+	ctx context.Context,
+	c client.Client,
+	cfg *rest.Config,
+	restClient *rest.RESTClient,
+	rayClusterKey client.ObjectKey,
+	actorName string,
+	resourceName string,
+) {
+	ginkgo.GinkgoHelper()
+	script := fmt.Sprintf(`import ray
+
+ray.init(namespace=%q)
+
+@ray.remote(num_cpus=0, resources={%q: 1})
+class Actor:
+    pass
+
+try:
+    ray.get_actor(%q)
+except ValueError:
+    Actor.options(name=%q, lifetime="detached").remote()
+`, rayActorNamespace, resourceName, actorName, actorName)
+	ExecuteCommandInRayClusterHead(ctx, c, cfg, restClient, rayClusterKey, []string{"python", "-c", script})
+}
+
+// TerminateDetachedRayActor terminates the named detached actor if it exists in
+// the RayCluster.
+func TerminateDetachedRayActor(
+	ctx context.Context,
+	c client.Client,
+	cfg *rest.Config,
+	restClient *rest.RESTClient,
+	rayClusterKey client.ObjectKey,
+	actorName string,
+) {
+	ginkgo.GinkgoHelper()
+	script := fmt.Sprintf(`import ray
+
+ray.init(namespace=%q)
+try:
+    actor = ray.get_actor(%q)
+except ValueError:
+    pass
+else:
+    ray.kill(actor)
+`, rayActorNamespace, actorName)
+	ExecuteCommandInRayClusterHead(ctx, c, cfg, restClient, rayClusterKey, []string{"python", "-c", script})
 }
 
 // GetRayClusterWorkerPods returns the worker Pods associated with the RayCluster

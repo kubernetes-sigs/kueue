@@ -1,4 +1,4 @@
-title: MultiKueue Worker-Side Ray In-Tree Autoscaling for Elastic Jobs
+title: MultiKueue Worker-Cluster Side Autoscaling for Elastic Jobs
 kep-number: 13243
 authors:
   - "@kevin85421"
@@ -7,9 +7,11 @@ creation-date: 2026-07-26
 reviewers:
   - "@mimowo"
   - "@sohankunkerkar"
+  - "@tenzen-y"
 approvers:
   - "@mimowo"
   - "@sohankunkerkar"
+  - "@tenzen-y"
 
 see-also:
   - "/keps/77-dynamically-sized-jobs"
