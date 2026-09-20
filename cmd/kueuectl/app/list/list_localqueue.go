@@ -79,7 +79,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 	o := NewLocalQueueOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use: "localqueue [-–clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--active=true|false] [--all-namespaces]",
+		Use: "localqueue [--clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--active=true|false] [--all-namespaces]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"lq"},
