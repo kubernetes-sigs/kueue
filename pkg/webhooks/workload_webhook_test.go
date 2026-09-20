@@ -394,6 +394,37 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"should reject false unconstrained topology when TASRejectFalseUnconstrainedTopology is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(kueue.PodSet{
+					Name:  "bad",
+					Count: 1,
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(bool),
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "unconstrained"), false, ""),
+			}.ToAggregate(),
+		},
+		"should accept false unconstrained topology when TASRejectFalseUnconstrainedTopology is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(kueue.PodSet{
+					Name:  "ok",
+					Count: 1,
+					TopologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(bool),
+					},
+				}).
+				Obj(),
+		},
 		"empty podSetUpdates": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
 			wantErr:  nil,
