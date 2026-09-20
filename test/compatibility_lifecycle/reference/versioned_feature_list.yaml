@@ -55,6 +55,12 @@
     lockToDefault: false
     preRelease: Deprecated
     version: "0.20"
+- name: DeploymentJobUIDLabel
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
   - default: false
@@ -531,6 +537,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASRejectFalseUnconstrainedTopology
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: TASReplaceNodeDueToNotReadyOverFixedTime
   versionedSpecs:
   - default: true
@@ -563,6 +575,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: TASTopologySpreading
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: TASValidateWorkloadSliceSize
   versionedSpecs:
   - default: true

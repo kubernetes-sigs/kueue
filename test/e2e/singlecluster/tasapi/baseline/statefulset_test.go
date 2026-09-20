@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	statefulsetcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -116,6 +117,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", ginkgo.Label(
 					"2": "kind-worker3",
 				}
 				gomega.Expect(wantAssignment).Should(gomega.BeComparableTo(gotAssignment))
+			})
+
+			ginkgo.By("verify each pod carries WorkloadAnnotation, used by the WAS Simulator to map pods to their owning Workload", func() {
+				workloadName := statefulsetcontroller.GetWorkloadName(sts.UID, sts.Name)
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				for _, pod := range pods.Items {
+					gomega.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, workloadName))
+				}
 			})
 		})
 	})

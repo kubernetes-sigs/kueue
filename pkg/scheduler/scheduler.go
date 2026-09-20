@@ -760,10 +760,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	switch {
 	case needsOverlapRecompute:
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
-		// To get the projected cluster state after other preemptions complete,
-		// we simulate the removal of their victims.
-		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
-		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
 	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
@@ -955,7 +952,10 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			}
 			return nil, false
 		})
-		if pa, found := reducer.Reduce(); found {
+		// A live predecessor is already running these MinCounts, so admitting them would change
+		// nothing. With no predecessor they are just the size the job last ran at, which it needs back.
+		mustGrow := replaceableWorkloadSlice != nil
+		if pa, found := reducer.Reduce(mustGrow); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
 	}
@@ -975,6 +975,19 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 		return fmt.Errorf("failed to evict workload after failed try to find a replacement for unhealthy nodes: %s, %w", unhealthyNodesCsv, err)
 	}
 	return nil
+}
+
+// simulateOtherPreemptions projects the victims of preemptions already decided this cycle
+// out of the snapshot and returns the single undo. Freeing their quota is not enough:
+// until the simulator is told, it still reports their Pods and their host ports.
+func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
+	victims := slices.Collect(maps.Values(preemptedWorkloads))
+	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
+	revertPods := simulatePodRemoval(ctx, log, snapshot, victims)
+	return func() {
+		revertPods()
+		revertUsage()
+	}
 }
 
 // simulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
@@ -1041,7 +1054,7 @@ func updateAssignmentForTAS(
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
-				schdcache.WithWorkload(wl.Obj),
+				schdcache.WithWorkloadInfo(wl),
 			)
 			revertPods()
 			revertUsage()
@@ -1056,7 +1069,7 @@ func updateAssignmentForTAS(
 				ctx,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkload(wl.Obj),
+				schdcache.WithWorkloadInfo(wl),
 			)
 		}
 		assignment.UpdateForTASResult(log, cq, wl, tasResult)

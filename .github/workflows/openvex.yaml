@@ -18,6 +18,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Generate OpenVEX
-        uses: ./.github/actions/generate-openvex
+        uses: $/.github/actions/generate-openvex
         with:
           tag: ${{ inputs.tag }}
