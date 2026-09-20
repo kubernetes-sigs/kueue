@@ -184,10 +184,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 
 		if features.Enabled(features.TopologyAwareScheduling) {
 			if labelKey, ok := pod.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]; ok {
-				// Leave the index label unset when the source label is absent: an empty
-				// value reads as an invalid index rather than as "no index", which fails
-				// Workload construction for the whole group.
-				if index, found := pod.pod.Labels[labelKey]; found {
+				// Leave the index label unset unless the source label carries a value: an
+				// empty value reads as an invalid index rather than as "no index", which
+				// fails Workload construction for the whole group.
+				if index := pod.pod.Labels[labelKey]; index != "" {
 					pod.pod.Labels[kueue.PodGroupPodIndexLabel] = index
 				}
 			}
