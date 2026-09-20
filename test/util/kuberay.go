@@ -28,6 +28,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/test/util/behavioral/constants"
 )
 
 // GetRayClusterHeadPod returns the only head Pod associated with the RayCluster.
@@ -69,7 +70,7 @@ func ExecuteCommandInRayClusterHead(
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 		headPod = pod
-	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+	}, constants.VeryLongTimeout, constants.Interval).Should(gomega.Succeed())
 
 	gomega.Eventually(func(g gomega.Gomega) {
 		_, stderr, err := KExecute(
@@ -82,7 +83,7 @@ func ExecuteCommandInRayClusterHead(
 			command,
 		)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, constants.LongTimeout, constants.Interval).Should(gomega.Succeed())
 }
 
 // GetRayClusterWorkerPods returns the worker Pods associated with the RayCluster

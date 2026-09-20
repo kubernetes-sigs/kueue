@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util/behavioral/constants"
 )
 
 func PolicyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
@@ -280,13 +281,13 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 	ginkgo.GinkgoHelper()
 	createdWorkload := &kueue.Workload{}
 	var workerName string
-	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, MediumTimeout, wlLookupKey)
+	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, constants.MediumTimeout, wlLookupKey)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
 		workerName = GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)
 		g.Expect(workerName).NotTo(gomega.BeEmpty())
-	}, MediumTimeout, Interval).Should(gomega.Succeed())
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed())
 	return workerName
 }
 

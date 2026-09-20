@@ -90,6 +90,7 @@ import (
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/util/behavioral/constants"
 )
 
 func init() {
@@ -156,7 +157,7 @@ func ConfigureSuiteReporting(report ginkgo.Report) {
 		OmitFailureMessageAttr: true,
 	}
 	suiteName := uniqueSuiteName(report.SuitePath)
-	reportDir := cmp.Or(os.Getenv("ARTIFACTS"), ArtifactsDir)
+	reportDir := cmp.Or(os.Getenv("ARTIFACTS"), constants.ArtifactsDir)
 	if err := os.MkdirAll(reportDir, 0o755); err != nil {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "cannot create suite report directory %q", reportDir)
 	}
@@ -216,7 +217,7 @@ func DeleteObject[PtrT objAsPtr[T], T any](ctx context.Context, c client.Client,
 }
 
 func ExpectObjectToBeDeleted[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
-	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, MediumTimeout)
+	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, constants.MediumTimeout)
 }
 
 func ExpectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
@@ -233,7 +234,7 @@ func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Con
 	newObj := PtrT(new(T))
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError())
-	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Object still exists", newObj))
+	}, timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Object still exists", newObj))
 }
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
@@ -368,7 +369,7 @@ func deleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 				g.Expect(client.IgnoreNotFound(c.Update(ctx, &p))).Should(gomega.Succeed(), "removing finalizer")
 			}
 		}
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsgObjList(fmt.Sprintf("Failed to clean up pods in namespace %q", ns.Name), &pods))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsgObjList(fmt.Sprintf("Failed to clean up pods in namespace %q", ns.Name), &pods))
 	return nil
 }
 
@@ -378,7 +379,7 @@ func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *c
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.List(ctx, &pods, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 		g.Expect(pods.Items).Should(gomega.BeEmpty())
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, constants.LongTimeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
@@ -397,7 +398,7 @@ func deleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1
 				g.Expect(client.IgnoreNotFound(c.Update(ctx, &wl))).Should(gomega.Succeed())
 			}
 		}
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsgObjList(fmt.Sprintf("Failed to clean up workloads in namespace %s", ns.Name), &workloads))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsgObjList(fmt.Sprintf("Failed to clean up workloads in namespace %s", ns.Name), &workloads))
 	return nil
 }
 
@@ -410,7 +411,7 @@ func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.
 		}
 		cqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold cluster queue", &cqCopy))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold cluster queue", &cqCopy))
 }
 
 func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
@@ -422,7 +423,7 @@ func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.Lo
 		}
 		lqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold local queue", &lqCopy))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold local queue", &lqCopy))
 }
 
 func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...*kueue.Workload) {
@@ -438,7 +439,7 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 				Message:            "Finished by test",
 			})
 			g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to finish workload", &newWL))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to finish workload", &newWL))
 	}
 }
 
@@ -458,7 +459,7 @@ func ExpectPodSetAdmittedCount(ctx context.Context, k8sClient client.Client, wl 
 		})
 		g.Expect(idx).ShouldNot(gomega.Equal(-1), AssertMsg(fmt.Sprintf("No admitted podSet %q", podSetName), wl))
 		g.Expect(assignments[idx].Count).Should(gomega.Equal(new(count)))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
@@ -482,7 +483,7 @@ func ExpectWorkloadsToHaveQuotaReservationByKey(ctx context.Context, k8sClient c
 			wlObjects[i] = wl
 		}
 		g.Expect(admitted).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads with QuotaReservation", wlObjects...))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads with QuotaReservation", wlObjects...))
 }
 
 func FilterEvictedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
@@ -533,7 +534,7 @@ func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Clie
 			wlObjects[i] = wl
 		}
 		g.Expect(pending).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are pending", wlObjects...))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are pending", wlObjects...))
 }
 
 func ExpectWorkloadsToBeInadmissible(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
@@ -558,7 +559,7 @@ func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client
 			wlObjects[i] = wl
 		}
 		g.Expect(inadmissible).Should(gomega.Equal(wlKeys))
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are inadmissible", wlObjects...))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are inadmissible", wlObjects...))
 }
 
 func getWorkloadsByWlKeys(ctx context.Context, g gomega.Gomega, k8sClient client.Client, wlKeys []client.ObjectKey) (workloads []*kueue.Workload) {
@@ -590,7 +591,7 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, w
 
 func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	expectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, Timeout, wlKeys...)
+	expectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, constants.Timeout, wlKeys...)
 }
 
 func ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx context.Context, k8sClient client.Client, timeout time.Duration, wlKeys ...client.ObjectKey) {
@@ -607,7 +608,7 @@ func expectWorkloadsToBeAdmittedByKeysWithTimeout(ctx context.Context, k8sClient
 		admitted := filter(all, workload.IsAdmitted)
 		copy(wlObjects, all)
 		g.Expect(workloadKeys(admitted)).Should(gomega.Equal(wlKeys))
-	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are admitted", wlObjects...))
+	}, timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are admitted", wlObjects...))
 }
 
 func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Client, count int, wls ...*kueue.Workload) {
@@ -619,7 +620,7 @@ func ExpectWorkloadsToBeAdmittedCount(ctx context.Context, k8sClient client.Clie
 		admitted := filter(all, workload.IsAdmitted)
 		copy(wlObjects, all)
 		g.Expect(admitted).Should(gomega.HaveLen(count))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Not enough workloads are admitted", wlObjects...))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Not enough workloads are admitted", wlObjects...))
 }
 
 func ExpectWorkloadsWithWorkloadPriority(ctx context.Context, c client.Client, name string, value int32, wlKeys ...client.ObjectKey) {
@@ -652,7 +653,7 @@ func expectWorkloadsWithPriority(
 			g.Expect(createdWl.Spec.PriorityClassRef.Name).To(gomega.Equal(name))
 			g.Expect(createdWl.Spec.Priority).To(gomega.Equal(&value))
 		}
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload priority does not match expected", createdWl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload priority does not match expected", createdWl))
 }
 
 func ExpectWorkloadToFinishWithTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, timeout time.Duration) {
@@ -661,12 +662,12 @@ func ExpectWorkloadToFinishWithTimeout(ctx context.Context, k8sClient client.Cli
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
 		g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")
-	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload did not finish", &wl))
+	}, timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload did not finish", &wl))
 }
 
 func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
 	ginkgo.GinkgoHelper()
-	ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlKey, MediumTimeout)
+	ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlKey, constants.MediumTimeout)
 }
 
 func ExpectWorkloadResourceUsage(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, resourceName corev1.ResourceName, expected string) {
@@ -682,7 +683,7 @@ func ExpectWorkloadResourceUsage(ctx context.Context, k8sClient client.Client, w
 		g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(resourceName))
 		usage := assignment.ResourceUsage[resourceName]
 		g.Expect(usage.Cmp(resource.MustParse(expected))).To(gomega.Equal(0))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("workload should have resource usage of "+expected+" for "+string(resourceName), &wl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("workload should have resource usage of "+expected+" for "+string(resourceName), &wl))
 }
 
 // SetPodsScheduledCondition simulates a tracker observation in the current admission.
@@ -694,10 +695,10 @@ func SetPodsScheduledCondition(ctx context.Context, k8sClient client.Client, wlK
 		admitted := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 		g.Expect(admitted).NotTo(gomega.BeNil())
 		g.Expect(admitted.Status).To(gomega.Equal(metav1.ConditionTrue))
-		g.Expect(RealClock.Now().Truncate(time.Second)).To(gomega.BeTemporally(">", admitted.LastTransitionTime.Time))
+		g.Expect(constants.RealClock.Now().Truncate(time.Second)).To(gomega.BeTemporally(">", admitted.LastTransitionTime.Time))
 		g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadPodsScheduled,
-			condition.Status, condition.Reason, condition.Message, "test", RealClock)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed())
+			condition.Status, condition.Reason, condition.Message, "test", constants.RealClock)).To(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
@@ -705,7 +706,7 @@ func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKe
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
 		g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload pods are not ready", &wl))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload pods are not ready", &wl))
 }
 
 func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
@@ -721,18 +722,18 @@ func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient clie
 			Status:  metav1.ConditionTrue,
 			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 			Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(&wl).String()),
-		}, IgnoreConditionTimestampsAndObservedGeneration)))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload was not evicted by PodsReady timeout", &wl))
+		}, constants.IgnoreConditionTimestampsAndObservedGeneration)))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload was not evicted by PodsReady timeout", &wl))
 }
 
 func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
 	var wl kueue.Workload
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-		g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
+		g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, constants.RealClock, func(wl *kueue.Workload) (bool, error) {
 			return workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(wl).String()), false), nil
 		})).Should(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set requeued condition with PodsReady timeout", &wl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to set requeued condition with PodsReady timeout", &wl))
 }
 
 func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, expected *kueue.RequeueState, hasRequeueAt bool) {
@@ -747,7 +748,7 @@ func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Clie
 				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
 			}
 		}
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload requeue state does not match expected", &wl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload requeue state does not match expected", &wl))
 }
 
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
@@ -772,7 +773,7 @@ func ExpectWorkloadsToBePreemptedByKeys(ctx context.Context, k8sClient client.Cl
 			wlObjects[i] = wl
 		}
 		g.Expect(preempted).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are preempted", wlObjects...))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are preempted", wlObjects...))
 }
 
 func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
@@ -792,7 +793,7 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 			wlObjects[i] = wl
 		}
 		g.Expect(waiting).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are waiting", wlObjects...))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are waiting", wlObjects...))
 }
 
 func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq string, wls ...*kueue.Workload) {
@@ -811,7 +812,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 			wlObjects[i] = wl
 		}
 		g.Expect(frozen).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are frozen", wlObjects...))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are frozen", wlObjects...))
 }
 
 func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
@@ -819,7 +820,7 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		g.Expect(updatedWorkload.Status.Admission).Should(gomega.BeComparableTo(admission))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload was not admitted with expected admission", &updatedWorkload))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload was not admitted with expected admission", &updatedWorkload))
 }
 
 func mustAdmissionCheckState(g gomega.Gomega, updatedWl *kueue.Workload, admissionCheckName string, expectedState kueue.CheckState, expectedMessage string, podSetUpdates ...kueue.PodSetUpdate) {
@@ -849,7 +850,7 @@ func ExpectAdmissionCheckStateWithMessage(
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 		mustAdmissionCheckState(g, updatedWl, admissionCheckName, expectedState, expectedMessage, podSetUpdates...)
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Message or state did not match for the admission check", updatedWl))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Message or state did not match for the admission check", updatedWl))
 }
 
 func ExpectAdmissionCheckState(ctx context.Context, c client.Client, wlKey client.ObjectKey, admissionCheckName string, expectedState kueue.CheckState, podSetUpdates ...kueue.PodSetUpdate) {
@@ -871,7 +872,7 @@ func ConsistentlyAdmissionCheckStateWithMessage(
 	gomega.Consistently(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
 		mustAdmissionCheckState(g, updatedWl, admissionCheckName, expectedState, expectedMessage, podSetUpdates...)
-	}, ConsistentDuration, ShortInterval).Should(gomega.Succeed(), AssertMsg("Message or state did not match for the admission check", updatedWl))
+	}, constants.ConsistentDuration, constants.ShortInterval).Should(gomega.Succeed(), AssertMsg("Message or state did not match for the admission check", updatedWl))
 }
 
 func ConsistentlyAdmissionCheckState(ctx context.Context, c client.Client, wlKey client.ObjectKey, admissionCheckName string, expectedState kueue.CheckState, podSetUpdates ...kueue.PodSetUpdate) {
@@ -893,7 +894,7 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey cli
 			}
 			return updated, nil
 		})).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set quota reservation for workload", updatedWl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to set quota reservation for workload", updatedWl))
 }
 
 // SyncAdmittedConditionForWorkloads sets the Admission condition of the provided workloads based on
@@ -904,10 +905,10 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 	for _, wl := range wls {
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			g.ExpectWithOffset(1, workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, RealClock, func(wl *kueue.Workload) (bool, error) {
+			g.ExpectWithOffset(1, workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, constants.RealClock, func(wl *kueue.Workload) (bool, error) {
 				return workload.SyncAdmittedCondition(wl, time.Now()), nil
 			})).To(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to sync admitted condition for workload", &updatedWorkload))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to sync admitted condition for workload", &updatedWorkload))
 	}
 }
 
@@ -926,7 +927,7 @@ func ExpectWorkloadsToBeEvictedByKeys(ctx context.Context, k8sClient client.Clie
 			wlObjects[i] = wl
 		}
 		g.Expect(evicted).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads were marked for eviction", wlObjects...))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads were marked for eviction", wlObjects...))
 }
 
 func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
@@ -940,12 +941,12 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			g.Expect(k8sClient.Get(ctx, key, wl)).Should(gomega.Succeed())
 			if workload.HasQuotaReservation(wl) {
 				g.Expect(
-					workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, RealClock, func(wl *kueue.Workload) (bool, error) {
+					workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, constants.RealClock, func(wl *kueue.Workload) (bool, error) {
 						return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "By test", time.Now()), nil
 					}),
 				).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 			}
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unset quota reservation for evicted workload", wl))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to unset quota reservation for evicted workload", wl))
 	}
 }
 
@@ -960,7 +961,7 @@ func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admis
 			Message: "by test",
 		})
 		g.Expect(k8sClient.Status().Update(ctx, &updatedAc)).Should(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set admission check active status", &updatedAc))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to set admission check active status", &updatedAc))
 }
 
 func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, check kueue.AdmissionCheckReference, state kueue.CheckState, expectExisting bool) {
@@ -975,24 +976,24 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 			workloadpatching.SetAdmissionCheckState(&updatedWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
 				Name:  check,
 				State: state,
-			}, RealClock)
+			}, constants.RealClock)
 		}
 		g.Expect(k8sClient.Status().Update(ctx, &updatedWorkload)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set admission check on workload", &updatedWorkload))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to set admission check on workload", &updatedWorkload))
 }
 
 func AwaitAndVerifyWorkloadQueueName(ctx context.Context, client client.Client, createdWorkload *kueue.Workload, wlLookupKey types.NamespacedName, jobQueueName kueue.LocalQueueName) {
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload queue name does not match expected", createdWorkload))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload queue name does not match expected", createdWorkload))
 }
 
 func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wlLookupKey types.NamespacedName, createdJob metav1.Object) *kueue.Workload {
 	createdWorkload := &kueue.Workload{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload was not created", createdWorkload))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload was not created", createdWorkload))
 	gomega.ExpectWithOffset(1, metav1.IsControlledBy(createdWorkload, createdJob)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
 	return createdWorkload
 }
@@ -1005,7 +1006,7 @@ func SetPodsPhaseByKeys(ctx context.Context, k8sClient client.Client, phase core
 			g.Expect(k8sClient.Get(ctx, key, &updatedPod)).To(gomega.Succeed())
 			updatedPod.Status.Phase = phase
 			g.Expect(k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set pod phase", &updatedPod))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to set pod phase", &updatedPod))
 	}
 }
 
@@ -1046,7 +1047,7 @@ func ExpectPodTerminatedByKueueCondition(ctx context.Context, k8sClient client.C
 		g.Expect(pod.Status.Conditions).To(gomega.ContainElement(
 			gomega.BeComparableTo(expectedCondition, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message", "LastProbeTime")),
 		), "Pod should have TerminatedByKueue condition")
-	}, LongTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Pod was not terminated by Kueue", pod))
+	}, constants.LongTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Pod was not terminated by Kueue", pod))
 }
 
 func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client.Client, key types.NamespacedName, ns map[string]string) {
@@ -1055,7 +1056,7 @@ func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client
 		g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
 		g.Expect(createdPod.Spec.SchedulingGates).NotTo(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 		g.Expect(createdPod.Spec.NodeSelector).To(gomega.BeComparableTo(ns))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Pod was not unsuspended with expected node selectors", createdPod))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Pod was not unsuspended with expected node selectors", createdPod))
 }
 
 func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
@@ -1064,7 +1065,7 @@ func ExpectPodsJustFinalized(ctx context.Context, k8sClient client.Client, keys 
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
 			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Expected pod to be finalized", createdPod))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Expected pod to be finalized", createdPod))
 	}
 }
 
@@ -1079,7 +1080,7 @@ func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, key
 			}
 			g.Expect(err).To(gomega.Succeed())
 			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Expected pod to be finalized", createdPod))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Expected pod to be finalized", createdPod))
 	}
 }
 
@@ -1094,7 +1095,7 @@ func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client
 			}
 			g.Expect(err).To(gomega.Succeed())
 			g.Expect(createdWorkload.Finalizers).To(gomega.BeEmpty())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Expected workload to be finalized", createdWorkload))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Expected workload to be finalized", createdWorkload))
 	}
 }
 
@@ -1123,7 +1124,7 @@ func ExpectPreemptedCondition(
 				preempteePath,
 			),
 		}, conditionCmpOpts)))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Preemption condition not set correctly", preemptedWlCopy, preempteeWl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Preemption condition not set correctly", preemptedWlCopy, preempteeWl))
 }
 
 func NewTestingLogger(writer io.Writer) logr.Logger {
@@ -1168,7 +1169,7 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
 			g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.ClusterQueueActive))
 		}
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueues did not become active", readCq))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("ClusterQueues did not become active", readCq))
 }
 
 func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {
@@ -1178,7 +1179,7 @@ func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*k
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(lq), readLq)).To(gomega.Succeed())
 			g.Expect(readLq.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.LocalQueueActive))
 		}
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("LocalQueues did not become active", readLq))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("LocalQueues did not become active", readLq))
 }
 
 func ExpectAdmissionChecksToBeActive(ctx context.Context, c client.Client, acs ...*kueue.AdmissionCheck) {
@@ -1188,7 +1189,7 @@ func ExpectAdmissionChecksToBeActive(ctx context.Context, c client.Client, acs .
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(ac), readAc)).To(gomega.Succeed())
 			g.Expect(readAc.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.AdmissionCheckActive))
 		}
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("AdmissionChecks did not become active", readAc))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("AdmissionChecks did not become active", readAc))
 }
 
 func ExpectJobUnsuspended(ctx context.Context, c client.Client, key types.NamespacedName) {
@@ -1197,7 +1198,7 @@ func ExpectJobUnsuspended(ctx context.Context, c client.Client, key types.Namesp
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job was not unsuspended", job))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Job was not unsuspended", job))
 }
 
 func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client, key types.NamespacedName, nodeSelector map[string]string) {
@@ -1207,7 +1208,7 @@ func ExpectJobUnsuspendedWithNodeSelectors(ctx context.Context, c client.Client,
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Template.Spec.NodeSelector).Should(gomega.Equal(nodeSelector))
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job does not have expected node selectors", job))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Job does not have expected node selectors", job))
 }
 
 func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.Node) {
@@ -1221,7 +1222,7 @@ func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.
 			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
 			createdNode.Status = node.Status
 			g.Expect(c.Status().Update(ctx, createdNode)).Should(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to update node status", createdNode))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to update node status", createdNode))
 
 		// 3. Removes the taint if the node is Ready
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
@@ -1232,7 +1233,7 @@ func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.
 				})
 				g.Expect(c.Update(ctx, createdNode)).Should(gomega.Succeed())
 			}
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to remove NotReady taint from node", createdNode))
+		}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to remove NotReady taint from node", createdNode))
 	}
 }
 
@@ -1347,7 +1348,7 @@ func MustCreateWithRetry(ctx context.Context, c client.Client, obj client.Object
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(client.IgnoreAlreadyExists(c.Create(ctx, obj))).ToNot(gomega.HaveOccurred())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to create object after retries", obj))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to create object after retries", obj))
 }
 
 func CreateClusterQueuesAndWaitForActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
@@ -1387,7 +1388,7 @@ func DeactivateWorkload(ctx context.Context, c client.Client, key client.ObjectK
 		g.Expect(c.Get(ctx, key, wl)).To(gomega.Succeed())
 		wl.Spec.Active = new(false)
 		g.Expect(c.Update(ctx, wl)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to deactivate workload", wl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to deactivate workload", wl))
 }
 
 func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, newCondition *corev1.NodeCondition) {
@@ -1414,7 +1415,7 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 		if changed {
 			g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
 		}
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Failed to set node condition %s to %s for node %s", newCondition.Type, newCondition.Status, node.Name), &updatedNode))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Failed to set node condition %s to %s for node %s", newCondition.Type, newCondition.Status, node.Name), &updatedNode))
 }
 
 func ExpectLocalQueueFairSharingUsageToBe(ctx context.Context, k8sClient client.Client, lqKey client.ObjectKey, comparator string, compareTo any) {
@@ -1427,7 +1428,7 @@ func ExpectLocalQueueFairSharingUsageToBe(ctx context.Context, k8sClient client.
 		g.Expect(lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources).Should(gomega.HaveLen(1))
 		usage := lq.Status.FairSharing.AdmissionFairSharingStatus.ConsumedResources[corev1.ResourceCPU]
 		g.Expect(usage.MilliValue()).To(gomega.BeNumerically(comparator, compareTo))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("LocalQueue fair sharing usage does not match expected", lq))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("LocalQueue fair sharing usage does not match expected", lq))
 }
 
 // ExpectWorkloadsInNamespace waits until the specified number of kueue.Workload
@@ -1447,7 +1448,7 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace))).To(gomega.Succeed())
 		g.Expect(list.Items).Should(gomega.HaveLen(count))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 	return list.Items
 }
 
@@ -1480,7 +1481,7 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 			}
 		}
 		g.Expect(newWorkload).ShouldNot(gomega.BeNil())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
 	return newWorkload
 }
 
@@ -1515,7 +1516,7 @@ func DeleteWorkloadSliceAndAwaitDeletion(ctx context.Context, k8sClient client.C
 			g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, wl))).To(gomega.Succeed())
 		}
 		g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, wl))).To(gomega.BeTrue())
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 // ExpectWorkloadSliceAdmittedBeforeOldFinished watches workload events and asserts
@@ -1562,7 +1563,7 @@ func ExpectJobToBeRunning(ctx context.Context, c client.Client, job *batchv1.Job
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 		g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
 		g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
-	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Job is not running", createdJob))
+	}, constants.MediumTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Job is not running", createdJob))
 }
 
 func ExpectJobToBeCompletedWithTimeout(ctx context.Context, c client.Client, job *batchv1.Job, timeout time.Duration) {
@@ -1576,12 +1577,12 @@ func ExpectJobToBeCompletedWithTimeout(ctx context.Context, c client.Client, job
 				Status: corev1.ConditionTrue,
 			},
 			cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Job did not complete", createdJob))
+	}, timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Job did not complete", createdJob))
 }
 
 func ExpectJobToBeCompleted(ctx context.Context, c client.Client, job *batchv1.Job) {
 	ginkgo.GinkgoHelper()
-	ExpectJobToBeCompletedWithTimeout(ctx, c, job, MediumTimeout)
+	ExpectJobToBeCompletedWithTimeout(ctx, c, job, constants.MediumTimeout)
 }
 
 func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) {
@@ -1590,7 +1591,7 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
 		g.Expect(workload.UpdateReclaimablePods(ctx, c, createdWl, reclaimablePods)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to update reclaimable pods for workload", createdWl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Failed to update reclaimable pods for workload", createdWl))
 }
 
 func WorkloadKeyForLeaderWorkerSet(lws *leaderworkersetv1.LeaderWorkerSet, group string) client.ObjectKey {
@@ -1686,7 +1687,7 @@ func setSecretKubeConfig(ctx context.Context, cli client.Client, secretKey clien
 		g.Expect(cli.Get(ctx, secretKey, secret)).To(gomega.Succeed())
 		secret.Data[kueue.MultiKueueConfigSecretKey] = kubeConfig
 		g.Expect(cli.Update(ctx, secret)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func expectClusterActive(ctx context.Context, cli client.Client, clusterKey client.ObjectKey, status metav1.ConditionStatus, reason string) {
@@ -1699,8 +1700,8 @@ func expectClusterActive(ctx context.Context, cli client.Client, clusterKey clie
 			Type:   kueue.MultiKueueClusterActive,
 			Status: status,
 			Reason: reason,
-		}, IgnoreConditionMessage, IgnoreConditionTimestampsAndObservedGeneration))
-	}, Timeout, Interval).Should(gomega.Succeed())
+		}, constants.IgnoreConditionMessage, constants.IgnoreConditionTimestampsAndObservedGeneration))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func ResourceQtyToFloat64(quantityStr string) float64 {
@@ -1721,7 +1722,7 @@ func ExpectNodeToBecomeReady(ctx context.Context, c client.Client, nodeName stri
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.Get(ctx, client.ObjectKey{Name: nodeName}, node)).To(gomega.Succeed())
 		g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Node %s did not become Ready", nodeName), node))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Node %s did not become Ready", nodeName), node))
 
 	waitForDummyWorkloadToRunOnNode(ctx, c, node, localQueue)
 }
@@ -1733,7 +1734,7 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 		dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), lq.Namespace).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			NodeSelector(corev1.LabelHostname, node.Name).
-			Image(GetAgnHostImage(), BehaviorExitFast).
+			Image(GetAgnHostImage(), constants.BehaviorExitFast).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			// we just need to test that the Node allows to run Pods already, using two Pods to indroduce extra redundancy
 			Parallelism(2).
@@ -1757,7 +1758,7 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 				Type:   batchv1.JobComplete,
 				Status: corev1.ConditionTrue,
 			}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-		}, LongTimeout, Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Dummy workload did not complete on node %s", node.Name), &createdDummyJob))
+		}, constants.LongTimeout, constants.Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Dummy workload did not complete on node %s", node.Name), &createdDummyJob))
 	})
 }
 
@@ -1774,7 +1775,7 @@ func ExpectObjectToBeDeletedOnClusters[PtrT objAsPtr[T], T any](ctx context.Cont
 func ExpectWorkloadAdmittedWithCheck(ctx context.Context, wlLookupKey types.NamespacedName, acName, clusterName string, client client.Client) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager clusters", clusterName))
-	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, client, MediumTimeout, wlLookupKey)
+	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, client, constants.MediumTimeout, wlLookupKey)
 	ExpectAdmissionCheckStateWithMessage(
 		ctx, client, wlLookupKey,
 		acName,
@@ -1793,7 +1794,7 @@ func WaitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.C
 		g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
 		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.BeNumerically(">", 0))
 		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
-	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+	}, constants.VeryLongTimeout, constants.Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
 }
 
@@ -1810,11 +1811,11 @@ func ExpectWorkloadToHaveConditions(
 		for _, wantCond := range wantConditions {
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, wantCond.Type)
 			g.Expect(cond).NotTo(gomega.BeNil())
-			opts := []gocmp.Option{IgnoreConditionTimestampsAndObservedGeneration}
+			opts := []gocmp.Option{constants.IgnoreConditionTimestampsAndObservedGeneration}
 			if wantCond.Message == "" {
-				opts = append(opts, IgnoreConditionMessage)
+				opts = append(opts, constants.IgnoreConditionMessage)
 			}
 			g.Expect(*cond).To(gomega.BeComparableTo(wantCond, opts...))
 		}
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
 }
