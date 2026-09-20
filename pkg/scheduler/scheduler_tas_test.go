@@ -4090,7 +4090,7 @@ type recordingSimulator struct {
 	snapshot recordingSimulatorSnapshot
 }
 
-func (s *recordingSimulator) Snapshot(context.Context, []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+func (s *recordingSimulator) Snapshot(context.Context, []*corev1.Node, []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
 	return &s.snapshot, nil
 }
 func (s *recordingSimulator) TrackPod(context.Context, *corev1.Pod)        {}

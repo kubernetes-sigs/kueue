@@ -232,10 +232,10 @@ func TestNodePortsFeasibility(t *testing.T) {
 			if tc.addExistingPod {
 				sim.TrackPod(ctx, existingPod)
 			}
-			snapshot, err := sim.Snapshot(ctx, nodes, nil)
 			if tc.addUnmanagedPod {
 				sim.TrackPod(ctx, unmanagedPod)
 			}
+			snapshot, err := sim.Snapshot(ctx, nodes, nil)
       
 			if err != nil {
 				t.Fatalf("CreateSnapshot failed: %v", err)
@@ -345,7 +345,7 @@ func TestRepeatedSnapshots(t *testing.T) {
 	}
 
 	for i := range 3 {
-		if _, err := sim.Snapshot(ctx, nil); err != nil {
+		if _, err := sim.Snapshot(ctx, nil, nil); err != nil {
 			t.Fatalf("Snapshot %d failed: %v", i, err)
 		}
 	}
@@ -688,20 +688,118 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 
 	pods := snapshot.podsByWorkload.getPodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
 	if len(pods) != 2 {
-		t.Fatalf("Expected 2 pods in podsByWorkload (1 real + 1 virtual), got %d", len(pods))
+		t.Fatalf("Expected 2 virtual pods in podsByWorkload, got %d", len(pods))
 	}
 
-	var hasReal, hasVirtual bool
 	for _, p := range pods {
-		if p.Name == "real-pod-1" {
-			hasReal = true
-		}
-		if strings.HasPrefix(p.Name, "virtual-wl1-main-1-") {
-			hasVirtual = true
+		if !strings.HasPrefix(p.Name, "virtual-wl1-main-") {
+			t.Errorf("Expected virtual pod, got real pod %q", p.Name)
 		}
 	}
-	if !hasReal || !hasVirtual {
-		t.Errorf("Expected real pod and virtual pod for remaining replica, got %v", pods)
+}
+
+func TestSnapshotVirtualPodsReplacesGatedRealPods(t *testing.T) {
+	ctx := t.Context()
+
+	node1 := testingnode.MakeNode("node1").
+		Label(corev1.LabelHostname, "node1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("4"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready().
+		Obj()
+	node2 := testingnode.MakeNode("node2").
+		Label(corev1.LabelHostname, "node2").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("4"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready().
+		Obj()
+	nodes := []*corev1.Node{node1, node2}
+
+	wl := utiltestingapi.MakeWorkload("wl1", "default").
+		UID("wl1-uid").
+		PodSets(kueue.PodSet{
+			Name:  "main",
+			Count: 2,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name:  "c",
+						Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+					}},
+				},
+			},
+		}).
+		Admission(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(kueue.PodSetAssignment{
+					Name:  "main",
+					Count: ptr.To[int32](2),
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node1"}, 1).Obj()).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node2"}, 1).Obj()).
+						Obj(),
+				}).
+				Obj(),
+		).
+		Obj()
+
+	sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulator failed: %v", err)
+	}
+
+	// Track 2 real pods that are still gated (NodeName is empty "")
+	realGatedPod1 := testingpod.MakePod("real-pod-1", "default").
+		UID("real-pod-1-uid").
+		Annotation(kueue.WorkloadAnnotation, "wl1").
+		Gate(kueue.TopologySchedulingGate).
+		StatusPhase(corev1.PodPending).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj()
+	realGatedPod2 := testingpod.MakePod("real-pod-2", "default").
+		UID("real-pod-2-uid").
+		Annotation(kueue.WorkloadAnnotation, "wl1").
+		Gate(kueue.TopologySchedulingGate).
+		StatusPhase(corev1.PodPending).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj()
+	sim.TrackPod(ctx, realGatedPod1)
+	sim.TrackPod(ctx, realGatedPod2)
+
+	snapshot, err := sim.Snapshot(ctx, nodes, []*kueue.Workload{wl})
+	if err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+
+	candidateSpec := corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name:  "c2",
+			Ports: []corev1.ContainerPort{{HostPort: 8080, Protocol: corev1.ProtocolTCP}},
+		}},
+	}
+	candidates := func(yield func(simulator.Candidate) bool) {
+		for _, n := range nodes {
+			if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
+				return
+			}
+		}
+	}
+
+	stats := &simulator.NodeExclusionStats{}
+	results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+		PodTemplate: &corev1.PodTemplateSpec{Spec: candidateSpec},
+	}, stats)
+	if err != nil {
+		t.Fatalf("FindFeasibleNodes failed: %v", err)
+	}
+
+	// Both node1 and node2 should be occupied by the virtual pods (blocking port 8080), so 0 feasible nodes
+	if len(results) != 0 {
+		t.Errorf("Expected 0 feasible nodes as both node1 and node2 have virtual pods occupying port 8080, got %v", results)
 	}
 }
 
@@ -794,6 +892,9 @@ func TestPreemptVirtualPods(t *testing.T) {
 
 	if checkFeasible() {
 		t.Errorf("Expected node1 to be unfeasible after preemption was reverted")
+	}
+}
+
 // TestPreemptWorkloadReleasesPodsOnEveryNode checks that PreemptWorkload releases
 // every Pod of the victim, not just the first, and that the revert puts all of them
 // back. TestPreemptWorkload covers one Pod on one node; a real victim spans many.
@@ -830,7 +931,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 					Port(8080, 8080, corev1.ProtocolTCP).
 					Obj())
 			}
-			snap, err := sim.Snapshot(ctx, nodes)
+			snap, err := sim.Snapshot(ctx, nodes, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

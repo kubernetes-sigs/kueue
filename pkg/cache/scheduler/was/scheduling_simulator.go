@@ -183,22 +183,26 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, workl
 		}
 
 		wlKey := client.ObjectKeyFromObject(wl)
-		realPods := podsByWorkload[wlKey]
 		virtualPods := PodsForWorkload(wl)
-
 		if len(virtualPods) == 0 {
 			continue
 		}
 
-		// Deduplication
-		numRealPods := len(realPods)
-		if numRealPods < len(virtualPods) {
-			missingVirtualPods := virtualPods[numRealPods:]
-			for _, vPod := range missingVirtualPods {
-				allPods = append(allPods, vPod)
-
-				podsByWorkload.recordPod(wlKey, client.ObjectKeyFromObject(vPod), vPod)
+		// Drop real pods of this admitted workload and replace with virtual pods
+		if realPods, ok := podsByWorkload[wlKey]; ok && len(realPods) > 0 {
+			filteredPods := make([]*corev1.Pod, 0, len(allPods))
+			for _, pod := range allPods {
+				if pod.Annotations[kueue.WorkloadAnnotation] != wl.Name || pod.Namespace != wl.Namespace {
+					filteredPods = append(filteredPods, pod)
+				}
 			}
+			allPods = filteredPods
+			delete(podsByWorkload, wlKey)
+		}
+
+		for _, vPod := range virtualPods {
+			allPods = append(allPods, vPod)
+			podsByWorkload.recordPod(wlKey, client.ObjectKeyFromObject(vPod), vPod)
 		}
 	}
 
