@@ -25,6 +25,26 @@ KUEUE_ROOT=$(realpath "${CURRENT_DIR}/../../..")
 KUEUE_PKG="sigs.k8s.io/kueue"
 CODEGEN_PKG=$(cd "${TOOLS_DIR}"; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
 
+# kube_codegen.sh installs code-generator tools by cd-ing into k8s.io/code-generator's
+# module directory and running "go install" from there.  That module requires
+# golang.org/x/tools v0.47.0, which cannot type-check Go 1.27's math/rand/v2 because
+# Go 1.27 introduced generic methods (e.g. func (r *Rand) N[Int intType](...)).
+# hack/tools/go.mod already pins golang.org/x/tools v0.49.0 which supports this.
+# We redirect every "go install" call through hack/tools so the correct version is used.
+_REAL_GO=$(command -v "${GO_CMD}")
+_GO_WRAPPER_DIR=$(mktemp -d)
+cat > "${_GO_WRAPPER_DIR}/go" << WRAPPER
+#!/usr/bin/env bash
+case "\${1}" in
+    install) exec "${_REAL_GO}" -C "${TOOLS_DIR}" "\$@" ;;
+    *)       exec "${_REAL_GO}" "\$@" ;;
+esac
+WRAPPER
+chmod +x "${_GO_WRAPPER_DIR}/go"
+export PATH="${_GO_WRAPPER_DIR}:${PATH}"
+# shellcheck disable=SC2064
+trap "rm -rf '${_GO_WRAPPER_DIR}'" EXIT
+
 cd "${KUEUE_ROOT}"
 
 # shellcheck source=/dev/null
