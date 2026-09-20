@@ -834,7 +834,6 @@ files:
     outputDir: ./charts/kueue/templates/certmanager
     removeComments: true
     excludes:
-      - certificate.yaml
       - kustomization.yaml
       - kustomizeconfig.yaml
       - common_name_transformer.yaml
@@ -868,6 +867,20 @@ files:
           labels:
           {{- include "kueue.labels" . | nindent 4 }}
         indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("serving-cert")'
+      - type: INSERT_TEXT
+        key: .spec.secretName
+        value: |
+          issuerRef:{{ include "kueue.certManager.issuerRef" . | trim | nindent 4 }}
+        indentation: 0
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("serving-cert")'
       - type: INSERT_TEXT
         key: .spec
         value: |
