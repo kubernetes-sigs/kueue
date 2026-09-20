@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package behavioral
+package constants
 
 import (
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -77,6 +78,11 @@ var (
 	WebhookPath              = filepath.Join(ProjectBaseDir, "config", "components", "webhook")
 	ClusterProfileCrds       = filepath.Join(ProjectBaseDir, "dep-crds", "clusterprofile")
 )
+
+func getProjectBaseDir() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", "..", "..", ".."))
+}
 
 var (
 	// For full documentation on agnhost subcommands see the following documentation:
