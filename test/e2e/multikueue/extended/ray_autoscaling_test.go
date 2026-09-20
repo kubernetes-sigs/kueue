@@ -635,6 +635,8 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	// 750m high-priority Job preempts it. While the Job remains admitted, the
 	// remaining 1250m is exactly enough for the RayCluster's manager spec (1 CPU
 	// head + one 250m worker), but not for the stale two-worker runtime state.
+	// Requesting two units of the virtual high-cost GPU resource forces the Job
+	// onto worker1 because worker2 has quota for only one.
 	highJob := testingjob.MakeJob("raycluster-preemptor", managerNs.Name).
 		Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 		WorkloadPriorityClass(managerHighWPC.Name).
@@ -662,8 +664,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 			)))
 		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		highJobWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
-		// Requesting two units of the virtual high-cost GPU resource forces the
-		// high-priority Job onto worker1 because worker2 has quota for only one.
 		gomega.Expect(highJobWorkerName).To(gomega.HavePrefix("worker1-"))
 	})
 
