@@ -186,6 +186,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.TASValidateWorkloadSliceSize) {
 		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
+	if features.Enabled(features.TASRejectFalseUnconstrainedTopology) &&
+		ps.TopologyRequest != nil && ps.TopologyRequest.Unconstrained != nil && !*ps.TopologyRequest.Unconstrained {
+		allErrs = append(allErrs, field.Invalid(path.Child("topologyRequest", "unconstrained"), false, "must be true"))
+	}
 
 	return allErrs
 }
