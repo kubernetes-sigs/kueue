@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -215,5 +216,55 @@ func TestCompareSpreadPriorityAboveRuleLevel(t *testing.T) {
 	}
 	if got := snapshot.sortedBySpreadPriority([]*domain{b1, b2}, rules); got[0] != b1 {
 		t.Errorf("sortedBySpreadPriority() reordered domains above the rule's level")
+	}
+}
+
+func TestFindLevelWithFitDomainsSpreading(t *testing.T) {
+	cases := map[string]struct {
+		leaderCount int32
+		mode        utiltas.TopologySpreadingEnforcementMode
+		allBanned   bool
+		want        []string
+		wantReason  string
+	}{
+		"required worker excludes occupied rack": {mode: utiltas.TopologySpreadingEnforcementModeRequired, want: []string{"b2,r2"}},
+		"required leader excludes occupied rack": {leaderCount: 1, mode: utiltas.TopologySpreadingEnforcementModeRequired, want: []string{"b2,r2"}},
+		"required worker excludes all racks":     {mode: utiltas.TopologySpreadingEnforcementModeRequired, allBanned: true, wantReason: "topology spreading excludes all topology domains at level: " + treeTestRackLabel},
+		"required leader excludes all racks":     {leaderCount: 1, mode: utiltas.TopologySpreadingEnforcementModeRequired, allBanned: true, wantReason: "topology spreading excludes all topology domains at level: " + treeTestRackLabel},
+		"preferred leader favors unused rack":    {leaderCount: 1, mode: utiltas.TopologySpreadingEnforcementModePreferred, want: []string{"b2,r2"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snapshot := newSpreadingTestSnapshot(t)
+			r1 := snapshot.domainsPerLevel[1]["b1,r1"]
+			r2 := snapshot.domainsPerLevel[1]["b2,r2"]
+			for _, d := range []*domain{r1, r2} {
+				state := snapshot.domainStateOf(d)
+				state.sliceCount = 2
+				state.sliceCountWithLeader = 2
+				state.leaderCount = 1
+			}
+			snapshot.domainStateOf(r1).leaderCount = 2
+			snapshot.domainStateOf(r1).spread = spreadOccupancy{count: 1, parentCount: 1}
+			if tc.allBanned {
+				snapshot.domainStateOf(r2).spread = spreadOccupancy{count: 1, parentCount: 1}
+			} else {
+				snapshot.domainStateOf(r2).spread = spreadOccupancy{parentCount: 1}
+			}
+			rule := spreadingRule(treeTestRackLabel, tc.mode)
+			rule.MaxShareAllowingPlacement = resource.MustParse("0.5")
+			_, got, reason := snapshot.findLevelWithFitDomains(1, &findTopologyAssignmentState{
+				topologyAssignmentParameters: topologyAssignmentParameters{
+					count: 1, sliceSize: 1, required: true, leaderCount: tc.leaderCount,
+					spreadRules: map[int]utiltas.SpreadingRule{1: rule},
+				},
+			})
+			if reason != tc.wantReason {
+				t.Errorf("findLevelWithFitDomains() reason = %q, want %q", reason, tc.wantReason)
+			}
+			if diff := cmp.Diff(tc.want, domainIDs(got)); diff != "" {
+				t.Errorf("findLevelWithFitDomains() domains mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

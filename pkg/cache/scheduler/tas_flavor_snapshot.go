@@ -1657,9 +1657,13 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
+	levelDomains = s.filterOutBannedDomains(levelDomains, state.spreadRules)
+	if len(levelDomains) == 0 {
+		return 0, nil, fmt.Sprintf("topology spreading excludes all topology domains at level: %s", s.levelKeys[searchLevelIdx])
+	}
 	var sortedDomain []*domain
 	if state.leaderCount > 0 {
-		sortedDomain = s.sortedDomainsWithLeader(levelDomains, state.unconstrained)
+		sortedDomain = s.sortedDomainsWithLeader(levelDomains, state.unconstrained, state.spreadRules)
 	} else {
 		sortedDomain = s.sortedDomains(levelDomains, state.unconstrained, state.spreadRules)
 	}

@@ -161,7 +161,7 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 	if leaderCount > 0 {
 		resultDomains = s.sortedDomainsWithLeader(resultDomains, false, nil)
 	} else {
-		resultDomains = s.sortedDomains(resultDomains, false)
+		resultDomains = s.sortedDomains(resultDomains, false, nil)
 	}
 	extraSlicesLeft := sliceCount - int32(len(resultDomains))*threshold
 	leadersLeft := leaderCount

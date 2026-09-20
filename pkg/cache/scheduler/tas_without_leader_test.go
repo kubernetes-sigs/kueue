@@ -176,12 +176,12 @@ func TestTopologyAssignmentWithoutLeaderAfterGroupedRequest(t *testing.T) {
 				Count:             6,
 			}
 			leader := TASPodSetRequests{PodSet: &kueue.PodSet{Name: "leader"}, SinglePodRequests: workers.SinglePodRequests, Count: 1}
-			want, _, reason := s.findTopologyAssignment(ctx, workers, nil, newAssumedUsage(nil), false, "", nil)
+			want, _, reason := s.findTopologyAssignment(ctx, workers, nil, newAssumedUsage(nil), false, "", nil, nil)
 			if reason != "" {
 				t.Fatalf("unexpected worker placement failure: %s", reason)
 			}
 			for range 2 {
-				grouped, _, reason := s.findTopologyAssignment(ctx, workers, &leader, newAssumedUsage(nil), false, "", nil)
+				grouped, _, reason := s.findTopologyAssignment(ctx, workers, &leader, newAssumedUsage(nil), false, "", nil, nil)
 				if reason != "" {
 					t.Fatalf("unexpected grouped placement failure: %s", reason)
 				}
@@ -194,7 +194,7 @@ func TestTopologyAssignmentWithoutLeaderAfterGroupedRequest(t *testing.T) {
 						t.Errorf("PodSet %s: assigned %d pods, want %d", podSet, got, count)
 					}
 				}
-				got, _, reason := s.findTopologyAssignment(ctx, workers, nil, newAssumedUsage(nil), false, "", nil)
+				got, _, reason := s.findTopologyAssignment(ctx, workers, nil, newAssumedUsage(nil), false, "", nil, nil)
 				if reason != "" {
 					t.Fatalf("unexpected worker placement failure after grouped request: %s", reason)
 				}
