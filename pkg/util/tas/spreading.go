@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 
+	"gopkg.in/inf.v0"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -56,15 +58,6 @@ const (
 
 	minSpreadingRules = 1
 	maxSpreadingRules = 2
-
-	// shareScale is the fixed-point scale maxShareAllowingPlacement is reduced
-	// to, so thresholds are evaluated in integer arithmetic. Milli is the
-	// natural granularity of resource.Quantity, giving a resolution of 0.1%.
-	shareScale = resource.Milli
-
-	// shareScaleFactor is shareScale expressed as a multiplier: a share of 1
-	// (a domain holding everything) is shareScaleFactor scaled units.
-	shareScaleFactor = 1000
 )
 
 var (
@@ -102,12 +95,17 @@ type SpreadingRule struct {
 // PodSet group. Whether being over the share bans the domain or merely
 // deprioritizes it is the caller's decision, per EnforcementMode.
 //
-// The comparison is cross-multiplied against the share reduced to shareScale,
-// so it stays in integer arithmetic and never rounds a float. total == 0 (the
-// cold-start case, nothing admitted yet) is never over the share.
+// The comparison is evaluated exactly without upward rounding, avoiding the
+// ceiling rounding of Quantity.ScaledValue. total == 0 (the cold-start case,
+// nothing admitted yet) is never over the share.
 func (r *SpreadingRule) ExceedsShare(count, total int32) bool {
-	maxShareScaled := r.MaxShareAllowingPlacement.ScaledValue(shareScale)
-	return int64(count)*shareScaleFactor > maxShareScaled*int64(total)
+	if total == 0 {
+		return false
+	}
+	countDec := new(inf.Dec).SetUnscaled(int64(count))
+	totalDec := new(inf.Dec).SetUnscaled(int64(total))
+	threshold := new(inf.Dec).Mul(r.MaxShareAllowingPlacement.AsDec(), totalDec)
+	return countDec.Cmp(threshold) > 0
 }
 
 // SpreadingSpec is the parsed form of the
