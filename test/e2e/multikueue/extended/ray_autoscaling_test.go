@@ -34,6 +34,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/util/podset"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -609,7 +610,7 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		)
 	})
 
-	var scaledSliceKey client.ObjectKey
+	var scaledSlice *kueue.Workload
 	ginkgo.By("Checking the manager spec stays at one worker while the runtime annotation and workload slice reflect two", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, rayClusterKey, corev1.PodRunning)
@@ -622,10 +623,10 @@ func runRayClusterReadmissionAfterPreemptionTest(
 			g.Expect(createdRayCluster.Annotations).To(gomega.HaveKeyWithValue(
 				workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
 
-			scaledSlice := liveRayWorkloadSlice(g, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
-			g.Expect(workload.IsAdmitted(scaledSlice)).To(gomega.BeTrue())
-			g.Expect(podset.FindPodSetByName(scaledSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(2)))
-			scaledSliceKey = client.ObjectKeyFromObject(scaledSlice)
+			createdSlice := liveRayWorkloadSlice(g, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
+			g.Expect(workload.IsAdmitted(createdSlice)).To(gomega.BeTrue())
+			g.Expect(podset.FindPodSetByName(createdSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(2)))
+			scaledSlice = createdSlice.DeepCopy()
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -652,10 +653,10 @@ func runRayClusterReadmissionAfterPreemptionTest(
 
 	ginkgo.By("Checking the scaled RayCluster has been preempted and the high-priority Job remains admitted", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
-			scaledSlice := &kueue.Workload{}
-			g.Expect(k8sManagerClient.Get(ctx, scaledSliceKey, scaledSlice)).To(gomega.Succeed())
-			g.Expect(scaledSlice.Status.SchedulingStats).NotTo(gomega.BeNil())
-			g.Expect(scaledSlice.Status.SchedulingStats.Evictions).To(gomega.ContainElement(gomega.And(
+			createdSlice := &kueue.Workload{}
+			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(scaledSlice), createdSlice)).To(gomega.Succeed())
+			g.Expect(createdSlice.Status.SchedulingStats).NotTo(gomega.BeNil())
+			g.Expect(createdSlice.Status.SchedulingStats.Evictions).To(gomega.ContainElement(gomega.And(
 				gomega.HaveField("Reason", kueue.WorkloadEvictedByPreemption),
 				gomega.HaveField("Count", gomega.BeNumerically(">=", 1)),
 			)))
@@ -666,7 +667,16 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		gomega.Expect(highJobWorkerName).To(gomega.HavePrefix("worker1-"))
 	})
 
+	ginkgo.By("Checking the high-priority Job exists on worker1 and not on worker2", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(highJob), highJob.DeepCopy())).To(gomega.Succeed())
+			g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(highJob), highJob.DeepCopy())).To(utiltesting.BeNotFoundError())
+		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.By("Checking the RayCluster is re-admitted from its one-worker manager spec", func() {
+		readmittedSlice := util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, scaledSlice)
+		readmittedSliceKey := client.ObjectKeyFromObject(readmittedSlice)
 		gomega.Eventually(func(g gomega.Gomega) {
 			highWl := &kueue.Workload{}
 			g.Expect(k8sManagerClient.Get(ctx, highWlKey, highWl)).To(gomega.Succeed())
@@ -676,9 +686,13 @@ func runRayClusterReadmissionAfterPreemptionTest(
 			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, createdRayCluster)).To(gomega.Succeed())
 			g.Expect(ptr.Deref(createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.Equal(int32(1)))
 
-			readmittedSlice := liveRayWorkloadSlice(g, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
-			g.Expect(podset.FindPodSetByName(readmittedSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(1)))
-			g.Expect(workload.IsAdmitted(readmittedSlice)).To(gomega.BeTrue())
+			createdSlice := &kueue.Workload{}
+			g.Expect(k8sManagerClient.Get(ctx, readmittedSliceKey, createdSlice)).To(gomega.Succeed())
+			g.Expect(podset.FindPodSetByName(createdSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(1)))
+			g.Expect(workload.IsAdmitted(createdSlice)).To(gomega.BeTrue())
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+
+		readmittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, readmittedSliceKey, multiKueueAc.Name)
+		gomega.Expect(readmittedWorkerName).To(gomega.HavePrefix("worker1-"))
 	})
 }
