@@ -256,6 +256,8 @@ func TestParseSpreadingAnnotation(t *testing.T) {
 func TestNewSpreadingSpec(t *testing.T) {
 	testCases := map[string]struct {
 		selectors     []metav1.LabelSelectorRequirement
+		rules         []SpreadingRule
+		wantRules     []SpreadingRule
 		defaultJobUID string
 		matchLabels   labels.Set
 		wantMatch     bool
@@ -300,11 +302,38 @@ func TestNewSpreadingSpec(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		"omitted enforcement mode defaults to Required": {
+			rules: []SpreadingRule{{TopologyKey: "a"}},
+			wantRules: []SpreadingRule{{
+				TopologyKey:     "a",
+				EnforcementMode: TopologySpreadingEnforcementModeRequired,
+			}},
+		},
+		"explicit Preferred enforcement mode is preserved": {
+			rules: []SpreadingRule{{
+				TopologyKey:     "a",
+				EnforcementMode: TopologySpreadingEnforcementModePreferred,
+			}},
+			wantRules: []SpreadingRule{{
+				TopologyKey:     "a",
+				EnforcementMode: TopologySpreadingEnforcementModePreferred,
+			}},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			rules := []SpreadingRule{{TopologyKey: "a"}}
+			rules := tc.rules
+			if rules == nil {
+				rules = []SpreadingRule{{TopologyKey: "a"}}
+			}
+			wantRules := tc.wantRules
+			if wantRules == nil {
+				wantRules = []SpreadingRule{{
+					TopologyKey:     "a",
+					EnforcementMode: TopologySpreadingEnforcementModeRequired,
+				}}
+			}
 
 			spec, err := NewSpreadingSpec(tc.selectors, rules, tc.defaultJobUID)
 
@@ -320,7 +349,7 @@ func TestNewSpreadingSpec(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewSpreadingSpec() unexpected error: %v", err)
 			}
-			if diff := cmp.Diff(rules, spec.Rules); diff != "" {
+			if diff := cmp.Diff(wantRules, spec.Rules); diff != "" {
 				t.Errorf("NewSpreadingSpec() Rules mismatch (-want +got):\n%s", diff)
 			}
 			if got := spec.Selector().Matches(tc.matchLabels); got != tc.wantMatch {
