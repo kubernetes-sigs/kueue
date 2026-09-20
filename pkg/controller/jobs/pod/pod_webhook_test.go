@@ -472,6 +472,23 @@ func TestDefault(t *testing.T) {
 				TopologySchedulingGate().
 				Obj(),
 		},
+		"pod with TAS and PodGroupPodIndexLabelAnnotation carrying no labels at all": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:  []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				RoleHash("a9f06f3a").
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
 		"default queue is created, pod has no queue label": {
 			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
