@@ -639,6 +639,7 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		WorkloadPriorityClass(managerHighWPC.Name).
 		Queue(kueue.LocalQueueName(managerLq.Name)).
 		RequestAndLimit(corev1.ResourceCPU, "750m").
+		RequestAndLimit(corev1.ResourceName(extraResourceGPUHighCost), "2").
 		TerminationGracePeriod(1).
 		Obj()
 	ginkgo.By("Creating a high-priority Job that preempts the autoscaled RayCluster", func() {
@@ -659,7 +660,10 @@ func runRayClusterReadmissionAfterPreemptionTest(
 				gomega.HaveField("Count", gomega.BeNumerically(">=", 1)),
 			)))
 		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-		util.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sManagerClient, util.MediumTimeout, highWlKey)
+		highJobWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
+		// Requesting two units of the virtual high-cost GPU resource forces the
+		// high-priority Job onto worker1 because worker2 has quota for only one.
+		gomega.Expect(highJobWorkerName).To(gomega.HavePrefix("worker1-"))
 	})
 
 	ginkgo.By("Checking the RayCluster is re-admitted from its one-worker manager spec", func() {
