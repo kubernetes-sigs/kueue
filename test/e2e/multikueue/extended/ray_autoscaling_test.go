@@ -592,6 +592,9 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		Namespace: managerNs.Name,
 	}
 	admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+	// The head Pod (Ray and autoscaler containers) plus the initial worker request
+	// 1250m in total, exceeding worker2's 1200m ClusterQueue quota. This ensures
+	// placement on worker1, where the autoscaler can scale up to two worker Pods.
 	gomega.Expect(admittedWorkerName).To(gomega.HavePrefix("worker1-"))
 	admittedWorker := kubernetesClients[admittedWorkerName]
 	workerClient := admittedWorker.client
