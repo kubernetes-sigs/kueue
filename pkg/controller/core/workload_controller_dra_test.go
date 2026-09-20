@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -883,9 +882,7 @@ func TestReconcileDRA(t *testing.T) {
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
 					WithInterceptorFuncs(interceptor.Funcs{
-						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, client, subResourceName, applyConf, opts...)
-						},
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 						List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 							if tc.listErr != nil {
 								if _, ok := list.(*resourcev1.ResourceSliceList); ok {
@@ -919,7 +916,7 @@ func TestReconcileDRA(t *testing.T) {
 				if features.Enabled(features.KueueDRAIntegration) {
 					qManager.SetDRAReconcileChannel(reconciler.GetDRAReconcileChannel())
 				}
-				
+
 				reconciler.clock = fakeClock
 
 				ctxWithLogger, _ := utiltesting.ContextWithLog(t)
