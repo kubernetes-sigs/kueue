@@ -48,7 +48,8 @@ var (
 
 	metricsPort = flag.Int("metricsPort", 0, "metrics serving port")
 
-	enableTAS = flag.Bool("enableTAS", false, "enable TAS controllers and indexers")
+	enableTAS         = flag.Bool("enableTAS", false, "enable TAS controllers and indexers")
+	enableFairSharing = flag.Bool("enableFairSharing", false, "enable Fair Sharing in the scheduler")
 )
 
 var (
@@ -82,11 +83,7 @@ func initFlags() {
 func run() int {
 	log := zap.New(zap.UseFlagOptions(&logOptions))
 	ctrl.SetLogger(log)
-	if *enableTAS {
-		log.Info("Start minimalkueue with TAS support")
-	} else {
-		log.Info("Start minimalkueue")
-	}
+	log.Info("Start minimalkueue", "tas", *enableTAS, "fairSharing", *enableFairSharing)
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -177,7 +174,17 @@ func run() int {
 		cancel()
 	}()
 
-	if err := controllers.Setup(ctx, mgr, &configapi.Configuration{}, *enableTAS); err != nil {
+	cfg := &configapi.Configuration{}
+	if *enableFairSharing {
+		cfg.FairSharing = &configapi.FairSharing{
+			PreemptionStrategies: []configapi.PreemptionStrategy{
+				configapi.LessThanOrEqualToFinalShare,
+				configapi.LessThanInitialShare,
+			},
+		}
+	}
+
+	if err := controllers.Setup(ctx, mgr, cfg, *enableTAS); err != nil {
 		log.Error(err, "Unable to set up controllers and scheduler")
 		return 1
 	}
