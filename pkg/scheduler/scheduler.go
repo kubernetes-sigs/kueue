@@ -937,21 +937,21 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	}
 
 	if workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
-		// pa is tracked here, not returned by fits(), updated on the same true probes the
+		// bestPA is tracked here, not returned by fits(), updated on the same true probes the
 		// reducer itself acts on, so it can't drift from the counts Reduce returns.
-		var pa *partialAssignment
+		var bestPA *partialAssignment
 		fits := func(nextCounts []int32) bool {
 			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
-				pa = &partialAssignment{assignment: assignment}
+				bestPA = &partialAssignment{assignment: assignment}
 				return true
 			}
 
 			if mode == flavorassigner.Preempt {
 				preemptionTargets := s.preemptor.GetTargets(ctx, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
-					pa = &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}
+					bestPA = &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}
 					return true
 				}
 			}
@@ -962,7 +962,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		// that only holds quota may still be waiting for admission checks and needs the baseline back.
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
 		if _, found := reducer.Reduce(mustGrow); found {
-			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
+			return bestPA.assignment, append(preemptionTargets, bestPA.preemptionTargets...)
 		}
 	}
 	return fullAssignment, nil
