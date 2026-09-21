@@ -26,7 +26,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
@@ -45,26 +44,22 @@ import (
 )
 
 func TestBaseWebhookDefault(t *testing.T) {
-	unmanagedNsSelector := func() labels.Selector {
-		ls := &metav1.LabelSelector{
-			MatchExpressions: []metav1.LabelSelectorRequirement{
-				{
-					Key:      corev1.LabelMetadataName,
-					Operator: metav1.LabelSelectorOpNotIn,
-					Values:   []string{"unmanaged-ns"},
-				},
+	unmanagedNsSelector := metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{"unmanaged-ns"},
 			},
-		}
-		sel, _ := metav1.LabelSelectorAsSelector(ls)
-		return sel
-	}()
+		},
+	}
 	unmanagedNs := []*corev1.Namespace{
 		utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj(),
 	}
 
 	testcases := map[string]struct {
 		manageJobsWithoutQueueName   bool
-		managedJobsNamespaceSelector labels.Selector
+		managedJobsNamespaceSelector metav1.LabelSelector
 		defaultLqExist               bool
 		defaultWpcExist              bool
 		withoutIntegrationManager    bool
@@ -235,11 +230,15 @@ func TestBaseWebhookDefault(t *testing.T) {
 			if tc.withoutIntegrationManager {
 				integrationManager = nil
 			}
+			sel, err := metav1.LabelSelectorAsSelector(&tc.managedJobsNamespaceSelector)
+			if err != nil {
+				t.Fatalf("Failed to parse managed jobs namespace selector: %v", err)
+			}
 			w := &jobframework.BaseWebhook[*mockJob]{
 				IntegrationManager:           integrationManager,
 				Client:                       cl,
 				ManageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
-				ManagedJobsNamespaceSelector: tc.managedJobsNamespaceSelector,
+				ManagedJobsNamespaceSelector: sel,
 				FromObject: func(object *mockJob) jobframework.GenericJob {
 					return object
 				},

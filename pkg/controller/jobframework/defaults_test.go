@@ -25,6 +25,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -230,7 +231,7 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
-	ls := &metav1.LabelSelector{
+	unmanagedNsSelector := metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
 				Key:      corev1.LabelMetadataName,
@@ -239,7 +240,6 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			},
 		},
 	}
-	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
@@ -248,36 +248,40 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	boomErr := errors.New("boom")
 
 	cases := map[string]struct {
-		job                      client.Object
-		wpcObjects               []client.Object
-		featureGates             map[featuregate.Feature]bool
-		withoutNamespaceSelector bool
-		wpcGetErr                error
-		wantPriorityClassLabel   string
-		wantErr                  error
+		job          client.Object
+		wpcObjects   []client.Object
+		featureGates map[featuregate.Feature]bool
+		// Nil where the case exercises a framework configured without a selector.
+		namespaceSelector      *metav1.LabelSelector
+		wantPriorityClassLabel string
+		wantErr                error
 	}{
 		"feature gate enabled, no label, default WPC exists": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: constants.DefaultWorkloadPriorityClassName,
 		},
 		"feature gate disabled, no label, default WPC exists": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: false},
+			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, label already set": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).WorkloadPriorityClass("high").Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: "high",
 		},
 		"feature gate enabled, no label, default WPC does not exist": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             nil,
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, owner managed by kueue": {
@@ -286,26 +290,27 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 				Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, job in unmanaged namespace": {
 			job:                    utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 		},
 		"feature gate enabled, no namespace selector configured": {
-			job:                      utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
-			wpcObjects:               []client.Object{defaultWPC},
-			featureGates:             map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			withoutNamespaceSelector: true,
-			wantPriorityClassLabel:   constants.DefaultWorkloadPriorityClassName,
+			job:                    utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			wantPriorityClassLabel: constants.DefaultWorkloadPriorityClassName,
 		},
 		"feature gate enabled, default WorkloadPriorityClass lookup fails": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			wpcGetErr:              boomErr,
+			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 			wantErr:                boomErr,
 		},
@@ -319,22 +324,26 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			if len(tc.wpcObjects) > 0 {
 				builder = builder.WithObjects(tc.wpcObjects...)
 			}
-			if tc.wpcGetErr != nil {
-				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
-					Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-						if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC {
-							return tc.wpcGetErr
-						}
-						return cl.Get(ctx, key, obj, opts...)
-					},
-				})
-			}
+			builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC && errors.Is(tc.wantErr, boomErr) {
+						return boomErr
+					}
+					return cl.Get(ctx, key, obj, opts...)
+				},
+			})
 			k8sClient := builder.Build()
-			selector := namespaceSelector
-			if tc.withoutNamespaceSelector {
-				selector = nil
+			// Left nil rather than converted: LabelSelectorAsSelector(nil) is
+			// labels.Nothing(), which is not what an unconfigured selector means.
+			var namespaceSelector labels.Selector
+			if tc.namespaceSelector != nil {
+				var err error
+				namespaceSelector, err = metav1.LabelSelectorAsSelector(tc.namespaceSelector)
+				if err != nil {
+					t.Fatalf("Failed to parse namespace selector: %v", err)
+				}
 			}
-			if err := integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job, selector); !errors.Is(err, tc.wantErr) {
+			if err := integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job, namespaceSelector); !errors.Is(err, tc.wantErr) {
 				t.Fatalf("ApplyDefaultWorkloadPriorityClass() error = %v, want %v", err, tc.wantErr)
 			}
 			got := tc.job.GetLabels()[constants.WorkloadPriorityClassLabel]
