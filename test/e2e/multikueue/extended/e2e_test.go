@@ -20,9 +20,6 @@ import (
 	"fmt"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
-	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
-	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
-	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -38,16 +35,10 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
-	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
-	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
-	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -413,151 +404,28 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should run a kubeflow PyTorchJob on worker if admitted", ginkgo.Label("feature:pytorchjob"), func() {
-			pyTorchJob := testingpytorchjob.MakePyTorchJob("pytorchjob1", managerNs.Name).
-				ManagedBy(kueue.MultiKueueControllerName).
-				Queue(managerLq.Name).
-				PyTorchReplicaSpecs(
-					testingpytorchjob.PyTorchReplicaSpecRequirement{
-						ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
-						ReplicaCount:  1,
-						RestartPolicy: "Never",
-						Image:         util.GetAgnHostImage(),
-						Args:          util.BehaviorExitFast,
-					},
-				).
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "100M").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "100m").
-				RequestAndLimit(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Obj()
-
-			ginkgo.By("Creating the PyTorchJob", func() {
-				util.MustCreate(ctx, k8sManagerClient, pyTorchJob)
-			})
-
-			wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
-
-			admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
-			ginkgo.GinkgoLogr.Info("PyTorchJob %s is admitted in worker cluster %s", pyTorchJob.Name, admittedWorker)
-
-			ginkgo.By("Waiting for the PyTorchJob to finish", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdPyTorchJob := &kftraining.PyTorchJob{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(pyTorchJob), createdPyTorchJob)).To(gomega.Succeed())
-					g.Expect(createdPyTorchJob.Status.ReplicaStatuses[kftraining.PyTorchJobReplicaTypeMaster]).To(gomega.BeComparableTo(
-						&kftraining.ReplicaStatus{
-							Active:    0,
-							Succeeded: 1,
-							Selector: fmt.Sprintf(
-								"training.kubeflow.org/job-name=%s,training.kubeflow.org/operator-name=pytorchjob-controller,training.kubeflow.org/replica-type=master",
-								createdPyTorchJob.Name,
-							),
-						},
-					))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
-			})
-
-			ginkgo.By("Checking no objects are left in the worker clusters and the PyTorchJob is completed", func() {
-				wl := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      wlLookupKey.Name,
-						Namespace: wlLookupKey.Namespace,
-					},
-				}
-				util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
-				util.ExpectObjectToBeDeletedOnClusters(ctx, pyTorchJob, k8sWorker1Client, k8sWorker2Client)
-			})
+		registerPyTorchJobTests(func() pyTorchJobTestContext {
+			return pyTorchJobTestContext{
+				managerNs:    managerNs,
+				managerLq:    managerLq,
+				multiKueueAc: multiKueueAc,
+			}
 		})
 
-		ginkgo.It("Should run a MPIJob on worker if admitted", ginkgo.Label("feature:mpijob"), func() {
-			mpijob := testingmpijob.MakeMPIJob("mpijob1", managerNs.Name).
-				Queue(managerLq.Name).
-				ManagedBy(kueue.MultiKueueControllerName).
-				MPIJobReplicaSpecs(
-					testingmpijob.MPIJobReplicaSpecRequirement{
-						ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
-						ReplicaCount:  1,
-						RestartPolicy: "OnFailure",
-						Image:         util.GetAgnHostImage(),
-						Args:          util.BehaviorExitFast,
-					},
-					testingmpijob.MPIJobReplicaSpecRequirement{
-						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
-						ReplicaCount:  1,
-						RestartPolicy: "OnFailure",
-						Image:         util.GetAgnHostImage(),
-						Args:          util.BehaviorExitFast,
-					},
-				).
-				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
-				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceMemory, "100M").
-				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
-				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, corev1.ResourceMemory, "100M").
-				Obj()
-
-			ginkgo.By("Creating the MPIJob", func() {
-				util.MustCreate(ctx, k8sManagerClient, mpijob)
-			})
-
-			wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
-
-			admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
-			ginkgo.GinkgoLogr.Info("MPIJob %s is admitted in worker cluster %s", mpijob.Name, admittedWorker)
-
-			ginkgo.By("Waiting for the MPIJob to finish", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdMPIJob := &kfmpi.MPIJob{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(mpijob), createdMPIJob)).To(gomega.Succeed())
-					g.Expect(createdMPIJob.Status.ReplicaStatuses[kfmpi.MPIReplicaTypeLauncher]).To(gomega.BeComparableTo(
-						&kfmpi.ReplicaStatus{
-							Active:    0,
-							Succeeded: 1,
-						},
-					))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
-			})
-
-			ginkgo.By("Checking no objects are left in the worker clusters and the MPIJob is completed", func() {
-				wl := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      wlLookupKey.Name,
-						Namespace: wlLookupKey.Namespace,
-					},
-				}
-				util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
-				util.ExpectObjectToBeDeletedOnClusters(ctx, mpijob, k8sWorker1Client, k8sWorker2Client)
-			})
+		registerMPIJobTests(func() mpiJobTestContext {
+			return mpiJobTestContext{
+				managerNs:    managerNs,
+				managerLq:    managerLq,
+				multiKueueAc: multiKueueAc,
+			}
 		})
 
-		ginkgo.It("Should run a TrainJob on worker if admitted", ginkgo.Label("feature:trainjob"), func() {
-			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", managerNs.Name).
-				RuntimeRefName("torch-distributed").
-				Queue(managerLq.Name).
-				RequestAndLimit(corev1.ResourceCPU, "100m", "100m").
-				RequestAndLimit(corev1.ResourceMemory, "100M", "100M").
-				// Even if we override the image coming from the TrainingRuntime, we still need to set the command and args
-				TrainerImage(util.GetAgnHostImage(), []string{"/agnhost"}, util.BehaviorExitFast).
-				Obj()
-
-			ginkgo.By("Creating the trainjob", func() {
-				util.MustCreate(ctx, k8sManagerClient, trainjob)
-			})
-
-			wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainjob.Name, trainjob.UID), Namespace: managerNs.Name}
-
-			admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
-			ginkgo.GinkgoLogr.Info("TrainJob %s is admitted in worker cluster %s", trainjob.Name, admittedWorker)
-
-			ginkgo.By("Checking the TrainJob is ready", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdTrainJob := &kftrainer.TrainJob{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(trainjob), createdTrainJob)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(createdTrainJob.Spec.Suspend, false)).To(gomega.BeFalse())
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-			})
+		registerTrainJobTests(func() trainJobTestContext {
+			return trainJobTestContext{
+				managerNs:    managerNs,
+				managerLq:    managerLq,
+				multiKueueAc: multiKueueAc,
+			}
 		})
 
 		registerKubeRayTests(func() kubeRayTestContext {
