@@ -58,6 +58,7 @@ updates:
       - "/hack/testing/depcheck"
       - "/hack/testing/linkchecker"
       - "/hack/testing/prometheus"
+      - "/hack/testing/prometheus-operator"
       - "/hack/testing/ray"
       - "/hack/testing/ray-mini"
       - "/hack/testing/redis"
@@ -72,6 +73,12 @@ updates:
       - "release-note-none"
       - "dependencies"
       - "area/dependency"
+    groups:
+      # Group Prometheus and prometheus-operator into one PR, so they bump in sync
+      # instead of one lagging behind the other.
+      prometheus-stack:
+        patterns:
+          - "quay.io/prometheus*"
 
   # Maintain npm dependencies
   - package-ecosystem: "npm"
