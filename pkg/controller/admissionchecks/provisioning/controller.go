@@ -349,8 +349,11 @@ func (c *Controller) syncOwnedProvisionRequest(
 						return c.handleError(ctx, wl, ac, desired, msg, err)
 					}
 					log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
-				case equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec):
-					// Already matches the Kueue-derived spec; skip the write.
+				case equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
+					equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
+					equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) &&
+					(metav1.GetControllerOf(existing) == nil || metav1.IsControlledBy(existing, wl)):
+					// Spec matches (including scheduling fields) and no foreign controller owns it.
 					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
 				default:
 					// Divergent PodTemplate at the deterministic name. Replace it with
