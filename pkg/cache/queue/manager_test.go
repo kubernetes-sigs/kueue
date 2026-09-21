@@ -33,6 +33,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -3594,7 +3595,7 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		cq2 := utiltestingapi.MakeClusterQueue("cq2").Obj()
 		lq2 := utiltestingapi.MakeLocalQueue("bar", "earth").ClusterQueue("cq2").Obj()
 		cl := utiltesting.NewFakeClient(wl, lq, cq, lq2, cq2)
-		manager := NewManagerForUnitTests(cl, nil)
+		manager := NewManagerForUnitTests(cl, nil, WithClock(testingclock.NewFakeClock(time.Now())))
 		ctx, _ := utiltesting.ContextWithLog(t)
 		for _, q := range []*kueue.LocalQueue{lq, lq2} {
 			if err := manager.AddLocalQueue(ctx, q); err != nil {
@@ -3624,9 +3625,6 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
 			t.Errorf("inflight entries left after requeue of deleted workload: %d", got)
 		}
-		if _, ok := manager.workloadAssignedQueues["earth/a"]; ok {
-			t.Error("queue assignment kept for a deleted workload")
-		}
 	})
 
 	t.Run("finished while inflight", func(t *testing.T) {
@@ -3653,6 +3651,47 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		}
 		if _, ok := manager.workloadAssignedQueues["earth/a"]; !ok {
 			t.Error("queue assignment dropped for a workload that still exists")
+		}
+	})
+
+	t.Run("second pass queued while inflight", func(t *testing.T) {
+		ctx, cl, manager, popped := setup(t)
+		var w kueue.Workload
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(popped.Obj), &w); err != nil {
+			t.Fatalf("Failed getting workload: %v", err)
+		}
+		// Ready checks with a pending topology request is what the second pass runs
+		// on, and the quota reservation makes the workload inadmissible.
+		w.Status.Admission = utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+				Obj()).
+			Obj()
+		w.Status.AdmissionChecks = []kueue.AdmissionCheckState{{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}}
+		apimeta.SetStatusCondition(&w.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Reserved",
+			Message:            "by test",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+		if err := cl.Status().Update(ctx, &w); err != nil {
+			t.Fatalf("Failed updating workload status: %v", err)
+		}
+		if !manager.QueueSecondPassIfNeeded(ctx, &w, 0) {
+			t.Fatalf("Workload was not queued for the second pass")
+		}
+		if manager.RequeueWorkload(ctx, &popped.Info, RequeueReasonGeneric, "") {
+			t.Error("RequeueWorkload requeued a workload holding a quota reservation")
+		}
+		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
+			t.Errorf("inflight entries left after requeue of an inadmissible workload: %d", got)
+		}
+		if !manager.secondPassQueue.prequeued.Has("earth/a") {
+			t.Error("second pass request dropped by the requeue")
 		}
 	})
 

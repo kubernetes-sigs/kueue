@@ -767,21 +767,15 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only expected error is NotFound.
-	// We should not requeue a workload that is not admissible. While the object
-	// still exists, its queue assignment and unadmitted record belong to the
-	// workload controller, so only a deleted workload loses them here.
-	if apierrors.IsNotFound(err) {
-		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
-		return false
-	}
 	if err != nil {
-		// Unexpected with a cached client; the object may still exist.
-		m.deleteWorkloadWithoutLock(log, wlKey)
+		if !apierrors.IsNotFound(err) {
+			// The client is cached, so NotFound is the only expected error.
+			log.Error(err, "Failed to get the workload to requeue", "workload", klog.KObj(info.Obj))
+		}
 		return false
 	}
+	// An inadmissible workload may still have a pending second-pass request.
 	if !workload.IsAdmissible(&w) {
-		m.deleteWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 
