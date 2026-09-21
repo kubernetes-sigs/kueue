@@ -106,6 +106,8 @@ func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return r.jr.ReconcileGenericJob(ctx, req, newJob())
 }
 
+// Matches KubeRay's common.RayServiceRayClustersAssociationOptions in
+// vendor/github.com/ray-project/kuberay/ray-operator/controllers/ray/common/association.go.
 func childRayClusterLabels(rayServiceName string) client.MatchingLabels {
 	return client.MatchingLabels{
 		rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
