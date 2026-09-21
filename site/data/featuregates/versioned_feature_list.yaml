@@ -329,6 +329,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PodIntegrationCountSucceededPodsAsReady
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PodIntegrationValidateGroupOwner
   versionedSpecs:
   - default: true
