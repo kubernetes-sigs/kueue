@@ -3593,12 +3593,13 @@ func TestAssignFlavors(t *testing.T) {
 					clusterQueue,
 					resourceFlavors,
 					tc.enableFairSharing,
+					&testOracle{simulationResult: tc.simulationResult},
 					tc.preemptWorkloadSlice,
 					configapi.QuotaCheckBlockUndeclared,
 					resources.NewResourceFormatter(),
 					0,
 				)
-				assignment := flvAssigner.AssignFlavors(ctx, log, &testOracle{simulationResult: tc.simulationResult}, nil)
+				assignment := flvAssigner.AssignFlavors(ctx, log, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -3791,8 +3792,8 @@ func TestAssignFlavors_ReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.AssignFlavors(ctx, log, &testOracle{tc.simulationResult}, nil)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.AssignFlavors(ctx, log, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -3939,8 +3940,8 @@ func TestAssignFlavors_DeletedFlavors(t *testing.T) {
 				cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 				delete(flavorMap, "deleted-flavor")
 
-				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-				assignment := flvAssigner.AssignFlavors(ctx, log, &testOracle{}, nil)
+				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+				assignment := flvAssigner.AssignFlavors(ctx, log, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
@@ -4112,8 +4113,8 @@ func TestAssignFlavors_Hierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.AssignFlavors(ctx, log, &testOracle{tc.simulationResult}, nil)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.AssignFlavors(ctx, log, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
 			}
@@ -5288,8 +5289,8 @@ func TestAssignFlavors_AllowedFlavors(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
-			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			gotAssignment := assigner.AssignFlavors(ctx, log, &testOracle{}, nil)
+			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			gotAssignment := assigner.AssignFlavors(ctx, log, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
 				t.Errorf("RepresentativeMode() = %v, want %v", gotAssignment.RepresentativeMode(), tc.wantRepMode)
@@ -5735,10 +5736,11 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 			}
 
 			assigner := New(
-				wlInfo, cqSnapshot, testFlavors, false, tc.replaceWl, configapi.QuotaCheckBlockUndeclared,
+				wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult},
+				tc.replaceWl, configapi.QuotaCheckBlockUndeclared,
 				resources.NewResourceFormatter(), 0,
 			)
-			gotAssignment := assigner.AssignFlavors(ctx, log, &testOracle{simulationResult: tc.simulationResult}, nil)
+			gotAssignment := assigner.AssignFlavors(ctx, log, nil)
 
 			if gotAssignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("gotAssignment.NoFitReason = %q, want %q", gotAssignment.NoFitReason, tc.wantNoFitReason)
@@ -5991,8 +5993,8 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				t.Fatalf("Failed to create CQ snapshot")
 			}
 
-			assigner := New(wlInfo, cq, resourceFlavors, false, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := assigner.AssignFlavors(ctx, log, &testOracle{}, nil)
+			assigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := assigner.AssignFlavors(ctx, log, nil)
 
 			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}
 			for _, ps := range assignment.PodSets {
@@ -6093,8 +6095,8 @@ func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
 				t.Fatalf("Failed to create CQ snapshot")
 			}
 
-			flvAssigner := New(wlInfo, cq, resourceFlavors, false, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.AssignFlavors(ctx, log, &testOracle{}, nil)
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.AssignFlavors(ctx, log, nil)
 
 			status := assignment.PodSets[0].Status
 			if got := status.IsFit(); got != tc.wantFit {
@@ -6472,9 +6474,10 @@ func TestAssignFlavors_RecordsLastTriedFlavorIdx(t *testing.T) {
 			}
 
 			wlInfo := bookmarkTestWorkload(log, tc.request)
-			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false, nil,
+			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false,
+				&testOracle{simulationResult: tc.simulationResult}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
-			assignment := assigner.AssignFlavors(ctx, log, &testOracle{simulationResult: tc.simulationResult}, nil)
+			assignment := assigner.AssignFlavors(ctx, log, nil)
 
 			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("RepresentativeMode() = %s, want %s", gotMode, tc.wantMode)
@@ -6551,13 +6554,13 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			flavors := bookmarkTestFlavors()
 
 			// Nomination: quota fits, topology fits, and a placement is produced.
-			assigner := New(wlInfo, cqSnapshot, flavors, false, nil,
+			assigner := New(wlInfo, cqSnapshot, flavors, false, &testOracle{}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
 			// This is the one suite that deliberately chains both stages instead of
 			// exercising one in isolation. The placement invalidated further down has to
 			// be one a real nomination produced, because the whole point is what the
 			// second, replayed pass records after the first pass's result goes stale.
-			nominated := assigner.AssignFlavors(ctx, log, &testOracle{}, nil)
+			nominated := assigner.AssignFlavors(ctx, log, nil)
 			assigner.AssignTopology(ctx, log, &nominated)
 			if got := nominated.RepresentativeMode(); got != Fit {
 				t.Fatalf("nomination RepresentativeMode() = %s, want %s", got, Fit)
@@ -6594,10 +6597,10 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 			}
 			wlInfo.NominationMapping = mapping
 
-			assigner = New(wlInfo, cqSnapshot, flavors, false, nil,
+			assigner = New(wlInfo, cqSnapshot, flavors, false,
+				&testOracle{simulationResult: tc.simulationResult}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
-			recomputed := assigner.AssignFlavors(ctx, log,
-				&testOracle{simulationResult: tc.simulationResult}, nil)
+			recomputed := assigner.AssignFlavors(ctx, log, nil)
 			if recomputed.RepresentativeMode() != NoFit {
 				assigner.AssignTopology(ctx, log, &recomputed)
 			}
@@ -6668,7 +6671,7 @@ func TestAssignTopology(t *testing.T) {
 			ps.Status = *NewStatus("insufficient unused quota")
 		}
 		return fixture{
-			assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, nil,
+			assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, &testOracle{}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
 			assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
 			cq:         cq,
@@ -6715,7 +6718,7 @@ func TestAssignTopology(t *testing.T) {
 			FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "flavor-1", Mode: Fit}},
 		}
 		return fixture{
-			assigner: New(next, cq, bookmarkTestFlavors(), false, oldInfo,
+			assigner: New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
 			assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
 			cq:         cq,
@@ -6832,7 +6835,7 @@ func TestAssignTopology(t *testing.T) {
 					TopologyAssignment: tas.InternalFrom(plan),
 				}
 				return fixture{
-					assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, nil,
+					assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, &testOracle{}, nil,
 						configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
 					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
 				}
@@ -6907,7 +6910,7 @@ func TestAssignTopology(t *testing.T) {
 				}
 				return fixture{
 					assigner: New(bookmarkTestWorkload(log, "1"), &schdcache.ClusterQueueSnapshot{},
-						bookmarkTestFlavors(), false, nil, configapi.QuotaCheckBlockUndeclared,
+						bookmarkTestFlavors(), false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared,
 						resources.NewResourceFormatter(), bookmarkTestCycle),
 					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
 				}

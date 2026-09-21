@@ -1477,39 +1477,40 @@ func (s *Scheduler) findFit(ctx context.Context, wl *workload.Info, snap *schdca
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	preemptionPlanFactory := s.preemptor.GetPreemptionPlanFactory(*wl, snap)
 	flvAssigner := flavorassigner.New(
-		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), replaceableWorkloadSlice,
-		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
+		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
+		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
-	var simulateScheduling schedulingSimulation
+	var schedulingSimulator schedulingSimulator
 	if features.Enabled(features.TASSchedulerLibraryDeepIntegration) {
-		simulateScheduling = schedulerLibrarySimulation
+		schedulingSimulator = &schedulerLibrarySimulator{
+			wl,
+			snap,
+			s.preemptor,
+			preemptionPlanFactory,
+		}
 	} else {
-		simulateScheduling = kueueInternalSimulation
+		schedulingSimulator = &kueueInternalSimulator{
+			wl,
+			snap,
+			s.preemptor,
+			preemptionPlanFactory,
+			flvAssigner,
+		}
 	}
 
-	assignment, targets, fits := simulateScheduling(
+	assignment, targets, fits := schedulingSimulator.Schedule(
 		ctx,
-		wl,
-		snap,
+		flvAssigner.AssignFlavors(ctx, log, nil),
 		preemptionTargets,
-		flvAssigner,
-		s.preemptor,
-		preemptionPlanFactory,
-		nil,
 	)
 
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			if assignment, targets, fits := simulateScheduling(
+			if assignment, targets, fits := schedulingSimulator.Schedule(
 				ctx,
-				wl,
-				snap,
+				flvAssigner.AssignFlavors(ctx, log, nextCounts),
 				preemptionTargets,
-				flvAssigner,
-				s.preemptor,
-				preemptionPlanFactory,
-				nextCounts,
 			); fits {
 				return &partialAssignment{assignment: assignment, preemptionTargets: targets}, true
 			}

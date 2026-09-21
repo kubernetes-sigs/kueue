@@ -648,6 +648,7 @@ type FlavorAssigner struct {
 	cq                *schdcache.ClusterQueueSnapshot
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	enableFairSharing bool
+	oracle            preemptionOracle
 
 	// replaceWorkloadSlice identifies the workload slice that will be replaced by this workload.
 	// It must be considered during flavor computation and included in the preemption targets.
@@ -671,6 +672,7 @@ func New(
 	cq *schdcache.ClusterQueueSnapshot,
 	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
 	enableFairSharing bool,
+	oracle preemptionOracle,
 	preemptWorkloadSlice *workload.Info,
 	quotaCheckStrategy configapi.QuotaCheckStrategy,
 	resourceFormatter *resources.ResourceFormatter,
@@ -681,6 +683,7 @@ func New(
 		cq:                   cq,
 		resourceFlavors:      resourceFlavors,
 		enableFairSharing:    enableFairSharing,
+		oracle:               oracle,
 		replaceWorkloadSlice: preemptWorkloadSlice,
 		quotaCheckStrategy:   quotaCheckStrategy,
 		resourceFormatter:    resourceFormatter,
@@ -697,7 +700,6 @@ type indexedPodSet struct {
 func (a *FlavorAssigner) AssignFlavors(
 	ctx context.Context,
 	log logr.Logger,
-	oracle preemptionOracle,
 	counts []int32,
 ) Assignment {
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
@@ -816,7 +818,7 @@ func (a *FlavorAssigner) AssignFlavors(
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, oracle, psIDs, requests, resName, assignment.Usage.Quota.Assigned)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, resName, assignment.Usage.Quota.Assigned)
 			mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
 			if status.IsError() || (len(flavors) == 0 && requests.Len() > 0) {
 				groupFlavors = nil
@@ -1064,7 +1066,6 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 func (a *FlavorAssigner) findFlavorForPodSets(
 	ctx context.Context,
 	log logr.Logger,
-	oracle preemptionOracle,
 	psIDs []int,
 	requests resources.Requests,
 	resName corev1.ResourceName,
@@ -1150,7 +1151,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 
-			preemptionMode, borrow, s := a.fitsResourceQuota(ctx, oracle, fr, assignmentUsage[fr], val, resQuota)
+			preemptionMode, borrow, s := a.fitsResourceQuota(ctx, fr, assignmentUsage[fr], val, resQuota)
 			if s != nil {
 				flavorQuotaReasons = append(flavorQuotaReasons, s.reasons...)
 				status.reasons = append(status.reasons, s.reasons...)
@@ -1335,7 +1336,6 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 // could help), it returns a Status with reasons.
 func (a *FlavorAssigner) fitsResourceQuota(
 	ctx context.Context,
-	oracle preemptionOracle,
 	fr resources.FlavorResource,
 	assumedUsage resources.Amount,
 	requestUsage int64,
@@ -1375,7 +1375,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 		fr.Resource, fr.Flavor, a.resourceFormatter.AmountQuantityString(fr.Resource, val.Sub(available)))
 
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
-		preemptionPossiblity, borrowAfterPreemptions := oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
+		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
 		if mode != noFit {
 			status.noFitReason = ""

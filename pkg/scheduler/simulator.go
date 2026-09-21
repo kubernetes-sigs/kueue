@@ -29,41 +29,42 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type schedulingSimulation func(
-	ctx context.Context,
-	wl *workload.Info,
-	snapshot *schdcache.Snapshot,
-	preemptedTargets []*preemption.Target,
-	flavorAssigner *flavorassigner.FlavorAssigner,
-	preemptor *preemption.Preemptor,
-	preemptionPlanFactory preemption.PreemptionPlanFactory,
-	counts []int32,
-) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
+type schedulingSimulator interface {
+	Schedule(
+		ctx context.Context,
+		initialAssignment flavorassigner.Assignment,
+		preemptedTargets []*preemption.Target,
+	) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
+}
 
-func kueueInternalSimulation(
+var _ schedulingSimulator = &kueueInternalSimulator{}
+
+type kueueInternalSimulator struct {
+	wl                    *workload.Info
+	snapshot              *schdcache.Snapshot
+	preemptor             *preemption.Preemptor
+	preemptionPlanFactory preemption.PreemptionPlanFactory
+	flavorAssigner        *flavorassigner.FlavorAssigner
+}
+
+func (s *kueueInternalSimulator) Schedule(
 	ctx context.Context,
-	wl *workload.Info,
-	snapshot *schdcache.Snapshot,
+	initialAssignment flavorassigner.Assignment,
 	preemptedTargets []*preemption.Target,
-	flavorAssigner *flavorassigner.FlavorAssigner,
-	preemptor *preemption.Preemptor,
-	preemptionPlanFactory preemption.PreemptionPlanFactory,
-	counts []int32,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
 	log := log.FromContext(ctx)
-	cq := snapshot.ClusterQueue(wl.ClusterQueue)
+	cq := s.snapshot.ClusterQueue(s.wl.ClusterQueue)
+	assignment = initialAssignment
 
 	defer func() {
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
 			assignment.ResolveNoFitReason(cq)
 		}
-		updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, targets)
+		updateAssignmentForTAS(ctx, s.snapshot, cq, s.wl, &assignment, targets)
 	}()
 
-	preemptionOracle := preemption.NewInternalOracle(preemptor, snapshot)
-	assignment = flavorAssigner.AssignFlavors(ctx, log, preemptionOracle, counts)
 	if assignment.RepresentativeMode() != flavorassigner.NoFit {
-		flavorAssigner.AssignTopology(ctx, log, &assignment)
+		s.flavorAssigner.AssignTopology(ctx, log, &assignment)
 	}
 
 	arm := assignment.RepresentativeMode()
@@ -72,8 +73,8 @@ func kueueInternalSimulation(
 	}
 
 	if arm == flavorassigner.Preempt {
-		preemptionPlan := preemptionPlanFactory(ctx, &assignment)
-		faPreemptionTargets := preemptor.GetTargetsUsingPlan(ctx, preemptionPlan)
+		preemptionPlan := s.preemptionPlanFactory(ctx, &assignment)
+		faPreemptionTargets := s.preemptor.GetTargetsUsingPlan(ctx, preemptionPlan)
 		if len(faPreemptionTargets) > 0 {
 			targets = slices.Concat(preemptedTargets, faPreemptionTargets)
 			return assignment, targets, true
@@ -82,18 +83,22 @@ func kueueInternalSimulation(
 	return
 }
 
-func schedulerLibrarySimulation(
+var _ schedulingSimulator = &kueueInternalSimulator{}
+
+type schedulerLibrarySimulator struct {
+	wl                    *workload.Info
+	snapshot              *schdcache.Snapshot
+	preemptor             *preemption.Preemptor
+	preemptionPlanFactory preemption.PreemptionPlanFactory
+}
+
+func (s *schedulerLibrarySimulator) Schedule(
 	ctx context.Context,
-	wl *workload.Info,
-	snapshot *schdcache.Snapshot,
+	initialAssignment flavorassigner.Assignment,
 	preemptedTargets []*preemption.Target,
-	flavorAssigner *flavorassigner.FlavorAssigner,
-	preemptor *preemption.Preemptor,
-	preemptionPlanFactory preemption.PreemptionPlanFactory,
-	counts []int32,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
-	log := log.FromContext(ctx)
-	cq := snapshot.ClusterQueue(wl.ClusterQueue)
+	cq := s.snapshot.ClusterQueue(s.wl.ClusterQueue)
+	assignment = initialAssignment
 
 	defer func() {
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
@@ -101,8 +106,6 @@ func schedulerLibrarySimulation(
 		}
 	}()
 
-	preemptionOracle := preemption.NewSchedulerLibraryOracle(&snapshot.SimulatorSnapshot)
-	assignment = flavorAssigner.AssignFlavors(ctx, log, preemptionOracle, counts)
 	if assignment.RepresentativeMode() == flavorassigner.NoFit {
 		return
 	}
