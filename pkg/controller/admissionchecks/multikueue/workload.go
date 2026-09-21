@@ -136,6 +136,13 @@ func (g *wlGroup) IsElasticWorkload() bool {
 	return workloadslicing.IsElasticWorkload(g.local)
 }
 
+func (g *wlGroup) mayHaveRemoteObjects(cluster string) bool {
+	return g.remotes[cluster] != nil ||
+		apimeta.FindStatusCondition(g.local.Status.Conditions, kueue.WorkloadEvicted) != nil ||
+		workload.ClusterName(g.local) == cluster ||
+		slices.Contains(g.local.Status.NominatedClusterNames, cluster)
+}
+
 // bestMatchByCondition returns condition if there is a workload with a specified condition type,
 // the string identifies the remote cluster.
 func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition, string) {
@@ -382,6 +389,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
 		var errs []error
 		for rem := range group.remotes {
+			if !group.mayHaveRemoteObjects(rem) {
+				continue
+			}
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
 				errs = append(errs, err)
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
