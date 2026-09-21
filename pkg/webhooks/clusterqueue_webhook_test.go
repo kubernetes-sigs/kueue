@@ -416,20 +416,20 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantBadValue: "2",
 		},
 		{
-			name: "ConcurrentAdmissionPolicy with more than 16 flavors",
+			name: "ConcurrentAdmissionPolicy with more than 32 flavors",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
-				ResourceGroup(makeFlavors(17)...).
+				ResourceGroup(makeFlavors(33)...).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(
 					specPath.Child("resourceGroups").Index(0).Child("flavors"),
-					17,
-					"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
+					33,
+					"cannot have more than 32 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
 				),
 			},
-			wantDetail:   "cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
-			wantBadValue: "17",
+			wantDetail:   "cannot have more than 32 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined",
+			wantBadValue: "33",
 		},
 		{
 			name: "ConcurrentAdmissionPolicy with empty ResourceGroups",

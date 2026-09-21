@@ -142,6 +142,18 @@ The Parent Workload is the object that job integrations watch for admission.
 Variant Workloads are internal admission attempts. Do not create or edit Parent
 labels or Variant annotations manually.
 
+## Performance
+
+A separate Variant Workload is created for every resource flavor in the
+ClusterQueue, even ones that do not match the Workload and so cannot admit it.
+This creates additional work for the controller and may cause it to perform
+differently than expected when under heavy load.
+
+This seems especially apparent when the number of ClusterQueues that are
+present is especially large (in the thousands). Test the load characteristics
+of the controller with concurrent admission enabled and realistic peak load
+ensure that controller performance is appropriate for your use case.
+
 ## Constraints
 
 Concurrent Admission currently has the following constraints:
@@ -152,7 +164,7 @@ Concurrent Admission currently has the following constraints:
   `BestEffortFIFO` queueing strategy. `StrictFIFO` is not supported.
 - A `ClusterQueue` with `.spec.concurrentAdmissionPolicy` must have exactly one
   `resourceGroup`.
-- The `resourceGroup` can contain at most 16 ResourceFlavors.
+- The `resourceGroup` can contain at most 32 ResourceFlavors.
 - The `concurrentAdmissionPolicy` field is immutable after the `ClusterQueue` is
   created.
 - `TryPreferredFlavors` is the only supported migration mode.
