@@ -84,16 +84,22 @@ type planConsumption struct {
 	stopAfterFirstStrategyTargets int
 }
 
-// consumePlan drains the plan and returns both the comparable projection of
-// what was yielded and the raw targets, which the caller needs in order to
-// restore a snapshot mutated by the plan.
-func consumePlan(plan PreemptionPlan, consumption planConsumption) ([]wantStrategy, []*Target) {
+// consumePlan drains the plan and returns a comparable projection of what was
+// yielded.
+//
+// Both plans mutate the snapshot while they iterate: a candidate is removed
+// from it before being yielded, so that the following candidates are picked
+// against the state the previous ones left behind. Those removals are undone
+// by Cleanup, which every production consumer calls once an attempt is over -
+// classicalPreemptions between the borrowing and the non-borrowing attempt,
+// fairPreemptions after its single strategy. This consumer does the same, so
+// that a later attempt starts from the snapshot the first one saw, and so
+// that the caller can assert the snapshot was left as it was found.
+func consumePlan(plan *PreemptionPlan, consumption planConsumption) []wantStrategy {
 	gotStrategies := []wantStrategy{}
-	var yielded []*Target
 	for strategy := range plan.Strategies {
 		targets := []wantTarget{}
 		for candidate := range strategy.Candidates {
-			yielded = append(yielded, candidate)
 			targets = append(targets, wantTarget{
 				Workload: workload.Key(candidate.WorkloadInfo.Obj),
 				Reason:   candidate.Reason,
@@ -104,12 +110,13 @@ func consumePlan(plan PreemptionPlan, consumption planConsumption) ([]wantStrate
 				break
 			}
 		}
+		plan.Cleanup()
 		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.Borrowing, Targets: targets})
 		if consumption.stopAfterStrategies > 0 && len(gotStrategies) >= consumption.stopAfterStrategies {
 			break
 		}
 	}
-	return gotStrategies, yielded
+	return gotStrategies
 }
 
 type planFixtureCfg struct {
@@ -614,14 +621,16 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 			if plan.Type != ClassicalPreemptions {
 				t.Errorf("Unexpected plan type %q, want %q", plan.Type, ClassicalPreemptions)
 			}
-			gotStrategies, _ := consumePlan(plan, tc.consumption)
+			gotStrategies := consumePlan(plan, tc.consumption)
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected strategies (-want,+got):\n%s", diff)
 			}
-			// Unlike fair sharing, a classical plan only enumerates
-			// candidates; removing them is up to the consumer.
+			// The plan removes every candidate it yields from the snapshot,
+			// which is what makes an attempt see the effect of its earlier
+			// candidates. Cleanup, which consumePlan calls once an attempt is
+			// over, must put all of them back.
 			if diff := cmp.Diff(fixture.pristine, fixture.snapshot, snapCmpOpts); diff != "" {
-				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
+				t.Errorf("Snapshot was not restored after the plan was consumed (-initial,+end):\n%s", diff)
 			}
 		})
 	}
@@ -987,7 +996,7 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 			revertSimulation := fixture.pCtx.preemptorCQ.SimulateUsageAddition(fixture.pCtx.workloadUsage)
 			// The plan yields a single strategy, so capping the first one
 			// caps the whole plan.
-			gotStrategies, yielded := consumePlan(plan, planConsumption{stopAfterFirstStrategyTargets: tc.stopAfterTargets})
+			gotStrategies := consumePlan(plan, planConsumption{stopAfterFirstStrategyTargets: tc.stopAfterTargets})
 			revertSimulation()
 
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
@@ -995,8 +1004,8 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 			}
 
 			// A fair sharing plan removes the workloads it yields from the
-			// snapshot, and nothing else; adding them back must restore it.
-			restoreSnapshot(fixture.snapshot, yielded)
+			// snapshot, and nothing else; the Cleanup consumePlan ran must
+			// have added all of them back.
 			if diff := cmp.Diff(fixture.pristine, fixture.snapshot, snapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified beyond the yielded targets (-initial,+end):\n%s", diff)
 			}
