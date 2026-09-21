@@ -1,12 +1,12 @@
 ---
-name: kep-general-guidelines
-description: Apply project-wide design guidance when drafting, updating, or reviewing Kueue enhancement proposals (KEPs).
+name: kep-review
+description: Review Kueue enhancement proposals (KEPs) for project-wide design concerns. Use when reviewing a new or updated KEP.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
 ---
 
-# KEP General Guidelines
+# KEP Review
 
 * Do not create KEPs dedicated to a specific out-of-tree Job integration. An
   out-of-tree Job integration uses a workload API that is not built into
