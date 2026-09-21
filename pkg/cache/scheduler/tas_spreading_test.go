@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
