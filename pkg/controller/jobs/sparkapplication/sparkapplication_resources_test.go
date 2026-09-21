@@ -413,6 +413,31 @@ func TestSparkPodResources(t *testing.T) {
 			}, sparkv1beta2.ExecutorSpec{}),
 			wantErr: true,
 		},
+		"memory string that overflows": {
+			pod: driverPod(sparkcommon.SparkDriverContainerName),
+			app: scalaApp(sparkv1beta2.DriverSpec{
+				SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("8589934592p")},
+			}, sparkv1beta2.ExecutorSpec{}),
+			wantErr: true,
+		},
+		"memory and memoryOverhead that overflow together": {
+			pod: driverPod(sparkcommon.SparkDriverContainerName),
+			app: scalaApp(sparkv1beta2.DriverSpec{
+				SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("8191p"), MemoryOverhead: new("8191p")},
+			}, sparkv1beta2.ExecutorSpec{}),
+			wantErr: true,
+		},
+		"memoryOverheadFactor that overflows": {
+			pod: driverPod(sparkcommon.SparkDriverContainerName),
+			app: func() *sparkv1beta2.SparkApplication {
+				app := scalaApp(sparkv1beta2.DriverSpec{
+					SparkPodSpec: sparkv1beta2.SparkPodSpec{Memory: new("8191p")},
+				}, sparkv1beta2.ExecutorSpec{})
+				app.Spec.MemoryOverheadFactor = new("1e30")
+				return app
+			}(),
+			wantErr: true,
+		},
 		"invalid memoryOverheadFactor": {
 			pod: driverPod(sparkcommon.SparkDriverContainerName),
 			app: func() *sparkv1beta2.SparkApplication {
@@ -479,6 +504,10 @@ func TestParseSparkMemoryBytes(t *testing.T) {
 		"fraction is rejected":              {input: "1.5g", defaultUnit: 1, wantErr: true},
 		"empty is rejected":                 {input: "", defaultUnit: 1, wantErr: true},
 		"unknown unit is rejected":          {input: "1x", defaultUnit: 1, wantErr: true},
+		"largest p value":                   {input: "8191p", defaultUnit: 1, want: 8191 << 50},
+		"overflow to zero is rejected":      {input: "8589934592p", defaultUnit: 1, wantErr: true},
+		"overflow to negative is rejected":  {input: "9007199254740993k", defaultUnit: 1, wantErr: true},
+		"default unit overflow is rejected": {input: "9223372036854775807", defaultUnit: 1 << 20, wantErr: true},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
