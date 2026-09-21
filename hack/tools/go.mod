@@ -40,7 +40,7 @@ require (
 	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.1
 	sigs.k8s.io/controller-tools v0.21.0
-	sigs.k8s.io/dra-example-driver v0.4.0
+	sigs.k8s.io/dra-example-driver v0.5.0
 	sigs.k8s.io/kind v0.33.0
 	sigs.k8s.io/kustomize/kustomize/v5 v5.8.1
 	sigs.k8s.io/mdtoc v1.4.0
@@ -385,7 +385,7 @@ require (
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.24.0 // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
+	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.70.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
@@ -494,7 +494,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260630182238-925bb5da69e7 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 	google.golang.org/grpc v1.83.2 // indirect
-	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
@@ -519,14 +519,14 @@ require (
 	k8s.io/kube-proxy v0.34.1 // indirect
 	k8s.io/kube-scheduler v0.34.1 // indirect
 	k8s.io/kubectl v0.37.0 // indirect
-	k8s.io/kubelet v0.36.2 // indirect
+	k8s.io/kubelet v0.37.0 // indirect
 	k8s.io/metrics v0.37.0 // indirect
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
 	mvdan.cc/gofumpt v0.11.0 // indirect
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
 	oras.land/oras-go/v2 v2.6.2 // indirect
 	rsc.io/qr v0.2.0 // indirect
-	sigs.k8s.io/controller-runtime v0.24.1 // indirect
+	sigs.k8s.io/controller-runtime v0.25.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
 	sigs.k8s.io/kustomize/cmd/config v0.21.1 // indirect
