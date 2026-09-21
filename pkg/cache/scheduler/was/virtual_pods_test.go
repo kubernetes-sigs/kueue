@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -105,6 +106,44 @@ func TestPodsForWorkload(t *testing.T) {
 		"workload with TAS placement": {
 			wl:        wlWithTAS,
 			wantNodes: []string{"node-1", "node-1", "node-2"},
+		},
+		"finished workload": {
+			wl: utiltestingapi.MakeWorkload("wl", "test-ns").
+				UID("wl-uid").
+				PodSets(kueue.PodSet{Name: "main", Template: podTemplate, Count: 3}).
+				Admission(
+					utiltestingapi.MakeAdmission("cq").
+						PodSets(kueue.PodSetAssignment{
+							Name:  "main",
+							Count: ptr.To[int32](3),
+							TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-1"}, 3).Obj()).
+								Obj(),
+						}).
+						Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+		},
+		"workload without hostname in TAS levels": {
+			wl: utiltestingapi.MakeWorkload("wl", "test-ns").
+				UID("wl-uid").
+				PodSets(kueue.PodSet{Name: "main", Template: podTemplate, Count: 3}).
+				Admission(
+					utiltestingapi.MakeAdmission("cq").
+						PodSets(kueue.PodSetAssignment{
+							Name:  "main",
+							Count: ptr.To[int32](3),
+							TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{"topology.kubernetes.io/zone"}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"zone-a"}, 3).Obj()).
+								Obj(),
+						}).
+						Obj(),
+				).
+				Obj(),
 		},
 	}
 

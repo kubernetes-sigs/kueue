@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
 const (
@@ -68,14 +69,14 @@ func getVirtualPodHash(wlName, podSetName, indexStr string) string {
 // PodsForWorkload generates virtual pods for an admitted or quota-reserved
 // workload based on its PodSets and TopologyAssignments.
 func PodsForWorkload(wl *kueue.Workload) []*corev1.Pod {
-	if wl == nil || wl.Status.Admission == nil {
+	if wl == nil || wl.Status.Admission == nil || finish.IsFinished(wl) {
 		return nil
 	}
 
 	var virtualPods []*corev1.Pod
 
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		if psa.TopologyAssignment == nil {
+		if psa.TopologyAssignment == nil || len(psa.TopologyAssignment.Levels) == 0 || !utiltas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
 			continue
 		}
 
@@ -89,7 +90,9 @@ func PodsForWorkload(wl *kueue.Workload) []*corev1.Pod {
 
 		for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 			nodeName, hasNode := utiltas.NodeNameFromDomainID(levels, utiltas.DomainID(domain.Values))
-			domainLabels := utiltas.NodeLabelsFromKeysAndValues(levels, domain.Values)
+			if !hasNode {
+				return nil
+			}
 
 			for range domain.Count {
 				pod := &corev1.Pod{
@@ -116,13 +119,7 @@ func PodsForWorkload(wl *kueue.Workload) []*corev1.Pod {
 				}
 				pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
 
-				if hasNode {
-					pod.Spec.NodeName = nodeName
-				}
-				if pod.Spec.NodeSelector == nil {
-					pod.Spec.NodeSelector = make(map[string]string)
-				}
-				maps.Copy(pod.Spec.NodeSelector, domainLabels)
+				pod.Spec.NodeName = nodeName
 
 				virtualPods = append(virtualPods, pod)
 				replicaIdx++
