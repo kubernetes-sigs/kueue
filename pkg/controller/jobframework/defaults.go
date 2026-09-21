@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -105,9 +104,7 @@ func (m *IntegrationManager) ApplyDefaultWorkloadPriorityClass(
 	}
 	exists, err := utilpriority.DefaultWorkloadPriorityClassExist(ctx, k8sClient)
 	if err != nil {
-		log := ctrl.LoggerFrom(ctx)
-		log.V(2).Error(err, "Failed to check for default WorkloadPriorityClass")
-		return nil
+		return err
 	}
 	if !exists {
 		return nil

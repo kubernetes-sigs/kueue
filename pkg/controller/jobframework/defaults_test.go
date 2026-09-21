@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -243,13 +245,16 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
 		Value:      100,
 	}
+	boomErr := errors.New("boom")
 
 	cases := map[string]struct {
 		job                      client.Object
 		wpcObjects               []client.Object
 		featureGates             map[featuregate.Feature]bool
 		withoutNamespaceSelector bool
+		wpcGetErr                error
 		wantPriorityClassLabel   string
+		wantErr                  error
 	}{
 		"feature gate enabled, no label, default WPC exists": {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
@@ -296,6 +301,14 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			withoutNamespaceSelector: true,
 			wantPriorityClassLabel:   constants.DefaultWorkloadPriorityClassName,
 		},
+		"feature gate enabled, default WorkloadPriorityClass lookup fails": {
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			wpcGetErr:              boomErr,
+			wantPriorityClassLabel: "",
+			wantErr:                boomErr,
+		},
 	}
 
 	for name, tc := range cases {
@@ -306,13 +319,23 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			if len(tc.wpcObjects) > 0 {
 				builder = builder.WithObjects(tc.wpcObjects...)
 			}
+			if tc.wpcGetErr != nil {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC {
+							return tc.wpcGetErr
+						}
+						return cl.Get(ctx, key, obj, opts...)
+					},
+				})
+			}
 			k8sClient := builder.Build()
 			selector := namespaceSelector
 			if tc.withoutNamespaceSelector {
 				selector = nil
 			}
-			if err := integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job, selector); err != nil {
-				t.Fatalf("ApplyDefaultWorkloadPriorityClass() returned error: %v", err)
+			if err := integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job, selector); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("ApplyDefaultWorkloadPriorityClass() error = %v, want %v", err, tc.wantErr)
 			}
 			got := tc.job.GetLabels()[constants.WorkloadPriorityClassLabel]
 			if got != tc.wantPriorityClassLabel {

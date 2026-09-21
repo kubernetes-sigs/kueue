@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 		defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, defaultWPC)
 		ginkgo.DeferCleanup(func() {
-			gomega.Expect(k8sClient.Delete(ctx, defaultWPC)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
 		})
 
 		j := testingjob.MakeJob("job-wpc-unmanaged", unmanagedNs.Name).Suspend(false).Obj()
