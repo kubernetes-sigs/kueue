@@ -1171,6 +1171,69 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"transformation input matching an excluded prefix rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					ExcludeResourcePrefixes: []string{"nvidia.com/"},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: new(configapi.Retain),
+						},
+						{
+							Input:    "nvidia.com/gpu",
+							Strategy: new(configapi.Replace),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[1].input",
+				},
+			},
+		},
+		"transformation input matching several excluded prefixes reports each": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					ExcludeResourcePrefixes: []string{"nvidia.com/", "nvidia.com/gpu"},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "nvidia.com/gpu",
+							Strategy: new(configapi.Replace),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].input",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].input",
+				},
+			},
+		},
+		"transformation input not matching an excluded prefix accepted": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					// The second prefix is longer than the input, so it does not match it.
+					ExcludeResourcePrefixes: []string{"example.com/", "nvidia.com/gpu-shared"},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "nvidia.com/gpu",
+							Strategy: new(configapi.Replace),
+						},
+					},
+				},
+			},
+		},
 		"negative afterFinished in .objectRetentionPolicies.workloads": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
