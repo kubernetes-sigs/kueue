@@ -42,8 +42,6 @@ import (
 
 type kubeRayTestContext struct {
 	managerNs         *corev1.Namespace
-	worker1Ns         *corev1.Namespace
-	worker2Ns         *corev1.Namespace
 	managerLq         *kueue.LocalQueue
 	multiKueueAc      *kueue.AdmissionCheck
 	kubernetesClients kubernetesClientsMap
@@ -53,8 +51,6 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 	ginkgo.When("Ray integration tests", ginkgo.Ordered, ginkgo.Label("feature:kuberay"), func() {
 		var (
 			managerNs         *corev1.Namespace
-			worker1Ns         *corev1.Namespace
-			worker2Ns         *corev1.Namespace
 			managerLq         *kueue.LocalQueue
 			multiKueueAc      *kueue.AdmissionCheck
 			kubernetesClients kubernetesClientsMap
@@ -63,26 +59,10 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 		ginkgo.BeforeEach(func() {
 			tc := contextProvider()
 			managerNs = tc.managerNs
-			worker1Ns = tc.worker1Ns
-			worker2Ns = tc.worker2Ns
 			managerLq = tc.managerLq
 			multiKueueAc = tc.multiKueueAc
 			kubernetesClients = tc.kubernetesClients
 		})
-
-		ginkgo.AfterEach(func() {
-			// Clean up resources created by the RayService test on all clusters.
-			rayServiceConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rayservice-hello", Namespace: managerNs.Name}}
-			gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayServiceConfigMap))).To(gomega.Succeed())
-			gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
-			gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
-
-			// Use the CRD-tolerant helper: shards without KubeRay have no RayService CRD installed.
-			gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
-		})
-
 		ginkgo.It("Should run a RayJob on worker if admitted", func() {
 			kuberayTestImage := util.GetKuberayTestImage()
 			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).

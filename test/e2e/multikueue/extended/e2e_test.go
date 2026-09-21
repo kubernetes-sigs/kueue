@@ -226,6 +226,17 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.AfterEach(func() {
+		// Clean up resources created by the RayService test on all clusters.
+		rayServiceConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rayservice-hello", Namespace: managerNs.Name}}
+		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayServiceConfigMap))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
+
+		// Use the CRD-tolerant helper: shards without KubeRay have no RayService CRD installed.
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
+
 		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
@@ -718,8 +729,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		registerKubeRayTests(func() kubeRayTestContext {
 			return kubeRayTestContext{
 				managerNs:         managerNs,
-				worker1Ns:         worker1Ns,
-				worker2Ns:         worker2Ns,
 				managerLq:         managerLq,
 				multiKueueAc:      multiKueueAc,
 				kubernetesClients: kubernetesClients,
