@@ -1,4 +1,4 @@
-# KEP-14596: Fair Sharing Refill
+# KEP-14596: Scheduling Cycle Refill
 
 <!-- toc -->
 - [Summary](#summary)
@@ -43,8 +43,10 @@ Today the scheduler considers at most one Workload per ClusterQueue per scheduli
 A ClusterQueue that admits a Workload cannot admit again until the next cycle, even if it is still the furthest below its fair share.
 Capacity left in the cycle can therefore go to siblings with a higher share first.
 
-Fair Sharing Refill removes that wait: after each successful admission, the ClusterQueue's next Workload joins the current cycle and competes under the freshly recomputed fair-sharing ordering.
+Scheduling Cycle Refill removes that wait: after each successful admission, the ClusterQueue's next Workload joins the current cycle and competes under the freshly recomputed ordering.
 A fixed per-cycle budget bounds the extra scheduling work.
+Alpha implements this for Fair Sharing only, behind the `FairSharingRefill` gate.
+Extending it to classic preemption is Beta work and would ship behind a gate of its own.
 
 ## Motivation
 
@@ -75,7 +77,7 @@ Refill reaches the same distribution inside the cycle that produced the imbalanc
 
 ### Goals
 
-- Define a bounded mechanism for adding candidates to a running Fair Sharing cycle after successful admissions.
+- Define a bounded mechanism for exposing a ClusterQueue's next candidate to the same scheduling cycle after a successful admission, with Alpha scoped to Fair Sharing.
 - Preserve scheduler correctness when the candidate set grows during a cycle.
 - Bound the additional work, and record when that bound is reached.
 
@@ -131,7 +133,8 @@ flowchart LR
     end
 ```
 
-This is why refill exists only with Fair Sharing: only there does the answer to "who is the poorest" change within a cycle.
+Alpha scopes refill to Fair Sharing because only there does an ordering already exist that compares the remaining candidates again after each admission.
+[Scope beyond Fair Sharing](#scope-beyond-fair-sharing) covers what generalizing would take.
 
 Refill stops for a ClusterQueue when any of these holds:
 
