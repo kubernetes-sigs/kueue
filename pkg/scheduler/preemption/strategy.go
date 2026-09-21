@@ -35,31 +35,26 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-type PreemptionType string
-
-const (
-	FairPreemptions      PreemptionType = "Fair"
-	ClassicalPreemptions PreemptionType = "Classical"
-)
-
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
 // One strategy maps to a signle, isolated attempt at finding a possible preemption result.
+//
+// Candidates are yielded already removed from the snapshot, and with any usage the plan may have
+// simulated for its own bookkeeping undone, so that the consumer observes the state the
+// cluster would be in once the candidates yielded so far are preempted.
 type PreemptionStrategy struct {
 	Candidates iter.Seq[*Target]
 	Borrowing  bool
 }
 
 // PreemptionPlan defines a set of alternate strategies to be attempted when finding a preemption result.
-// Possible types: Fair and Classical preemption plan.
 type PreemptionPlan struct {
 	Strategies iter.Seq[PreemptionStrategy]
-	pCtx       *preemptionCtx
-	yielded    *[]*Target
+
+	pCtx    *preemptionCtx
+	yielded *[]*Target
 }
 
 type PreemptionPlanFactory func(ctx context.Context, assignment *flavorassigner.Assignment) *PreemptionPlan
-
-type fitCheck func(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool
 
 func (p *PreemptionPlan) Cleanup() {
 	if p.yielded == nil {
@@ -176,6 +171,9 @@ func FairPreemptionPlan(
 	candidatesIter := func(yield func(*Target) bool) {
 		var cont bool
 		targetsInPreemptorCQ := false
+		// The incoming Workload's usage stays simulated while the candidates are
+		// picked, because the DominantResourceShare values have to account for it.
+		// This is hidden from the consumer, as we revert the simulated addition for the durantion of the yield.
 		yieldCandidate := func(t *Target) bool {
 			yieldedCandidates = append(yieldedCandidates, t)
 			revert := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
