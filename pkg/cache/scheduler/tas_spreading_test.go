@@ -229,9 +229,18 @@ func TestFindLevelWithFitDomainsSpreading(t *testing.T) {
 	}{
 		"required worker excludes occupied rack": {mode: utiltas.TopologySpreadingEnforcementModeRequired, want: []string{"b2,r2"}},
 		"required leader excludes occupied rack": {leaderCount: 1, mode: utiltas.TopologySpreadingEnforcementModeRequired, want: []string{"b2,r2"}},
-		"required worker excludes all racks":     {mode: utiltas.TopologySpreadingEnforcementModeRequired, allBanned: true, wantReason: "topology spreading excludes all topology domains at level: " + treeTestRackLabel},
-		"required leader excludes all racks":     {leaderCount: 1, mode: utiltas.TopologySpreadingEnforcementModeRequired, allBanned: true, wantReason: "topology spreading excludes all topology domains at level: " + treeTestRackLabel},
-		"preferred leader favors unused rack":    {leaderCount: 1, mode: utiltas.TopologySpreadingEnforcementModePreferred, want: []string{"b2,r2"}},
+		"required worker excludes all racks": {
+			mode:       utiltas.TopologySpreadingEnforcementModeRequired,
+			allBanned:  true,
+			wantReason: "topology spreading excludes all topology domains at level: " + treeTestRackLabel,
+		},
+		"required leader excludes all racks": {
+			leaderCount: 1,
+			mode:        utiltas.TopologySpreadingEnforcementModeRequired,
+			allBanned:   true,
+			wantReason:  "topology spreading excludes all topology domains at level: " + treeTestRackLabel,
+		},
+		"preferred leader favors unused rack": {leaderCount: 1, mode: utiltas.TopologySpreadingEnforcementModePreferred, want: []string{"b2,r2"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
