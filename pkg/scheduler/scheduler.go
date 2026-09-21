@@ -937,26 +937,32 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	}
 
 	if workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
-		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
+		// bestPA is tracked here, not returned by fits(), updated on the same true probes the
+		// reducer itself acts on, so it can't drift from the counts Reduce returns.
+		var bestPA *partialAssignment
+		fits := func(nextCounts []int32) bool {
 			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
-				return &partialAssignment{assignment: assignment}, true
+				bestPA = &partialAssignment{assignment: assignment}
+				return true
 			}
 
 			if mode == flavorassigner.Preempt {
 				preemptionTargets := s.preemptor.GetTargets(ctx, *wl, assignment, snap)
 				if len(preemptionTargets) > 0 {
-					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+					bestPA = &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}
+					return true
 				}
 			}
-			return nil, false
-		})
+			return false
+		}
+		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, fits)
 		// Only an admitted predecessor can already be running these MinCounts. A predecessor
 		// that only holds quota may still be waiting for admission checks and needs the baseline back.
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
-		if pa, found := reducer.Reduce(mustGrow); found {
-			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
+		if _, found := reducer.Reduce(mustGrow); found {
+			return bestPA.assignment, append(preemptionTargets, bestPA.preemptionTargets...)
 		}
 	}
 	return fullAssignment, nil
