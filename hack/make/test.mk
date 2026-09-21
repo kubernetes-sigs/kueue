@@ -681,6 +681,9 @@ kind-k8s-main-image-build: kind
 	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
 		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
 
+# When using raymini, exclude tests that require the full ray image (e.g. RayService).
+run-test-e2e-k8s-main-was-extended: GINKGO_ARGS = $(if $(filter "raymini",$(USE_RAY_FOR_TESTS)),--label-filter='!requires:fullray')
+
 # This branch has no singlecluster/wasapi suite, so the lane runs the regular
 # singlecluster suites with WAS enabled. e2e-test.sh takes a single target folder,
 # and singlecluster/ also holds tasapi, which needs kind-cluster-tas.yaml.
