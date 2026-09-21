@@ -36,6 +36,10 @@ func (c *FakeKueueV1alpha1) DynamicQuotaOrchestrators() v1alpha1.DynamicQuotaOrc
 	return newFakeDynamicQuotaOrchestrators(c)
 }
 
+func (c *FakeKueueV1alpha1) PreemptionConfigs() v1alpha1.PreemptionConfigInterface {
+	return newFakePreemptionConfigs(c)
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeKueueV1alpha1) RESTClient() rest.Interface {
