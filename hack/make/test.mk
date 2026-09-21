@@ -671,7 +671,7 @@ run-test-e2e-multikueue-sequential-%:
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
 .PHONY: test-e2e-k8s-main-was
-test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was
+test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was-baseline run-test-e2e-k8s-main-was-extended
 
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind
@@ -681,9 +681,11 @@ kind-k8s-main-image-build: kind
 	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
 		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
 
-.PHONY: run-test-e2e-k8s-main-was
-run-test-e2e-k8s-main-was:
-	@echo Running e2e for k8s main with WAS enabled
+# This branch has no singlecluster/wasapi suite, so the lane runs the regular
+# singlecluster suites with WAS enabled. e2e-test.sh takes a single target folder,
+# and singlecluster/ also holds tasapi, which needs kind-cluster-tas.yaml.
+run-test-e2e-k8s-main-was-%:
+	@echo Running $* e2e for k8s main with WAS enabled
 	E2E_KIND_VERSION="$(K8S_MAIN_NODE_IMAGE)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
 		E2E_MODE=$(E2E_MODE) \
@@ -695,7 +697,7 @@ run-test-e2e-k8s-main-was:
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/wasapi" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/$*" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_RUN_ONLY_ENV=$(E2E_RUN_ONLY_ENV) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
