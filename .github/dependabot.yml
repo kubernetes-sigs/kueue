@@ -51,6 +51,7 @@ updates:
       - "/hack/testing/cypress"
       - "/hack/testing/depcheck"
       - "/hack/testing/linkchecker"
+      - "/hack/testing/prometheus"
       - "/hack/testing/ray"
       - "/hack/testing/ray-mini"
       - "/hack/testing/redis"
