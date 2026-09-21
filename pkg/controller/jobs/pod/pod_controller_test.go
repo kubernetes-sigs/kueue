@@ -76,6 +76,14 @@ func TestPodsReady(t *testing.T) {
 	pendingPod := func(name string) corev1.Pod {
 		return *testingpod.MakePod(name, "test-ns").Obj()
 	}
+	// The kubelet flips PodReady to False once a pod completes, so a Succeeded pod
+	// carries the same conditions as a pod that is not ready.
+	succeededPod := func(name string) corev1.Pod {
+		return *testingpod.MakePod(name, "test-ns").
+			StatusPhase(corev1.PodSucceeded).
+			StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
+			Obj()
+	}
 	makePodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
 		driver := testingpod.MakePod("driver", "test-ns").
 			GroupNameLabel("test-group").
@@ -86,10 +94,16 @@ func TestPodsReady(t *testing.T) {
 			list:    corev1.PodList{Items: pods},
 		}
 	}
+	makeServingPodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
+		group := makePodGroup(totalCount, pods...)
+		group.pod.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
+		return group
+	}
 
 	testCases := map[string]struct {
-		pod  *Pod
-		want bool
+		pod                           *Pod
+		countSucceededPodsAsReadyGate bool
+		want                          bool
 	}{
 		"single pod is ready": {
 			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").StatusConditions(readyCond).Obj()),
@@ -111,6 +125,54 @@ func TestPodsReady(t *testing.T) {
 			pod:  makePodGroup("3", readyPod("driver"), pendingPod("worker-1"), pendingPod("worker-2")),
 			want: false,
 		},
+		"single pod succeeded": {
+			pod: FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").
+				StatusPhase(corev1.PodSucceeded).
+				StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
+				Obj()),
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
+		"single pod succeeded, gate disabled": {
+			pod: FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").
+				StatusPhase(corev1.PodSucceeded).
+				StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
+				Obj()),
+			want: false,
+		},
+		"pod group with some pods succeeded and the rest ready": {
+			pod:                           makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
+		"pod group with some pods succeeded and the rest ready, gate disabled": {
+			pod:  makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			want: false,
+		},
+		"pod group with all pods succeeded": {
+			pod:                           makePodGroup("3", succeededPod("driver"), succeededPod("worker-1"), succeededPod("worker-2")),
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
+		"pod group with all pods succeeded, gate disabled": {
+			pod:  makePodGroup("3", succeededPod("driver"), succeededPod("worker-1"), succeededPod("worker-2")),
+			want: false,
+		},
+		"pod group with some pods succeeded and one pending": {
+			pod:                           makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), pendingPod("worker-2")),
+			countSucceededPodsAsReadyGate: true,
+			want:                          false,
+		},
+		"serving pod group with some pods succeeded and the rest ready": {
+			pod:                           makeServingPodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			countSucceededPodsAsReadyGate: true,
+			want:                          false,
+		},
+		"serving pod group with all pods ready": {
+			pod:                           makeServingPodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
 		"pod group without total count annotation": {
 			pod: &Pod{
 				pod:     *testingpod.MakePod("driver", "test-ns").GroupNameLabel("test-group").Obj(),
@@ -127,6 +189,7 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PodIntegrationCountSucceededPodsAsReady, tc.countSucceededPodsAsReadyGate)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			got := tc.pod.PodsReady(ctx, nil)
 			if tc.want != got {
