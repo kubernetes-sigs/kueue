@@ -3534,9 +3534,6 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 	}
 }
 
-// TestForgetInflight verifies that abandoning a checkout lets the ClusterQueue
-// take the workload back. A checkout left open would keep the workload out of
-// scheduling until it is deleted.
 // popOneHead checks out the head of the named ClusterQueue the way a scheduling
 // cycle does, and returns it.
 func popOneHead(t *testing.T, m *Manager, cqName kueue.ClusterQueueReference) *Head {
@@ -3549,6 +3546,23 @@ func popOneHead(t *testing.T, m *Manager, cqName kueue.ClusterQueueReference) *H
 	return nil
 }
 
+// lqPendingActive reads the active pending gauge of the named LocalQueue.
+func lqPendingActive(t *testing.T, namespace, name string) float64 {
+	t.Helper()
+	got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+		"name":      name,
+		"namespace": namespace,
+		"status":    metrics.PendingStatusActive,
+	})
+	if len(got) == 0 {
+		return 0
+	}
+	return got[0].Value
+}
+
+// TestForgetInflight verifies that abandoning a checkout lets the ClusterQueue
+// take the workload back. A checkout left open would keep the workload out of
+// scheduling until it is deleted.
 func TestForgetInflight(t *testing.T) {
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
@@ -3629,6 +3643,9 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 
 	t.Run("finished while inflight", func(t *testing.T) {
 		ctx, cl, manager, popped := setup(t)
+		if got := lqPendingActive(t, "earth", "foo"); got != 1 {
+			t.Fatalf("LocalQueue active pending gauge after the pop = %v, want 1", got)
+		}
 		var w kueue.Workload
 		if err := cl.Get(ctx, client.ObjectKeyFromObject(popped.Obj), &w); err != nil {
 			t.Fatalf("Failed getting workload: %v", err)
@@ -3651,6 +3668,9 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		}
 		if _, ok := manager.workloadAssignedQueues["earth/a"]; !ok {
 			t.Error("queue assignment dropped for a workload that still exists")
+		}
+		if got := lqPendingActive(t, "earth", "foo"); got != 0 {
+			t.Errorf("LocalQueue active pending gauge = %v, want 0", got)
 		}
 	})
 

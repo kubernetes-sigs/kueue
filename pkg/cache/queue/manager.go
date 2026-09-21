@@ -819,12 +819,14 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 // forgetInflight releases the claim that Pop took on a workload in the given
 // ClusterQueue. Must be called with the lock held.
 func (m *Manager) forgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
-	cq := m.hm.ClusterQueue(cqName)
-	if cq == nil {
-		return
+	if cq := m.hm.ClusterQueue(cqName); cq != nil {
+		cq.forgetInflight(key)
+		reportCQPendingWorkloads(m, cq)
 	}
-	cq.forgetInflight(key)
-	reportCQPendingWorkloads(m, cq)
+	// Releasing an inflight claim also changes the LocalQueue pending count.
+	if q := m.localQueues[m.workloadAssignedQueues[key]]; q != nil {
+		reportLQPendingWorkloads(m, q)
+	}
 }
 
 // Delete the workload from queue or cluster queue.
@@ -1002,9 +1004,6 @@ func (m *Manager) ForgetInflight(cqName kueue.ClusterQueueReference, key workloa
 	m.Lock()
 	defer m.Unlock()
 	m.forgetInflight(cqName, key)
-	if q := m.localQueues[m.workloadAssignedQueues[key]]; q != nil {
-		reportLQPendingWorkloads(m, q)
-	}
 }
 
 func (m *Manager) Broadcast() {
