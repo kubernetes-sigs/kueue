@@ -6,15 +6,17 @@ authors:
 status: provisional
 creation-date: 2026-08-17
 reviewers:
-  - "@amy"
   - "@mimowo"
+  - "@tenzen-y"
 approvers:
   - "@mimowo"
+  - "@tenzen-y"
 
 see-also:
   - "/keps/1714-fair-sharing"
   - "/keps/4136-admission-fair-sharing"
   - "/keps/8691-concurrent-admission"
+  - "/keps/9694-scheduling-equivalence-hashing"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
