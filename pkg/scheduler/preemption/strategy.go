@@ -70,6 +70,14 @@ func (p *PreemptionPlan) Cleanup() {
 	*p.yielded = (*p.yielded)[:0]
 }
 
+func (p *PreemptionPlan) Materialize() (result [][]*Target) {
+	for strategy := range p.Strategies {
+		result = append(result, slices.Collect(strategy.Candidates))
+	}
+	p.Cleanup()
+	return
+}
+
 func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) *PreemptionPlan {
 	log := log.FromContext(ctx)
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{

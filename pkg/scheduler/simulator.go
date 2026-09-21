@@ -110,5 +110,18 @@ func (s *schedulerLibrarySimulator) Schedule(
 		return
 	}
 
-	panic("SchedulerLibrary ScheduleWorkload support not implemented")
+	// strategies := s.preemptionPlanFactory(ctx, &assignment).Materialize()
+	// for _, candidates := range strategies {
+	// 	schedulingResult := s.snapshot.SimulatorSnapshot.ScheduleWorklad(wl, candidates, preemptedTargets)
+	// 	if schedulingResult.Fits() {
+	// 		fits = true
+	// 		assignment.UpdateForSchedLibTAS(schedulingResult.PodBindings)
+	// 		if schedulingResult.PreemptionsRequired() {
+	// 			targets = slices.Concat(preemptedTargets, schedulingResult.PreemptionTargets)
+	// 		}
+	// 		return
+	// 	}
+	// }
+
+	return
 }
