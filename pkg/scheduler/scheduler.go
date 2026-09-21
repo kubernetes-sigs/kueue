@@ -1167,6 +1167,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	if err != nil {
 		return err
 	}
+	// The cycle adds usage directly and leaves Workloads as taken, so a
+	// successor refilled into it would spread as if nothing were admitted.
+	cq.RecordAdmittedThisCycle(cacheWl)
 
 	newWorkload := e.Obj.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {

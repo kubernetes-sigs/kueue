@@ -19,6 +19,8 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -441,5 +444,223 @@ func TestRefillNotTriggeredBySecondPassAdmission(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantInadmissible, qManager.DumpInadmissible(), cmpDump...); diff != "" {
 		t.Errorf("Unexpected inadmissible workloads (-want,+got):\n%s", diff)
+	}
+}
+
+// TestScheduleForFairSharingRefillTASSpreading pins that a Required topology
+// spreading rule survives a refill chain. Every block has room for both
+// workloads, so only the rule can keep the successor out of the block its
+// predecessor took.
+func TestScheduleForFairSharingRefillTASSpreading(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	const (
+		tasBlockLabel    = "cloud.com/topology-block"
+		spreadGroupLabel = "spread-group"
+		spreadGroupValue = "refill-spreading"
+	)
+	spreadingAnnotation := fmt.Sprintf(
+		`{"workloadLabelSelectors":[{"key":%q,"operator":"In","values":[%q]}],`+
+			`"rules":[{"topologyKey":%q,"maxShareAllowingPlacement":"0.5","enforcementMode":"Required"}]}`,
+		spreadGroupLabel, spreadGroupValue, tasBlockLabel)
+
+	topology := utiltestingapi.MakeTopology("tas-two-level").
+		Levels(tasBlockLabel, corev1.LabelHostname).
+		Obj()
+	tasFlavor := utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-two-level").
+		Obj()
+	clusterQueue := utiltestingapi.MakeClusterQueue("tas-refill").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "6").Obj()).
+		Obj()
+	localQueue := utiltestingapi.MakeLocalQueue("tas-refill-lq", "default").
+		ClusterQueue("tas-refill").Obj()
+
+	node := func(name, block string) corev1.Node {
+		return *testingnode.MakeNode(name).
+			Label("tas-node", "true").
+			Label(tasBlockLabel, block).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	nodes := []corev1.Node{node("x1", "b1"), node("x2", "b1"), node("x3", "b2"), node("x4", "b2")}
+	spreadWl := func(name string, creation time.Time) kueue.Workload {
+		return *utiltestingapi.MakeWorkload(name, "default").
+			Queue("tas-refill-lq").
+			Creation(creation).
+			Label(spreadGroupLabel, spreadGroupValue).
+			PodSets(*utiltestingapi.MakePodSet("one", 1).
+				RequiredTopologyRequest(tasBlockLabel).
+				Annotations(map[string]string{
+					kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
+				}).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+	}
+
+	// A published assignment names the hostname level alone, so the block is
+	// resolved through the nodes rather than read off the assignment.
+	blockOfNode := make(map[string]string, len(nodes))
+	for _, n := range nodes {
+		blockOfNode[n.Name] = n.Labels[tasBlockLabel]
+	}
+	blockOf := func(t *testing.T, wl *kueue.Workload) string {
+		t.Helper()
+		assignment := wl.Status.Admission.PodSetAssignments[0].TopologyAssignment
+		hostIdx := slices.Index(assignment.Levels, corev1.LabelHostname)
+		if hostIdx < 0 {
+			t.Fatalf("Assignment of %s has no hostname level, got levels %v", wl.Name, assignment.Levels)
+		}
+		block := ""
+		for domain := range utiltas.InternalSeqFrom(assignment) {
+			got := blockOfNode[domain.Values[hostIdx]]
+			if block != "" && got != block {
+				t.Fatalf("Workload %s is split across blocks %s and %s", wl.Name, block, got)
+			}
+			block = got
+		}
+		return block
+	}
+
+	cases := map[string]struct {
+		refillEnabled bool
+		workloads     []kueue.Workload
+		wantAdmitted  []workload.Reference
+		// wantMaxPerBlock is what the 0.5 share allows once every admitted
+		// workload counts towards the total.
+		wantMaxPerBlock int
+		wantLeft        map[kueue.ClusterQueueReference][]workload.Reference
+	}{
+		"the refilled successor is spread away from its predecessor's block": {
+			refillEnabled: true,
+			workloads: []kueue.Workload{
+				spreadWl("spread-a", now.Add(-2*time.Minute)),
+				spreadWl("spread-b", now.Add(-time.Minute)),
+			},
+			wantAdmitted:    []workload.Reference{"default/spread-a", "default/spread-b"},
+			wantMaxPerBlock: 1,
+		},
+		// The shape the e2e suite hits: the third group may share a block,
+		// since by then it is one of three rather than one of two.
+		"a refill chain of three fills both blocks without exceeding the share": {
+			refillEnabled: true,
+			workloads: []kueue.Workload{
+				spreadWl("spread-a", now.Add(-3*time.Minute)),
+				spreadWl("spread-b", now.Add(-2*time.Minute)),
+				spreadWl("spread-c", now.Add(-time.Minute)),
+			},
+			wantAdmitted:    []workload.Reference{"default/spread-a", "default/spread-b", "default/spread-c"},
+			wantMaxPerBlock: 2,
+		},
+		"gate off: the successor waits for the next cycle": {
+			refillEnabled: false,
+			workloads: []kueue.Workload{
+				spreadWl("spread-a", now.Add(-2*time.Minute)),
+				spreadWl("spread-b", now.Add(-time.Minute)),
+			},
+			wantAdmitted:    []workload.Reference{"default/spread-a"},
+			wantMaxPerBlock: 1,
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-refill": {"default/spread-b"},
+			},
+		},
+	}
+	for name, tc := range cases {
+		for _, recompute := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s recompute:%t", name, recompute), func(t *testing.T) {
+				features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+					features.FairSharingRefill:                           tc.refillEnabled,
+					features.TASTopologySpreading:                        true,
+					features.TASRecomputeAssignmentWithinSchedulingCycle: recompute,
+				})
+				ctx, log := utiltesting.ContextWithLog(t)
+
+				clientBuilder := utiltesting.NewClientBuilder().
+					WithLists(
+						&kueue.WorkloadList{Items: tc.workloads},
+						&corev1.NodeList{Items: nodes},
+						&kueue.TopologyList{Items: []kueue.Topology{*topology}},
+						&kueue.LocalQueueList{Items: []kueue.LocalQueue{*localQueue}}).
+					WithObjects(utiltesting.MakeNamespace("default")).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					}).
+					WithStatusSubresource(&kueue.Workload{}, &kueue.ClusterQueue{}, &kueue.LocalQueue{})
+				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				cl := clientBuilder.Build()
+
+				recorder := &utiltesting.EventRecorder{}
+				cqCache := schdcache.New(cl)
+				fakeClock := testingclock.NewFakeClock(now)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+				for i := range nodes {
+					cqCache.TASCache().SyncNode(&nodes[i])
+				}
+				cqCache.AddOrUpdateResourceFlavor(log, tasFlavor.DeepCopy())
+				cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+				if err := cqCache.AddClusterQueue(ctx, clusterQueue.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", clusterQueue.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, clusterQueue.DeepCopy()); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", clusterQueue.Name, err)
+				}
+				if err := qManager.AddLocalQueue(ctx, localQueue.DeepCopy()); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", localQueue.Namespace, localQueue.Name, err)
+				}
+
+				scheduler := New(qManager, cqCache, cl, recorder,
+					WithFairSharing(&config.FairSharing{}),
+					WithClock(t, fakeClock),
+					WithPreemptionExpectations(preemptexpectations.New()))
+				wg := sync.WaitGroup{}
+				scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+					func() { wg.Add(1) },
+					func() { wg.Done() },
+				))
+
+				ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+				go qManager.CleanUpOnContext(ctx)
+				defer cancel()
+
+				scheduler.schedule(ctx)
+				wg.Wait()
+
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("unexpected error while building snapshot: %v", err)
+				}
+				blocksByWorkload := make(map[workload.Reference]string)
+				for _, c := range snapshot.ClusterQueues() {
+					for name, w := range c.Workloads {
+						blocksByWorkload[name] = blockOf(t, w.Obj)
+					}
+				}
+				gotAdmitted := slices.Sorted(maps.Keys(blocksByWorkload))
+				if diff := cmp.Diff(tc.wantAdmitted, gotAdmitted); diff != "" {
+					t.Errorf("Unexpected admitted workloads (-want,+got):\n%s", diff)
+				}
+				perBlock := make(map[string]int, 2)
+				for _, block := range blocksByWorkload {
+					perBlock[block]++
+				}
+				for block, got := range perBlock {
+					if got > tc.wantMaxPerBlock {
+						t.Errorf("Block %s holds %d of the %d workloads, exceeding the 0.5 share the rule allows",
+							block, got, len(blocksByWorkload))
+					}
+				}
+				if diff := cmp.Diff(tc.wantLeft, qManager.Dump(), cmpDump...); diff != "" {
+					t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
