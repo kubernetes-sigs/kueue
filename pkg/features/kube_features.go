@@ -706,7 +706,7 @@ const (
 	// Enables configurable preemptions, letting administrators declare preemption
 	// triggers and candidate selectors in a cluster-scoped PreemptionConfig that a
 	// ClusterQueue references. The classical and fair sharing preemption logic is
-	// unchanged; configurable preemption only applies to a ClusterQueue that
+	// unchanged; new candidates following configurable preemption configs only applies to a ClusterQueue that
 	// references a PreemptionConfig.
 	ConfigurablePreemptions featuregate.Feature = "ConfigurablePreemptions"
 )
