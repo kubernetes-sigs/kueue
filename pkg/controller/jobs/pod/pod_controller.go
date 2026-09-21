@@ -803,6 +803,7 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 	}
 	return constructGroupPodSets(p.list.Items)
 }
+
 func reorderPodSets(podSets, reference []kueue.PodSet) []kueue.PodSet {
 	podSetsByName := make(map[kueue.PodSetReference]kueue.PodSet, len(podSets))
 	for _, podSet := range podSets {
