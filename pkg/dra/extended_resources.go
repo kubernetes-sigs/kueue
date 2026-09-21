@@ -128,8 +128,8 @@ func resolveQuotaKey(
 	log := ctrl.LoggerFrom(ctx)
 	log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName)
 
-	var dcList resourceapi.DeviceClassList
-	if err := cl.List(ctx, &dcList, client.MatchingFields{
+	var deviceClasses resourceapi.DeviceClassList
+	if err := cl.List(ctx, &deviceClasses, client.MatchingFields{
 		"spec.extendedResourceName": string(resourceName),
 	}); err != nil {
 		return "", field.ErrorList{field.InternalError(
@@ -138,13 +138,13 @@ func resolveQuotaKey(
 		)}
 	}
 
-	if len(dcList.Items) == 0 {
+	if len(deviceClasses.Items) == 0 {
 		log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
 		return "", nil
 	}
 
 	// The class the scheduler will allocate from, not whichever List returned first.
-	selected := selectedDeviceClass(dcList.Items)
+	selected := selectedDeviceClass(deviceClasses.Items)
 
 	// Determine the quota key. If the DeviceClass is also in deviceClassMappings,
 	// use the mapped logical name to unify quota with the ResourceClaimTemplate path.
@@ -262,7 +262,7 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 			// integer-only rule, checked per container rather than on the
 			// aggregate above, so two invalid fractional requests (e.g. two
 			// 500m requests summing to a valid 1) can't hide each other.
-			var intErrs field.ErrorList
+			var resParseErrs field.ErrorList
 			for _, entries := range [][]containerExtendedResourceRequests{initEntries, regularEntries} {
 				for _, e := range entries {
 					qty, ok := e.resources[resourceName]
@@ -270,7 +270,7 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 						continue
 					}
 					if _, ok := qty.AsInt64(); !ok {
-						intErrs = append(intErrs, field.Invalid(
+						resParseErrs = append(resParseErrs, field.Invalid(
 							e.path.Child("resources", "requests", string(resourceName)),
 							qty.String(),
 							"extended resource quantity must be an integer",
@@ -278,15 +278,15 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 					}
 				}
 			}
-			if len(intErrs) > 0 {
-				allErrs = append(allErrs, intErrs...)
+			if len(resParseErrs) > 0 {
+				allErrs = append(allErrs, resParseErrs...)
 				continue
 			}
 
 			// Each container's quantity passed the integer check above, but their
 			// sum can still overflow int64 (e.g. two containers requesting 9e18
 			// each), so the aggregate needs its own check rather than assuming ok.
-			intQty, ok := quantity.AsInt64()
+			resValue, ok := quantity.AsInt64()
 			if !ok {
 				allErrs = append(allErrs, field.Invalid(
 					firstPath[resourceName].Child("resources", "requests", string(resourceName)),
@@ -296,7 +296,7 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 				continue
 			}
 			replaced.Insert(resourceName)
-			aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{quotaKey: *resource.NewQuantity(intQty, resource.DecimalSI)})
+			aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{quotaKey: *resource.NewQuantity(resValue, resource.DecimalSI)})
 		}
 
 		if len(aggregated) > 0 {
