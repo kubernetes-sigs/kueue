@@ -256,6 +256,9 @@ func containerByName(containers []corev1.Container, name string) *corev1.Contain
 func validateResourceList(resources, old corev1.ResourceList, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	for name, quantity := range resources {
+		// Unchanged quantities, including a reserved pods key already on the object,
+		// are skipped so lifecycle updates can proceed (same grandfathering intent as
+		// leftover negative requests).
 		if before, carried := old[name]; carried && before.Cmp(quantity) == 0 {
 			continue
 		}
