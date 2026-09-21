@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
@@ -361,6 +362,27 @@ func TestValidateCreate(t *testing.T) {
 				},
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		"unconstrained topology false with required topology": {
+			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodTemplateAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "false").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.template.metadata.annotations",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.template.metadata.annotations[" + kueue.PodSetUnconstrainedTopologyAnnotation + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
 		},
 	}
 
