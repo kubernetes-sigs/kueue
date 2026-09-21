@@ -1514,18 +1514,23 @@ func (s *Scheduler) findFit(ctx context.Context, wl *workload.Info, snap *schdca
 	)
 
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
-		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
+		// bestPA is tracked here, not returned by fits(), so it can't drift from
+		// the counts Reduce returns.
+		var bestPA *partialAssignment
+		fitsFn := func(nextCounts []int32) bool {
 			if assignment, targets, fits := schedulingSimulator.Schedule(
-				ctx,
-				flvAssigner.AssignFlavors(ctx, log, nextCounts),
-				preemptionTargets,
+				ctx, flvAssigner.AssignFlavors(ctx, log, nextCounts), preemptionTargets,
 			); fits {
-				return &partialAssignment{assignment: assignment, preemptionTargets: targets}, true
+				bestPA = &partialAssignment{assignment: assignment, preemptionTargets: targets}
+				return true
 			}
-			return nil, false
-		})
-		if pa, found := reducer.Reduce(); found {
-			assignment, targets = pa.assignment, pa.preemptionTargets
+			return false
+		}
+		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, fitsFn)
+		// Only an admitted predecessor can already be running these MinCounts.
+		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
+		if _, found := reducer.Reduce(mustGrow); found {
+			assignment, targets = bestPA.assignment, bestPA.preemptionTargets
 		}
 	}
 	return assignment, targets
