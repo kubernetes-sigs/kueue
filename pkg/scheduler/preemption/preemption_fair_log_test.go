@@ -332,7 +332,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			fits := false
 			retryCandidates, cont := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
 				targets = append(targets, t)
-				if workloadFitsForFairSharing(ctx, fixture.preemptionCtx) {
+				if workloadFitsForFairSharing(ctx, fixture.preemptionCtx, true) {
 					fits = true
 					return false
 				}

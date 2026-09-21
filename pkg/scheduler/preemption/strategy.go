@@ -53,12 +53,13 @@ type PreemptionStrategy struct {
 // Possible types: Fair and Classical preemption plan.
 type PreemptionPlan struct {
 	Strategies iter.Seq[PreemptionStrategy]
-	Type       PreemptionType
 	pCtx       *preemptionCtx
 	yielded    *[]*Target
 }
 
 type PreemptionPlanFactory func(ctx context.Context, assignment *flavorassigner.Assignment) *PreemptionPlan
+
+type fitCheck func(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool
 
 func (p *PreemptionPlan) Cleanup() {
 	if p.yielded == nil {
@@ -140,7 +141,7 @@ func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preempti
 				return
 			}
 		}
-	}, ClassicalPreemptions, preemptionCtx, &yieldedCandidates}
+	}, preemptionCtx, &yieldedCandidates}
 }
 
 func FairPreemptionPlan(
@@ -154,7 +155,7 @@ func FairPreemptionPlan(
 
 	candidateWls := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidateWls) == 0 {
-		return &PreemptionPlan{func(yieldStrategy func(PreemptionStrategy) bool) {}, FairPreemptions, preemptionCtx, nil}
+		return &PreemptionPlan{func(yieldStrategy func(PreemptionStrategy) bool) {}, preemptionCtx, nil}
 	}
 	slices.SortFunc(candidateWls, func(a, b *workload.Info) int {
 		return preemptioncommon.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
@@ -172,38 +173,39 @@ func FairPreemptionPlan(
 	}
 
 	yieldedCandidates := make([]*Target, 0)
-	candidatesIter := func(yieldCandidate func(*Target) bool) {
+	candidatesIter := func(yield func(*Target) bool) {
 		var cont bool
 		targetsInPreemptorCQ := false
+		yieldCandidate := func(t *Target) bool {
+			yieldedCandidates = append(yieldedCandidates, t)
+			revert := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
+			defer revert()
+			return yield(t)
+		}
 
 		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
 			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 				targetsInPreemptorCQ = true
 			}
-			yieldedCandidates = append(yieldedCandidates, t)
 			return yieldCandidate(t)
 		})
 
 		if cont && features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
-			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
-				yieldedCandidates = append(yieldedCandidates, t)
-				return yieldCandidate(t)
-			})
+			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldCandidate)
 		}
 
 		// Use the second fair sharing strategy.
 		if cont && len(fsStrategies) > 1 {
-			iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, func(t *Target) bool {
-				yieldedCandidates = append(yieldedCandidates, t)
-				return yieldCandidate(t)
-			})
+			iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldCandidate)
 		}
 	}
 
 	strategiesIter := func(yieldStrategy func(PreemptionStrategy) bool) {
+		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 		yieldStrategy(PreemptionStrategy{candidatesIter, allowBorrowing})
+		revertSimulation()
 	}
-	return &PreemptionPlan{strategiesIter, FairPreemptions, preemptionCtx, &yieldedCandidates}
+	return &PreemptionPlan{strategiesIter, preemptionCtx, &yieldedCandidates}
 }
 
 func iterateWithFirstFsStrategy(

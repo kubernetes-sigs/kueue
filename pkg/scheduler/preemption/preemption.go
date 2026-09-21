@@ -156,13 +156,6 @@ func (p *Preemptor) GetTargets(
 	return p.getTargets(ctx, p.getPreemptionPlan(ctx, pCtx))
 }
 
-func (p *Preemptor) getTargets(ctx context.Context, plan *PreemptionPlan) []*Target {
-	if plan.Type == FairPreemptions {
-		return p.fairPreemptions(ctx, plan)
-	}
-	return p.classicalPreemptions(ctx, plan)
-}
-
 func (p *Preemptor) buildContext(
 	ctx context.Context,
 	wl workload.Info,
@@ -303,27 +296,28 @@ type preemptionAttemptOpts struct {
 	borrowing bool
 }
 
-// classicalPreemptions implements a heuristic to find a minimal set of Workloads
-// to preempt.
-// The heuristic first removes candidates, in the input order, while their
-// ClusterQueues are still borrowing resources and while the incoming Workload
-// doesn't fit in the quota.
-// Once the Workload fits, the heuristic tries to add Workloads back, in the
-// reverse order in which they were removed, while the incoming Workload still
-// fits
-func (p *Preemptor) classicalPreemptions(ctx context.Context, plan *PreemptionPlan) []*Target {
-	preemptionCtx := plan.pCtx
+func (p *Preemptor) getTargets(ctx context.Context, plan *PreemptionPlan) []*Target {
+	log := log.FromContext(ctx)
 	for strategy := range plan.Strategies {
 		var targets []*Target
 		for candidate := range strategy.Candidates {
 			targets = append(targets, candidate)
-			if workloadFits(ctx, preemptionCtx, strategy.Borrowing) {
-				targets = fillBackWorkloads(ctx, preemptionCtx, targets, strategy.Borrowing)
+			if workloadFits(ctx, plan.pCtx, strategy.Borrowing) {
+				targets = fillBackWorkloads(ctx, plan.pCtx, targets, strategy.Borrowing)
+				if logV := log.V(6); logV.Enabled() {
+					logV.Info("Preemption strategy succeeded",
+						"preemptingWorkload", klog.KObj(plan.pCtx.preemptor.Obj),
+						"targets", logging.GetObjectReferences(targets))
+				}
 				plan.Cleanup()
 				return targets
 			}
 		}
 		plan.Cleanup()
+	}
+	if logV := log.V(6); logV.Enabled() {
+		logV.Info("All preemption strategies failed",
+			"preemptingWorkload", klog.KObj(plan.pCtx.preemptor.Obj))
 	}
 	return nil
 }
@@ -389,49 +383,6 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, targetOldShare fairsharing.TargetOldShare) bool {
 	return schdcache.DRS(preemptorNewShare).ZeroWeightBorrows() &&
 		!schdcache.DRS(targetOldShare).ZeroWeightBorrows()
-}
-
-func (p *Preemptor) fairPreemptions(ctx context.Context, plan *PreemptionPlan) []*Target {
-	preemptionCtx := plan.pCtx
-	log := log.FromContext(ctx)
-
-	// DRS values must include incoming workload.
-	targets, fits := tryStrategies(ctx, preemptionCtx, plan)
-
-	if !fits {
-		if logV := log.V(6); logV.Enabled() {
-			logV.Info("All fair sharing strategies failed",
-				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-				"targets", logging.GetObjectReferences(targets))
-		}
-		plan.Cleanup()
-		return nil
-	}
-	targets = fillBackWorkloads(ctx, preemptionCtx, targets, true)
-	plan.Cleanup()
-
-	if logV := log.V(6); logV.Enabled() {
-		logV.Info("Fair sharing strategies succeeded",
-			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
-			"targets", logging.GetObjectReferences(targets))
-	}
-	return targets
-}
-
-func tryStrategies(ctx context.Context, preemptionCtx *preemptionCtx, plan *PreemptionPlan) (targets []*Target, fits bool) {
-	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
-	defer revertSimulation()
-
-	for strategy := range plan.Strategies {
-		for candidate := range strategy.Candidates {
-			targets = append(targets, candidate)
-			if workloadFitsForFairSharing(ctx, preemptionCtx) {
-				fits = true
-				return
-			}
-		}
-	}
-	return
 }
 
 func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Set[resources.FlavorResource] {
@@ -533,9 +484,9 @@ func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrow
 // workloadFits, as we need to remove, and then add back, the usage of
 // the incoming workload, as FairSharing adds this usage at the start
 // of processing for accurate DominantResourceShare calculations.
-func workloadFitsForFairSharing(ctx context.Context, preemptionCtx *preemptionCtx) bool {
+func workloadFitsForFairSharing(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
-	res := workloadFits(ctx, preemptionCtx, true)
+	res := workloadFits(ctx, preemptionCtx, allowBorrowing)
 	revertSimulation()
 	return res
 }

@@ -618,9 +618,6 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 			})
 
 			plan := ClassicalPreemptionPlan(ctx, fixture.preemptor, fixture.pCtx)
-			if plan.Type != ClassicalPreemptions {
-				t.Errorf("Unexpected plan type %q, want %q", plan.Type, ClassicalPreemptions)
-			}
 			gotStrategies := consumePlan(plan, tc.consumption)
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected strategies (-want,+got):\n%s", diff)
@@ -988,16 +985,11 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 			})
 
 			plan := FairPreemptionPlan(ctx, fixture.preemptor, fixture.pCtx, fixture.preemptor.fsStrategies)
-			if plan.Type != FairPreemptions {
-				t.Errorf("Unexpected plan type %q, want %q", plan.Type, FairPreemptions)
-			}
-			// Mirror fairPreemptions: the shares must account for the
-			// incoming workload while the strategies are evaluated.
-			revertSimulation := fixture.pCtx.preemptorCQ.SimulateUsageAddition(fixture.pCtx.workloadUsage)
+			// The plan simulates the incoming workload's usage itself, so that
+			// the shares account for it while the strategies are evaluated.
 			// The plan yields a single strategy, so capping the first one
 			// caps the whole plan.
 			gotStrategies := consumePlan(plan, planConsumption{stopAfterFirstStrategyTargets: tc.stopAfterTargets})
-			revertSimulation()
 
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected strategies (-want,+got):\n%s", diff)
