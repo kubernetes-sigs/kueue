@@ -61,7 +61,7 @@ E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
 KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
-PROMETHEUS_OPERATOR_VERSION ?= v0.89.0
+PROMETHEUS_OPERATOR_VERSION ?= $(shell grep '^FROM' "${TESTING_DIR}/prometheus-operator/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
 
