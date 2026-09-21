@@ -17,6 +17,7 @@ limitations under the License.
 package rayservice
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -453,6 +454,30 @@ func TestPodSets(t *testing.T) {
 	}
 }
 
+func TestPodSetsRejectsDifferentResourceRequestsDuringUpgrade(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.TopologyAwareScheduling: false,
+	})
+
+	rayService := (*RayService)(&rayv1.RayService{
+		ObjectMeta: metav1.ObjectMeta{Name: "rayservice", Namespace: "ns"},
+	})
+	active := childRayCluster("rayservice-active", "rayservice", "ns", "group1", 1)
+	pending := childRayCluster("rayservice-pending", "rayservice", "ns", "group1", 1)
+	pending.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Requests = corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("1"),
+	}
+	fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).
+		WithObjects(&active, &pending).
+		Build()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	_, err := rayService.PodSets(ctx, fakeClient)
+	if err == nil || !strings.Contains(err.Error(), "incompatible resource requests") {
+		t.Fatalf("PodSets() error = %v, want incompatible resource requests error", err)
+	}
+}
+
 func TestIsSuspended(t *testing.T) {
 	testCases := map[string]struct {
 		rayService *RayService
@@ -491,6 +516,25 @@ func TestIsSuspended(t *testing.T) {
 				t.Errorf("IsSuspended() = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSuspendDoesNotSuspendRayClusterTemplate(t *testing.T) {
+	rayService := (*RayService)(&rayv1.RayService{
+		Spec: rayv1.RayServiceSpec{
+			RayClusterSpec: rayv1.RayClusterSpec{
+				Suspend: ptr.To(false),
+			},
+		},
+	})
+
+	rayService.Suspend()
+
+	if !rayService.Spec.Suspend {
+		t.Error("Suspend() did not suspend the RayService")
+	}
+	if got := ptr.Deref(rayService.Spec.RayClusterSpec.Suspend, false); got {
+		t.Error("Suspend() suspended the RayCluster template; elastic Pod scheduling gates should control child Pods")
 	}
 }
 

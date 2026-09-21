@@ -39,9 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -76,11 +75,10 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices/finalizers,verbs=get;update
-// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch
 
 type rayServiceReconciler struct {
-	jr     *jobframework.JobReconciler
-	client client.Client
+	jr *jobframework.JobReconciler
 }
 
 func newJob() jobframework.GenericJob {
@@ -99,21 +97,13 @@ func NewReconciler(
 	opts ...jobframework.Option,
 ) (jobframework.JobReconcilerInterface, error) {
 	reconciler := &rayServiceReconciler{
-		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
-		client: client,
+		jr: jobframework.NewReconciler(client, eventRecorder, opts...),
 	}
 	return reconciler, nil
 }
 
 func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	result, err := r.jr.ReconcileGenericJob(ctx, req, newJob())
-	if err != nil {
-		return result, err
-	}
-	if err := r.unsuspendAdmittedChildren(ctx, req); err != nil {
-		return result, err
-	}
-	return result, nil
+	return r.jr.ReconcileGenericJob(ctx, req, newJob())
 }
 
 // childRayClusterLabels returns the label selector that matches the RayCluster
@@ -129,97 +119,6 @@ func childRayClusterLabels(rayServiceName string) client.MatchingLabels {
 		rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
 		rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
 	}
-}
-
-// unsuspendAdmittedChildren patches Spec.Suspend=false on any child RayCluster
-// that KubeRay created with Suspend=true (via the persistent
-// RayService.Spec.RayClusterSpec.Suspend=true template gate) once the latest
-// workload slice has been admitted by Kueue.
-func (r *rayServiceReconciler) unsuspendAdmittedChildren(ctx context.Context, req ctrl.Request) error {
-	var rs rayv1.RayService
-	if err := r.client.Get(ctx, req.NamespacedName, &rs); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	// If the RayService itself is suspended, KubeRay will delete its children.
-	// Nothing to unsuspend.
-	if rs.Spec.Suspend {
-		return nil
-	}
-
-	wls, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, &rs, gvk)
-	if err != nil {
-		return err
-	}
-	if len(wls) == 0 {
-		return nil
-	}
-	// FindNotFinishedWorkloads returns slices sorted oldest-first. The latest one
-	// covers the current set of children. Only unsuspend when it's admitted —
-	// during an upgrade transition the new slice may be unadmitted while the old
-	// slice is still alive; pending children must wait.
-	latest := &wls[len(wls)-1]
-	if !workload.IsAdmitted(latest) {
-		return nil
-	}
-
-	var children rayv1.RayClusterList
-	if err := r.client.List(ctx, &children,
-		client.InNamespace(rs.Namespace),
-		childRayClusterLabels(rs.Name),
-	); err != nil {
-		return err
-	}
-
-	// Race guard: when KubeRay creates the upgrade's pending child, this reconcile
-	// can fire before the framework has materialised a new workload slice that
-	// covers both children. The old slice is still the latest and is admitted, but
-	// its PodSets only account for the active child. Unsuspending now would let
-	// the pending child run on the old slice's quota.
-	//
-	// Compare the latest slice's PodSet counts against what the current children
-	// require. If the slice doesn't yet cover the union, wait for the next reconcile.
-	required := computeRequiredPodSetCounts(&children)
-	covered := workload.ExtractPodSetCountsFromWorkload(latest)
-	for name, need := range required {
-		if covered[name] < need {
-			return nil
-		}
-	}
-	for i := range children.Items {
-		child := &children.Items[i]
-		if child.Spec.Suspend == nil || !*child.Spec.Suspend {
-			continue
-		}
-		patch := client.MergeFrom(child.DeepCopy())
-		child.Spec.Suspend = new(false)
-		if err := r.client.Patch(ctx, child, patch); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// computeRequiredPodSetCounts returns the union of PodSet counts across all
-// child RayClusters, keyed by PodSet name (head + each worker group). Mirrors
-// the logic in (*RayService).PodSets so the race-guard compares like for like.
-func computeRequiredPodSetCounts(children *rayv1.RayClusterList) map[kueue.PodSetReference]int32 {
-	required := make(map[kueue.PodSetReference]int32)
-	for i := range children.Items {
-		child := &children.Items[i]
-		required[headGroupPodSetName]++
-		for j := range child.Spec.WorkerGroupSpecs {
-			wgs := &child.Spec.WorkerGroupSpecs[j]
-			count := int32(1)
-			if wgs.Replicas != nil {
-				count = *wgs.Replicas
-			}
-			if wgs.NumOfHosts > 1 {
-				count *= wgs.NumOfHosts
-			}
-			required[kueue.NewPodSetReference(wgs.GroupName)] += count
-		}
-	}
-	return required
 }
 
 func (r *rayServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -257,10 +156,6 @@ func (j *RayService) IsActive() bool {
 func (j *RayService) Suspend() {
 	// Top-level Spec.Suspend=true tells KubeRay to delete all owned resources.
 	j.Spec.Suspend = true
-	// Nested template Suspend=true is the persistent gate: any RayCluster KubeRay
-	// creates from this template (initial admission and zero-downtime upgrade pending
-	// cluster) starts suspended.
-	j.Spec.RayClusterSpec.Suspend = new(true)
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
@@ -310,11 +205,11 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 	// and the post-upgrade tear-down as a scale-down, without falling back to the
 	// non-slice path.
 	//
-	// POC limitation: when two children share a group name with different PodSpecs
-	// (e.g., upgrade changes container image, env vars, or resource requests on the
-	// same worker group), the merged PodSet uses the first child's template. Quota
-	// is then computed against that template's resources, which under- or over-
-	// accounts the other child. Same-shape, same-resource upgrades are exact.
+	// Workload slicing can change PodSet counts, but it cannot represent different
+	// per-Pod resource requests under the same PodSet name. Reject that transition
+	// instead of accounting both children with only one child's requests. Changes
+	// which preserve resource requests (for example image or environment updates)
+	// can still use the first child's template and the combined count.
 	podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
 	var order []kueue.PodSetReference
 	for i := range children.Items {
@@ -326,6 +221,12 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 		for k := range childPodSets {
 			name := childPodSets[k].Name
 			if existing, ok := podSetMap[name]; ok {
+				if !resources.Equal(
+					resources.NewRequestsFromPodSpec(&existing.Template.Spec),
+					resources.NewRequestsFromPodSpec(&childPodSets[k].Template.Spec),
+				) {
+					return nil, fmt.Errorf("child RayClusters have incompatible resource requests for PodSet %q during zero-downtime upgrade", name)
+				}
 				existing.Count += childPodSets[k].Count
 				continue
 			}
@@ -347,10 +248,9 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	// Unsuspend the RayService so KubeRay can manage child RayClusters again.
-	// Intentionally do NOT touch j.Spec.RayClusterSpec.Suspend: it stays true so
-	// any new child RayCluster is born suspended. The controller unsuspends each
-	// child individually after the matching workload slice is admitted.
+	// Unsuspend the RayService so KubeRay can manage child RayClusters. Elastic
+	// RayServices use PodSchedulingGates to hold Pods created for a pending
+	// zero-downtime-upgrade cluster until its workload slice is admitted.
 	j.Spec.Suspend = false
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
