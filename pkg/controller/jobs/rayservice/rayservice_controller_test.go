@@ -37,9 +37,6 @@ import (
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 )
 
-// childRayCluster builds a RayCluster owned by the named RayService, labelled the
-// way KubeRay labels children so (*RayService).PodSets discovers it by selector.
-// It carries a head group plus a single worker group with the given replica count.
 func childRayCluster(name, rayServiceName, namespace, groupName string, replicas int32) rayv1.RayCluster {
 	return rayv1.RayCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -310,9 +307,6 @@ func TestPodSets(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"steady state: single child, PodSets reflect the child's live spec": {
-			// One admitted child RayCluster. PodSets are built from the child's spec
-			// rather than the RayService template, so a worker group the autoscaler
-			// has scaled (here group1 1->5) is reserved at its real size.
 			rayService: (*RayService)(&rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rayservice",
@@ -328,7 +322,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](1), // template; child has scaled to 5
+								Replicas:  ptr.To[int32](1),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -351,9 +345,6 @@ func TestPodSets(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"zero-downtime upgrade: two children, counts are summed": {
-			// During a zero-downtime upgrade KubeRay runs an active and a pending
-			// child side by side. PodSets union by group name and sum counts so the
-			// workload reserves quota for both clusters: head 1+1=2, group1 2+2=4.
 			rayService: (*RayService)(&rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rayservice",
@@ -393,8 +384,6 @@ func TestPodSets(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"bootstrap: no children yet, build from the RayService template": {
-			// Before KubeRay creates the first child, PodSets fall back to the
-			// RayService template so the Workload exists with the right shape.
 			rayService: (*RayService)(&rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rayservice",
@@ -435,7 +424,6 @@ func TestPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
-			// Seed the fake client with the RayService's child RayClusters.
 			objs := []client.Object{}
 			for i := range tc.children {
 				objs = append(objs, &tc.children[i])
@@ -483,8 +471,6 @@ func TestIsSuspended(t *testing.T) {
 		rayService *RayService
 		want       bool
 	}{
-		// IsSuspended reads the top-level Spec.Suspend (KubeRay PR #4841), not the
-		// nested RayClusterSpec.Suspend template gate.
 		"not suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{

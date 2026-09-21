@@ -1184,14 +1184,10 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	// ginkgo.Serial: the active RayService keeps a head+worker running for the whole
-	// test, so run it alone to avoid CPU contention with other ray-head containers.
+	// Avoid CPU contention while the active RayService remains running throughout the test.
 	ginkgo.It("Should gate a zero-downtime upgrade's pending RayCluster on queue quota", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
-		// childRayClusters lists the RayClusters owned by the RayService. The
-		// namespace is dedicated to this test, so every RayCluster in it belongs
-		// to our RayService (active and, during the upgrade, pending).
 		childRayClusters := func(g gomega.Gomega) []rayv1.RayCluster {
 			rcList := &rayv1.RayClusterList{}
 			g.Expect(k8sClient.List(ctx, rcList, client.InNamespace(ns.Name))).To(gomega.Succeed())
@@ -1211,7 +1207,6 @@ app = HelloWorld.bind()`,
 			}
 			return gated
 		}
-		// notFinishedWorkloads returns the RayService's live workload slices.
 		notFinishedWorkloads := func(g gomega.Gomega) []kueue.Workload {
 			wlList := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).To(gomega.Succeed())
@@ -1223,8 +1218,6 @@ app = HelloWorld.bind()`,
 			}
 			return live
 		}
-		// totalPods sums every PodSet's count: one cluster is head(1)+worker(1)=2,
-		// the upgrade's two-cluster union is 4.
 		totalPods := func(wl *kueue.Workload) int32 {
 			var n int32
 			for i := range wl.Spec.PodSets {
@@ -1232,9 +1225,6 @@ app = HelloWorld.bind()`,
 			}
 			return n
 		}
-		// headPodSetCount returns the count of the "head" PodSet (KubeRay's head
-		// group); it is 1 per RayCluster, so 2 once the upgrade's pending cluster
-		// is folded into the slice.
 		headPodSetCount := func(wl *kueue.Workload) int32 {
 			for i := range wl.Spec.PodSets {
 				if wl.Spec.PodSets[i].Name == "head" {
@@ -1295,9 +1285,6 @@ app = HelloWorld.bind()`,
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		// Head 1 CPU + worker 1 CPU (1 replica) = 2 CPU per RayCluster. The
-		// ClusterQueue has 3 CPU: enough for the active cluster, but not for the
-		// 4 CPU active+pending union during the upgrade.
 		rayService := testingrayservice.MakeService("rayservice-upgrade-gate", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
@@ -1322,8 +1309,7 @@ app = HelloWorld.bind()`,
 		})
 
 		ginkgo.By("Checking the initial workload is created and admitted", func() {
-			// With workload slicing the Workload name carries a slice suffix, so
-			// find it by listing rather than by the bare owner-derived name.
+			// Workload slices use generated suffixes, so find the workload by listing.
 			gomega.Eventually(func(g gomega.Gomega) {
 				wls := notFinishedWorkloads(g)
 				g.Expect(wls).To(gomega.HaveLen(1))
@@ -1337,8 +1323,6 @@ app = HelloWorld.bind()`,
 				createdRayService := &rayv1.RayService{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
 				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
-				// Kueue admits the initial slice and the elastic ungater releases the
-				// child Pods without mutating RayCluster suspension.
 				rcs := childRayClusters(g)
 				g.Expect(rcs).To(gomega.HaveLen(1))
 				g.Expect(ptr.Deref(rcs[0].Spec.Suspend, false)).To(gomega.BeFalse())
@@ -1348,9 +1332,7 @@ app = HelloWorld.bind()`,
 		})
 
 		ginkgo.By("Triggering a zero-downtime upgrade by mutating the RayCluster spec", func() {
-			// Appending an env var to the head template changes the RayCluster spec
-			// hash (KubeRay's hash ignores only Suspend), so KubeRay prepares a new
-			// pending cluster for a zero-downtime upgrade.
+			// KubeRay treats an environment change as a zero-downtime upgrade.
 			gomega.Eventually(func(g gomega.Gomega) {
 				upgraded := &rayv1.RayService{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), upgraded)).To(gomega.Succeed())
@@ -1385,11 +1367,8 @@ app = HelloWorld.bind()`,
 				}
 				g.Expect(upgradeSlice).NotTo(gomega.BeNil(), "expected a slice reserving both clusters (4 pods)")
 				g.Expect(activeSlice).NotTo(gomega.BeNil())
-				// The upgrade slice reserves quota for the new cluster too: head 1+1=2.
 				g.Expect(headPodSetCount(upgradeSlice)).To(gomega.Equal(int32(2)))
-				// It cannot be admitted: 4 CPU > the 3 CPU ClusterQueue.
 				g.Expect(workload.IsAdmitted(upgradeSlice)).To(gomega.BeFalse())
-				// The original slice keeps the active cluster admitted and serving.
 				g.Expect(workload.IsAdmitted(activeSlice)).To(gomega.BeTrue())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1423,8 +1402,6 @@ app = HelloWorld.bind()`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				rcs := childRayClusters(g)
 				g.Expect(rcs).NotTo(gomega.BeEmpty())
-				// Once the larger slice is admitted, the elastic ungater releases
-				// the pending Pods; KubeRay can then promote the cluster.
 				g.Expect(countElasticGatedPods(g)).To(gomega.Equal(0))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1439,10 +1416,6 @@ app = HelloWorld.bind()`,
 		})
 
 		ginkgo.By("Verifying quota settles back to a single RayCluster's reservation", func() {
-			// After the old cluster is gone, PodSets shrink to the single-cluster
-			// shape and EnsureWorkloadSlices handles it as a scale-down: the upgrade
-			// slice's counts drop to head=1/worker=1, so the ClusterQueue reserves
-			// quota for one RayCluster (2 pods), not two.
 			gomega.Eventually(func(g gomega.Gomega) {
 				wls := notFinishedWorkloads(g)
 				g.Expect(wls).To(gomega.HaveLen(1))

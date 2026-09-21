@@ -106,14 +106,6 @@ func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return r.jr.ReconcileGenericJob(ctx, req, newJob())
 }
 
-// childRayClusterLabels returns the label selector that matches the RayCluster
-// CRs KubeRay creates for the named RayService.
-//
-// These label keys and the CRD-label value MUST stay consistent with KubeRay's
-// association helper, which is the source of truth for how RayService-owned
-// RayClusters are labelled:
-// https://github.com/ray-project/kuberay/blob/master/ray-operator/controllers/ray/common/association.go
-// (common.RayServiceRayClustersAssociationOptions).
 func childRayClusterLabels(rayServiceName string) client.MatchingLabels {
 	return client.MatchingLabels{
 		rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
@@ -180,7 +172,6 @@ func (j *RayService) PodLabelSelector() string {
 }
 
 func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
-	// List the actual child RayClusters owned by this RayService.
 	var children rayv1.RayClusterList
 	err := c.List(ctx, &children,
 		client.InNamespace(j.GetNamespace()),
@@ -190,25 +181,13 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 		return nil, err
 	}
 
-	// Bootstrap: before KubeRay creates the first child, build from the template so
-	// the Workload exists with the right shape (head + worker groups).
 	if len(children.Items) == 0 {
 		return raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	}
 
-	// Steady state and zero-downtime upgrade: build PodSets from each child's real
-	// spec, then union by PodSet name (head + each worker group). Counts are summed
-	// across children, so during upgrade the workload reserves quota for both the
-	// active and pending RayClusters. Keeping PodSet keys stable across the 1↔2
-	// child transition lets EnsureWorkloadSlices handle the upgrade as a scale-up
-	// and the post-upgrade tear-down as a scale-down, without falling back to the
-	// non-slice path.
-	//
-	// Workload slicing can change PodSet counts, but it cannot represent different
-	// per-Pod resource requests under the same PodSet name. Reject that transition
-	// instead of accounting both children with only one child's requests. Changes
-	// which preserve resource requests (for example image or environment updates)
-	// can still use the first child's template and the combined count.
+	// Stable PodSet names and summed counts let workload slicing reserve quota for
+	// both children during an upgrade. A slice cannot represent different per-Pod
+	// requests under one name, so reject that transition instead of misaccounting it.
 	podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
 	var order []kueue.PodSetReference
 	for i := range children.Items {
@@ -247,9 +226,6 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	// Unsuspend the RayService so KubeRay can manage child RayClusters. Elastic
-	// RayServices use PodSchedulingGates to hold Pods created for a pending
-	// zero-downtime-upgrade cluster until its workload slice is admitted.
 	j.Spec.Suspend = false
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
