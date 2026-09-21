@@ -614,6 +614,12 @@ func (c *ClusterQueue) forgetInflight(key workload.Reference) {
 	c.workloads.ForgetInflightByKey(key)
 }
 
+func (c *ClusterQueue) hasQueuedWorkloads() bool {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.workloads.hasActive()
+}
+
 // handleInadmissibleHash bulk-moves all heap workloads matching the given
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
@@ -678,6 +684,19 @@ func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueRe
 // Pop removes the head of the queue and returns it. It returns nil if the
 // queue is empty.
 func (c *ClusterQueue) Pop() *workload.Info {
+	return c.pop(true)
+}
+
+// PopMidCycle removes the head of the queue like Pop, but does not advance
+// popCycle. Advancing it declares the previous scheduling attempt over and its
+// signals consumed; a mid-cycle pop (refill) is part of an attempt still in
+// progress, whose pending "requeue the inadmissible workloads" signal must stay
+// fresh.
+func (c *ClusterQueue) PopMidCycle() *workload.Info {
+	return c.pop(false)
+}
+
+func (c *ClusterQueue) pop(newCycle bool) *workload.Info {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 
@@ -690,7 +709,9 @@ func (c *ClusterQueue) Pop() *workload.Info {
 		c.workloads.RebuildActiveHeap()
 	}
 
-	c.popCycle++
+	if newCycle {
+		c.popCycle++
+	}
 	return c.workloads.PopActive()
 }
 

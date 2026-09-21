@@ -755,6 +755,10 @@ ifdef SCALABILITY_SCRAPE_URL
 SCALABILITY_SCRAPE_ARGS +=  --metricsScrapeURL=$(SCALABILITY_SCRAPE_URL)
 endif
 
+ifdef SCALABILITY_ENABLE_FAIR_SHARING
+SCALABILITY_EXTRA_ARGS += --enableFairSharing=true
+endif
+
 SCALABILITY_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/baseline/generator.yaml
 
 .PHONY: run-performance-scheduler

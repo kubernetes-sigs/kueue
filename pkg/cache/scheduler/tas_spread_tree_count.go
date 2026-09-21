@@ -46,6 +46,17 @@ type SpreadTreeCount struct {
 	ByDomain map[utiltas.TopologyDomainID]int32
 }
 
+// RecordAdmittedThisCycle takes the assumed Workload, the copy carrying the
+// assignment the cycle just gave it, since nothing is published yet. Gated
+// here rather than at the call site, as in topologySpreadCountsForFlavor
+// below: spreading is the only reader.
+func (c *ClusterQueueSnapshot) RecordAdmittedThisCycle(wl *kueue.Workload) {
+	if !features.Enabled(features.TASTopologySpreading) {
+		return
+	}
+	c.admittedThisCycle = append(c.admittedThisCycle, wl)
+}
+
 // topologySpreadCountsForFlavor counts, for a single flavor, how many
 // Workloads matching each spreading PodSet group's selector already occupy the
 // flavor's domains. Returns nil when spreading applies to none of the PodSets
@@ -89,40 +100,55 @@ func (c *ClusterQueueSnapshot) topologySpreadCountsForFlavor(
 	for groupKey, counts := range groupCounts {
 		spec := wl.TopologySpreading[groupKey]
 		selector := spec.Selector()
-		for key, existing := range c.Workloads {
+		count := func(key workload.Reference, obj *kueue.Workload) {
 			if key == selfKey {
-				continue
+				return
 			}
-			if existing.Obj.Namespace != wl.Obj.Namespace || !selector.Matches(labels.Set(existing.Obj.Labels)) {
-				continue
+			if obj.Namespace != wl.Obj.Namespace || !selector.Matches(labels.Set(obj.Labels)) {
+				return
 			}
 
-			occupied := tasFlavor.occupiedDomainsForGroup(existing, flavor, groupKey, spec.Rules)
+			occupied := tasFlavor.occupiedDomainsForGroup(obj, flavor, groupKey, spec.Rules)
 			if occupied.Len() == 0 {
-				continue
+				return
 			}
 			counts.Total++
 			for domainID := range occupied {
 				counts.ByDomain[domainID]++
 			}
 		}
+		for key, existing := range c.Workloads {
+			count(key, existing.Obj)
+		}
+		// This cycle's own admissions are in neither Workloads nor the API,
+		// yet they occupy domains: without them a ClusterQueue admitting more
+		// than once per cycle piles every member into the one domain they all
+		// saw empty.
+		for _, admitted := range c.admittedThisCycle {
+			key := workload.Key(admitted)
+			if _, inSnapshot := c.Workloads[key]; inSnapshot {
+				// A second pass readmits a Workload the snapshot already holds.
+				continue
+			}
+			count(key, admitted)
+		}
 	}
 	return groupCounts
 }
 
 func (s *TASFlavorSnapshot) occupiedDomainsForGroup(
-	wl *workload.Info,
+	obj *kueue.Workload,
 	flavor kueue.ResourceFlavorReference,
 	groupKey utiltas.PodSetGroupKey,
 	rules []utiltas.SpreadingRule,
 ) sets.Set[utiltas.TopologyDomainID] {
 	occupied := sets.New[utiltas.TopologyDomainID]()
-	for i := range wl.Obj.Spec.PodSets {
-		ps := &wl.Obj.Spec.PodSets[i]
+	for i := range obj.Spec.PodSets {
+		ps := &obj.Spec.PodSets[i]
 		if utiltas.GroupKeyForPodSet(ps) != groupKey {
 			continue
 		}
-		psa := findPSA(wl.Obj, ps.Name)
+		psa := findPSA(obj, ps.Name)
 		// Tested before the assignment itself so that the ordinary case - a
 		// Workload admitted to some other flavor - stays out of the log below.
 		if psa != nil && !podSetAssignmentUsesFlavor(psa, flavor) {
@@ -130,7 +156,7 @@ func (s *TASFlavorSnapshot) occupiedDomainsForGroup(
 		}
 		if psa == nil || psa.TopologyAssignment == nil {
 			s.log.V(4).Info("Skipping PodSet while counting topology spreading, no topology assignment",
-				"workload", klog.KObj(wl.Obj), "podSet", ps.Name, "flavor", flavor,
+				"workload", klog.KObj(obj), "podSet", ps.Name, "flavor", flavor,
 				"hasPodSetAssignment", psa != nil)
 			continue
 		}
@@ -144,7 +170,7 @@ func (s *TASFlavorSnapshot) occupiedDomainsForGroup(
 			assignedDomain := s.domainForAssignmentValues(psa.TopologyAssignment.Levels, domain.Values)
 			if assignedDomain == nil {
 				s.log.V(4).Info("Skipping domain while counting topology spreading, it is not in the flavor topology",
-					"workload", klog.KObj(wl.Obj), "podSet", ps.Name, "topology", s.topologyName,
+					"workload", klog.KObj(obj), "podSet", ps.Name, "topology", s.topologyName,
 					"levels", psa.TopologyAssignment.Levels, "values", domain.Values)
 				continue
 			}

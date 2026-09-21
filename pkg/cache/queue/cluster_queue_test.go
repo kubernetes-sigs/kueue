@@ -2515,3 +2515,39 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 		})
 	}
 }
+
+// TestPopMidCycleDoesNotConsumeRequeueSignal verifies that a mid-cycle pop
+// (fair sharing refill) does not advance popCycle, so a cluster event that
+// lands mid-cycle still sends every workload popped in that cycle back to the
+// active heap.
+func TestPopMidCycleDoesNotConsumeRequeueSignal(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	head := workload.NewInfo(log, utiltestingapi.MakeWorkload("head", defaultNamespace).Creation(now).Obj())
+	next := workload.NewInfo(log, utiltestingapi.MakeWorkload("next", defaultNamespace).Creation(now.Add(time.Second)).Obj())
+	cq.PushOrUpdate(head)
+	cq.PushOrUpdate(next)
+
+	if got := cq.Pop(); got == nil || got.Obj.Name != "head" {
+		t.Fatalf("Pop() = %v, want head", got)
+	}
+	// A cluster event lands mid-cycle (e.g. capacity was freed). Nothing is
+	// inadmissible yet, so it only records when it happened; the requeues below
+	// are what consult it.
+	queueInadmissibleWorkloads(ctx, cq, nil)
+	if got := cq.PopMidCycle(); got == nil || got.Obj.Name != "next" {
+		t.Fatalf("PopMidCycle() = %v, want next", got)
+	}
+
+	for _, wl := range []*workload.Info{head, next} {
+		if !cq.RequeueIfNotPresent(ctx, wl, RequeueReasonNoFit, "") {
+			t.Fatalf("RequeueIfNotPresent(%s) returned false", wl.Obj.Name)
+		}
+	}
+	active, _ := cq.Dump()
+	if len(active) != 2 {
+		inadmissible, _ := cq.DumpInadmissible()
+		t.Errorf("expected both workloads back on the active heap, got active %v, inadmissible %v", active, inadmissible)
+	}
+}

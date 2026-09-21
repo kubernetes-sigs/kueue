@@ -32,6 +32,7 @@ import (
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 )
 
 // Setup registers the core indexers, controllers and scheduler, optionally including TAS.
@@ -46,7 +47,11 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 		}
 	}
 
-	schedulerCache := schdcache.New(mgr.GetClient())
+	var cacheOptions []schdcache.Option
+	if cfg.FairSharing != nil {
+		cacheOptions = append(cacheOptions, schdcache.WithFairSharing(fairsharing.Enabled(cfg.FairSharing)))
+	}
+	schedulerCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	requeuer := qcache.NewRequeuer()
 	if err := mgr.Add(requeuer); err != nil {
 		return fmt.Errorf("add workload requeuer: %w", err)
@@ -83,6 +88,7 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 		mgr.GetClient(),
 		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
+		scheduler.WithFairSharing(cfg.FairSharing),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("add scheduler: %w", err)

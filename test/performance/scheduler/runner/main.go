@@ -69,13 +69,14 @@ var (
 	metricsScrapeURL      = flag.String("metricsScrapeURL", "", "the URL to scrape metrics from, ignored when minimal kueue is used")
 
 	// related to minimalkueue
-	minimalKueuePath = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
-	withCPUProfile   = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
-	withMemProfile   = flag.Bool("withMemProfile", false, "generate a memory profile for minimalkueue")
-	withLogs         = flag.Bool("withLogs", false, "capture minimalkueue logs")
-	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
-	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
-	enableTAS        = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
+	minimalKueuePath  = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
+	withCPUProfile    = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
+	withMemProfile    = flag.Bool("withMemProfile", false, "generate a memory profile for minimalkueue")
+	withLogs          = flag.Bool("withLogs", false, "capture minimalkueue logs")
+	logLevel          = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
+	logToFile         = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
+	enableTAS         = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
+	enableFairSharing = flag.Bool("enableFairSharing", false, "enable Fair Sharing in minimalkueue")
 )
 
 var (
@@ -167,7 +168,7 @@ func main() {
 		}
 
 		// start the minimal kueue manager process
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withMemProfile, *withLogs, *logToFile, *logLevel, *enableTAS, errCh, wg, metricsPort)
+		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withMemProfile, *withLogs, *logToFile, *logLevel, *enableTAS, *enableFairSharing, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)
@@ -268,6 +269,7 @@ func runCommand(
 	withCPUProf, withMemProfile, withLogs, logToFile bool,
 	logLevel int,
 	enableTAS bool,
+	enableFairSharing bool,
 	errCh chan<- error,
 	wg *sync.WaitGroup,
 	metricsPort int,
@@ -316,6 +318,10 @@ func runCommand(
 
 	if enableTAS {
 		cmd.Args = append(cmd.Args, "--enableTAS")
+	}
+
+	if enableFairSharing {
+		cmd.Args = append(cmd.Args, "--enableFairSharing")
 	}
 
 	log.Info("Starting process", "path", cmd.Path, "args", cmd.Args)

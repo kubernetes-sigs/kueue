@@ -78,6 +78,11 @@ type ClusterQueueSnapshot struct {
 
 	flavorsForProvReqACs sets.Set[kueue.ResourceFlavorReference]
 	hasMultiKueueAC      bool
+
+	// admittedThisCycle stays out of Workloads because preemption finds its
+	// candidates there, and this cycle's own admissions must not become
+	// victims of the next one in it.
+	admittedThisCycle []*kueue.Workload
 }
 
 // RGByResource returns the ResourceGroup which contains capacity
