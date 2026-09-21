@@ -18,6 +18,7 @@ package sparkapplication
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,6 +56,8 @@ const (
 	defaultSparkMemoryMiB = 1024
 	// ResourceProfile.MEMORY_OVERHEAD_MIN_MIB.
 	minSparkMemoryOverheadMiB = 384
+	// maxSparkMemoryMiB is the largest MiB amount that still fits in int64 bytes.
+	maxSparkMemoryMiB = math.MaxInt64 >> 20
 )
 
 // sparkMemoryStringRegexp matches Spark's JavaUtils.byteStringAs format: an
@@ -93,6 +96,10 @@ func parseSparkMemoryBytes(s string, defaultUnitBytes int64) (int64, error) {
 		if unit, ok = sparkMemoryUnitBytes[m[2]]; !ok {
 			return 0, fmt.Errorf("invalid Spark memory string %q: unknown unit %q", s, m[2])
 		}
+	}
+	// Spark rejects values that overflow a long (ByteUnit.convertTo).
+	if n > math.MaxInt64/unit {
+		return 0, fmt.Errorf("invalid Spark memory string %q: value is too large", s)
 	}
 	return n * unit, nil
 }
@@ -211,6 +218,9 @@ func (c *sparkRoleConf) memoryRequest() (resource.Quantity, error) {
 		}
 		totalMiB += extraMiB
 	}
+	if totalMiB > maxSparkMemoryMiB {
+		return resource.Quantity{}, fmt.Errorf("memory request of %dMiB is too large", totalMiB)
+	}
 	return *resource.NewQuantity(totalMiB<<20, resource.BinarySI), nil
 }
 
@@ -226,8 +236,12 @@ func (c *sparkRoleConf) memoryOverheadMiB(memoryMiB int64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	overheadMiB := factor * float64(memoryMiB)
+	if overheadMiB > maxSparkMemoryMiB {
+		return 0, fmt.Errorf("memory overhead of %gMiB is too large", overheadMiB)
+	}
 	// Spark truncates the product to an int before applying the minimum.
-	return max(int64(factor*float64(memoryMiB)), minSparkMemoryOverheadMiB), nil
+	return max(int64(overheadMiB), minSparkMemoryOverheadMiB), nil
 }
 
 // memoryOverheadFactor mirrors Spark: the role-specific
