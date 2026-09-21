@@ -356,28 +356,19 @@ func addCPURequests(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 		return fmt.Errorf("failed to add CPU requests as Spark container was not found in pod %s", pod.Name)
 	}
 
-	var cpuRequests *string
-	if sparkutil.IsDriverPod(pod) {
-		cpuRequests = app.Spec.Driver.CoreRequest
-	} else if sparkutil.IsExecutorPod(pod) {
-		cpuRequests = app.Spec.Executor.CoreRequest
-	}
-
-	if cpuRequests == nil {
-		return nil
-	}
-
-	// Convert CPU requests to a Kubernetes-style unit
-	requestsQuantity, err := resource.ParseQuantity(*cpuRequests)
+	role, err := newSparkRoleConf(pod, app)
 	if err != nil {
-		return fmt.Errorf("failed to parse CPU requests %s: %v", *cpuRequests, err)
+		return err
+	}
+	requestsQuantity, err := role.cpuRequest()
+	if err != nil {
+		return err
 	}
 
 	if pod.Spec.Containers[i].Resources.Requests == nil {
 		pod.Spec.Containers[i].Resources.Requests = corev1.ResourceList{}
 	}
 
-	// Apply the CPU requests to the container's resources
 	pod.Spec.Containers[i].Resources.Requests[corev1.ResourceCPU] = requestsQuantity
 	return nil
 }
@@ -414,35 +405,34 @@ func addCPULimit(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 	return nil
 }
 
+// addMemoryRequests sets the memory that Spark will request for the Pod, which
+// includes the memory overhead on top of spec.<role>.memory. Spark sets the
+// memory limit to the same value; addMemoryLimit overrides it if
+// spec.<role>.memoryLimit is set.
 func addMemoryRequests(pod *corev1.Pod, app *sparkv1beta2.SparkApplication) error {
 	i := findContainer(pod)
 	if i < 0 {
 		return fmt.Errorf("failed to add memory requests as Spark container was not found in pod %s", pod.Name)
 	}
 
-	var memoryRequests *string
-	if sparkutil.IsDriverPod(pod) {
-		memoryRequests = app.Spec.Driver.Memory
-	} else if sparkutil.IsExecutorPod(pod) {
-		memoryRequests = app.Spec.Executor.Memory
-	}
-
-	if memoryRequests == nil {
-		return nil
-	}
-
-	// Convert memory requests to a Kubernetes-style unit
-	requestsQuantity, err := resource.ParseQuantity(sparkutil.ConvertJavaMemoryStringToK8sMemoryString(*memoryRequests))
+	role, err := newSparkRoleConf(pod, app)
 	if err != nil {
-		return fmt.Errorf("failed to parse memory requests %s: %v", *memoryRequests, err)
+		return err
+	}
+	requestsQuantity, err := role.memoryRequest()
+	if err != nil {
+		return err
 	}
 
 	if pod.Spec.Containers[i].Resources.Requests == nil {
 		pod.Spec.Containers[i].Resources.Requests = corev1.ResourceList{}
 	}
+	if pod.Spec.Containers[i].Resources.Limits == nil {
+		pod.Spec.Containers[i].Resources.Limits = corev1.ResourceList{}
+	}
 
-	// Apply the memory requests to the container's resources
 	pod.Spec.Containers[i].Resources.Requests[corev1.ResourceMemory] = requestsQuantity
+	pod.Spec.Containers[i].Resources.Limits[corev1.ResourceMemory] = requestsQuantity
 	return nil
 }
 
