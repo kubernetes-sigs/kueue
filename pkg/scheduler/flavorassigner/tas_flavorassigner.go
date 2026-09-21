@@ -82,6 +82,31 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 	return tasRequests
 }
 
+// MissingTopologyAssignment reports the name of a PodSet that requires a
+// topology assignment but doesn't have one, if any. It's meant to be checked
+// right before committing an admission - the caller must treat a positive
+// result as NoFit rather than proceeding, since admitting a TAS-required
+// PodSet with no placement corrupts the TAS cache silently (see
+// kubernetes-sigs/kueue#15337). It always returns false when the
+// representative mode is already NoFit, and is not meant to be checked
+// against an assignment that's still mid-computation (e.g. during
+// nomination, before within-cycle recomputation has settled) - only against
+// the final assignment a caller is about to act on.
+func (a *Assignment) MissingTopologyAssignment(log logr.Logger, wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) (kueue.PodSetReference, bool) {
+	if a.RepresentativeMode() == NoFit {
+		return "", false
+	}
+	for _, reqs := range a.WorkloadsTopologyRequests(log, wl, cq) {
+		for _, req := range reqs {
+			psAssignment := a.podSetAssignmentByName(req.PodSet.Name)
+			if psAssignment != nil && psAssignment.TopologyAssignment == nil {
+				return req.PodSet.Name, true
+			}
+		}
+	}
+	return "", false
+}
+
 func (psa *PodSetAssignment) HasUnhealthyNode(wl *workload.Info) bool {
 	return workload.HasUnhealthyNodes(wl.Obj) && slices.ContainsFunc(psa.TopologyAssignment.Domains, func(domain tas.TopologyDomainAssignment) bool {
 		return workload.HasUnhealthyNode(wl.Obj, domain.Values[len(domain.Values)-1])
