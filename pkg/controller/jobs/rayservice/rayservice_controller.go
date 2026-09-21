@@ -154,7 +154,6 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	// Top-level Spec.Suspend=true tells KubeRay to delete all owned resources.
 	j.Spec.Suspend = true
 }
 
