@@ -95,10 +95,15 @@ func generateWorkloadNameWithHash(prefix string, ownerName string, ownerUID type
 	)
 }
 
-// getWorkloadBaseName returns the base name of a workload by removing the hash suffix.
+// getWorkloadBaseName returns the base name of a workload by removing the hash suffix, or the whole
+// name when it has no separator to remove.
 func getWorkloadBaseName(name string) string {
-	// workload name is generated as <prefix>-<hash>, so we can get the prefix by removing the hash and separator
-	return name[:strings.LastIndex(name, "-")]
+	// Kueue generates workload names as <prefix>-<hash>; a Workload created directly by a user need
+	// not follow that shape.
+	if i := strings.LastIndex(name, "-"); i != -1 {
+		return name[:i]
+	}
+	return name
 }
 
 func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, extra string) string {

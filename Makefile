@@ -391,6 +391,7 @@ $(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.
 $(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
 $(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
 $(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
+$(KUSTOMIZE) build config/kueueviz-single-host -o $(ARTIFACTS)/kueueviz-single-host.yaml
 $(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
 $(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
 $(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml

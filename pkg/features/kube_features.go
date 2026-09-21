@@ -560,6 +560,14 @@ const (
 	// Rejects Workloads with non-positive TAS slice sizes in PodSet topology requests.
 	TASValidateWorkloadSliceSize featuregate.Feature = "TASValidateWorkloadSliceSize"
 
+	// owner: @cryo-zd
+	//
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/15262
+	// Rejects an explicit false value for the unconstrained TAS annotation.
+	// Disable temporarily to preserve compatibility with existing workloads that
+	// used the previously accepted value while they are corrected.
+	TASRejectFalseUnconstrainedTopology featuregate.Feature = "TASRejectFalseUnconstrainedTopology"
+
 	// owner: @Dasmat13
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/12775
 	//
@@ -688,6 +696,34 @@ const (
 	// Enable cross-Workload topology spreading, limiting how many Workloads
 	// matching a label selector may be placed in a single topology domain.
 	TASTopologySpreading featuregate.Feature = "TASTopologySpreading"
+
+	// owner: @rjgoyln
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15613
+	//
+	// Label the Workload of a Pod that Kueue manages through a Deployment with the
+	// Deployment UID rather than the Pod UID, so that all Workloads of one Deployment
+	// share a job-uid value. The Pod UID is kept when the gate is disabled, and for Pods
+	// that Kueue does not manage through a Deployment.
+	DeploymentJobUIDLabel featuregate.Feature = "DeploymentJobUIDLabel"
+
+	// owner: @nilsachy
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13396-configurable-preemptions
+	//
+	// Enables configurable preemptions, letting administrators declare preemption
+	// triggers and candidate selectors in a cluster-scoped PreemptionConfig that a
+	// ClusterQueue references. The classical and fair sharing preemption logic is
+	// unchanged; new candidates following configurable preemption configs only applies to a ClusterQueue that
+	// references a PreemptionConfig.
+	ConfigurablePreemptions featuregate.Feature = "ConfigurablePreemptions"
+
+	// owner: @henry3260
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/15734
+	//
+	// Counts a Succeeded pod as ready when the pod integration evaluates PodsReady.
+	// The kubelet sets PodReady to False once a pod completes, so when disabled a pod
+	// group reports PodsReady=False as soon as any member finishes, which can evict a
+	// healthy group once waitForPodsReady.recoveryTimeout elapses.
+	PodIntegrationCountSucceededPodsAsReady featuregate.Feature = "PodIntegrationCountSucceededPodsAsReady"
 )
 
 func init() {
@@ -705,6 +741,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASMultiLayerTopology:                           {TopologyAwareScheduling},
 	TASRespectNodeAffinityPreferred:                 {TopologyAwareScheduling},
 	TASGroupedPodSetSlicing:                         {TopologyAwareScheduling},
+	TASRejectFalseUnconstrainedTopology:             {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:               {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                     {TopologyAwareScheduling},
 	TASNodeFeasibilityForAllLevels:                  {TopologyAwareScheduling},
@@ -1016,6 +1053,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 
+	TASRejectFalseUnconstrainedTopology: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	WorkloadValidationForPodSetMetadata: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -1070,6 +1111,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASTopologySpreading: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DeploymentJobUIDLabel: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ConfigurablePreemptions: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	PodIntegrationCountSucceededPodsAsReady: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
