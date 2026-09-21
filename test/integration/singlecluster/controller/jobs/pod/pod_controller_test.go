@@ -2998,29 +2998,6 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		lq *kueue.LocalQueue
 	)
 
-	// setPodStatus emulates the kubelet: a Running pod reports PodReady=True, while a
-	// Succeeded pod reports PodReady=False with reason PodCompleted.
-	setPodStatus := func(pod *corev1.Pod, phase corev1.PodPhase) {
-		ginkgo.GinkgoHelper()
-		readyStatus := corev1.ConditionTrue
-		readyReason := ""
-		if phase == corev1.PodSucceeded {
-			readyStatus = corev1.ConditionFalse
-			readyReason = "PodCompleted"
-		}
-		updatedPod := corev1.Pod{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &updatedPod)).To(gomega.Succeed())
-			updatedPod.Status.Phase = phase
-			updatedPod.Status.Conditions = []corev1.PodCondition{{
-				Type:   corev1.PodReady,
-				Status: readyStatus,
-				Reason: readyReason,
-			}}
-			g.Expect(k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
-
 	ginkgo.BeforeAll(func() {
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Timeout:         metav1.Duration{Duration: time.Minute},
@@ -3109,8 +3086,17 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("running all the pods of the group", func() {
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods...)
 			for _, pod := range pods {
-				setPodStatus(pod, corev1.PodRunning)
+				updatedPod := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), updatedPod)).To(gomega.Succeed())
+					updatedPod.Status.Conditions = []corev1.PodCondition{{
+						Type:   corev1.PodReady,
+						Status: corev1.ConditionTrue,
+					}}
+					g.Expect(k8sClient.Status().Update(ctx, updatedPod)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -3121,7 +3107,18 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("completing one pod of the group", func() {
-			setPodStatus(pods[0], corev1.PodSucceeded)
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods[0])
+			// The kubelet sets PodReady=False on a completed pod.
+			updatedPod := &corev1.Pod{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pods[0]), updatedPod)).To(gomega.Succeed())
+				updatedPod.Status.Conditions = []corev1.PodCondition{{
+					Type:   corev1.PodReady,
+					Status: corev1.ConditionFalse,
+					Reason: "PodCompleted",
+				}}
+				g.Expect(k8sClient.Status().Update(ctx, updatedPod)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("checking the workload stays ready and admitted", func() {
@@ -3174,8 +3171,17 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("running all the pods of the group", func() {
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods...)
 			for _, pod := range pods {
-				setPodStatus(pod, corev1.PodRunning)
+				updatedPod := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), updatedPod)).To(gomega.Succeed())
+					updatedPod.Status.Conditions = []corev1.PodCondition{{
+						Type:   corev1.PodReady,
+						Status: corev1.ConditionTrue,
+					}}
+					g.Expect(k8sClient.Status().Update(ctx, updatedPod)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -3186,7 +3192,18 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("completing one pod of the group", func() {
-			setPodStatus(pods[0], corev1.PodSucceeded)
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods[0])
+			// The kubelet sets PodReady=False on a completed pod.
+			updatedPod := &corev1.Pod{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pods[0]), updatedPod)).To(gomega.Succeed())
+				updatedPod.Status.Conditions = []corev1.PodCondition{{
+					Type:   corev1.PodReady,
+					Status: corev1.ConditionFalse,
+					Reason: "PodCompleted",
+				}}
+				g.Expect(k8sClient.Status().Update(ctx, updatedPod)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("checking the workload loses PodsReady and is evicted", func() {
