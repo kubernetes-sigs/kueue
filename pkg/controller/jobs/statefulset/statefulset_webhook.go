@@ -86,7 +86,9 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object())
+	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
 		ss.Object(),
