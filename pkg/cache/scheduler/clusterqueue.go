@@ -297,7 +297,8 @@ func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
 	}
 	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))
 	for _, w := range c.Workloads {
-		c.addOrUpdateWorkload(log, w.Obj)
+		wi := workload.NewInfo(log, w.Obj, append(slices.Clone(c.workloadInfoOptions), workload.WithEffectivePodSpecs(w.EffectivePodSpecs))...)
+		c.addOrUpdateWorkload(log, wi)
 	}
 	c.isTASSynced = true
 }
@@ -492,12 +493,12 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 	}
 }
 
-func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
+func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
+	w := wi.Obj
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
-	wi := workload.NewInfo(log, w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
 		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)

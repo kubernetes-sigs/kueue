@@ -189,6 +189,14 @@ sum by (cluster_queue, reason) (
 )
 ```
 
+To monitor evictions on MultiKueue worker clusters:
+
+```promql
+sum by (cluster, reason) (
+  increase(multikueue_workloads_evicted_total[1h])
+)
+```
+
 See [Prometheus Metrics](/docs/reference/metrics) for the full list of `reason` label values.
 
 ## Eviction recovery latency

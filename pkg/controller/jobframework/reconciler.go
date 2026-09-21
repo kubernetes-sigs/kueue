@@ -1807,8 +1807,9 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			}
 			admitted += prevAdmittedCount
 			if podSets[i].Count > prevAdmittedCount {
-				minCount := prevAdmittedCount + 1
-				podSets[i].MinCount = &minCount
+				// The baseline: what this PodSet already has. A scale-up has to
+				// grow at least one PodSet, not every one, which the scheduler enforces instead.
+				podSets[i].MinCount = new(prevAdmittedCount)
 			}
 		}
 		if extra != "" {

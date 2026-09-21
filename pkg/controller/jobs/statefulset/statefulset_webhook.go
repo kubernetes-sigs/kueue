@@ -131,6 +131,10 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSe
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(sts.Object())...)
 	}
 
+	if features.Enabled(features.TopologyAwareScheduling) {
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta)...)
+	}
+
 	return nil, allErrs.ToAggregate()
 }
 

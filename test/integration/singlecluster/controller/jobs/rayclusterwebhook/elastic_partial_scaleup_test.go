@@ -215,14 +215,15 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			g.Expect(workloadfinish.IsFinished(&oldWl)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("the probe slice is linked to the initial slice and carries the partial minCount")
+		ginkgo.By("the probe slice is linked to the initial slice and carries the baseline as its minCount")
 		gomega.Expect(newWl.Annotations[workloadslicing.WorkloadSliceReplacementFor]).Should(gomega.Equal(string(workload.Key(&firstWl))))
 		gomega.Expect(newWl.Annotations[kueue.WorkloadSliceNameAnnotation]).ShouldNot(gomega.BeEmpty())
 		workerPS := podset.FindPodSetByName(newWl.Spec.PodSets, kueue.NewPodSetReference("workers-group-0"))
 		gomega.Expect(workerPS).ShouldNot(gomega.BeNil())
 		gomega.Expect(workerPS.Count).Should(gomega.Equal(int32(4)))
 		gomega.Expect(workerPS.MinCount).ShouldNot(gomega.BeNil())
-		gomega.Expect(*workerPS.MinCount).Should(gomega.Equal(int32(2)))
+		// The single worker the initial slice was granted.
+		gomega.Expect(*workerPS.MinCount).Should(gomega.Equal(int32(1)))
 	})
 
 	ginkgo.It("control: a plain elastic RayCluster (no partial strategy) still gets its Workload created", func() {
