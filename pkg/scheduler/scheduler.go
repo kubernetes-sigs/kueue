@@ -952,9 +952,9 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			}
 			return nil, false
 		})
-		// A live predecessor is already running these MinCounts, so admitting them would change
-		// nothing. With no predecessor they are just the size the job last ran at, which it needs back.
-		mustGrow := replaceableWorkloadSlice != nil
+		// Only an admitted predecessor can already be running these MinCounts. A predecessor
+		// that only holds quota may still be waiting for admission checks and needs the baseline back.
+		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
 		if pa, found := reducer.Reduce(mustGrow); found {
 			return pa.assignment, append(preemptionTargets, pa.preemptionTargets...)
 		}
