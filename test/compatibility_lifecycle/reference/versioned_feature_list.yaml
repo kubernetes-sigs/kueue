@@ -39,6 +39,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: ConfigurablePreemptions
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: CustomMetricLabels
   versionedSpecs:
   - default: false
