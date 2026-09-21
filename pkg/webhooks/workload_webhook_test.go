@@ -87,7 +87,7 @@ func namedRequestContainer(name string, requests map[corev1.ResourceName]string)
 		rl[r] = resource.MustParse(q)
 	}
 	return corev1.Container{
-		Name: name,
+		Name:      name,
 		Resources: corev1.ResourceRequirements{Requests: rl},
 	}
 }
