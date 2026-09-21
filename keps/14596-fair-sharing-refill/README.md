@@ -272,7 +272,7 @@ Preemption benchmarking in particular requires simulating the workload controlle
 - Select and document the refill-budget allocation model, including whether it should also bound in-cycle assignment recomputations.
 - Validate the Alpha budget-exhaustion tradeoff with production data.
 - Decide whether refill remains Fair-Sharing-only.
-- Re-evaluate the direct-`Fit`-only restriction, by measuring how often refill reaches a successor while capacity remains but that successor would need preemption or another non-direct admission path.
+- Re-evaluate the direct-`Fit`-only restriction using production data, including bursts where multiple high-priority Workloads from the same ClusterQueue may need preemption within a cycle.
 - Introduce the user-facing configuration surface and default, if required by the selected budget model, following the scheduler configuration work in [#14190](https://github.com/kubernetes-sigs/kueue/issues/14190).
 - Cover the Admission Fair Sharing interaction in refill's own tests, including the pending entry penalty seen by a mid-cycle successor.
 - Validate scheduler cost on preemption-heavy and topology-aware workloads.
