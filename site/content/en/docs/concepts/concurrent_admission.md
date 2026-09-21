@@ -151,7 +151,7 @@ differently than expected when under heavy load.
 
 This seems especially apparent when the number of ClusterQueues that are
 present is especially large (in the thousands). Test the load characteristics
-of the controller with concurrent admission enabled and realistic peak load
+of the controller with concurrent admission enabled and realistic peak load to
 ensure that controller performance is appropriate for your use case.
 
 ## Constraints
