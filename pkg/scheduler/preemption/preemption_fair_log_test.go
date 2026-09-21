@@ -330,7 +330,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			// soon as the incoming workload fits.
 			var targets []*Target
 			fits := false
-			retryCandidates := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
+			retryCandidates, cont := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
 				targets = append(targets, t)
 				if workloadFitsForFairSharing(ctx, fixture.preemptionCtx) {
 					fits = true
@@ -340,6 +340,9 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			})
 
 			if tc.wantAllRejected {
+				if !cont {
+					t.Errorf("expected iterateWithFirstFsStrategy to propose continuing as no fit found")
+				}
 				if fits {
 					t.Errorf("expected the always-failing strategy to not fit")
 				}

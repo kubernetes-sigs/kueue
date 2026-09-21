@@ -313,13 +313,13 @@ type preemptionAttemptOpts struct {
 // fits
 func (p *Preemptor) classicalPreemptions(ctx context.Context, plan PreemptionPlan) []*Target {
 	preemptionCtx := plan.pCtx
-	for strategy, opts := range plan.Strategies {
+	for strategy := range plan.Strategies {
 		var targets []*Target
-		for target := range strategy {
-			preemptionCtx.snapshot.RemoveWorkload(target.WorkloadInfo)
-			targets = append(targets, target)
-			if workloadFits(ctx, preemptionCtx, opts.Borrowing) {
-				targets = fillBackWorkloads(ctx, preemptionCtx, targets, opts.Borrowing)
+		for candidate := range strategy.Candidates {
+			preemptionCtx.snapshot.RemoveWorkload(candidate.WorkloadInfo)
+			targets = append(targets, candidate)
+			if workloadFits(ctx, preemptionCtx, strategy.Borrowing) {
+				targets = fillBackWorkloads(ctx, preemptionCtx, targets, strategy.Borrowing)
 				restoreSnapshot(preemptionCtx.snapshot, targets)
 				return targets
 			}
@@ -401,10 +401,9 @@ func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, ta
 func (p *Preemptor) fairPreemptions(ctx context.Context, plan PreemptionPlan) []*Target {
 	preemptionCtx := plan.pCtx
 	log := log.FromContext(ctx)
+
 	// DRS values must include incoming workload.
-	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 	targets, fits := tryStrategies(ctx, preemptionCtx, plan)
-	revertSimulation()
 
 	if !fits {
 		if logV := log.V(6); logV.Enabled() {
@@ -427,9 +426,12 @@ func (p *Preemptor) fairPreemptions(ctx context.Context, plan PreemptionPlan) []
 }
 
 func tryStrategies(ctx context.Context, preemptionCtx *preemptionCtx, plan PreemptionPlan) (targets []*Target, fits bool) {
+	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
+	defer revertSimulation()
+
 	for strategy := range plan.Strategies {
-		for target := range strategy {
-			targets = append(targets, target)
+		for candidate := range strategy.Candidates {
+			targets = append(targets, candidate)
 			if workloadFitsForFairSharing(ctx, preemptionCtx) {
 				fits = true
 				return

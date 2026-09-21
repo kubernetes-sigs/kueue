@@ -90,21 +90,21 @@ type planConsumption struct {
 func consumePlan(plan PreemptionPlan, consumption planConsumption) ([]wantStrategy, []*Target) {
 	gotStrategies := []wantStrategy{}
 	var yielded []*Target
-	for strategy, params := range plan.Strategies {
+	for strategy := range plan.Strategies {
 		targets := []wantTarget{}
-		for target := range strategy {
-			yielded = append(yielded, target)
+		for candidate := range strategy.Candidates {
+			yielded = append(yielded, candidate)
 			targets = append(targets, wantTarget{
-				Workload: workload.Key(target.WorkloadInfo.Obj),
-				Reason:   target.Reason,
-				CQ:       target.WorkloadCq.Name,
+				Workload: workload.Key(candidate.WorkloadInfo.Obj),
+				Reason:   candidate.Reason,
+				CQ:       candidate.WorkloadCq.Name,
 			})
 			if len(gotStrategies) == 0 && consumption.stopAfterFirstStrategyTargets > 0 &&
 				len(targets) >= consumption.stopAfterFirstStrategyTargets {
 				break
 			}
 		}
-		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: params.Borrowing, Targets: targets})
+		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.Borrowing, Targets: targets})
 		if consumption.stopAfterStrategies > 0 && len(gotStrategies) >= consumption.stopAfterStrategies {
 			break
 		}
@@ -665,7 +665,10 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 		targetCQ      kueue.ClusterQueueReference
 		strategies    []config.PreemptionStrategy
 		featureGates  map[featuregate.Feature]bool
-		consumption   planConsumption
+		// stopAfterTargets, when positive, abandons the plan after that many
+		// targets. A fair sharing plan yields a single strategy, so this is
+		// the only way a consumer can leave it early.
+		stopAfterTargets int
 
 		wantStrategies []wantStrategy
 	}{
@@ -682,7 +685,7 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 		},
 		// F2: only one configured strategy means rule S2-b is never planned,
 		// even though the candidates failed rule S2-a.
-		"a single configured strategy yields a single strategy": {
+		"a single configured strategy yields no targets from the second rule": {
 			clusterQueues: []*kueue.ClusterQueue{
 				makeCQ("a", "3").Obj(),
 				makeCQ("b", "3").Obj(),
@@ -716,7 +719,6 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 					{Workload: "/a1", Reason: kueue.InClusterQueueReason, CQ: "a"},
 					{Workload: "/a2", Reason: kueue.InClusterQueueReason, CQ: "a"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F4: FairSharingPreemptWithinNominal lets a preemptor which stays
@@ -739,7 +741,6 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 					{Workload: "/p1", Reason: kueue.InCohortReclamationReason, CQ: "preemptible"},
 					{Workload: "/p2", Reason: kueue.InCohortReclamationReason, CQ: "preemptible"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F5: the same topology with the gate disabled goes through the
@@ -761,7 +762,6 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 					{Workload: "/p1", Reason: kueue.InCohortFairSharingReason, CQ: "preemptible"},
 					{Workload: "/p2", Reason: kueue.InCohortFairSharingReason, CQ: "preemptible"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F6: a borrowing preemptor takes one candidate from the ClusterQueue
@@ -790,7 +790,6 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/b1", Reason: kueue.InCohortFairSharingReason, CQ: "b"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F7: every candidate is big enough to push the target below the
@@ -808,7 +807,6 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 			incoming: incomingWl("4", 0),
 			targetCQ: "a",
 			wantStrategies: []wantStrategy{
-				{Borrowing: true, Targets: []wantTarget{}},
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/b1", Reason: kueue.InCohortFairSharingReason, CQ: "b"},
 				}},
@@ -832,7 +830,6 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 			incoming: incomingWl("4", 0),
 			targetCQ: "a",
 			wantStrategies: []wantStrategy{
-				{Borrowing: true, Targets: []wantTarget{}},
 				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
@@ -864,12 +861,9 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 					{Workload: "/a1", Reason: kueue.InClusterQueueReason, CQ: "a"},
 					{Workload: "/a2", Reason: kueue.InClusterQueueReason, CQ: "a"},
 					{Workload: "/a3", Reason: kueue.InClusterQueueReason, CQ: "a"},
-				}},
-				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/b1", Reason: kueue.InCohortReclamationReason, CQ: "b"},
 					{Workload: "/b2", Reason: kueue.InCohortReclamationReason, CQ: "b"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F9b: the same gate, but the preemptor still borrows after the
@@ -894,12 +888,9 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/a1", Reason: kueue.InClusterQueueReason, CQ: "a"},
 					{Workload: "/a2", Reason: kueue.InClusterQueueReason, CQ: "a"},
-				}},
-				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/b1", Reason: kueue.InCohortFairSharingReason, CQ: "b"},
 					{Workload: "/b2", Reason: kueue.InCohortFairSharingReason, CQ: "b"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F10: without a target in the preemptor ClusterQueue there is
@@ -921,7 +912,6 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 					{Workload: "/b1", Reason: kueue.InCohortReclamationReason, CQ: "b"},
 					{Workload: "/b2", Reason: kueue.InCohortReclamationReason, CQ: "b"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F11: candidates are sorted before the ordering is built, so within
@@ -949,11 +939,10 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 					{Workload: "/b-new", Reason: kueue.InCohortReclamationReason, CQ: "b"},
 					{Workload: "/b-old", Reason: kueue.InCohortReclamationReason, CQ: "b"},
 				}},
-				{Borrowing: true, Targets: []wantTarget{}},
 			},
 		},
 		// F12: a consumer which found enough targets abandons the plan, and
-		// the remaining strategies are never generated.
+		// the remaining candidates are never generated.
 		"the plan stops when the consumer stops": {
 			clusterQueues: []*kueue.ClusterQueue{
 				makeCQ("a", "3").Obj(),
@@ -963,9 +952,9 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 				admittedWl("b1", "b", "1", 0),
 				admittedWl("b2", "b", "1", 0),
 			},
-			incoming:    incomingWl("3", 5),
-			targetCQ:    "a",
-			consumption: planConsumption{stopAfterStrategies: 1, stopAfterFirstStrategyTargets: 1},
+			incoming:         incomingWl("3", 5),
+			targetCQ:         "a",
+			stopAfterTargets: 1,
 			wantStrategies: []wantStrategy{
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/b1", Reason: kueue.InCohortReclamationReason, CQ: "b"},
@@ -996,7 +985,9 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 			// Mirror fairPreemptions: the shares must account for the
 			// incoming workload while the strategies are evaluated.
 			revertSimulation := fixture.pCtx.preemptorCQ.SimulateUsageAddition(fixture.pCtx.workloadUsage)
-			gotStrategies, yielded := consumePlan(plan, tc.consumption)
+			// The plan yields a single strategy, so capping the first one
+			// caps the whole plan.
+			gotStrategies, yielded := consumePlan(plan, planConsumption{stopAfterFirstStrategyTargets: tc.stopAfterTargets})
 			revertSimulation()
 
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {

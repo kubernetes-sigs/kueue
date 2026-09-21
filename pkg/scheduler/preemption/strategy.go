@@ -42,14 +42,17 @@ const (
 	ClassicalPreemptions PreemptionType = "Classical"
 )
 
-type PreemptionStrategy iter.Seq[*Target]
-
-type StrategyParams struct {
-	Borrowing bool
+// PreemptionStrategy represents a singular set of ordered potential preemption candidates.
+// One strategy maps to a signle, isolated attempt at finding a possible preemption result.
+type PreemptionStrategy struct {
+	Candidates iter.Seq[*Target]
+	Borrowing  bool
 }
 
+// PreemptionPlan defines a set of alternate strategies to be attempted when finding a preemption result.
+// Possible types: Fair and Classical preemption plan.
 type PreemptionPlan struct {
-	Strategies iter.Seq2[PreemptionStrategy, StrategyParams]
+	Strategies iter.Seq[PreemptionStrategy]
 	Type       PreemptionType
 	pCtx       *preemptionCtx
 }
@@ -100,18 +103,17 @@ func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preempti
 		attemptPossibleOpts = []preemptionAttemptOpts{{true}, {false}}
 	}
 
-	return PreemptionPlan{func(yieldPlan func(PreemptionStrategy, StrategyParams) bool) {
+	return PreemptionPlan{func(yieldStrategy func(PreemptionStrategy) bool) {
 		for _, opts := range attemptPossibleOpts {
 			allowBorrowing := opts.borrowing
-			strategy := func(yieldStrategy func(*Target) bool) {
+			if !yieldStrategy(PreemptionStrategy{func(yieldCandidate func(*Target) bool) {
 				candidatesGenerator.Reset()
-				for candidate, reason := candidatesGenerator.Next(allowBorrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(allowBorrowing) {
-					if !yieldStrategy(&Target{candidate, reason, preemptionCtx.snapshot.ClusterQueue(candidate.ClusterQueue)}) {
+				for candidateWl, reason := candidatesGenerator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = candidatesGenerator.Next(allowBorrowing) {
+					if !yieldCandidate(&Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}) {
 						return
 					}
 				}
-			}
-			if !yieldPlan(strategy, StrategyParams{allowBorrowing}) {
+			}, allowBorrowing}) {
 				return
 			}
 		}
@@ -125,18 +127,20 @@ func FairPreemptionPlan(
 	fsStrategies []fairsharing.Strategy,
 ) PreemptionPlan {
 	log := log.FromContext(ctx)
-	candidates := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
-	if len(candidates) == 0 {
-		return PreemptionPlan{func(yieldPlan func(PreemptionStrategy, StrategyParams) bool) {}, FairPreemptions, preemptionCtx}
+	allowBorrowing := true
+
+	candidateWls := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
+	if len(candidateWls) == 0 {
+		return PreemptionPlan{func(yieldStrategy func(PreemptionStrategy) bool) {}, FairPreemptions, preemptionCtx}
 	}
-	slices.SortFunc(candidates, func(a, b *workload.Info) int {
+	slices.SortFunc(candidateWls, func(a, b *workload.Info) int {
 		return preemptioncommon.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
 	})
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info(
 			"Simulating fair preemption",
 			"candidates",
-			workload.References(candidates),
+			workload.References(candidateWls),
 			"resourcesRequiringPreemption",
 			preemptionCtx.frsNeedPreemption.UnsortedList(),
 			"preemptingWorkload",
@@ -144,33 +148,30 @@ func FairPreemptionPlan(
 		)
 	}
 
-	return PreemptionPlan{func(yieldPlan func(PreemptionStrategy, StrategyParams) bool) {
-		targetsInPreemptorCQ := false
-		if !yieldPlan(func(yieldStrategy func(*Target) bool) {
-			candidates = iterateWithFirstFsStrategy(log, preemptionCtx, candidates, fsStrategies[0], func(t *Target) bool {
-				if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
-					targetsInPreemptorCQ = true
+	return PreemptionPlan{func(yieldStrategy func(PreemptionStrategy) bool) {
+		yieldStrategy(PreemptionStrategy{
+			func(yieldCandidate func(*Target) bool) {
+				var cont bool
+				targetsInPreemptorCQ := false
+
+				candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
+					if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
+						targetsInPreemptorCQ = true
+					}
+					return yieldCandidate(t)
+				})
+
+				if cont && features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
+					candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldCandidate)
 				}
-				return yieldStrategy(t)
-			})
-		}, StrategyParams{Borrowing: true}) {
-			return
-		}
 
-		if features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
-			if !yieldPlan(func(yieldStrategy func(*Target) bool) {
-				candidates = iterateWithFirstFsStrategy(log, preemptionCtx, candidates, fsStrategies[0], yieldStrategy)
-			}, StrategyParams{Borrowing: true}) {
-				return
-			}
-		}
-
-		// Use the second fair sharing strategy.
-		if len(fsStrategies) > 1 {
-			yieldPlan(func(yieldStrategy func(*Target) bool) {
-				iterateWithSecondFsStrategy(log, preemptionCtx, candidates, yieldStrategy)
-			}, StrategyParams{Borrowing: true})
-		}
+				// Use the second fair sharing strategy.
+				if cont && len(fsStrategies) > 1 {
+					iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldCandidate)
+				}
+			},
+			allowBorrowing,
+		})
 	}, FairPreemptions, preemptionCtx}
 }
 
@@ -180,7 +181,7 @@ func iterateWithFirstFsStrategy(
 	candidates []*workload.Info,
 	fsStrategy fairsharing.Strategy,
 	yield func(*Target) bool,
-) (retryCandidates []*workload.Info) {
+) (retryCandidates []*workload.Info, cont bool) {
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, log, preemptionCtx.clock)
 	// If the preemptor CQ stays within nominal quota for the contested
 	// resources (including the incoming workload, already simulated),
@@ -246,7 +247,7 @@ func iterateWithFirstFsStrategy(
 		}
 		strategyLog.flush()
 	}
-	return
+	return retryCandidates, true
 }
 
 func iterateWithSecondFsStrategy(
