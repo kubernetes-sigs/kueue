@@ -186,11 +186,15 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			ginkgo.By("Check the workload reserves the resources Spark requests for its Pods", func() {
 				for _, ps := range createdWorkload.Spec.PodSets {
 					pods := &corev1.PodList{}
-					gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
-						sparkcommon.LabelSparkAppName: sparkApp.Name,
-						sparkcommon.LabelSparkRole:    string(ps.Name),
-					})).To(gomega.Succeed())
-					gomega.Expect(pods.Items).To(gomega.HaveLen(int(ps.Count)), "unexpected number of %s pods", ps.Name)
+					// The driver creates the executor Pods only once it is running, so
+					// they may not exist yet when the SparkApplication becomes Running.
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
+							sparkcommon.LabelSparkAppName: sparkApp.Name,
+							sparkcommon.LabelSparkRole:    string(ps.Name),
+						})).To(gomega.Succeed())
+						g.Expect(pods.Items).To(gomega.HaveLen(int(ps.Count)), "unexpected number of %s pods", ps.Name)
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 					want := ps.Template.Spec.Containers[0].Resources.Requests
 					for _, pod := range pods.Items {
 						got := pod.Spec.Containers[0].Resources.Requests
