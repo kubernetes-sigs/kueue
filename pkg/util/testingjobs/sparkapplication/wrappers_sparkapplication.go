@@ -43,14 +43,14 @@ func MakeSparkApplication(name, ns string) *SparkApplicationWrapper {
 			Arguments:           []string{"1000"},
 			Driver: sparkappv1beta2.DriverSpec{
 				SparkPodSpec: sparkappv1beta2.SparkPodSpec{
-					Memory:         new("512Mi"),
+					Memory:         new("512m"),
 					ServiceAccount: new("spark-operator-spark"),
 				},
 				CoreRequest: new("100m"),
 			},
 			Executor: sparkappv1beta2.ExecutorSpec{
 				SparkPodSpec: sparkappv1beta2.SparkPodSpec{
-					Memory:         new("512Mi"),
+					Memory:         new("512m"),
 					ServiceAccount: new("spark-operator-spark"),
 				},
 				CoreRequest:         new("100m"),
