@@ -4742,10 +4742,6 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				GroupNameLabel(workloadName).
 				GroupTotalCount("2").
 				Annotation(podconstants.RoleHashAnnotation, "leader").
-				Annotation(
-					podconstants.PodSchedulingShapeHashAnnotation,
-					"bbbb",
-				).
 				Queue(localQueue.Name).
 				PrebuiltWorkloadLabel(workloadName).
 				Request(corev1.ResourceName("nvidia.com/gpu"), "1").

@@ -919,9 +919,9 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 				return nil, err
 			}
 
-			shapeHash := podInGroup.Annotations[podconstants.PodSchedulingShapeHashAnnotation]
-			if shapeHash == "" {
-				shapeHash = roleHash
+			shapeHash, err := utilpod.GenerateRoleHash(&podInGroup.Spec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to calculate pod scheduling shape hash: %w", err)
 			}
 
 			podSet.Name = kueue.NewPodSetReference(roleHash)

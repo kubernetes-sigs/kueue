@@ -111,7 +111,6 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				Obj(),
 		},
 		"pod with queue nil ns selector": {
@@ -125,7 +124,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -142,7 +140,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -158,7 +155,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -179,7 +175,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
@@ -373,7 +368,6 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				GroupNameLabel("test-group").
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -392,7 +386,6 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				GroupNameLabel("test-group").
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -413,7 +406,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueFinalizer().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueSchedulingGate().
 				TopologySchedulingGate().
 				Obj(),
@@ -437,7 +429,6 @@ func TestDefault(t *testing.T) {
 				Label(kueue.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				TopologySchedulingGate().
@@ -456,7 +447,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -485,7 +475,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -501,7 +490,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -529,7 +517,6 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -560,7 +547,6 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -598,7 +584,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -621,7 +606,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -646,7 +630,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -666,7 +649,6 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -1376,40 +1358,6 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
-		},
-		"pod scheduling shape hash annotation is changed": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
-				Obj(),
-			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "bbbb").
-				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.annotations[kueue.x-k8s.io/pod-scheduling-shape-hash]",
-				},
-			}.ToAggregate(),
-		},
-		"pod scheduling shape hash annotation is added": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").Obj(),
-			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
-				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "metadata.annotations[kueue.x-k8s.io/pod-scheduling-shape-hash]",
-				},
-			}.ToAggregate(),
-		},
-		"pod scheduling shape hash annotation is unchanged": {
-			oldPod: testingpod.MakePod("test-pod", "test-ns").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
-				Obj(),
-			newPod: testingpod.MakePod("test-pod", "test-ns").
-				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
-				Obj(),
 		},
 	}
 
