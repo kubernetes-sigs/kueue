@@ -127,6 +127,50 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should persist Requeued=True when previously inadmissible DRA workload resources are resolved", framework.SlowSpec, func() {
+			ginkgo.By("Creating a workload referencing a non-existent ResourceClaimTemplate")
+			wl := utiltestingapi.MakeWorkload("test-wl-inadmissible-recovery", ns.Name).
+				Queue("test-lq").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("device-template", "missing-template").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is marked as inadmissible with Requeued=False")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadRequeued),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+				)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating the missing ResourceClaimTemplate to resolve the inadmissible state")
+			rct := utiltesting.MakeResourceClaimTemplate("missing-template", ns.Name).
+				DeviceRequest("device-request", "foo.example.com", 2).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying workload transitions to Requeued=True with DRAResourcesResolved")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadRequeued),
+					gomega.HaveField("Status", metav1.ConditionTrue),
+					gomega.HaveField("Reason", kueue.WorkloadDRAResourcesResolved),
+				)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying workload is eventually admitted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, wl)
+		})
+
 		ginkgo.It("Should handle workload with insufficient DRA quota", func() {
 			ginkgo.By("Creating a ResourceClaim that exceeds quota")
 			rc := utiltesting.MakeResourceClaim("test-rc-large", ns.Name).
