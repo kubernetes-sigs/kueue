@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
@@ -1499,7 +1499,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// x1 publishes one device through a device plugin, x2 through a DeviceClass.
 			// x1 must take only the one Pod its allocatable covers, so the second goes to
 			// x2. Without counting the resource on x1 it looks able to hold both.
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
 					Label(corev1.LabelHostname, "x1").
@@ -1550,6 +1553,76 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+		},
+		"a leader counts a DRA-backed extended resource on a node advertising it": {
+			// Each node publishes one device, so a node holds the leader or a worker but
+			// not both. Without counting it for the leader, x1 looks able to take both.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+				features.TASLeaderPodSetFeasibility:          true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained:   new(true),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:          map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					podSetGroupName:   new("sameGroup"),
+					count:             1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained:   new(true),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:          map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					podSetGroupName:   new("sameGroup"),
+					count:             1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x1"}}},
+					},
+				},
+			},
 		},
 		"a node advertising a DRA-backed extended resource itself passes the device check": {
 			// x1 publishes the resource through a device plugin and x2 through a
@@ -10403,9 +10476,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
-				simulatorSnapshot := newDefaultSimulatorSnapshot()
+				simulatorSnapshot := newDefaultSimulator()
 				if len(tc.draObjects) > 0 {
-					simulatorSnapshot = simulator.NewDRAChecker(simulatorSnapshot, client, &simulator.CELCache{})
+					simulatorSnapshot = schddra.NewChecker(simulatorSnapshot, client, &schddra.CELCache{})
 				}
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
@@ -10467,12 +10540,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PreviousAssignment: ps.previousAssignment,
 					}
 					if len(ps.draBackedRequests) > 0 {
-						counted := resources.NewRequestsFromMap(ps.requests).Clone()
+						undelegated := resources.NewRequestsFromMap(ps.requests).Clone()
 						names := slices.Sorted(maps.Keys(ps.draBackedRequests))
 						for _, name := range names {
-							counted.Set(name, ps.draBackedRequests[name])
+							undelegated.Set(name, ps.draBackedRequests[name])
 						}
-						tasInput.DRABacked = &DRABackedExtendedResources{Names: names, Counted: counted}
+						tasInput.DRADelegation = &DRADelegation{Resources: names, Undelegated: undelegated}
 					}
 					if ps.podSetGroupName != nil {
 						tasInput.PodSetGroupName = ps.podSetGroupName

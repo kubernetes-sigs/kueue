@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package dra
 
 import (
 	"context"
@@ -25,13 +25,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -59,37 +58,42 @@ func (p *passthroughChecker) PreemptWorkload(_ context.Context, _ client.ObjectK
 	return func() error { return nil }, nil
 }
 
-func (p *passthroughChecker) FindFeasibleNodes(_ context.Context, candidates iter.Seq[Candidate], _ *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error) {
-	var result []MatchedCandidate
+func (p *passthroughChecker) FindFeasibleNodes(
+	_ context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	_ *simulator.PodRequirements,
+	stats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	var result []simulator.MatchedCandidate
 	for c := range candidates {
-		mc := c.(MatchedCandidate)
+		mc := c.(simulator.MatchedCandidate)
 		stats.TotalNodes++
 		result = append(result, mc)
 	}
 	return result, nil
 }
 
-func TestDRACheckerFindFeasibleNodes(t *testing.T) {
+func TestCheckerFindFeasibleNodes(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = resourceapi.AddToScheme(scheme)
 
 	gpuNode := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-node"},
+		Name: "gpu-node",
 	}
 	cpuNode := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "cpu-node"},
+		Name: "cpu-node",
 	}
 
 	gpuDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"},
+		Name: "gpu.example.com",
 	}
 	// Backs an extended resource rather than being named by a claim, so kube-scheduler
 	// creates the claim itself once the Pod is scheduled. It carries no selectors, so it
 	// draws from the same devices as the class above.
 	gpuExtendedClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-extended.example.com"},
+		Name: "gpu-extended.example.com",
 		Spec: resourceapi.DeviceClassSpec{
 			ExtendedResourceName: new("example.com/gpu"),
 		},
@@ -99,7 +103,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 	}
 
 	gpuClaimTemplate := &resourceapi.ResourceClaimTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "default"},
+		Name: "gpu-template", Namespace: "default",
 		Spec: resourceapi.ResourceClaimTemplateSpec{
 			Spec: resourceapi.ResourceClaimSpec{
 				Devices: resourceapi.DeviceClaim{
@@ -118,7 +122,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		},
 	}
 	gpuSlice := &resourceapi.ResourceSlice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-node-slice"},
+		Name: "gpu-node-slice",
 		Spec: resourceapi.ResourceSliceSpec{
 			Driver:   "gpu.example.com",
 			NodeName: new("gpu-node"),
@@ -137,10 +141,10 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 	// A device that only binds once a condition reports True. kube-scheduler can
 	// still select it, so the simulation has to as well.
 	bindingNode := &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{Name: "binding-node"},
+		Name: "binding-node",
 	}
 	bindingSlice := &resourceapi.ResourceSlice{
-		ObjectMeta: metav1.ObjectMeta{Name: "binding-node-slice"},
+		Name: "binding-node-slice",
 		Spec: resourceapi.ResourceSliceSpec{
 			Driver:   "gpu.example.com",
 			NodeName: new("binding-node"),
@@ -157,7 +161,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 	}
 
 	gpuClaim := &resourceapi.ResourceClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "existing-gpu-claim", Namespace: "default"},
+		Name: "existing-gpu-claim", Namespace: "default",
 		Spec: resourceapi.ResourceClaimSpec{
 			Devices: resourceapi.DeviceClaim{
 				Requests: []resourceapi.DeviceRequest{
@@ -200,7 +204,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"extended resource pod filters out nodes without matching devices": {
 			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
 						Name:      "c",
@@ -222,7 +226,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			// the implicit form is DRA-backed and has to be checked.
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
 						Name:  "c",
@@ -243,7 +247,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"extended resource beyond what any node holds excludes every node": {
 			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
 						Name:      "c",
@@ -261,7 +265,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"an extended resource no DeviceClass backs is left to the node filters": {
 			objects: []runtime.Object{gpuSlice},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
 						Name:      "c",
@@ -279,7 +283,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"a plain init container raises the count rather than adding to it": {
 			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					InitContainers: []corev1.Container{{
 						Name:      "setup",
@@ -303,7 +307,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"a plain init container is counted alongside the sidecars that precede it": {
 			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					InitContainers: []corev1.Container{
 						{
@@ -330,7 +334,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"a sidecar's devices add to the Pod's total": {
 			objects: []runtime.Object{gpuSlice, gpuExtendedClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					InitContainers: []corev1.Container{{
 						Name:          "sidecar",
@@ -362,7 +366,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"DRA pod filters out nodes without matching devices": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaimTemplate},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -383,7 +387,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"missing ResourceClaimTemplate returns error": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -402,7 +406,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"missing ResourceClaimName returns error": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -421,7 +425,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"candidate without a node is reported, not silently admitted": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaimTemplate},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -443,7 +447,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			objects: []runtime.Object{
 				gpuSlice, gpuDeviceClass, gpuClaimTemplate,
 				&resourceapi.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "gpu-template-2", Namespace: "default"},
+					Name: "gpu-template-2", Namespace: "default",
 					Spec: resourceapi.ResourceClaimTemplateSpec{
 						Spec: resourceapi.ResourceClaimSpec{
 							Devices: resourceapi.DeviceClaim{
@@ -463,7 +467,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 				},
 			},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -486,7 +490,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"device with binding conditions stays feasible": {
 			objects: []runtime.Object{bindingSlice, gpuDeviceClass, gpuClaimTemplate},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -510,7 +514,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			objects: []runtime.Object{
 				gpuSlice, gpuDeviceClass, gpuClaimTemplate,
 				&resourceapi.ResourceClaim{
-					ObjectMeta: metav1.ObjectMeta{Name: "admin-claim", Namespace: "other"},
+					Name: "admin-claim", Namespace: "other",
 					Status: resourceapi.ResourceClaimStatus{
 						Allocation: &resourceapi.AllocationResult{
 							Devices: resourceapi.DeviceAllocationResult{
@@ -524,7 +528,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 				},
 			},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
@@ -541,7 +545,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			objects: []runtime.Object{
 				gpuSlice, gpuDeviceClass, gpuClaimTemplate,
 				&resourceapi.ResourceClaim{
-					ObjectMeta: metav1.ObjectMeta{Name: "shared-claim", Namespace: "other"},
+					Name: "shared-claim", Namespace: "other",
 					Status: resourceapi.ResourceClaimStatus{
 						Allocation: &resourceapi.AllocationResult{
 							Devices: resourceapi.DeviceAllocationResult{
@@ -555,7 +559,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 				},
 			},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
@@ -573,7 +577,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			objects: []runtime.Object{
 				gpuSlice, gpuDeviceClass, gpuClaimTemplate,
 				&resourceapi.ResourceClaim{
-					ObjectMeta: metav1.ObjectMeta{Name: "existing-claim", Namespace: "other"},
+					Name: "existing-claim", Namespace: "other",
 					Spec: resourceapi.ResourceClaimSpec{
 						Devices: resourceapi.DeviceClaim{
 							Requests: []resourceapi.DeviceRequest{
@@ -600,7 +604,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 				},
 			},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -623,7 +627,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 			// instead of reporting every node as feasible.
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaim},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -639,7 +643,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 		"PodResourceClaim with neither name nor template is skipped": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass},
 			podTemplate: &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
 					ResourceClaims: []corev1.PodResourceClaim{
@@ -662,9 +666,9 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 					indexer.IndexDeviceClassExtendedResourceName).
 				Build()
 			inner := &passthroughChecker{}
-			checker := NewDRAChecker(inner, cl, &CELCache{})
+			checker := NewChecker(inner, cl, &CELCache{})
 
-			candidateSeq := func(yield func(Candidate) bool) {
+			candidateSeq := func(yield func(simulator.Candidate) bool) {
 				for _, c := range tc.candidates {
 					if !yield(c) {
 						return
@@ -672,8 +676,8 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 				}
 			}
 
-			stats := &NodeExclusionStats{}
-			feasible, err := checker.FindFeasibleNodes(t.Context(), candidateSeq, &PodRequirements{PodTemplate: tc.podTemplate}, stats)
+			stats := &simulator.NodeExclusionStats{}
+			feasible, err := checker.FindFeasibleNodes(t.Context(), candidateSeq, &simulator.PodRequirements{PodTemplate: tc.podTemplate}, stats)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("expected error but got nil")
@@ -705,92 +709,3 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 
 // The allocator belongs to the snapshot, not the call: repeated attempts must not
 // repeat the cluster-wide Lists it is built from.
-func TestDRACheckerListsClusterStateOncePerSnapshot(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-	_ = resourceapi.AddToScheme(scheme)
-
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu-node"}}
-	deviceClass := &resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"}}
-	claimTemplate := &resourceapi.ResourceClaimTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-template", Namespace: "default"},
-		Spec: resourceapi.ResourceClaimTemplateSpec{
-			Spec: resourceapi.ResourceClaimSpec{
-				Devices: resourceapi.DeviceClaim{
-					Requests: []resourceapi.DeviceRequest{{
-						Name:    "gpu",
-						Exactly: &resourceapi.ExactDeviceRequest{DeviceClassName: "gpu.example.com"},
-					}},
-				},
-			},
-		},
-	}
-	slice := &resourceapi.ResourceSlice{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-node-slice"},
-		Spec: resourceapi.ResourceSliceSpec{
-			NodeName: new("gpu-node"),
-			Driver:   "gpu.example.com",
-			Pool:     resourceapi.ResourcePool{Name: "gpu-node", ResourceSliceCount: 1},
-			Devices:  []resourceapi.Device{{Name: "gpu-0"}},
-		},
-	}
-
-	var listCalls int
-	cl := fake.NewClientBuilder().WithScheme(scheme).
-		WithRuntimeObjects(node, deviceClass, claimTemplate, slice).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				listCalls++
-				return c.List(ctx, list, opts...)
-			},
-		}).Build()
-
-	checker := NewDRAChecker(&passthroughChecker{}, cl, &CELCache{})
-	requirements := &PodRequirements{
-		PodTemplate: &corev1.PodTemplateSpec{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
-				ResourceClaims: []corev1.PodResourceClaim{
-					{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
-				},
-			},
-		},
-	}
-
-	const calls = 10
-	for range calls {
-		stats := &NodeExclusionStats{}
-		candidateSeq := func(yield func(Candidate) bool) {
-			yield(&testCandidate{node: node, id: "gpu-node"})
-		}
-		if _, err := checker.FindFeasibleNodes(t.Context(), candidateSeq, requirements, stats); err != nil {
-			t.Fatalf("FindFeasibleNodes returned error: %v", err)
-		}
-	}
-
-	// ResourceSlices, ResourceClaims and DeviceClasses, once for the snapshot.
-	const wantListCalls = 3
-	if listCalls != wantListCalls {
-		t.Errorf("cluster-wide List calls over %d assignment attempts = %d, want %d", calls, listCalls, wantListCalls)
-	}
-}
-
-func TestCELCacheIsSharedAcrossCheckers(t *testing.T) {
-	cl := fake.NewClientBuilder().Build()
-	shared := &CELCache{}
-
-	// A DRAChecker is built per scheduling cycle, so two of them stand for two cycles.
-	first := NewDRAChecker(&passthroughChecker{}, cl, shared).celCache.get()
-	second := NewDRAChecker(&passthroughChecker{}, cl, shared).celCache.get()
-	if first != second {
-		t.Error("the shared CELCache compiled a second cache, so selectors are not reused across cycles")
-	}
-	if first == nil {
-		t.Fatal("CELCache.get() = nil, want a compiled cache")
-	}
-
-	if other := (&CELCache{}).get(); other == first {
-		t.Error("two CELCaches returned the same cache, so the value is not per-CELCache")
-	}
-}

@@ -26,7 +26,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -182,17 +181,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 		ginkgo.It("should assign DRA workload only to the node with matching devices", func() {
 			wl := utiltestingapi.MakeWorkload("wl-dra", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "1").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					ResourceClaimTemplate("gpu", "gpu-claim").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
 				Obj()
-			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{
-					Name:                      "gpu",
-					ResourceClaimTemplateName: new("gpu-claim"),
-				},
-			}
-			wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-				Required: ptr.To[string](corev1.LabelHostname),
-			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
@@ -209,12 +203,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 		ginkgo.It("should assign an extended resource workload only to the node with matching devices", func() {
 			wl := utiltestingapi.MakeWorkload("wl-dra-extended", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "1").
-				Request("test.com/gpu", "1").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request("test.com/gpu", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
 				Obj()
-			wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-				Required: ptr.To[string](corev1.LabelHostname),
-			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
@@ -233,12 +227,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			for _, name := range []string{"wl-dra-ext-1", "wl-dra-ext-2"} {
 				wl := utiltestingapi.MakeWorkload(name, ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					Request("test.com/gpu", "1").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
 					Obj()
-				wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-					Required: ptr.To[string](corev1.LabelHostname),
-				}
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 				wls = append(wls, wl)
@@ -253,17 +247,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 		ginkgo.It("should not admit a DRA workload when no node has enough devices", func() {
 			wl := utiltestingapi.MakeWorkload("wl-dra-too-big", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "1").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					ResourceClaimTemplate("gpu", "gpu-claim-too-big").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
 				Obj()
-			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-				{
-					Name:                      "gpu",
-					ResourceClaimTemplateName: new("gpu-claim-too-big"),
-				},
-			}
-			wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-				Required: ptr.To[string](corev1.LabelHostname),
-			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
@@ -283,11 +272,11 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 		ginkgo.It("should admit non-DRA workloads to any node", func() {
 			wl := utiltestingapi.MakeWorkload("wl-no-dra", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Request(corev1.ResourceCPU, "1").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
 				Obj()
-			wl.Spec.PodSets[0].TopologyRequest = &kueue.PodSetTopologyRequest{
-				Required: ptr.To[string](corev1.LabelHostname),
-			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)

@@ -130,7 +130,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			continue
 		}
 		singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpecByName(psa.Name))
-		draBacked := delegateDRABackedExtendedResources(wl.PodSpecByName(psa.Name), cq.DRABackedResources(), singlePodRequests)
+		draDelegation := delegateDRABackedExtendedResources(wl.PodSpecByName(psa.Name), cq.DRABackedResources(), singlePodRequests)
 		tasFlavorSnapshot := cq.TASFlavors[*tasFlavor]
 		for _, domain := range psa.TopologyAssignment.Domains {
 			count := domain.Count - accounted[tas.DomainID(domain.Values)]
@@ -145,16 +145,9 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			if _, ok := result[*tasFlavor]; !ok {
 				result[*tasFlavor] = make(workload.TASFlavorUsage, 0)
 			}
-			// A domain whose nodes publish the resources consumed them, so record what
-			// they took rather than the delegated request.
-			domainRequests := singlePodRequests
-			if draBacked != nil && tasFlavorSnapshot != nil &&
-				tasFlavorSnapshot.DomainAdvertises(tas.DomainID(domain.Values), draBacked.Names) {
-				domainRequests = draBacked.Counted
-			}
 			result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
 				Values:            domain.Values,
-				SinglePodRequests: domainRequests.Clone(),
+				SinglePodRequests: requestsForDomain(singlePodRequests, draDelegation, tasFlavorSnapshot, domain.Values).Clone(),
 				Count:             count,
 			})
 		}

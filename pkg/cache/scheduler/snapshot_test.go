@@ -38,6 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -2271,13 +2272,13 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 // cluster that does not run the scheduler library. Its gate no longer names that one.
 func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 	cases := map[string]struct {
-		simulator      simulator.SchedulingSimulator
+		simulator      simulator.Factory
 		featureEnabled bool
 		wantChecker    bool
 	}{
 		"default simulator, gate on":  {featureEnabled: true, wantChecker: true},
 		"default simulator, gate off": {},
-		"another simulator, gate on":  {simulator: newDefaultSimulator(), featureEnabled: true, wantChecker: true},
+		"another simulator, gate on":  {simulator: newDefaultSimulatorFactory(), featureEnabled: true, wantChecker: true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2287,15 +2288,15 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 
 			opts := []Option{}
 			if tc.simulator != nil {
-				opts = append(opts, WithSchedulingSimulator(tc.simulator))
+				opts = append(opts, WithSimulatorFactory(tc.simulator))
 			}
 			cache := New(utiltesting.NewFakeClient(), opts...)
 			snap, err := cache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("Snapshot() returned error: %v", err)
 			}
-			if _, got := snap.SimulatorSnapshot.(*simulator.DRAChecker); got != tc.wantChecker {
-				t.Errorf("snapshot holds a *simulator.DRAChecker = %v, want %v", got, tc.wantChecker)
+			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
+				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
 			}
 		})
 	}

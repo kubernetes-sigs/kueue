@@ -552,23 +552,12 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 	return string(jsonBytes), nil
 }
 
-// DRABackedExtendedResources is what a PodSet asks for through extended resources a
-// DeviceClass backs. A device plugin can advertise the same name, so TAS counts them on
-// the nodes that publish them and leaves the rest to the per-node device check, as
-// kube-scheduler's noderesources plugin does.
-type DRABackedExtendedResources struct {
-	// Names is what the PodSet requests.
-	Names []corev1.ResourceName
-	// Counted is the single-Pod request with Names kept rather than zeroed.
-	Counted resources.Requests
-}
-
 type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
 	PodSetUpdates     []*kueue.PodSetUpdate
 	SinglePodRequests resources.Requests
-	// DRABacked is nil when the PodSet requests no DRA-backed extended resource.
-	DRABacked       *DRABackedExtendedResources
+	// DRADelegation is nil when the PodSet requests no DRA-backed extended resource.
+	DRADelegation   *DRADelegation
 	Count           int32
 	Flavor          kueue.ResourceFlavorReference
 	Implied         bool
@@ -658,9 +647,8 @@ type tasExclusionStats struct {
 }
 
 type topologyAssignmentPodRequirements struct {
+	podRequests
 	podRequirements           simulator.PodRequirements
-	requests                  resources.Requests
-	draBacked                 *DRABackedExtendedResources
 	leader                    *leaderRequirements
 	assumedUsage              *assumedUsage
 	requiredReplacementDomain utiltas.TopologyDomainID
@@ -669,8 +657,8 @@ type topologyAssignmentPodRequirements struct {
 
 // leaderRequirements is what TAS needs to place the leader Pod of a PodSet group.
 type leaderRequirements struct {
-	// requests covers one leader Pod, its Pod count included.
-	requests resources.Requests
+	// podRequests covers one leader Pod, its Pod count included.
+	podRequests
 	// podRequirements are the leader's own node filters, applied on top of the
 	// workers' when choosing its domain. Nil when TASLeaderPodSetFeasibility is off.
 	podRequirements *simulator.PodRequirements
@@ -1218,18 +1206,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		count: workersTasPodSetRequests.Count,
 		stats: &tasExclusionStats{},
 	}
-	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
-	requirements.requests.Add(resources.OnePodRequest)
-	if draBacked := workersTasPodSetRequests.DRABacked; draBacked != nil {
-		counted := draBacked.Counted.Clone()
-		counted.Add(resources.OnePodRequest)
-		requirements.draBacked = &DRABackedExtendedResources{Names: draBacked.Names, Counted: counted}
-	}
+	requirements.podRequests = newPodRequests(workersTasPodSetRequests)
 
 	if leaderTasPodSetRequests != nil {
-		leaderRequests := leaderTasPodSetRequests.SinglePodRequests.Clone()
-		leaderRequests.Add(resources.OnePodRequest)
-		requirements.leader = &leaderRequirements{requests: leaderRequests}
+		requirements.leader = &leaderRequirements{podRequests: newPodRequests(*leaderTasPodSetRequests)}
 		// PodSet grouping validation requires the leader PodSet to have one replica.
 		state.leaderCount = 1
 	}
@@ -2428,7 +2408,7 @@ func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
 			continue
 		}
 		remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
-		if requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
+		if requirements.leader.forLeaf(leaf).CountIn(remainingCapacity.Get()) > 0 {
 			// podCount stays zero: the domain gains a place for the leader, not room
 			// for workers.
 			s.domainStateOf(&leaf.domain).leaderCount = 1
@@ -2501,24 +2481,6 @@ func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateE
 	return remainingCapacity
 }
 
-// requestsFor is the single-Pod request to count against leaf. DRA-backed extended
-// resources are zeroed in requests so they never decide a domain, but a leaf whose nodes
-// advertise them has real capacity to check, so those are counted there instead.
-func (r *topologyAssignmentPodRequirements) requestsFor(leaf *leafDomain) resources.Requests {
-	if r.draBacked == nil || !leaf.advertisesAll(r.draBacked.Names) {
-		return r.requests
-	}
-	return r.draBacked.Counted
-}
-
-// DomainAdvertises reports whether the domain's nodes publish every one of the resources.
-// A domain above the leaf level, or one the snapshot does not hold, answers false, which
-// leaves the resources to the device check.
-func (s *TASFlavorSnapshot) DomainAdvertises(domainID utiltas.TopologyDomainID, names []corev1.ResourceName) bool {
-	leaf := s.leaves[domainID]
-	return leaf != nil && leaf.advertisesAll(names)
-}
-
 func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
 	// leaf.id contains only the hostname for hostname-level topologies, while
 	// levelValues retain the full domain path needed for this ancestry check.
@@ -2529,7 +2491,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
 	var limitingRes corev1.ResourceName
 	leafDomainState := s.domainStateOf(&leaf.domain)
-	leafDomainState.podCount, limitingRes = requirements.requestsFor(leaf).CountInWithLimitingResource(remainingCapacity.Get())
+	leafDomainState.podCount, limitingRes = requirements.forLeaf(leaf).CountInWithLimitingResource(remainingCapacity.Get())
 
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.
@@ -2542,12 +2504,12 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 
 	leafDomainState.leaderCount = 0
 	if state.leaderFeasibleFor(leaf) &&
-		requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
+		requirements.leader.forLeaf(leaf).CountIn(remainingCapacity.Get()) > 0 {
 		leafDomainState.leaderCount = 1
-		remainingCapacity.Sub(requirements.leader.requests)
+		remainingCapacity.Sub(requirements.leader.forLeaf(leaf))
 	}
 
-	leafDomainState.podCountWithLeader = requirements.requests.CountIn(remainingCapacity.Get())
+	leafDomainState.podCountWithLeader = requirements.forLeaf(leaf).CountIn(remainingCapacity.Get())
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {
