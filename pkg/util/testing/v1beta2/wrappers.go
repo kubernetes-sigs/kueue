@@ -1814,3 +1814,23 @@ func (cpw *ClusterProfileWrapper) ClusterManager(clusterManagerName string) *Clu
 	}
 	return cpw
 }
+
+// ManagedJobsNamespaceSelectorWrapper wraps the LabelSelector configured as
+// managedJobsNamespaceSelector.
+type ManagedJobsNamespaceSelectorWrapper struct {
+	selector metav1.LabelSelector
+}
+
+func MakeManagedJobsNamespaceSelector() *ManagedJobsNamespaceSelectorWrapper {
+	return &ManagedJobsNamespaceSelectorWrapper{}
+}
+
+func (w *ManagedJobsNamespaceSelectorWrapper) MatchExpressions(matchExpressions ...metav1.LabelSelectorRequirement) *ManagedJobsNamespaceSelectorWrapper {
+	w.selector.MatchExpressions = append(w.selector.MatchExpressions, matchExpressions...)
+	return w
+}
+
+// Obj returns the built LabelSelector.
+func (w *ManagedJobsNamespaceSelectorWrapper) Obj() *metav1.LabelSelector {
+	return &w.selector
+}
