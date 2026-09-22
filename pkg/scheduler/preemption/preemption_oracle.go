@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -47,11 +46,8 @@ func (p *PreemptionOracle) SimulatePreemption(
 	fr resources.FlavorResource,
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
-	log := log.FromContext(ctx)
-	candidates := p.preemptor.getTargets(&preemptionCtx{
-		ctx:               ctx,
+	pCtx := &preemptionCtx{
 		clock:             p.preemptor.clock,
-		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
@@ -61,7 +57,8 @@ func (p *PreemptionOracle) SimulatePreemption(
 				Assigned: resources.FlavorResourceQuantities{fr: quantity},
 			},
 		},
-	})
+	}
+	candidates := p.preemptor.getTargets(ctx, p.preemptor.getPreemptionStrategyIterator(ctx, pCtx))
 
 	if len(candidates) == 0 {
 		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
