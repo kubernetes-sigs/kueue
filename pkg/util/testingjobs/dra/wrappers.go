@@ -227,11 +227,9 @@ func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, 
 func (b *ResourceClaimSpecBuilder) WithDeviceConfig(requestName, driver string, parameters []byte) *ResourceClaimSpecBuilder {
 	config := resourcev1.DeviceClaimConfiguration{
 		Requests: []string{requestName},
-		DeviceConfiguration: resourcev1.DeviceConfiguration{
-			Opaque: &resourcev1.OpaqueDeviceConfiguration{
-				Driver:     driver,
-				Parameters: runtime.RawExtension{Raw: parameters},
-			},
+		Opaque: &resourcev1.OpaqueDeviceConfiguration{
+			Driver:     driver,
+			Parameters: runtime.RawExtension{Raw: parameters},
 		},
 	}
 	b.spec.Devices.Config = append(b.spec.Devices.Config, config)
@@ -264,10 +262,8 @@ type ResourceClaimTemplateWrapper struct {
 func MakeResourceClaimTemplate(name, namespace string) *ResourceClaimTemplateWrapper {
 	return &ResourceClaimTemplateWrapper{
 		resourcev1.ResourceClaimTemplate{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
+			Name:      name,
+			Namespace: namespace,
 			Spec: resourcev1.ResourceClaimTemplateSpec{
 				Spec: NewResourceClaimSpecBuilder().Build(),
 			},
@@ -358,11 +354,9 @@ type ResourceClaimWrapper struct{ resourcev1.ResourceClaim }
 func MakeResourceClaim(name, namespace string) *ResourceClaimWrapper {
 	return &ResourceClaimWrapper{
 		resourcev1.ResourceClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: NewResourceClaimSpecBuilder().Build(),
+			Name:      name,
+			Namespace: namespace,
+			Spec:      NewResourceClaimSpecBuilder().Build(),
 		},
 	}
 }
@@ -440,9 +434,7 @@ type ResourceSliceWrapper struct{ resourcev1.ResourceSlice }
 func MakeResourceSlice(name, driver string) *ResourceSliceWrapper {
 	return &ResourceSliceWrapper{
 		resourcev1.ResourceSlice{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
+			Name: name,
 			Spec: resourcev1.ResourceSliceSpec{
 				Driver: driver,
 				Pool: resourcev1.ResourcePool{
