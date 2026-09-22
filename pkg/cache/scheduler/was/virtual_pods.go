@@ -26,7 +26,6 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -96,14 +95,12 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 
 			for range domain.Count {
 				pod := &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:        virtualPodName(wl.Name, string(psa.Name), replicaIdx),
-						Namespace:   wl.Namespace,
-						UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, psa.Name, replicaIdx)),
-						Labels:      maps.Clone(ps.Template.Labels),
-						Annotations: maps.Clone(ps.Template.Annotations),
-					},
-					Spec: *ps.Template.Spec.DeepCopy(),
+					Name:        virtualPodName(wl.Name, string(psa.Name), replicaIdx),
+					Namespace:   wl.Namespace,
+					UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, psa.Name, replicaIdx)),
+					Labels:      maps.Clone(ps.Template.Labels),
+					Annotations: maps.Clone(ps.Template.Annotations),
+					Spec:        *ps.Template.Spec.DeepCopy(),
 					Status: corev1.PodStatus{
 						Phase: corev1.PodRunning,
 					},
