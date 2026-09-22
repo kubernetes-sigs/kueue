@@ -23,6 +23,7 @@ import (
 	"slices"
 
 	"gopkg.in/inf.v0"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -233,4 +234,21 @@ func ParseSpreadingAnnotation(value, defaultJobUID string) (*SpreadingSpec, erro
 	}
 
 	return &spec, nil
+}
+
+// SpreadingAnnotationsAgree reports whether two spreading annotation values
+// describe the same configuration. Identical strings agree even when they are
+// invalid. Annotation validation is separate. Selectors are compared using
+// their compiled string representation.
+func SpreadingAnnotationsAgree(a, b string) bool {
+	if a == b {
+		return true
+	}
+	sa, errA := ParseSpreadingAnnotation(a, "")
+	sb, errB := ParseSpreadingAnnotation(b, "")
+	if errA != nil || errB != nil {
+		return false
+	}
+	return equality.Semantic.DeepEqual(sa.Rules, sb.Rules) &&
+		sa.Selector().String() == sb.Selector().String()
 }
