@@ -389,7 +389,8 @@ func TestApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(t *te
 		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
 		Value:      100,
 	}
-	boomErr := errors.New("boom")
+	wpcBoomErr := errors.New("boom: workload priority class")
+	nsBoomErr := errors.New("boom: namespace")
 
 	cases := map[string]struct {
 		job          client.Object
@@ -456,7 +457,15 @@ func TestApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(t *te
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
 			namespaceSelector:      &unmanagedNsSelector,
 			wantPriorityClassLabel: "",
-			wantErr:                boomErr,
+			wantErr:                wpcBoomErr,
+		},
+		"feature gate enabled, namespace lookup fails": {
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      &unmanagedNsSelector,
+			wantPriorityClassLabel: "",
+			wantErr:                nsBoomErr,
 		},
 	}
 
@@ -470,8 +479,15 @@ func TestApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(t *te
 			}
 			builder = builder.WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC && errors.Is(tc.wantErr, boomErr) {
-						return boomErr
+					switch obj.(type) {
+					case *kueue.WorkloadPriorityClass:
+						if errors.Is(tc.wantErr, wpcBoomErr) {
+							return wpcBoomErr
+						}
+					case *corev1.Namespace:
+						if errors.Is(tc.wantErr, nsBoomErr) {
+							return nsBoomErr
+						}
 					}
 					return cl.Get(ctx, key, obj, opts...)
 				},
