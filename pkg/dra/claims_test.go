@@ -37,11 +37,11 @@ import (
 )
 
 func Test_GetResourceRequests(t *testing.T) {
-	tmpl := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
+	tmpl := testingdra.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
 		DeviceRequest("device-request", "test-deviceclass-1", 2).
 		Obj()
 
-	claim := utiltesting.MakeResourceClaim("claim-2", "ns1").
+	claim := testingdra.MakeResourceClaim("claim-2", "ns1").
 		DeviceRequest("device-request", "test-deviceclass-2", 1).
 		Obj()
 
@@ -132,7 +132,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 			},
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-2", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-2", "ns1").
 					DeviceRequest("device-request", "test-deviceclass-2", 1).
 					Obj(),
 			},
@@ -172,7 +172,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Single template requesting two devices",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-3", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-3", "ns1").
 					DeviceRequest("device-request", "test-deviceclass-1", 2).
 					Obj(),
 			},
@@ -224,7 +224,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "AllocationMode All returns error",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-all", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-all", "ns1").
 					DeviceRequest("device-request", "test-deviceclass-1", 0).
 					AllocationModeAll().
 					Obj(),
@@ -246,7 +246,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "CEL selectors with DeviceClassName counts correctly",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-cel", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
@@ -278,7 +278,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "CEL selectors pre-filtered by DeviceClass selectors",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-filtered", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-cel-filtered", "ns1").
 					DeviceRequest("req", "gpu-class", 1).
 					WithCELSelectors("device.driver == \"gpu-driver\"").
 					Obj(),
@@ -328,7 +328,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "CEL selectors with unsatisfiable expression returns error",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-unsat", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-unsat", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 2).
 					WithCELSelectors("device.driver == \"nonexistent-driver\"").
 					Obj(),
@@ -360,7 +360,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "CEL selectors with insufficient matching devices returns error",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-insuf", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-insuf", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 3).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
@@ -394,7 +394,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			name: "Multi-request CEL selectors do not double-count devices",
 			extraObjects: []runtime.Object{
 				// Two requests each wanting 1 device, but only 1 device exists.
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-multi", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-multi", "ns1").
 					DeviceRequest("req-a", "test-deviceclass-1", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					DeviceRequest("req-b", "test-deviceclass-1", 1).
@@ -428,7 +428,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Invalid CEL selector returns error",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-badcel", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-badcel", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithCELSelectors("this is not valid CEL!!!").
 					Obj(),
@@ -451,7 +451,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Device constraints are pass-through and counted correctly",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-constraints", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-constraints", "ns1").
 					DeviceRequest("gpu-1", "test-deviceclass-1", 1).
 					DeviceRequest("gpu-2", "test-deviceclass-1", 1).
 					WithDeviceConstraints([]string{"gpu-1", "gpu-2"}, "numa-node").
@@ -470,7 +470,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "FirstAvailable returns error",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-first", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-first", "ns1").
 					FirstAvailableRequest("req", "test-deviceclass-1").
 					Obj(),
 			},
@@ -513,7 +513,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "AdminAccess request is skipped with zero quota",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-admin", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithAdminAccess(true).
 					Obj(),
@@ -528,7 +528,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Mixed AdminAccess and normal requests counts only normal",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-mixed", "ns1").
 					DeviceRequest("normal-req", "test-deviceclass-1", 2).
 					DeviceRequest("admin-req", "test-deviceclass-1", 1).
 					WithAdminAccess(true).
@@ -547,7 +547,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "CEL selectors with nonexistent DeviceClass returns error",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-noclass", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-noclass", "ns1").
 					DeviceRequest("req", "nonexistent-class", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
@@ -580,7 +580,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "CEL selectors with empty DeviceClassName succeeds",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nodc", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-nodc", "ns1").
 					DeviceRequest("req", "", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
@@ -607,7 +607,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Device config is pass-through and counted correctly",
 			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-config", "ns1").
+				testingdra.MakeResourceClaimTemplate("claim-tmpl-config", "ns1").
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithDeviceConfig("req", "", nil).
 					Obj(),
