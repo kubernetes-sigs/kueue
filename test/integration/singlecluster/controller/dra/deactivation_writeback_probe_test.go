@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -51,7 +52,7 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 
 		ns = utiltesting.MakeNamespaceWithGenerateName("dra-writeback-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		deviceClass = utiltesting.MakeDeviceClass("gpu-writeback-probe").
+		deviceClass = testingdra.MakeDeviceClass("gpu-writeback-probe").
 			ExtendedResourceName(probeExtResource).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())

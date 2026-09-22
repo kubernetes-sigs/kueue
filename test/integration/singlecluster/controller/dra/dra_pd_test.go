@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -79,16 +80,9 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			migDeviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "mig.example.com",
-				},
-				Spec: resourcev1.DeviceClassSpec{
-					Selectors: []resourcev1.DeviceSelector{
-						{CEL: &resourcev1.CELDeviceSelector{Expression: "device.attributes['gpu.example.com'].type == 'mig'"}},
-					},
-				},
-			}
+			migDeviceClass = testingdra.MakeDeviceClass("mig.example.com").
+				CELSelector("device.attributes['gpu.example.com'].type == 'mig'").
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, migDeviceClass)).To(gomega.Succeed())
 
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("").Obj()
@@ -343,11 +337,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating a DeviceClass for whole GPUs")
-			dc := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			dc := testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())
@@ -507,11 +497,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating a DeviceClass for whole GPUs")
-			dc := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			dc := testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())
@@ -552,14 +538,9 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 			ginkgo.By("Creating a DeviceClass with extendedResourceName and counters mapping")
-			dc := &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu-er-counter.example.com",
-				},
-				Spec: resourcev1.DeviceClassSpec{
-					ExtendedResourceName: new("example.com/gpu-counter"),
-				},
-			}
+			dc := testingdra.MakeDeviceClass("gpu-er-counter.example.com").
+				ExtendedResourceName("example.com/gpu-counter").
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())
