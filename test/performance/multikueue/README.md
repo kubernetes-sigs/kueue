@@ -47,11 +47,13 @@ manager accepts them and then waits for the queue to drain. This workload count 
 of work covered by the clients' initial burst allowances. The 10-minute timeout is a safety bound for a hung run,
 not a performance threshold.
 
-One generator avoids overflowing the freshly started API server's small watch
-buffers with parallel creates. Check that generation remains substantially
-shorter than total admission time when calibrating on the CI worker, so the
-generator does not become the throughput bottleneck. `creationWorkers` is part
-of the scenario checked against the configuration.
+One generator limits pressure on the freshly started API server's small watch
+buffers. On the CI worker, generation takes almost the entire admission
+interval, so this baseline includes a significant generation bottleneck.
+It does not establish maximum MultiKueue admission capacity. A scenario intended
+to measure that capacity must build a sustained backlog, with generation
+substantially shorter than total admission time, and be calibrated separately.
+`creationWorkers` is part of the scenario checked against the configuration.
 
 The summary is written to
 `artifacts/run-performance-multikueue/summary.yaml`.
@@ -115,9 +117,10 @@ retries once in the same way as the scheduler performance tests:
 make test-performance-multikueue
 ```
 
-The committed expectations are initial guardrails for large regressions. They must be
-recalibrated from at least five runs on the dedicated CI worker before TestGrid
-alerting is enabled.
+The committed expectations are broad guardrails for large regressions, based on
+the CI measurements below. Recalibrate from at least five runs on the dedicated
+CI worker when the scenario or CI capacity changes. TestGrid alerting remains
+disabled while the baseline's longer-term variance is assessed.
 
 For this target, the summary is written to
 `artifacts/test-performance-multikueue/run-performance-multikueue/summary.yaml`.
@@ -135,24 +138,44 @@ Results from client-go's implicit 5 QPS and burst 10 measure the bottleneck
 addressed by that issue. Their throughput floor and latency ceilings are not
 comparable with this scenario and must not be reused.
 
-Five consecutive local runs on macOS arm64 with Go 1.26.5 and Kubernetes 1.36.2
-`envtest` assets produced the following results. Both local and remote clients
-used 1,000 QPS and burst, with shared per-worker remote budgets:
+## CI calibration
+
+Seven scheduled runs of `periodic-kueue-test-multikueue-perf-main` from September
+18–21, 2026 produced 14 attempts, including each job's retry. Retries are not
+independent jobs. The runs span six source revisions with the same recorded
+scenario, Linux amd64, Go 1.26.8, `GOMAXPROCS=7`, and CPU/memory requests and limits
+of 7 CPUs and 10 GiB. Every attempt admitted all 1,000 workloads with zero watch
+gaps. Only the original 75 workloads/s floor failed, as reported in
+[issue 15891](https://github.com/kubernetes-sigs/kueue/issues/15891).
+
+The observed ranges cover the
+[first job](https://prow.k8s.io/view/gs/kubernetes-ci-logs/logs/periodic-kueue-test-multikueue-perf-main/2101010794903769088)
+through the
+[seventh job](https://prow.k8s.io/view/gs/kubernetes-ci-logs/logs/periodic-kueue-test-multikueue-perf-main/2102097974023688192):
 
 | Measurement | Observed range |
 |---|---|
-| Throughput | 97.00–102.42 workloads/s |
-| Admission P95 | 5.67–6.47 s |
-| Quota-reservation P95 | 0.15–0.38 s |
-| Generation time | 3.21–4.05 s |
-| Total admission time | 9.76–10.31 s |
-| Watch gaps | 0 in four runs; 1 in one run |
+| Throughput | 44.82–46.75 workloads/s |
+| Admission P95 | 0.60–1.38 s |
+| Quota-reservation P95 | 0.063–0.070 s |
+| Generation time | 20.59–22.05 s |
+| Total admission time | 21.39–22.31 s |
+| Watch gaps | 0 in all attempts |
 
-The provisional floor of 75 workloads/s leaves about 23% headroom below the
-slowest local run. The 15-second admission P95 and 1-second quota-reservation
-P95 ceilings allow additional variance. These are initial regression guards,
-not CI calibration; tighten or revise them from measurements on the dedicated
-worker. No CPU or memory capacity claim follows from these results.
+The floor of 35 workloads/s leaves about 22% headroom below the slowest CI
+attempt, retaining the broad regression margin intended by the original floor.
+The original 75 workloads/s floor was derived from macOS arm64 runs at
+97.00–102.42 workloads/s and did not transfer to this CI environment. The
+15-second admission P95 and 1-second quota-reservation P95 ceilings remain
+unchanged.
+
+Generation occupies 96–99% of the total interval in these CI attempts. Each
+creator waits for a Job write and then its Workload write before starting the
+next pair. The throughput floor therefore guards this end-to-end scenario,
+including generation; controller regressions that remain faster than the
+generator may be hidden. These measurements do not identify the underlying
+host bottleneck or establish a CPU or memory capacity claim. Increasing
+generation concurrency changes the scenario and requires new CI calibration.
 
 ## What bounds the measurement
 
@@ -192,9 +215,10 @@ describe a workload's position in the drain queue rather than the cost of
 dispatching it. They are still useful as a distribution shape and as a
 same-scale comparison between revisions, but they must not be read as
 per-workload service time, and they are only comparable across runs with an
-identical `workloadCount`. In particular, `maxAdmissionP95Ms` in the expectations file
-tracks throughput rather than adding an independent signal; it is kept looser
-than the throughput floor so that throughput stays the binding guard.
+identical `workloadCount`. When generation limits throughput, as in the CI
+baseline above, the latency distribution does not demonstrate a sustained drain
+queue. Interpret `maxAdmissionP95Ms` alongside generation time, total admission
+time, and throughput.
 
 The summary also contains:
 
@@ -241,18 +265,13 @@ Percentiles use the nearest-rank method.
 
 ## Rollout
 
-The raw runner remains observational. The dedicated test target applies broad,
-provisional guardrails, but there is no presubmit, periodic, or alert until a
-job is added and calibrated on stable CI capacity. The intended rollout is:
-
-1. merge the runner and regression-check target in this repository;
-2. add a dedicated non-alerting periodic job in
-   [`kubernetes/test-infra`](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/kueue/kueue-periodics-main.yaml)
-   that invokes `make test-performance-multikueue` and publishes `ARTIFACTS`;
-3. collect at least five runs on that worker and recalibrate the committed
-   throughput and latency ranges;
-4. enable TestGrid alerting only after the variance is shown to be stable;
-5. add worker disconnect/reconnect and dispatcher-specific scenarios.
+The raw runner remains observational. The dedicated periodic job in
+[`kubernetes/test-infra`](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/kueue/kueue-periodics-main.yaml)
+invokes `make test-performance-multikueue` every 12 hours and publishes
+`ARTIFACTS`. It applies the broad guardrails above with notifications disabled.
+Enable TestGrid alerting only after longer-term variance is shown to be stable.
+Worker disconnect/reconnect and dispatcher-specific scenarios remain follow-up
+work.
 
 CPU and memory profiles are also deferred, and the current structure is what
 defers them: all four controller managers run in one process, so a process
