@@ -219,6 +219,9 @@ func fairPreemptionStrategy(
 	}
 }
 
+// iterateWithFirstFsStrategy returns preemption candidates in an order based on
+// the first configured FairSharing strategy,
+// retryCandidates may be used if rule S2-b is configured.
 func iterateWithFirstFsStrategy(
 	log logr.Logger,
 	preemptionCtx *preemptionCtx,
@@ -294,6 +297,8 @@ func iterateWithFirstFsStrategy(
 	return retryCandidates, true
 }
 
+// iterateWithSecondFsStrategy erturns preemption candidates in an order
+// based on the Fair Sharing Rule S2-b.
 func iterateWithSecondFsStrategy(
 	log logr.Logger,
 	preemptionCtx *preemptionCtx,
