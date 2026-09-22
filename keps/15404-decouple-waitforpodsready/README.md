@@ -31,6 +31,7 @@
     - [Explicit Recovery Debounce Configuration (<code>recoveryDebounce</code>)](#explicit-recovery-debounce-configuration-recoverydebounce)
     - [Operator Semantics &amp; Invariants:](#operator-semantics--invariants)
   - [Honest Kubernetes Condition Semantics (<code>LastTransitionTime</code>)](#honest-kubernetes-condition-semantics-lasttransitiontime)
+    - [The Oscillation Loophole (Disclosed Alpha Limitation)](#the-oscillation-loophole-disclosed-alpha-limitation)
   - [Kubernetes Event Emission for Operators](#kubernetes-event-emission-for-operators)
     - [Event Hygiene and Noise Suppression:](#event-hygiene-and-noise-suppression)
     - [Operational Auditability for Reduced-Target Starts:](#operational-auditability-for-reduced-target-starts)
@@ -342,7 +343,7 @@ The two failure directions carry distinct operational consequences:
    `expectedActivePods` is owned exclusively by the managing framework adapter. It is updated whenever the framework reconciles changes in desired pod counts (e.g., initial launch, pod completion, or elastic re-configuration).
 2. **Workload Re-Admission (Preemption $\rightarrow$ Re-Admission Cycle)**:
    When a workload is evicted or preempted (`Admitted = False`), all in-flight pods are terminated. Upon subsequent re-admission (`Admitted = True`), the workload starts a new scheduling cycle from scratch.
-   * **Stale Count Invalidation**: To prevent stale values from a prior partial run (e.g., `count: 2` left over after 6 pods had finished prior to preemption) from corrupting the new run, `PodsReadyController` treats `expectedActivePods` as uninitialized on re-admission, falling back to Level 3 (`ps.count`) until the framework explicitly issues an updated status for the current admission.
+   * **Stale Count Invalidation via Admission Boundary Reset**: To prevent stale values from a prior partial run (e.g., `count: 2` left over after 6 pods had finished prior to preemption) from corrupting the new run, Kueue's core admission controller (`WorkloadController`) explicitly clears `workload.status.expectedActivePods = nil` whenever a workload transitions to un-admitted (`Admitted = False`). Upon subsequent re-admission (`Admitted = True`), the field is physically empty in etcd. Consequently, `PodsReadyController` observes an uninitialized state and naturally falls back to Level 3 (`ps.count`) for the new admission cycle, ensuring full gang readiness is required until the managing framework explicitly publishes fresh active targets for the new execution.
    * **In-Memory Debounce & Deficit State Reset**: Any internal debounce tracking state (including `firstDeficitTime` and pending grace deadlines) is strictly scoped to the workload's current admission cycle (keyed by admission transition timestamp). On preemption or re-admission, all internal deficit timers are cleared, preventing deadlines computed against a prior run's pods from leaking into the new cycle.
 3. **Elastic Scaling & Defensive Clamping**:
    When elastic scaling occurs (e.g., via `ElasticJobUngater` or Workload Slicing) and `spec.podSets[i].count` decreases (e.g., from 10 to 6), a framework could theoretically update the spec but omit or delay updating `expectedActivePods`.
@@ -511,7 +512,7 @@ type WaitForPodsReady struct {
     // preventing transient container restarts or PodGC races from triggering premature recovery timeouts.
     //
     // Defaults to 5s. Defensively clamped at runtime to min(configured, recoveryTimeout/2).
-    // If recoveryTimeout is 0 (disabled) or omitted, recoveryDebounce is also disabled (0s).
+    // An omitted recoveryTimeout defaults to Timeout. If recoveryTimeout is explicitly set to 0 (disabled), recoveryDebounce is also disabled (0s).
     // Must be strictly less than recoveryTimeout if recoveryTimeout is greater than 0.
     // +optional
     RecoveryDebounce *metav1.Duration `json:"recoveryDebounce,omitempty"`
@@ -521,7 +522,7 @@ type WaitForPodsReady struct {
 #### Operator Semantics & Invariants:
 1. **Configurable & Transparent with Defensive Bounding**: While `recoveryDebounce` is an explicit, independently tunable configuration knob (default `5s`), the runtime controller defensively bounds the effective debounce window relative to `recoveryTimeout`:
    $$\text{EffectiveRecoveryDebounce} = \begin{cases}
-   0, & \text{if } \text{recoveryTimeout} = 0 \text{ or nil} \\
+   0, & \text{if } \text{recoveryTimeout} = 0 \\
    \min(\text{configuredDebounce}, \frac{\text{recoveryTimeout}}{2}), & \text{if } \text{recoveryTimeout} > 0
    \end{cases}$$
    This guarantees that on clusters with aggressive recovery requirements (e.g. `recoveryTimeout: 2s`), a default 5s debounce can never dominate or dwarf the operator's recovery window; the effective debounce is automatically clamped to 1s.
@@ -529,7 +530,7 @@ type WaitForPodsReady struct {
    Kueue configuration validation explicitly validates the relationship between durations:
    - `recoveryDebounce` must be non-negative ($\ge 0$).
    - When `recoveryTimeout > 0`, configuring `recoveryDebounce >= recoveryTimeout` is rejected at manager startup with `field.Invalid("must be less than waitForPodsReady.recoveryTimeout")`, surfacing the interaction cleanly to operators rather than silently absorbing it.
-3. **Disabled on `recoveryTimeout = 0`**: If an operator explicitly disables recovery tracking by setting `recoveryTimeout: 0` (or omitting it), `recoveryDebounce` is automatically treated as `0` (disabled). Pod readiness losses do not transition to `WaitForRecovery` or trigger eviction countdowns.
+3. **Defaulting and Disabled on `recoveryTimeout = 0`**: In Kueue configuration defaulting (`defaults.go`), an omitted `recoveryTimeout` automatically defaults to `waitForPodsReady.timeout`, keeping recovery tracking and debounce active. `recoveryDebounce` is treated as `0` (disabled) only when an operator explicitly disables recovery tracking by setting `recoveryTimeout: 0` (or if `waitForPodsReady` is disabled entirely). Pod readiness losses do not transition to `WaitForRecovery` or trigger eviction countdowns when disabled.
 4. **Strictly Asymmetric**: Startup readiness (`WaitForStart` $\rightarrow$ `Started`) has **zero delay**; readiness is asserted immediately the moment live pods reach target. The debounce delay applies *exclusively* to readiness loss (`Started`/`Recovered` $\rightarrow$ `WaitForRecovery`).
 5. **Early Termination on Framework Status Sync**: The debounce timer is an upper bound. The moment a `Workload` status update arrives with reconciled `expectedActivePods` or `reclaimablePods`, the controller reconciles immediately, preserving `Started = True` without waiting out the remainder of the debounce duration.
 6. **Workload-Level Deficit Deadline**: In multi-podSet workloads, deficit is evaluated as a conjunction. The moment any podSet drops below target, an internal timer begins. If pods across all podSets recover and maintain continuous readiness before the debounce window elapses, the deficit clears without any condition flip.
@@ -548,10 +549,12 @@ In strict compliance with Kubernetes API conventions for `metav1.Condition`, `co
   ```
 * **Immediate Recovery Publication (Zero False Evictions)**:
   The moment live ready pods reach target readiness, `PodsReadyController` immediately publishes `Status = True, Reason = WorkloadRecovered` to `Workload.status` in etcd with `LastTransitionTime = metav1.Now()`. `WorkloadController` observes `Status = ConditionTrue` and instantly halts eviction, guaranteeing that healthy workloads are **never falsely evicted**.
-* **The Oscillation Loophole (Disclosed Alpha Limitation)**:
-  Publishing `Recovered` immediately with authentic `LastTransitionTime = metav1.Now()` guarantees zero false evictions for recovering jobs. However, it reopens the eviction evasion loophole for crash-looping workloads: each transition to `Recovered` resets the eviction clock. If a failing workload repeatedly blinks ready for brief intervals before failing again, `clock.Since(LastTransitionTime)` in `WorkloadController` resets on every recovery, preventing non-contiguous deficit time from accumulating toward `recoveryTimeout`.
-  - **Mitigation Limits and Flapping Drivers**: Kubelet exponential `CrashLoopBackOff` (10s–300s) mitigates fast flapping driven by container crashes by rapidly widening crash intervals beyond typical short recovery timeouts ($< 300\text{s}$). Crucially, however, Kubelet backoff strictly governs container restarts; it provides **zero protection against flapping driven by other mechanisms** (e.g. node pressure evictions, external readiness/liveness probe manipulation, or operator rescheduling). Any workload whose readiness flips with an interval just under `recoveryTimeout`—regardless of whether that interval is 10s, 200s, or 10 minutes—can evade eviction indefinitely during Alpha.
-  - **Alpha Scope Rationale**: This is an explicitly accepted Alpha limitation chosen to maintain authentic Kubernetes API conventions rather than fabricating synthetic timestamps or altering `WorkloadController` prematurely. Real-world telemetry in Alpha will determine whether Beta requires an explicit status accumulator field (`workload.status.accumulatedDeficitSeconds`).
+#### The Oscillation Loophole (Disclosed Alpha Limitation)
+
+Publishing `Recovered` immediately with authentic `LastTransitionTime = metav1.Now()` guarantees zero false evictions for recovering jobs. However, it reopens the eviction evasion loophole for crash-looping workloads: each transition to `Recovered` resets the eviction clock. If a failing workload repeatedly blinks ready for brief intervals before failing again, `clock.Since(LastTransitionTime)` in `WorkloadController` resets on every recovery, preventing non-contiguous deficit time from accumulating toward `recoveryTimeout`.
+
+* **Mitigation Limits and Flapping Drivers**: Kubelet exponential `CrashLoopBackOff` (10s–300s) mitigates fast flapping driven by container crashes by rapidly widening crash intervals beyond typical short recovery timeouts ($< 300\text{s}$). Crucially, however, Kubelet backoff strictly governs container restarts; it provides **zero protection against flapping driven by other mechanisms** (e.g. node pressure evictions, external readiness/liveness probe manipulation, or operator rescheduling). Any workload whose readiness flips with an interval just under `recoveryTimeout`—regardless of whether that interval is 10s, 200s, or 10 minutes—can evade eviction indefinitely during Alpha.
+* **Alpha Scope Rationale**: This is an explicitly accepted Alpha limitation chosen to maintain authentic Kubernetes API conventions rather than fabricating synthetic timestamps or altering `WorkloadController` prematurely. Real-world telemetry in Alpha will determine whether Beta requires an explicit status accumulator field (`workload.status.accumulatedDeficitSeconds`).
 
 ### Kubernetes Event Emission for Operators
 
@@ -637,7 +640,7 @@ A critical requirement for metrics parity (Beta graduation criterion) is ensurin
 * **Persisted Sources of Truth & Failover Scoping**:
   * `admittedUntilReadyWaitTime` and `queuedUntilReadyWaitTime`: Derived directly from permanent etcd timestamps (`wl.Status.Conditions[WorkloadAdmitted].LastTransitionTime`, `wl.CreationTimestamp`, or `WorkloadRequeued`) with **zero in-memory accumulator state in controller memory**, guaranteeing identical derivation across leader failover.
   * `recoveryWaitTime`: Measured from the authentic timestamp when the workload entered `WaitForRecovery` (`podsReadyCond.LastTransitionTime`) until sustained `Recovered` readiness is achieved. Because `LastTransitionTime` is persisted in etcd as an authentic `metav1.Time`, an incoming leader after failover reads the exact transition timestamp directly from etcd, ensuring uninterrupted continuity across leader elections.
-* **Exact-Once Emission Across Failover (Startup Metrics)**: If a workload was admitted under the legacy controller and readiness is subsequently reached after failover to `PodsReadyController`, the new leader reads the persisted admission timestamp from the etcd cache and computes the exact elapsed duration. Because emission occurs strictly on the one-time state transition to `WorkloadStarted`, startup wait metrics are emitted **exactly once with complete continuity**.
+* **Best-Effort Metric Continuity Across Failover (Startup Metrics)**: If a workload was admitted under the legacy controller and readiness is subsequently reached after failover to `PodsReadyController`, the incoming leader reads the persisted admission timestamp from etcd and computes the elapsed duration upon the `WorkloadStarted` state transition. Because etcd status updates and Prometheus observations are not transactional, failover during the precise instant of transition represents a standard best-effort metric handoff (at-most-once if the status write committed before failover, or at-least-once if re-reconciled), avoiding heavy transactional state in controller memory while providing continuous observation across leader elections.
 
 #### Flapping Recovery Metric Skew Prevention (Internal-Only Dwell Check)
 
