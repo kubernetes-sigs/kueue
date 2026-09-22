@@ -1581,7 +1581,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 				s.preemptor,
 				preemptionStrategiesFactory,
 				flvAssigner,
-				flvAssigner.AssignFlavors(ctx, log, nextCount...),
+				flvAssigner.AssignFlavors(ctx, log, nextCounts...),
 			); fits {
 				bestPA = &partialAssignment{assignment: assignment, preemptionTargets: targets}
 				return true
@@ -1625,7 +1625,7 @@ func schedule(
 
 	if arm == flavorassigner.Preempt {
 		strategies := preemptionStrategiesFactory(ctx, &assignment)
-		faPreemptionTargets := s.preemptor.GetTargetsWithStrategy(ctx, strategies)
+		faPreemptionTargets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
 			updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, faPreemptionTargets...)
 			resolveNoFit(&assignment, cq)
