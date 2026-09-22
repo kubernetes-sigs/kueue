@@ -23,7 +23,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/go-logr/logr/testr"
+	"k8s.io/klog/v2/ktesting"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -38,16 +38,17 @@ func LogLevelWithDefault(defaultLogLevel int) int {
 }
 
 func NewLogger(t testing.TB) logr.Logger {
-	// Map TEST_LOG_LEVEL to testr verbosity so that lower (more negative)
+	// Map TEST_LOG_LEVEL to the logger verbosity so that lower (more negative)
 	// values increase verbosity consistently with integration/e2e logging.
 	level := LogLevelWithDefault(DefaultLogLevel)
-	// testr expects higher Verbosity for more logs. Our convention is
+	// The logger expects higher Verbosity for more logs. Our convention is
 	// more negative TEST_LOG_LEVEL means more verbose. Translate by negating
 	// the level, so -3 => 3. Positive levels result in negative verbosity
 	// which effectively disables extra V logs.
-	return testr.NewWithInterface(t, testr.Options{
-		Verbosity: -level,
-	})
+	//
+	// ktesting, unlike testr, stops writing to the testing.TB when the test ends,
+	// so a goroutine the test could not join cannot log on a finished one.
+	return ktesting.NewLogger(t, ktesting.NewConfig(ktesting.Verbosity(-level)))
 }
 
 func ContextWithLog(tb testing.TB) (context.Context, logr.Logger) {
