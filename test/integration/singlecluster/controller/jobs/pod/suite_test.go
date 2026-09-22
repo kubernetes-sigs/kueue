@@ -111,7 +111,9 @@ func managerSetup(
 		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
+		cacheOptions := []schdcache.Option{schdcache.WithCustomLabels(customLabels)}
+		cacheOptions = append(cacheOptions, integration.SimulatorFactoryCacheOptions(ctx, mgr.GetConfig())...)
+		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		opts = append(opts, jobframework.WithCache(cCache))
 		managerClient = mgr.GetClient()
 
