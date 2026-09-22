@@ -4853,15 +4853,15 @@ func TestPreemptionMessage(t *testing.T) {
 			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
-			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid"}},
+			preemptor: &kueue.Workload{UID: "uid"},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
-			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			preemptor: &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
-			preemptor:     &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			preemptor:     &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			reason:        kueue.InClusterQueueReason,
 			preemptorPath: "/a",
 			preempteePath: "/b",
@@ -4904,10 +4904,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with priority and positive boost",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(200))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(200))},
 			},
 			wantEffective: 250,
 			wantBase:      200,
@@ -4917,10 +4915,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with priority and negative boost",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 70,
 			wantBase:      100,
@@ -4930,10 +4926,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with invalid boost annotation falls back to zero",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 100,
 			wantBase:      100,
@@ -4943,10 +4937,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with effective priority above int32 max",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(math.MaxInt32))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(math.MaxInt32))},
 			},
 			wantEffective: int64(math.MaxInt32) + 1,
 			wantBase:      math.MaxInt32,
@@ -4956,10 +4948,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "feature disabled: boost annotation ignored",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 100,
 			wantBase:      100,

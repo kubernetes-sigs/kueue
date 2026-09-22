@@ -1181,10 +1181,9 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+			q.AddAfter(reconcile.Request{
 				Namespace: e.Object.GetNamespace(),
-				Name:      e.Object.GetName(),
-			}}, w.eventsBatchPeriod)
+				Name:      e.Object.GetName()}, w.eventsBatchPeriod)
 		},
 	}
 

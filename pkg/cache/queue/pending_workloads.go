@@ -226,6 +226,12 @@ func (p *PendingWorkloads) ForgetInflightFromLocalQueue(lqRef utilqueue.LocalQue
 	}
 }
 
+func (p *PendingWorkloads) hasActive() bool {
+	p.RLock()
+	defer p.RUnlock()
+	return p.active.Len() > 0
+}
+
 func (p *PendingWorkloads) GetInadmissible(key workload.Reference) *workload.Info {
 	p.RLock()
 	defer p.RUnlock()

@@ -28,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -538,10 +537,8 @@ func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 			return
 		}
 		q.AddAfter(reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: pod.Namespace,
-				Name:      controllerRef.Name,
-			},
+			Namespace: pod.Namespace,
+			Name:      controllerRef.Name,
 		}, podBatchPeriod)
 	}
 }

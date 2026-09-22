@@ -64,6 +64,16 @@ func (f *fairSharingIterator) hasNext() bool {
 	return len(f.cqToEntry) > 0
 }
 
+// push adds an entry to the running cycle. pop recomputes DRS for every
+// remaining entry on each call, so the entry is ranked against the state at the
+// next pop and needs no reordering step.
+//
+// The entry's ClusterQueue must not already be in cqToEntry, which holds one
+// entry per ClusterQueue: a second push silently replaces the first.
+func (f *fairSharingIterator) push(e *entry) {
+	f.cqToEntry[e.clusterQueueSnapshot] = e
+}
+
 func (f *fairSharingIterator) pop() *entry {
 	cq := f.getCq()
 

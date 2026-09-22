@@ -25,6 +25,9 @@ kueuectl version
 ```
   # Prints the client version and the kueue controller manager image, if installed
   kueuectl version
+  
+  # Look up the controller manager in a custom install namespace
+  kueuectl version -n kueue
 ```
 
 

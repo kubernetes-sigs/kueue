@@ -410,9 +410,8 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 			}
 			// Production always passes a Workload, and matchingLeavesCache is keyed by
 			// its UID, so omitting it would measure an uncached cluster.
-			wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default", Name: "bench", UID: "bench-uid",
-			}})
+			wl := workload.NewInfo(log, &kueue.Workload{
+				Namespace: "default", Name: "bench", UID: "bench-uid"})
 			result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkloadInfo(wl))
 			if failure := result.Failure(); failure != nil {
 				b.Fatalf("leader feasibility preflight failed: %s", failure.Reason)

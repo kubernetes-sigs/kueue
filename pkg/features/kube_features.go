@@ -83,6 +83,18 @@ const (
 	// every level of the cohort hierarchy.
 	FairSharingPrioritizeNonBorrowing featuregate.Feature = "FairSharingPrioritizeNonBorrowing"
 
+	// owner: @apullo777
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/14596-fair-sharing-refill
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9345
+	//
+	// In fair sharing, when a workload is admitted, pop the next workload
+	// from the same ClusterQueue so it joins the running scheduling cycle
+	// instead of waiting for the next one, bounded by a per-cycle budget. A
+	// refilled workload is only admitted when its assignment mode is Fit; it
+	// never preempts or reserves capacity mid-cycle. The gate has no effect
+	// when waitForPodsReady blocks admission.
+	FairSharingRefill featuregate.Feature = "FairSharingRefill"
+
 	// owner: @trasc
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
 	//
@@ -552,6 +564,15 @@ const (
 
 	// owner: @vladikkuzn
 	//
+	// When an existing PodTemplate at the deterministic name differs from the Kueue-derived
+	// spec, replace it (delete+create) so the ProvisioningRequest never adopts foreign/stale
+	// contents. A recreate that races the still-finalizing delete returns the error and is
+	// retried by the next reconcile with backoff. Disable to reuse the existing PodTemplate
+	// without content validation (previous dangerous behavior).
+	EnforceProvisioningPodTemplateContents featuregate.Feature = "EnforceProvisioningPodTemplateContents"
+
+	// owner: @vladikkuzn
+	//
 	// Rejects Workloads with negative container or pod-level resource requests/limits.
 	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
 
@@ -795,6 +816,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FairSharingPrioritizeNonBorrowing: {
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FairSharingRefill: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueue: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},
@@ -1043,6 +1067,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	VectorizedResourceRequests: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	EnforceProvisioningPodTemplateContents: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	WorkloadValidateResourcesAreNonNegative: {

@@ -113,10 +113,9 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 
 			ginkgo.By("Delete the first job to release the quota", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, firstJob, true)
-				firstWl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+				firstWl := &kueue.Workload{
 					Namespace: firstJob.Namespace,
-					Name:      workloadjob.GetWorkloadNameForJob(firstJob.Name, firstJob.UID),
-				}}
+					Name:      workloadjob.GetWorkloadNameForJob(firstJob.Name, firstJob.UID)}
 				// TODO(#1789): this is no longer needed when we fix the --orphan mode for Jobs
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, firstWl, true)
 			})

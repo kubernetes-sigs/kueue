@@ -38,11 +38,9 @@ type JobWrapper struct{ batchv1.Job }
 // MakeJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeJob(name, ns string) *JobWrapper {
 	return &JobWrapper{batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: batchv1.JobSpec{
 			Parallelism: new(int32(1)),
 			Suspend:     new(true),

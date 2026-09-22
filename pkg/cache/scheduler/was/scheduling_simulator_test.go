@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
@@ -345,6 +347,52 @@ func TestRepeatedSnapshots(t *testing.T) {
 		if _, err := sim.Snapshot(ctx, nil); err != nil {
 			t.Fatalf("Snapshot %d failed: %v", i, err)
 		}
+	}
+}
+
+type afterReturnSink struct {
+	armed *atomic.Bool
+	early *atomic.Int32
+	late  *atomic.Int32
+}
+
+func (s *afterReturnSink) Init(logr.RuntimeInfo) {}
+func (s *afterReturnSink) Enabled(int) bool      { return true }
+func (s *afterReturnSink) Info(int, string, ...any) {
+	if s.armed.Load() {
+		s.late.Add(1)
+	} else {
+		s.early.Add(1)
+	}
+}
+func (s *afterReturnSink) Error(error, string, ...any)    {}
+func (s *afterReturnSink) WithValues(...any) logr.LogSink { return s }
+func (s *afterReturnSink) WithName(string) logr.LogSink   { return s }
+
+// An informer goroutine that outlives Snapshot ends up logging on a finished testing.T.
+func TestSnapshotJoinsInformers(t *testing.T) {
+	var armed atomic.Bool
+	var early, late atomic.Int32
+	ctx := klog.NewContext(t.Context(), logr.New(&afterReturnSink{armed: &armed, early: &early, late: &late}))
+
+	sim, err := NewWASSimulator(ctx, nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulator failed: %v", err)
+	}
+	if _, err := sim.Snapshot(ctx, nil); err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+	armed.Store(true)
+
+	// Without this the test would pass on a sink the informers never reach.
+	if early.Load() == 0 {
+		t.Fatal("Got no log calls during Snapshot, so the sink is not wired to the informers")
+	}
+
+	// An outliving goroutine reaches the sink within a millisecond of the return.
+	time.Sleep(100 * time.Millisecond)
+	if n := late.Load(); n > 0 {
+		t.Errorf("Got %d log calls after Snapshot returned, want 0", n)
 	}
 }
 

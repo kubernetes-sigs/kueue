@@ -1330,7 +1330,7 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 				t.Fatalf("NewReconciler() error: %v", err)
 			}
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}}
+			req := reconcile.Request{Namespace: "ns", Name: "sts"}
 			_, err = reconciler.Reconcile(ctx, req)
 			if err != nil {
 				t.Fatalf("Reconcile() error: %v", err)

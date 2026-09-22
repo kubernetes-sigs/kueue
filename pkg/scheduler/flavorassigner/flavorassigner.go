@@ -27,7 +27,6 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
@@ -1251,7 +1250,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			return status
 		}
 		selector := flavorSelector(&podSpec, flavorLabelKeys)
-		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
+		if match, err := selector.Match(&corev1.Node{Labels: flavor.Spec.NodeLabels}); !match || err != nil {
 			if err != nil {
 				status.err = err
 				return status

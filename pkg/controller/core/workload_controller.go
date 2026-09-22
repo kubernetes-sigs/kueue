@@ -196,21 +196,28 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
-	quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
 
-	var conditionsCleared bool
-	if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		conditionsCleared = true
-	}
+	var conditionsChanged bool
 	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
-		conditionsCleared = true
+		if requeuedCond.Reason == kueue.WorkloadInadmissible {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+			}); err != nil {
+				return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
+			}
+		} else {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
+		}
+		conditionsChanged = true
+	}
+	if quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
+		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		conditionsChanged = true
 	}
 
-	if conditionsCleared {
-		log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
+	if conditionsChanged {
+		log.V(3).Info("Updated previous inadmissible conditions after successful DRA processing")
 	}
 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
@@ -1871,10 +1878,8 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 
 		if h.r.needsDRAReconcile(ctx, wl) {
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      wl.Name,
-					Namespace: wl.Namespace,
-				},
+				Name:      wl.Name,
+				Namespace: wl.Namespace,
 			}
 			q.Add(req)
 			log.V(2).Info("Queued reconcile for DRA workload due to resource update")
@@ -1983,10 +1988,8 @@ func (w *workloadQueueHandler) queueReconcileForWorkloadsOfLocalQueue(ctx contex
 	for _, wl := range lst.Items {
 		log := log.WithValues("workload", klog.KObj(&wl))
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      wl.Name,
-				Namespace: wl.Namespace,
-			},
+			Name:      wl.Name,
+			Namespace: wl.Namespace,
 		}
 		wq.Add(req)
 		log.V(5).Info("Queued reconcile for workload")
@@ -2008,10 +2011,8 @@ func (h *draEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*
 
 func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	reconcileReq := reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      e.Object.Name,
-			Namespace: e.Object.Namespace,
-		},
+		Name:      e.Object.Name,
+		Namespace: e.Object.Namespace,
 	}
 	q.Add(reconcileReq)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Object))
@@ -2096,10 +2097,8 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 				}
 			}
 			q.AddAfter(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      w.Name,
-					Namespace: w.Namespace,
-				},
+				Name:      w.Name,
+				Namespace: w.Namespace,
 			}, time.Second)
 		}
 	}

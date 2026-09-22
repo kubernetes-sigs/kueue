@@ -159,7 +159,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
 		}
 
-		w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object())
+		// The namespace selector was already enforced above, so it is not re-checked here.
+		if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object(), nil); err != nil {
+			return err
+		}
 
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName
 		if suspend {
