@@ -213,6 +213,10 @@ func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	}
 }
 
+// Snapshot returns a point-in-time copy of the ClusterQueue and Cohort trees for
+// one scheduling cycle. Quota is fixed for the snapshot's lifetime while Usage is
+// cloned, so callers can simulate admission and preemption against it without
+// affecting the cache.
 func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snapshot, error) {
 	c.RLock()
 	defer c.RUnlock()

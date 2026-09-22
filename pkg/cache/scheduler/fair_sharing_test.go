@@ -734,7 +734,7 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 		},
 		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
-		// is exact past int64. calculateLendable then aggregates potentialAvailable
+		// is exact past int64. lendableCapacity then aggregates potentialAvailable
 		// and lendable["cpu"] carries the whole of it.
 		// b.PerThousandOf(lr) divides the exact operands and evaluates to a tiny
 		// positive finite number; math.Ceil rounds it up to 1. This test pins that
@@ -934,7 +934,7 @@ func TestSnapshotPrecomputesLendable(t *testing.T) {
 			{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5000),
 		},
 	}})
-	if diff := cmp.Diff(before, calculateLendable(snapshot.Cohort("mid")), cmp.Comparer(resources.Equal)); diff != "" {
+	if diff := cmp.Diff(before, lendableCapacity(snapshot.Cohort("mid")), cmp.Comparer(resources.Equal)); diff != "" {
 		t.Errorf("Lendable changed after a usage change (-before,+after):\n%s", diff)
 	}
 }

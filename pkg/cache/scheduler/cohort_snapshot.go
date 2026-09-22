@@ -32,7 +32,7 @@ type CohortSnapshot struct {
 
 	FairWeight float64
 
-	// lendable holds calculateLendable for this Cohort, precomputed in
+	// lendable holds computeLendable for this Cohort, precomputed in
 	// Cache.Snapshot once the tree is complete. Quota is fixed for a snapshot's
 	// lifetime, because every quota update replaces ResourceNode.SubtreeQuota
 	// with a new map rather than mutating it. Served directly, so callers must

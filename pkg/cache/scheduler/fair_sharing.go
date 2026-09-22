@@ -168,7 +168,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	drs.borrowing = true
 	drs.borrowedFRs = borrowedFRs
 
-	lendable := calculateLendable(node.parentHRN())
+	lendable := lendableCapacity(node.parentHRN())
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
 			ratio := b.PerThousandOf(lr)
@@ -182,21 +182,24 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	return drs
 }
 
-// calculateLendable aggregates capacity for resources across all
+// lendableCapacity aggregates capacity for resources across all
 // FlavorResources.
 //
 // The fair-sharing tournament calls this once per preemption candidate. The
 // result depends only on quota and the Cohort tree, never on usage, which is the
 // only thing the tournament mutates, so snapshot Cohorts serve it from a value
-// precomputed in Cache.Snapshot. Cache Cohorts compute it every time, because
-// their quota changes as objects are reconciled.
-func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
+// precomputed in Cache.Snapshot. Cache Cohorts fall through to computeLendable
+// every time, because their quota changes as objects are reconciled.
+func lendableCapacity(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	if snapshotCohort, ok := node.(*CohortSnapshot); ok && snapshotCohort.lendable != nil {
 		return snapshotCohort.lendable
 	}
 	return computeLendable(node)
 }
 
+// computeLendable derives lendable capacity from the Cohort tree, ignoring any
+// precomputed value. Callers that can accept a cached result should use
+// lendableCapacity instead.
 func computeLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
