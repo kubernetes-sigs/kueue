@@ -264,7 +264,7 @@ func (r *cqReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *k
 	}
 
 	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-	if cmpConditionState(oldCondition, &newCondition) {
+	if isConditionEqual(oldCondition, &newCondition) {
 		return nil
 	}
 
@@ -434,7 +434,7 @@ func (c *cqClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 
 	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
-	if !cmpConditionState(oldActive, newActive) {
+	if !isConditionEqual(oldActive, newActive) {
 		c.reconciler.queueEventsForMKCluster(ctx, newMKC.Name, q)
 	}
 }
