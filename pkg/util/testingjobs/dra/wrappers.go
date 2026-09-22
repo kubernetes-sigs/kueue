@@ -136,6 +136,6 @@ func (d *DeviceRequestWrapper) CapacityRequests(requests map[string]string) *Dev
 // FirstAvailableRequest replaces the exact request with prioritized subrequests.
 func (d *DeviceRequestWrapper) FirstAvailableRequest(subrequests ...resourcev1.DeviceSubRequest) *DeviceRequestWrapper {
 	d.Exactly = nil
-	d.DeviceRequest.FirstAvailable = append(d.DeviceRequest.FirstAvailable, subrequests...)
+	d.FirstAvailable = append(d.FirstAvailable, subrequests...)
 	return d
 }
