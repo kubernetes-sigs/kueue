@@ -158,77 +158,37 @@ as `/`, and the dashboard cannot connect.
 
 #### Without Helm
 
-The `kueueviz.yaml` install ships a separate Ingress per component, on the hosts
-`backend.kueueviz.local` and `frontend.kueueviz.local`. To serve both from one host
-instead, delete those two:
+`kueueviz-single-host.yaml` is the path-routed counterpart of `kueueviz.yaml`. It ships the
+single Ingress in place of the two per-component ones, and leaves the frontend `env.js`
+without a backend URL so the dashboard falls back to the origin that served it:
+
+```bash
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/{{< param "version" >}}/kueueviz-single-host.yaml
+```
+
+The Ingress it creates serves `kueueviz.local`. Point it at your own domain, and add a TLS
+secret if you serve the dashboard over HTTPS:
+
+```bash
+kubectl patch ingress kueue-kueueviz-ingress -n kueue-system --type=json -p '[
+  {"op": "replace", "path": "/spec/rules/0/host", "value": "kueueviz.example.com"},
+  {"op": "add", "path": "/spec/tls", "value": [{"hosts": ["kueueviz.example.com"], "secretName": "kueueviz-tls"}]}
+]'
+```
+
+If you already installed `kueueviz.yaml`, delete the per-component Ingresses it created and
+restart the frontend so it picks up the cleared `env.js`:
 
 ```bash
 kubectl delete ingress kueue-kueueviz-backend-ingress kueue-kueueviz-frontend-ingress \
   -n kueue-system
-```
-
-Then apply an Ingress that routes by path. Do not add `rewrite-target` here either:
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: kueueviz-ingress
-  namespace: kueue-system
-spec:
-  tls:
-    - hosts:
-        - kueueviz.example.com # replace with your domain
-      secretName: kueueviz-tls # you need to create a TLS secret at first
-  rules:
-    - host: kueueviz.example.com
-      http:
-        paths:
-          - path: /ws
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-backend
-                port:
-                  number: 8080
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-backend
-                port:
-                  number: 8080
-          - path: /auth
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-backend
-                port:
-                  number: 8080
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: kueue-kueueviz-frontend
-                port:
-                  number: 8080
-```
-
-Finally, clear the backend URL from the `kueue-kueueviz-frontend-env` ConfigMap so the
-dashboard falls back to the origin that served it:
-
-```yaml
-data:
-  env.js: |
-    window.env = {
-      VITE_WEBSOCKET_URL: "",
-      REACT_APP_WEBSOCKET_URL: ""
-    };
-```
-
-```bash
 kubectl rollout restart deployment kueue-kueueviz-frontend -n kueue-system
 ```
+
+{{% alert title="Note" color="primary" %}}
+Do not add `nginx.ingress.kubernetes.io/rewrite-target` to this Ingress either. Rewriting
+the path sends `/ws/workloads` to the backend as `/`, and the dashboard cannot connect.
+{{% /alert %}}
 
 ### LoadBalancer
 

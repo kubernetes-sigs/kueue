@@ -129,7 +129,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 		dep := depWrapper.Obj()
 		util.MustCreate(ctx, k8sClient, dep)
 
-		rs := &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
+		rs := &appsv1.ReplicaSet{
 			Name:      "dep-abc123",
 			Namespace: ns.Name,
 			OwnerReferences: []metav1.OwnerReference{{
@@ -138,11 +138,10 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 				Name:       dep.Name,
 				UID:        dep.UID,
 				Controller: new(true),
-			}},
-		}, Spec: appsv1.ReplicaSetSpec{
-			Selector: dep.Spec.Selector,
-			Template: dep.Spec.Template,
-		}}
+			}}, Spec: appsv1.ReplicaSetSpec{
+				Selector: dep.Spec.Selector,
+				Template: dep.Spec.Template,
+			}}
 		util.MustCreate(ctx, k8sClient, rs)
 
 		// The Deployment webhook puts these on the pod template; envtest has no

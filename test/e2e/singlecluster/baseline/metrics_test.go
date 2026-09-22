@@ -57,7 +57,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding-" + ns.Name},
+			Name: "metrics-reader-rolebinding-" + ns.Name,
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      "ServiceAccount",

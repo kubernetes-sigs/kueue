@@ -298,7 +298,7 @@ func (r *nodeReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configur
 			mgr.GetCache(),
 			&corev1.Node{},
 			handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, node *corev1.Node) []reconcile.Request {
-				return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: utiltas.NodeHostname(node)}}}
+				return []reconcile.Request{{Name: utiltas.NodeHostname(node)}}
 			}),
 			r,
 		)).
@@ -824,9 +824,7 @@ func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q wor
 	// queue for potential stuck pending pods
 	if len(pod.Spec.NodeName) == 0 && pod.Spec.NodeSelector != nil && len(pod.Spec.NodeSelector[corev1.LabelHostname]) > 0 {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: pod.Spec.NodeSelector[corev1.LabelHostname],
-			},
+			Name: pod.Spec.NodeSelector[corev1.LabelHostname],
 		}
 		q.AddAfter(req, reconcileBatchPeriod)
 	}
@@ -838,9 +836,7 @@ func (h *nodeFailurePodHandler) queueReconcileForPod(object client.Object, q wor
 			hostname = pod.Spec.NodeName
 		}
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: hostname,
-			},
+			Name: hostname,
 		}
 		q.AddAfter(req, reconcileBatchPeriod)
 	}

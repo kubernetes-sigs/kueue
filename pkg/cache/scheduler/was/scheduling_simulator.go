@@ -136,8 +136,13 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (*wasSimu
 		// cannot be shared across snapshots, and the enabled plugins read the snapshot
 		// rather than the informers, so it is not needed once the framework is built.
 		buildCtx, cancelBuild := context.WithCancel(ctx)
-		defer cancelBuild()
 		informerFactory := informers.NewSharedInformerFactory(client, 0)
+		// Without the wait the goroutines outlive the call and keep logging through
+		// the caller's context. Shutdown blocks, so it must follow cancelBuild.
+		defer func() {
+			cancelBuild()
+			informerFactory.Shutdown()
+		}()
 
 		// Register node and pod informers with the factory; sync errors are caught by AsError() below.
 		_ = informerFactory.Core().V1().Nodes().Informer()

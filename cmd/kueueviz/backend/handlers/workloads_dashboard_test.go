@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"kueueviz/middleware"
@@ -159,25 +158,21 @@ func dashboardWorkloadItems(t *testing.T, got any) []workloadResult {
 
 func makeDashboardWorkload(name, namespace, uid, jobUID string) kueueapi.Workload {
 	return kueueapi.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			UID:       types.UID(uid),
-			Labels: map[string]string{
-				"kueue.x-k8s.io/job-uid": jobUID,
-			},
+		Name:      name,
+		Namespace: namespace,
+		UID:       types.UID(uid),
+		Labels: map[string]string{
+			"kueue.x-k8s.io/job-uid": jobUID,
 		},
 	}
 }
 
 func makeDashboardPod(name, namespace, controllerUID string) corev1.Pod {
 	return corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"controller-uid": controllerUID,
-			},
+		Name:      name,
+		Namespace: namespace,
+		Labels: map[string]string{
+			"controller-uid": controllerUID,
 		},
 	}
 }

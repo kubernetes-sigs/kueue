@@ -165,7 +165,7 @@ func (t *topologyTree) addNode(node *corev1.Node) utiltas.TopologyDomainID {
 	}
 	if _, leafFound := t.leaves[domainID]; !leafFound {
 		leaf := &leafDomain{
-			domain:  domain{id: domainID, levelValues: levelValues},
+			id: domainID, levelValues: levelValues,
 			leafIdx: len(t.leaves),
 		}
 		if t.leafIsNode() {

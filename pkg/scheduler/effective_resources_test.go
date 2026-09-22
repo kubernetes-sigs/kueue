@@ -25,7 +25,6 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -67,7 +66,7 @@ func TestAssumeWorkloadPreservesEffectiveResourcesForTAS(t *testing.T) {
 		TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{"host"}).Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node"}}).Obj(),
 	}}}
 	sched := &Scheduler{cache: cache, clock: testingclock.NewFakeClock(time.Now())}
-	e := &entry{Head: qcache.Head{Info: *info}}
+	e := &entry{Info: *info}
 	if _, err := sched.assumeWorkload(ctx, log, e, &schdcache.ClusterQueueSnapshot{}, admission); err != nil {
 		t.Fatal(err)
 	}

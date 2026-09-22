@@ -5230,9 +5230,7 @@ func TestCleanLabels(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			print(tc.labels)
 			pt := &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: tc.labels,
-				},
+				Labels: tc.labels,
 			}
 			cleanLabels(pt)
 			if diff := cmp.Diff(tc.wantLabels, pt.Labels); diff != "" {

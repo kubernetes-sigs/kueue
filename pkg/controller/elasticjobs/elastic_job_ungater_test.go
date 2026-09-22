@@ -1118,7 +1118,7 @@ func TestReconcile(t *testing.T) {
 
 			if len(tc.workloads) == 0 {
 				_, err := ungater.Reconcile(ctx, reconcile.Request{
-					NamespacedName: types.NamespacedName{Name: "missing", Namespace: "ns"},
+					Name: "missing", Namespace: "ns",
 				})
 				if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
