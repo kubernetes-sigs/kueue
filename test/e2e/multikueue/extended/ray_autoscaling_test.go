@@ -18,6 +18,7 @@ package extended
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -87,9 +88,10 @@ func runRayClusterSequentialScaleUpTest(
 	kubernetesClients kubernetesClientsMap,
 ) {
 	const (
-		workerResource = "worker-unit"
-		actorA         = "raycluster-sequential-scale-up-actor-a"
-		actorB         = "raycluster-sequential-scale-up-actor-b"
+		workerResource           = "worker-unit"
+		actorA                   = "raycluster-sequential-scale-up-actor-a"
+		actorB                   = "raycluster-sequential-scale-up-actor-b"
+		autoscalerUpdateInterval = "5"
 	)
 
 	rayCluster := testingraycluster.MakeCluster("raycluster-sequential-scale-up", managerNs.Name).
@@ -97,7 +99,13 @@ func runRayClusterSequentialScaleUpTest(
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
+		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
+			IdleTimeoutSeconds: ptr.To[int32](1),
+			Env: []corev1.EnvVar{{
+				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+				Value: autoscalerUpdateInterval,
+			}},
+		}).
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
@@ -136,6 +144,7 @@ func runRayClusterSequentialScaleUpTest(
 	})
 
 	initialSlice := liveRayWorkloadSlice(gomega.Default, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
+	firstScaleUpStarted := time.Now()
 	ginkgo.By("Creating the first actor so the autoscaler scales from zero to one worker", func() {
 		util.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
@@ -144,7 +153,7 @@ func runRayClusterSequentialScaleUpTest(
 
 	var firstScaleUpSlice *kueue.Workload
 	ginkgo.By("Checking the first scale-up is admitted and exactly one worker runs", func() {
-		firstScaleUpSlice = util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, initialSlice)
+		firstScaleUpSlice = util.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, initialSlice, util.MediumTimeout)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(firstScaleUpSlice), firstScaleUpSlice)).To(gomega.Succeed())
 
@@ -156,7 +165,9 @@ func runRayClusterSequentialScaleUpTest(
 			g.Expect(apimeta.IsStatusConditionTrue(firstScaleUpSlice.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	})
+	ginkgo.By(fmt.Sprintf("Scale-up from zero to one completed in %s with AUTOSCALER_UPDATE_INTERVAL_S=%s", time.Since(firstScaleUpStarted), autoscalerUpdateInterval))
 
+	secondScaleUpStarted := time.Now()
 	ginkgo.By("Creating the second actor so the autoscaler requests a second worker", func() {
 		util.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorB, workerResource,
@@ -164,7 +175,7 @@ func runRayClusterSequentialScaleUpTest(
 	})
 
 	ginkgo.By("Checking the second scale-up is admitted and exactly two workers run", func() {
-		secondScaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, firstScaleUpSlice)
+		secondScaleUpSlice := util.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, firstScaleUpSlice, util.MediumTimeout)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(secondScaleUpSlice), secondScaleUpSlice)).To(gomega.Succeed())
 
@@ -176,6 +187,7 @@ func runRayClusterSequentialScaleUpTest(
 			g.Expect(apimeta.IsStatusConditionTrue(secondScaleUpSlice.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
 		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 	})
+	ginkgo.By(fmt.Sprintf("Scale-up from one to two completed in %s with AUTOSCALER_UPDATE_INTERVAL_S=%s", time.Since(secondScaleUpStarted), autoscalerUpdateInterval))
 }
 
 func runRayJobAutoscalingTest(
