@@ -40,7 +40,6 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -59,17 +58,11 @@ func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.Manager
 		gomega.Expect(podcontroller.SetupIndexes(ctx, mgr.GetFieldIndexer())).To(gomega.Succeed())
 
 		preemptionExpectations := preemptexpectations.New()
-		customLabels := metrics.NewCustomLabels(nil)
-		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
+		cCache := schdcache.New(mgr.GetClient())
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
 			qcache.WithPreemptionExpectations(preemptionExpectations),
-			qcache.WithCustomLabels(customLabels),
 		)
-		opts = append(opts,
-			jobframework.WithCache(cCache),
-			jobframework.WithQueues(queues),
-			jobframework.WithCustomLabels(customLabels),
-		)
+		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 
 		podReconciler, err := podcontroller.NewReconciler(
 			ctx,
@@ -83,7 +76,7 @@ func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.Manager
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, configuration,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations, CustomLabels: customLabels})
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 		gomega.Expect(podcontroller.SetupWebhook(mgr, opts...)).To(gomega.Succeed())

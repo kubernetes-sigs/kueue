@@ -299,43 +299,31 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 // given equivalent registrations to resolve against. The registry is global, so they are
 // registered once for the whole test binary.
 var registerJobUIDParents = sync.OnceValue(func() error {
-	for name, gvk := range map[string]schema.GroupVersionKind{
-		"deployment":  appsv1.SchemeGroupVersion.WithKind("Deployment"),
-		"statefulset": appsv1.SchemeGroupVersion.WithKind("StatefulSet"),
+	for _, parent := range []struct {
+		name    string
+		gvk     schema.GroupVersionKind
+		jobType runtime.Object
+	}{
+		{"deployment", appsv1.SchemeGroupVersion.WithKind("Deployment"), &appsv1.Deployment{}},
+		{"statefulset", appsv1.SchemeGroupVersion.WithKind("StatefulSet"), &appsv1.StatefulSet{}},
 	} {
-		jobType, err := jobUIDParentJobType(gvk)
-		if err != nil {
-			return err
-		}
-		if err := jobframework.RegisterIntegration(name, jobframework.IntegrationCallbacks{
-			GVK:           gvk,
-			JobType:       jobType,
-			NewReconciler: jobframework.NewNoopReconcilerFactory(gvk),
+		if err := jobframework.RegisterIntegration(parent.name, jobframework.IntegrationCallbacks{
+			GVK:           parent.gvk,
+			JobType:       parent.jobType,
+			NewReconciler: jobframework.NewNoopReconcilerFactory(parent.gvk),
 			SetupWebhook:  func(ctrl.Manager, ...jobframework.Option) error { return nil },
 		}); err != nil {
-			return fmt.Errorf("registering %s: %w", name, err)
+			return fmt.Errorf("registering %s: %w", parent.name, err)
 		}
 	}
 	return nil
 })
-
-func jobUIDParentJobType(gvk schema.GroupVersionKind) (runtime.Object, error) {
-	switch gvk.Kind {
-	case "Deployment":
-		return &appsv1.Deployment{}, nil
-	case "StatefulSet":
-		return &appsv1.StatefulSet{}, nil
-	}
-	return nil, fmt.Errorf("no job type for %s", gvk)
-}
 
 func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 	deploymentGVK := appsv1.SchemeGroupVersion.WithKind("Deployment")
 	statefulSetGVK := appsv1.SchemeGroupVersion.WithKind("StatefulSet")
 	replicaSetGVK := appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
 
-	// The pod integration cannot import the parent integrations, so the ancestor walk is
-	// given equivalent registrations to resolve against.
 	if err := registerJobUIDParents(); err != nil {
 		t.Fatalf("registering the parent stand-ins: %v", err)
 	}
@@ -355,6 +343,8 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 		}
 	}
 	deploymentOwner := ownedBy(deploymentGVK, "test-deployment", "deployment-uid")
+	// PodWrapper.OwnerReference derives the reference UID from the name, so a fixture
+	// that should resolve gives the object the same UID as its name.
 	replicaSet := func(name, uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
 		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: "ns", UID: types.UID(uid), OwnerReferences: owners,
@@ -478,7 +468,7 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 		},
 		"replicaset without a deployment owner keeps the pod UID": {
 			pod:          gatedPod().Obj(),
-			ancestors:    []client.Object{replicaSet("test-rs", "rs-uid")},
+			ancestors:    []client.Object{replicaSet("test-rs", "test-rs")},
 			featureGates: gateEnabled,
 			wantJobUID:   "pod-uid",
 		},
