@@ -148,9 +148,7 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 })
 
 // makePreemptionConfig returns a PreemptionConfig with one minimal rule. RBAC is evaluated before
-// validation, so the rule's content does not matter here; it only has to be something the API
-// server accepts and the update assertion can mutate. Kept local because no other package
-// constructs a PreemptionConfig yet.
+// validation, so the rule's content does not matter here;
 func makePreemptionConfig(name string) *kueuealpha.PreemptionConfig {
 	return &kueuealpha.PreemptionConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
