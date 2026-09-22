@@ -91,7 +91,7 @@ func runRayClusterSequentialScaleUpTest(
 		workerResource           = "worker-unit"
 		actorA                   = "raycluster-sequential-scale-up-actor-a"
 		actorB                   = "raycluster-sequential-scale-up-actor-b"
-		autoscalerUpdateInterval = "5"
+		autoscalerUpdateInterval = "1"
 	)
 
 	rayCluster := testingraycluster.MakeCluster("raycluster-sequential-scale-up", managerNs.Name).
