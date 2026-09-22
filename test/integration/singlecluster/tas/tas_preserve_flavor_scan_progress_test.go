@@ -266,6 +266,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 		})
 
 		ginkgo.By("verifying the scheduler attempted flavor 2 and recorded TAS placement failure", func() {
+			// With SchedulerLibraryIntegration the cordoned node stays in the TAS cache and the
+			// scheduler library rejects it, instead of the node being dropped from the cache.
+			wantNote := "no topology domains at level: kubernetes.io/hostname"
+			if features.Enabled(features.SchedulerLibraryIntegration) {
+				wantNote = "excluded: schedulerLibraryNoFit: 1"
+			}
 			gomega.Eventually(func(g gomega.Gomega) {
 				var events []eventsv1.Event
 				var err error
@@ -274,7 +280,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 				g.Expect(events).Should(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", corev1.EventTypeWarning),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
-					gomega.HaveField("Note", gomega.ContainSubstring("no topology domains at level: kubernetes.io/hostname")),
+					gomega.HaveField("Note", gomega.ContainSubstring(wantNote)),
 				)))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
