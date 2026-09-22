@@ -25,6 +25,8 @@ KUEUE_ROOT=$(realpath "${CURRENT_DIR}/../../..")
 KUEUE_PKG="sigs.k8s.io/kueue"
 CODEGEN_PKG=$(cd "${TOOLS_DIR}"; $GO_CMD list -m -mod=readonly -f "{{.Dir}}" k8s.io/code-generator)
 
+# TODO(#15965): remove this wrapper once hack/tools/go.mod is upgraded to
+# k8s.io/code-generator@v0.38.x, which ships golang.org/x/tools >= v0.49.0.
 # kube_codegen.sh installs code-generator tools by cd-ing into k8s.io/code-generator's
 # module directory and running "go install" from there.  That module requires
 # golang.org/x/tools v0.47.0, which cannot type-check Go 1.27's math/rand/v2 because
