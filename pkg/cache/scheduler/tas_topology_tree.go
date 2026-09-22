@@ -246,6 +246,18 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 	parent.children = append(parent.children, dom)
 }
 
+// advertisesAll reports whether the leaf's nodes publish every one of the resources in
+// their allocatable. Capacity is the summed allocatable before any usage, which is what
+// kube-scheduler checks before delegating a resource to DRA.
+func (l *leafDomain) advertisesAll(names []corev1.ResourceName) bool {
+	for _, name := range names {
+		if l.capacity.ResourceValue(name) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (t *topologyTree) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
 	if t.leaves[domainID].capacity == nil {
 		t.leaves[domainID].capacity = resources.NewRequests()

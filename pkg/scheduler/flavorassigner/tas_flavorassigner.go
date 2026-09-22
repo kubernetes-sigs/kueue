@@ -114,7 +114,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	podSet.Template.Spec = *wl.PodSpec(podSetIndex)
 	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
 	singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpec(podSetIndex))
-	delegateDRABackedExtendedResources(wl.PodSpec(podSetIndex), cq.DRABackedResources(), singlePodRequests)
+	draBacked := delegateDRABackedExtendedResources(wl.PodSpec(podSetIndex), cq.DRABackedResources(), singlePodRequests)
 	var podSetUpdates []*kueue.PodSetUpdate
 	for _, ac := range wl.Obj.Status.AdmissionChecks {
 		if ac.State == kueue.CheckStateReady {
@@ -128,6 +128,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	return &schdcache.TASPodSetRequests{
 		Count:              podCount,
 		SinglePodRequests:  singlePodRequests,
+		DRABacked:          draBacked,
 		PodSet:             podSet,
 		PodSetUpdates:      podSetUpdates,
 		Flavor:             *tasFlvr,
@@ -138,23 +139,32 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 }
 
 // delegateDRABackedExtendedResources zeroes the PodSet's DRA-backed extended resources so
-// the domain's capacity does not decide them. Nothing advertises such a resource on a Node,
-// so counting it against node allocatable rejects every domain; the per-node device check
-// answers it instead. kube-scheduler delegates the same way in its noderesources plugin.
-// Without that check the resource stays counted, which keeps the gate-off behaviour.
-func delegateDRABackedExtendedResources(spec *corev1.PodSpec, erCache *dra.ExtendedResourceCache, requests resources.Requests) {
+// a domain's capacity cannot decide them, returning them with the untouched request. A
+// node publishing one through a device plugin has capacity worth counting, so the original
+// survives for those, which is the choice kube-scheduler makes per node in noderesources.
+// Nil when the PodSet asks for none, which keeps the gate-off behaviour.
+func delegateDRABackedExtendedResources(spec *corev1.PodSpec, erCache *dra.ExtendedResourceCache, requests resources.Requests) *schdcache.DRABackedExtendedResources {
 	if !features.Enabled(features.KueueDRADeviceFeasibility) || erCache == nil {
-		return
+		return nil
 	}
+	var names []corev1.ResourceName
 	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
 		for i := range containers {
 			for name, quantity := range containers[i].Resources.Requests {
-				if !quantity.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) {
-					requests.Set(name, 0)
+				if !quantity.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) && !slices.Contains(names, name) {
+					names = append(names, name)
 				}
 			}
 		}
 	}
+	if len(names) == 0 {
+		return nil
+	}
+	counted := requests.Clone()
+	for _, name := range names {
+		requests.Set(name, 0)
+	}
+	return &schdcache.DRABackedExtendedResources{Names: names, Counted: counted}
 }
 
 // podSetGroupName returns ps's PodSetGroupName, or nil if ps has no TopologyRequest.

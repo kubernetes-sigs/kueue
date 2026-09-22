@@ -662,7 +662,7 @@ func TestDRACheckerFindFeasibleNodes(t *testing.T) {
 					indexer.IndexDeviceClassExtendedResourceName).
 				Build()
 			inner := &passthroughChecker{}
-			checker := NewDRAChecker(inner, cl)
+			checker := NewDRAChecker(inner, cl, &CELCache{})
 
 			candidateSeq := func(yield func(Candidate) bool) {
 				for _, c := range tc.candidates {
@@ -745,7 +745,7 @@ func TestDRACheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 			},
 		}).Build()
 
-	checker := NewDRAChecker(&passthroughChecker{}, cl)
+	checker := NewDRAChecker(&passthroughChecker{}, cl, &CELCache{})
 	requirements := &PodRequirements{
 		PodTemplate: &corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "default"},
@@ -773,5 +773,24 @@ func TestDRACheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 	const wantListCalls = 3
 	if listCalls != wantListCalls {
 		t.Errorf("cluster-wide List calls over %d assignment attempts = %d, want %d", calls, listCalls, wantListCalls)
+	}
+}
+
+func TestCELCacheIsSharedAcrossCheckers(t *testing.T) {
+	cl := fake.NewClientBuilder().Build()
+	shared := &CELCache{}
+
+	// A DRAChecker is built per scheduling cycle, so two of them stand for two cycles.
+	first := NewDRAChecker(&passthroughChecker{}, cl, shared).celCache.get()
+	second := NewDRAChecker(&passthroughChecker{}, cl, shared).celCache.get()
+	if first != second {
+		t.Error("the shared CELCache compiled a second cache, so selectors are not reused across cycles")
+	}
+	if first == nil {
+		t.Fatal("CELCache.get() = nil, want a compiled cache")
+	}
+
+	if other := (&CELCache{}).get(); other == first {
+		t.Error("two CELCaches returned the same cache, so the value is not per-CELCache")
 	}
 }

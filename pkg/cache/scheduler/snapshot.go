@@ -241,7 +241,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		// Wrapping here rather than inside a simulator keeps the device check on
 		// whichever one is configured, so it does not depend on the scheduler library.
 		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			snap.SimulatorSnapshot = simulator.NewDRAChecker(snap.SimulatorSnapshot, c.client)
+			snap.SimulatorSnapshot = simulator.NewDRAChecker(snap.SimulatorSnapshot, c.client, &c.draCELCache)
 		}
 	}
 

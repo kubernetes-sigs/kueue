@@ -552,14 +552,27 @@ func (s *TASFlavorSnapshot) SerializeFreeCapacityPerDomain() (string, error) {
 	return string(jsonBytes), nil
 }
 
+// DRABackedExtendedResources is what a PodSet asks for through extended resources a
+// DeviceClass backs. A device plugin can advertise the same name, so TAS counts them on
+// the nodes that publish them and leaves the rest to the per-node device check, as
+// kube-scheduler's noderesources plugin does.
+type DRABackedExtendedResources struct {
+	// Names is what the PodSet requests.
+	Names []corev1.ResourceName
+	// Counted is the single-Pod request with Names kept rather than zeroed.
+	Counted resources.Requests
+}
+
 type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
 	PodSetUpdates     []*kueue.PodSetUpdate
 	SinglePodRequests resources.Requests
-	Count             int32
-	Flavor            kueue.ResourceFlavorReference
-	Implied           bool
-	PodSetGroupName   *string
+	// DRABacked is nil when the PodSet requests no DRA-backed extended resource.
+	DRABacked       *DRABackedExtendedResources
+	Count           int32
+	Flavor          kueue.ResourceFlavorReference
+	Implied         bool
+	PodSetGroupName *string
 	// PreviousAssignment holds the topology assignment from a workload slice
 	// that this workload is replacing.
 	PreviousAssignment *kueue.TopologyAssignment
@@ -647,6 +660,7 @@ type tasExclusionStats struct {
 type topologyAssignmentPodRequirements struct {
 	podRequirements           simulator.PodRequirements
 	requests                  resources.Requests
+	draBacked                 *DRABackedExtendedResources
 	leader                    *leaderRequirements
 	assumedUsage              *assumedUsage
 	requiredReplacementDomain utiltas.TopologyDomainID
@@ -1206,6 +1220,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
 	requirements.requests.Add(resources.OnePodRequest)
+	if draBacked := workersTasPodSetRequests.DRABacked; draBacked != nil {
+		counted := draBacked.Counted.Clone()
+		counted.Add(resources.OnePodRequest)
+		requirements.draBacked = &DRABackedExtendedResources{Names: draBacked.Names, Counted: counted}
+	}
 
 	if leaderTasPodSetRequests != nil {
 		leaderRequests := leaderTasPodSetRequests.SinglePodRequests.Clone()
@@ -2482,6 +2501,24 @@ func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateE
 	return remainingCapacity
 }
 
+// requestsFor is the single-Pod request to count against leaf. DRA-backed extended
+// resources are zeroed in requests so they never decide a domain, but a leaf whose nodes
+// advertise them has real capacity to check, so those are counted there instead.
+func (r *topologyAssignmentPodRequirements) requestsFor(leaf *leafDomain) resources.Requests {
+	if r.draBacked == nil || !leaf.advertisesAll(r.draBacked.Names) {
+		return r.requests
+	}
+	return r.draBacked.Counted
+}
+
+// DomainAdvertises reports whether the domain's nodes publish every one of the resources.
+// A domain above the leaf level, or one the snapshot does not hold, answers false, which
+// leaves the resources to the device check.
+func (s *TASFlavorSnapshot) DomainAdvertises(domainID utiltas.TopologyDomainID, names []corev1.ResourceName) bool {
+	leaf := s.leaves[domainID]
+	return leaf != nil && leaf.advertisesAll(names)
+}
+
 func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
 	// leaf.id contains only the hostname for hostname-level topologies, while
 	// levelValues retain the full domain path needed for this ancestry check.
@@ -2492,7 +2529,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
 	var limitingRes corev1.ResourceName
 	leafDomainState := s.domainStateOf(&leaf.domain)
-	leafDomainState.podCount, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity.Get())
+	leafDomainState.podCount, limitingRes = requirements.requestsFor(leaf).CountInWithLimitingResource(remainingCapacity.Get())
 
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.

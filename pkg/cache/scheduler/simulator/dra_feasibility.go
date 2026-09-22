@@ -33,7 +33,6 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	dracel "k8s.io/dynamic-resource-allocation/cel"
 	"k8s.io/dynamic-resource-allocation/structured"
-	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/dynamicresources"
 	schedulerfeature "k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
 	"k8s.io/utils/ptr"
@@ -51,23 +50,41 @@ import (
 type DRAChecker struct {
 	inner     SimulatorSnapshot
 	cl        client.Client
-	celCache  *dracel.Cache
+	celCache  *CELCache
 	allocator lazyAllocator
 }
 
-func NewDRAChecker(inner SimulatorSnapshot, cl client.Client) *DRAChecker {
+// NewDRAChecker wraps inner with the device check. Pass the scheduler cache's CELCache
+// rather than a fresh one: it only pays off by outliving the snapshot.
+func NewDRAChecker(inner SimulatorSnapshot, cl client.Client, celCache *CELCache) *DRAChecker {
 	c := &DRAChecker{
-		inner: inner,
-		cl:    cl,
-		// The cache size matches the one kube-scheduler's dynamicresources
-		// plugin uses, so identical selectors cost the same on both sides.
-		celCache: dracel.NewCache(10, dracel.Features{
-			EnableConsumableCapacity: utilfeature.DefaultFeatureGate.Enabled(kubefeatures.DRAConsumableCapacity),
-			EnableListTypeAttributes: utilfeature.DefaultFeatureGate.Enabled(kubefeatures.DRAListTypeAttributes),
-		}),
+		inner:    inner,
+		cl:       cl,
+		celCache: celCache,
 	}
 	c.allocator.build = c.buildAllocator
 	return c
+}
+
+// CELCache holds the compiled device selectors, keyed by the expression, so one survives
+// the DRAChecker that compiled it and is compiled once for the process rather than once
+// per scheduling cycle. The zero value is ready to use and safe to share.
+type CELCache struct {
+	once  sync.Once
+	value *dracel.Cache
+}
+
+func (c *CELCache) get() *dracel.Cache {
+	c.once.Do(func() {
+		// Read on first use, not at construction, so the gates are parsed by now.
+		fts := schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate)
+		// The same size kube-scheduler's dynamicresources plugin uses.
+		c.value = dracel.NewCache(10, dracel.Features{
+			EnableConsumableCapacity: fts.EnableDRAConsumableCapacity,
+			EnableListTypeAttributes: fts.EnableDRAListTypeAttributes,
+		})
+	})
+	return c.value
 }
 
 // lazyAllocator builds the snapshot's allocator on first use. A Pod's claims go to
@@ -117,11 +134,11 @@ func (c *DRAChecker) FindFeasibleNodes(
 
 	// The claims belong to the Workload rather than the cluster, so unlike the
 	// allocator they are resolved on every call.
-	claims, err := c.podClaims(ctx, requirements.PodTemplate)
+	claims, err := c.newResourceClaimsForPod(ctx, requirements.PodTemplate)
 	if err != nil {
 		return nil, err
 	}
-	if len(claims) == 0 {
+	if claims.isEmpty() {
 		return feasible, nil
 	}
 
@@ -133,18 +150,49 @@ func (c *DRAChecker) FindFeasibleNodes(
 	return c.filterByDevices(ctx, feasible, allocator, claims, stats)
 }
 
-// podClaims is every ResourceClaim the Pod will hold on a node: the ones its PodSet names,
-// and the one kube-scheduler creates for DRA-backed extended resources.
-func (c *DRAChecker) podClaims(ctx context.Context, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, error) {
-	claims, err := buildSyntheticClaims(ctx, c.cl, podTemplate.Namespace, podTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("building synthetic DRA claims: %w", err)
+// resourceClaimsForPod is every ResourceClaim the Pod will hold on a node: the ones its
+// PodSet names, and the one kube-scheduler creates for DRA-backed extended resources.
+type resourceClaimsForPod struct {
+	all []*resourceapi.ResourceClaim
+	// exceptExtended drops the extended resource claim, and extendedNames is what that
+	// claim covers. A node publishing all of them supplies them itself.
+	exceptExtended []*resourceapi.ResourceClaim
+	extendedNames  []corev1.ResourceName
+}
+
+func (r resourceClaimsForPod) isEmpty() bool {
+	return len(r.all) == 0
+}
+
+// forNode is what to allocate on node. A DRA-backed extended resource the node advertises
+// is served from its allocatable rather than from a device, so the synthesized claim is
+// dropped there, which is how kube-scheduler's noderesources plugin decides per node.
+func (r resourceClaimsForPod) forNode(node *corev1.Node) []*resourceapi.ResourceClaim {
+	if len(r.extendedNames) == 0 {
+		return r.all
 	}
-	extended, err := buildExtendedResourceClaims(ctx, c.cl, podTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("building extended resource DRA claims: %w", err)
+	for _, name := range r.extendedNames {
+		if quantity, ok := node.Status.Allocatable[name]; !ok || quantity.IsZero() {
+			return r.all
+		}
 	}
-	return append(claims, extended...), nil
+	return r.exceptExtended
+}
+
+func (c *DRAChecker) newResourceClaimsForPod(ctx context.Context, podTemplate *corev1.PodTemplateSpec) (resourceClaimsForPod, error) {
+	claims, err := newResourceClaimsForPodResourceClaims(ctx, c.cl, podTemplate.Namespace, podTemplate.Spec.ResourceClaims)
+	if err != nil {
+		return resourceClaimsForPod{}, fmt.Errorf("building synthetic DRA claims: %w", err)
+	}
+	extended, extendedNames, err := newResourceClaimsForExtendedResources(ctx, c.cl, podTemplate)
+	if err != nil {
+		return resourceClaimsForPod{}, fmt.Errorf("building extended resource DRA claims: %w", err)
+	}
+	return resourceClaimsForPod{
+		all:            append(slices.Clone(claims), extended...),
+		exceptExtended: claims,
+		extendedNames:  extendedNames,
+	}, nil
 }
 
 func (c *DRAChecker) buildAllocator(ctx context.Context) (structured.Allocator, error) {
@@ -157,7 +205,13 @@ func (c *DRAChecker) buildAllocator(ctx context.Context) (structured.Allocator, 
 		deviceSlices[i] = &sliceList.Items[i]
 	}
 
-	allocatedState, err := buildAllocatedState(ctx, c.cl)
+	// Configured from the Kubernetes DRA gates rather than the Kueue ones, by the same
+	// call kube-scheduler makes, so the two allocators stay in step.
+	draFeatures := dynamicresources.AllocatorFeatures(schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate))
+
+	// The allocated state is read with the allocator's own setting rather than the gate, so
+	// the two cannot disagree on whether a shared device is partly or wholly consumed.
+	allocatedState, err := buildAllocatedState(ctx, c.cl, draFeatures.ConsumableCapacity)
 	if err != nil {
 		return nil, fmt.Errorf("building allocated device state: %w", err)
 	}
@@ -167,10 +221,7 @@ func (c *DRAChecker) buildAllocator(ctx context.Context) (structured.Allocator, 
 		return nil, fmt.Errorf("listing DeviceClasses: %w", err)
 	}
 
-	// Configured from the Kubernetes DRA gates rather than the Kueue ones, by the same
-	// call kube-scheduler makes, so the two allocators stay in step.
-	draFeatures := dynamicresources.AllocatorFeatures(schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate))
-	allocator, err := structured.NewAllocator(ctx, draFeatures, allocatedState, classLister, deviceSlices, c.celCache)
+	allocator, err := structured.NewAllocator(ctx, draFeatures, allocatedState, classLister, deviceSlices, c.celCache.get())
 	if err != nil {
 		return nil, fmt.Errorf("creating DRA allocator: %w", err)
 	}
@@ -181,7 +232,7 @@ func (c *DRAChecker) filterByDevices(
 	ctx context.Context,
 	feasible []MatchedCandidate,
 	allocator structured.Allocator,
-	claims []*resourceapi.ResourceClaim,
+	claims resourceClaimsForPod,
 	stats *NodeExclusionStats,
 ) ([]MatchedCandidate, error) {
 	logger := log.FromContext(ctx)
@@ -194,7 +245,7 @@ func (c *DRAChecker) filterByDevices(
 			return nil, errors.New("candidate has no node, cannot evaluate DRA claims")
 		}
 
-		results, err := allocator.Allocate(ctx, node, claims)
+		results, err := allocator.Allocate(ctx, node, claims.forNode(node))
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -217,9 +268,9 @@ func (c *DRAChecker) filterByDevices(
 	return draFeasible, nil
 }
 
-func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace string, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, error) {
+func newResourceClaimsForPodResourceClaims(ctx context.Context, cl client.Client, namespace string, resourceClaims []corev1.PodResourceClaim) ([]*resourceapi.ResourceClaim, error) {
 	var claims []*resourceapi.ResourceClaim
-	for _, prc := range podTemplate.Spec.ResourceClaims {
+	for _, prc := range resourceClaims {
 		spec, err := resolveClaimSpec(ctx, cl, namespace, prc)
 		if err != nil {
 			return nil, fmt.Errorf("resolving claim %q: %w", prc.Name, err)
@@ -238,30 +289,32 @@ func buildSyntheticClaims(ctx context.Context, cl client.Client, namespace strin
 	return claims, nil
 }
 
-// buildExtendedResourceClaims builds the claim kube-scheduler creates for a Pod's
-// DRA-backed extended resources, which does not exist yet when Kueue admits. One request
-// per DeviceClass carries the Pod's total, since without selectors only the total decides
-// whether a node fits.
-func buildExtendedResourceClaims(ctx context.Context, cl client.Client, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, error) {
+// newResourceClaimsForExtendedResources builds the claim kube-scheduler creates for a Pod's
+// DRA-backed extended resources, which does not exist yet when Kueue admits, along with
+// the resources it covers. One request per DeviceClass carries the Pod's total, since
+// without selectors only the total decides whether a node fits.
+func newResourceClaimsForExtendedResources(ctx context.Context, cl client.Client, podTemplate *corev1.PodTemplateSpec) ([]*resourceapi.ResourceClaim, []corev1.ResourceName, error) {
 	if !features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if !requestsExtendedResource(&podTemplate.Spec) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	totals := extendedResourceTotals(&podTemplate.Spec)
 
 	var requests []resourceapi.DeviceRequest
+	var names []corev1.ResourceName
 	// Sorted so the synthesized claim does not vary between calls.
 	for _, resourceName := range slices.Sorted(maps.Keys(totals)) {
 		deviceClass, err := dra.ResolveDeviceClass(ctx, cl, resourceName)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if deviceClass == nil {
 			// A device plugin advertises it, so the node filters already cover it.
 			continue
 		}
+		names = append(names, resourceName)
 		requests = append(requests, resourceapi.DeviceRequest{
 			Name: fmt.Sprintf("request-%d", len(requests)),
 			Exactly: &resourceapi.ExactDeviceRequest{
@@ -272,7 +325,7 @@ func buildExtendedResourceClaims(ctx context.Context, cl client.Client, podTempl
 		})
 	}
 	if len(requests) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	return []*resourceapi.ResourceClaim{{
@@ -283,7 +336,7 @@ func buildExtendedResourceClaims(ctx context.Context, cl client.Client, podTempl
 		Spec: resourceapi.ResourceClaimSpec{
 			Devices: resourceapi.DeviceClaim{Requests: requests},
 		},
-	}}, nil
+	}}, names, nil
 }
 
 // requestsExtendedResource reports whether the Pod asks for any extended resource. Most
@@ -347,19 +400,17 @@ func resolveClaimSpec(ctx context.Context, cl client.Client, namespace string, p
 	}
 }
 
-func buildAllocatedState(ctx context.Context, cl client.Client) (structured.AllocatedState, error) {
+func buildAllocatedState(ctx context.Context, cl client.Client, consumableCapacity bool) (structured.AllocatedState, error) {
 	allocatedDevices := sets.New[structured.DeviceID]()
 	allocatedSharedDeviceIDs := sets.New[structured.SharedDeviceID]()
 	aggregatedCapacity := structured.NewConsumedCapacityCollection()
-	enabledCC := utilfeature.DefaultFeatureGate.Enabled(kubefeatures.DRAConsumableCapacity)
-
-	var claimList resourceapi.ResourceClaimList
-	if err := cl.List(ctx, &claimList); err != nil {
+	var claims resourceapi.ResourceClaimList
+	if err := cl.List(ctx, &claims); err != nil {
 		return structured.AllocatedState{}, fmt.Errorf("listing ResourceClaims: %w", err)
 	}
 
-	for i := range claimList.Items {
-		claim := &claimList.Items[i]
+	for i := range claims.Items {
+		claim := &claims.Items[i]
 		if claim.Status.Allocation == nil {
 			continue
 		}
@@ -368,7 +419,7 @@ func buildAllocatedState(ctx context.Context, cl client.Client) (structured.Allo
 				continue
 			}
 			deviceID := structured.MakeDeviceID(result.Driver, result.Pool, result.Device)
-			if enabledCC && result.ShareID != nil {
+			if consumableCapacity && result.ShareID != nil {
 				sharedID := structured.MakeSharedDeviceID(deviceID, result.ShareID)
 				allocatedSharedDeviceIDs.Insert(sharedID)
 				if result.ConsumedCapacity != nil {
@@ -397,16 +448,16 @@ type deviceClassCache struct {
 }
 
 func newDeviceClassCache(ctx context.Context, cl client.Client) (*deviceClassCache, error) {
-	var list resourceapi.DeviceClassList
-	if err := cl.List(ctx, &list); err != nil {
+	var deviceClasses resourceapi.DeviceClassList
+	if err := cl.List(ctx, &deviceClasses); err != nil {
 		return nil, err
 	}
 	cache := &deviceClassCache{
-		all:    make([]*resourceapi.DeviceClass, len(list.Items)),
-		byName: make(map[string]*resourceapi.DeviceClass, len(list.Items)),
+		all:    make([]*resourceapi.DeviceClass, len(deviceClasses.Items)),
+		byName: make(map[string]*resourceapi.DeviceClass, len(deviceClasses.Items)),
 	}
-	for i := range list.Items {
-		dc := &list.Items[i]
+	for i := range deviceClasses.Items {
+		dc := &deviceClasses.Items[i]
 		cache.all[i] = dc
 		cache.byName[dc.Name] = dc
 	}

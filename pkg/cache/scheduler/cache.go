@@ -156,6 +156,7 @@ type Cache struct {
 
 	client                 client.Client
 	draBackedResources     *dra.ExtendedResourceCache
+	draCELCache            simulator.CELCache
 	resourceFlavors        map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking      bool
 	admissionChecks        map[kueue.AdmissionCheckReference]AdmissionCheck
