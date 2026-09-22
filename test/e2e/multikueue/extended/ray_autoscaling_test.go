@@ -97,7 +97,13 @@ func runRayClusterSequentialScaleUpTest(
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
+		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
+			IdleTimeoutSeconds: ptr.To[int32](1),
+			Env: []corev1.EnvVar{{
+				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+				Value: "1",
+			}},
+		}).
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
