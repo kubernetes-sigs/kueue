@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -192,12 +193,24 @@ func fairPreemptionStrategy(
 			// the same strategy again with remaining candidates as they have chance to
 			// succeed now.
 			// No need to run the strategy a third time as first run already iterated
-			// though whole tree and removed all the preemptor's workloads.		
+			// though whole tree and removed all the preemptor's workloads.
 			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], wrapperYield)
 		}
 
 		if cont && len(fsStrategies) > 1 {
-			iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, wrapperYield)
+			if logV := log.V(6); logV.Enabled() {
+				logV.Info("First fair sharing strategy failed, trying second strategy",
+					"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+					"targets", logging.GetObjectReferences(yieldedCandidates),
+					"retryCandidates", workload.References(candidateWls))
+			}
+			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, wrapperYield)
+		}
+
+		if logV := log.V(6); cont && logV.Enabled() {
+			logV.Info("All fair sharing candidates exhausted",
+				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(yieldedCandidates))
 		}
 	}
 
@@ -286,7 +299,7 @@ func iterateWithSecondFsStrategy(
 	preemptionCtx *preemptionCtx,
 	retryCandidates []*workload.Info,
 	yield func(*Target) bool,
-) {
+) bool {
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
@@ -306,11 +319,12 @@ func iterateWithSecondFsStrategy(
 		if passed {
 			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			if !yield(&Target{candWl, kueue.InCohortFairSharingReason, candCQ.GetTargetCq()}) {
-				return
+				return false
 			}
 		}
 		// There doesn't seem to be an scenario where
 		// it's possible to apply rule S2-b more than once in a CQ.
 		ordering.DropQueue(candCQ)
 	}
+	return true
 }
