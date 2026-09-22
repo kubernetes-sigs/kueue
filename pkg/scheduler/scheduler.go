@@ -1482,7 +1482,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		wl.FlavorScanState = nil
 	}
 
-	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
 	preemptionStrategiesFactory := s.preemptor.GetPreemptionStrategyFactory(*wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
@@ -1510,7 +1510,6 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	assignment, targets, fits := schedulingSimulator.Schedule(
 		ctx,
 		flvAssigner.AssignFlavors(ctx, log, nil),
-		preemptionTargets,
 	)
 
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
@@ -1519,7 +1518,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		var bestPA *partialAssignment
 		fitsFn := func(nextCounts []int32) bool {
 			if assignment, targets, fits := schedulingSimulator.Schedule(
-				ctx, flvAssigner.AssignFlavors(ctx, log, nextCounts), preemptionTargets,
+				ctx, flvAssigner.AssignFlavors(ctx, log, nextCounts),
 			); fits {
 				bestPA = &partialAssignment{assignment: assignment, preemptionTargets: targets}
 				return true
@@ -1530,8 +1529,13 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		// Only an admitted predecessor can already be running these MinCounts.
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
 		if _, found := reducer.Reduce(mustGrow); found {
-			assignment, targets = bestPA.assignment, bestPA.preemptionTargets
+			assignment, targets, fits = bestPA.assignment, bestPA.preemptionTargets, true
 		}
 	}
+
+	if fits {
+		targets = append(targets, slicePreemptTargets...)
+	}
+
 	return assignment, targets
 }

@@ -18,7 +18,6 @@ package scheduler
 
 import (
 	"context"
-	"slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -33,7 +32,6 @@ type schedulingSimulator interface {
 	Schedule(
 		ctx context.Context,
 		initialAssignment flavorassigner.Assignment,
-		preemptedTargets []*preemption.Target,
 	) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
 }
 
@@ -50,7 +48,6 @@ type kueueInternalSimulator struct {
 func (s *kueueInternalSimulator) Schedule(
 	ctx context.Context,
 	initialAssignment flavorassigner.Assignment,
-	preemptedTargets []*preemption.Target,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
 	log := log.FromContext(ctx)
 	cq := s.snapshot.ClusterQueue(s.wl.ClusterQueue)
@@ -69,15 +66,14 @@ func (s *kueueInternalSimulator) Schedule(
 
 	arm := assignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
-		return assignment, preemptedTargets, true
+		return assignment, nil, true
 	}
 
 	if arm == flavorassigner.Preempt {
 		strategies := s.preemptionStrategiesFactory(ctx, &assignment)
 		faPreemptionTargets := s.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
-			targets = slices.Concat(preemptedTargets, faPreemptionTargets)
-			return assignment, targets, true
+			return assignment, faPreemptionTargets, true
 		}
 	}
 	return
@@ -95,7 +91,6 @@ type schedulerLibrarySimulator struct {
 func (s *schedulerLibrarySimulator) Schedule(
 	ctx context.Context,
 	initialAssignment flavorassigner.Assignment,
-	preemptedTargets []*preemption.Target,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
 	cq := s.snapshot.ClusterQueue(s.wl.ClusterQueue)
 	assignment = initialAssignment
@@ -112,7 +107,7 @@ func (s *schedulerLibrarySimulator) Schedule(
 
 	// strategies := s.preemptionStrategiesFactory(ctx, &assignment).Materialize()
 	// for _, candidates := range strategies {
-	// 	schedulingResult := s.snapshot.SimulatorSnapshot.ScheduleWorklad(wl, candidates, preemptedTargets)
+	// 	schedulingResult := s.snapshot.SimulatorSnapshot.ScheduleWorklad(wl, candidates, s.snapshot.preemptedTargets)
 	// 	if schedulingResult.Fits() {
 	// 		fits = true
 	// 		assignment.UpdateForSchedLibTAS(schedulingResult.PodBindings)
