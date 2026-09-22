@@ -197,23 +197,17 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
-	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
-
+	// If the workload was held back due to inadmissible DRA resources (Requeued=False/Inadmissible),
+	// persist Requeued=True now that DRA processing succeeded so the scheduler can pick it up.
+	// Non-DRA reasons (e.g. PodsReadyTimeout) are left untouched for the backoff path to handle.
 	var conditionsChanged bool
-	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-		if requeuedCond.Reason == kueue.WorkloadInadmissible {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
-			}); err != nil {
-				return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
-			}
-		} else {
-			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
+	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && requeuedCond.Reason == kueue.WorkloadInadmissible {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+		}); err != nil {
+			return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
 		}
-		conditionsChanged = true
-	}
-	if quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 		conditionsChanged = true
 	}
 
@@ -576,17 +570,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					return ctrl.Result{}, nil
 				}
 
-				wlCopy := wl.DeepCopy()
-				if draPreprocessed {
+				if draPreprocessed && apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued) {
 					// DRA queue options would be lost on a second reconcile,
-					// so strip the stale WorkloadRequeued=False from the queued
-					// copy to let backoffWaitingTimeExpired place it in the
-					// active heap immediately. Non-DRA workloads use the
-					// existing two-cycle path where condition-processing sets
-					// WorkloadRequeued=True before promotion.
-					apimeta.RemoveStatusCondition(&wlCopy.Status.Conditions, kueue.WorkloadRequeued)
+					// so persist Requeued=True now instead of relying on the
+					// two-cycle path that non-DRA workloads use.
+					if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+						return workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true), nil
+					}); err != nil {
+						return ctrl.Result{}, client.IgnoreNotFound(err)
+					}
 				}
-				if err := r.queues.AddOrUpdateWorkload(ctx, log, wlCopy, draQueueOptions...); err != nil {
+				if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
@@ -809,9 +803,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 	}
 
-	// Queue the DRA-preprocessed workload with the options from handleDRA. The
-	// backoff-requeue path above already queues and returns early, so only one of
-	// the two runs.
+	// Queue the DRA-preprocessed workload with the options from handleDRA.
+	// Workloads that entered the backoff path above have already been queued
+	// or returned early.
 	if draPreprocessed && !workload.IsAdmitted(&wl) {
 		if workload.IsAdmissible(&wl) {
 			if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
