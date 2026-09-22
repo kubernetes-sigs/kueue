@@ -610,12 +610,19 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		)
 	})
 
-	var scaledSlice *kueue.Workload
+	var (
+		scaledSlice         *kueue.Workload
+		workerRayClusterUID types.UID
+	)
 	ginkgo.By("Checking the manager spec stays at one worker while the runtime annotation and workload slice reflect two", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, rayClusterKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(2))
+
+			workerRayCluster := &rayv1.RayCluster{}
+			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
+			workerRayClusterUID = workerRayCluster.UID
 
 			createdRayCluster := &rayv1.RayCluster{}
 			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, createdRayCluster)).To(gomega.Succeed())
@@ -675,8 +682,7 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	})
 
 	ginkgo.By("Checking the RayCluster is re-admitted from its one-worker manager spec", func() {
-		readmittedSlice := util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, scaledSlice)
-		readmittedSliceKey := client.ObjectKeyFromObject(readmittedSlice)
+		readmittedSliceKey := client.ObjectKeyFromObject(scaledSlice)
 		gomega.Eventually(func(g gomega.Gomega) {
 			highWl := &kueue.Workload{}
 			g.Expect(k8sManagerClient.Get(ctx, highWlKey, highWl)).To(gomega.Succeed())
@@ -685,6 +691,11 @@ func runRayClusterReadmissionAfterPreemptionTest(
 			createdRayCluster := &rayv1.RayCluster{}
 			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, createdRayCluster)).To(gomega.Succeed())
 			g.Expect(ptr.Deref(createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.Equal(int32(1)))
+
+			workerRayCluster := &rayv1.RayCluster{}
+			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
+			g.Expect(workerRayCluster.UID).NotTo(gomega.Equal(workerRayClusterUID))
+			g.Expect(ptr.Deref(workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.Equal(int32(1)))
 
 			createdSlice := &kueue.Workload{}
 			g.Expect(k8sManagerClient.Get(ctx, readmittedSliceKey, createdSlice)).To(gomega.Succeed())
