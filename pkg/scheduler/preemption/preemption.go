@@ -477,21 +477,6 @@ func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrow
 	return tasResult.Failure() == nil
 }
 
-// workloadFitsForFairSharing is a lightweight wrapper around workloadFits that
-// removes, and then adds back, the usage of the incoming workload, which
-// FairSharing simulates while it picks candidates for accurate
-// DominantResourceShare calculations.
-//
-// FairPreemptionStrategy does this itself around every yield, so a consumer of
-// a strategy calls workloadFits directly. This is only for tests that drive the
-// FairSharing iterators without going through the strategy.
-func workloadFitsForFairSharing(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
-	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
-	res := workloadFits(ctx, preemptionCtx, allowBorrowing)
-	revertSimulation()
-	return res
-}
-
 // queueUnderNominalInResourcesNeedingPreemption checks whether the
 // preemptor CQ's usage is strictly below nominal quota (usage < nominal)
 // for all flavor-resources needing preemption.

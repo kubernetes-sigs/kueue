@@ -332,8 +332,10 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			fits := false
 			retryCandidates, cont := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
 				targets = append(targets, t)
-				if workloadFitsForFairSharing(ctx, fixture.preemptionCtx, true) {
-					fits = true
+				revertSimulation := fixture.preemptionCtx.preemptorCQ.SimulateUsageRemoval(fixture.preemptionCtx.workloadUsage)
+				fits = workloadFits(ctx, fixture.preemptionCtx, true)
+				revertSimulation()
+				if fits {
 					return false
 				}
 				return true
