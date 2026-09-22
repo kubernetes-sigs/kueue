@@ -98,30 +98,55 @@ func setDefaultLocalQueue(jobObj client.Object) {
 }
 
 func ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {
-	if !features.Enabled(features.WorkloadPriorityClassDefaulting) {
-		return
-	}
-	if WorkloadPriorityClassName(jobObj) != "" {
-		return
-	}
-	if IsOwnerManagedByKueueForObject(jobObj) {
-		return
-	}
-	exists, err := utilpriority.DefaultWorkloadPriorityClassExist(ctx, c)
-	if err != nil {
+	// A nil selector reads no Namespace, so the only error this can surface is
+	// the one the previous implementation logged here.
+	if err := ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, c, jobObj, nil); err != nil {
 		log := ctrl.LoggerFrom(ctx)
 		log.V(2).Error(err, "Failed to check for default WorkloadPriorityClass")
-		return
+	}
+}
+
+// ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector applies the
+// default WorkloadPriorityClass only when the object's namespace matches
+// managedJobsNamespaceSelector.
+func ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx context.Context, k8sClient client.Client,
+	jobObj client.Object, managedJobsNamespaceSelector labels.Selector) error {
+	if !features.Enabled(features.WorkloadPriorityClassDefaulting) {
+		return nil
+	}
+	if WorkloadPriorityClassName(jobObj) != "" {
+		return nil
+	}
+	if IsOwnerManagedByKueueForObject(jobObj) {
+		return nil
+	}
+	exists, err := utilpriority.DefaultWorkloadPriorityClassExist(ctx, k8sClient)
+	if err != nil {
+		return err
 	}
 	if !exists {
-		return
+		return nil
 	}
-	labels := jobObj.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string, 1)
+	// Reached only when the label is about to be set, so an excluded namespace
+	// costs no Namespace read.
+	managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector)
+	if err != nil {
+		return err
 	}
-	labels[constants.WorkloadPriorityClassLabel] = constants.DefaultWorkloadPriorityClassName
-	jobObj.SetLabels(labels)
+	if !managed {
+		return nil
+	}
+	setDefaultWorkloadPriorityClass(jobObj)
+	return nil
+}
+
+func setDefaultWorkloadPriorityClass(jobObj client.Object) {
+	jobLabels := jobObj.GetLabels()
+	if jobLabels == nil {
+		jobLabels = make(map[string]string, 1)
+	}
+	jobLabels[constants.WorkloadPriorityClassLabel] = constants.DefaultWorkloadPriorityClassName
+	jobObj.SetLabels(jobLabels)
 }
 
 func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *schdcache.Cache, log logr.Logger) {
