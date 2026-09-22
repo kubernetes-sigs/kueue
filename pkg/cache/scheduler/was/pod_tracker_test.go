@@ -125,7 +125,7 @@ func TestWorkloadMapping(t *testing.T) {
 
 			tc.operation(ctx, sim)
 
-			snapshotRaw, err := sim.Snapshot(ctx, []*corev1.Node{}, nil)
+			snapshotRaw, err := sim.Snapshot(ctx, []*corev1.Node{})
 			if err != nil {
 				t.Fatalf("Snapshot failed: %v", err)
 			}
@@ -154,7 +154,7 @@ func TestTrackPodDeepCopy(t *testing.T) {
 	// Mutate the pod object that was passed into TrackPod
 	pod.Annotations[kueue.WorkloadAnnotation] = "mutated-wl"
 
-	snapshotRaw, err := sim.Snapshot(ctx, nil, nil)
+	snapshotRaw, err := sim.Snapshot(ctx, nil)
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}

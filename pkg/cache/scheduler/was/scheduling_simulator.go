@@ -179,10 +179,10 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulato
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assumedWorkloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, options ...simulator.SnapshotOption) (simulator.SimulatorSnapshot, error) {
 	tracker := s.pods.copy()
 
-	for _, wl := range assumedWorkloads {
+	for _, wl := range simulator.AssumedWorkloads(options...) {
 		vPods := VirtualPodsForWorkload(wl)
 		if len(vPods) == 0 {
 			continue
