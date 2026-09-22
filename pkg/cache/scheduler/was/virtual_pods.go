@@ -45,14 +45,16 @@ const (
 // following the standard naming convention in Kueue
 func VirtualPodName(wlName, podSetName string, index int) string {
 	indexStr := strconv.Itoa(index)
-	prefix := fmt.Sprintf("virtual-%s-%s-%s", wlName, podSetName, indexStr)
+	hash := getVirtualPodHash(wlName, podSetName, indexStr)
+	suffix := fmt.Sprintf("-%s-%s", indexStr, hash)
+	maxPrefix := maxPodNameLength - len(suffix)
 
-	maxPrefix := maxPodNameLength - 1 - hashLength
+	prefix := fmt.Sprintf("virtual-%s-%s", wlName, podSetName)
 	if len(prefix) > maxPrefix {
 		prefix = prefix[:maxPrefix]
 	}
 
-	return fmt.Sprintf("%s-%s", prefix, getVirtualPodHash(wlName, podSetName, indexStr))
+	return prefix + suffix
 }
 
 func getVirtualPodHash(wlName, podSetName, indexStr string) string {

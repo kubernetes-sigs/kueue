@@ -4304,8 +4304,8 @@ type recordingSimulator struct {
 	snapshot recordingSimulatorSnapshot
 }
 
-func (s *recordingSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, workloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
-	inner, err := s.inner.Snapshot(ctx, nodes, workloads)
+func (s *recordingSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assumedWorkloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
+	inner, err := s.inner.Snapshot(ctx, nodes, assumedWorkloads)
 	if err != nil {
 		return nil, err
 	}

@@ -51,6 +51,12 @@ func TestVirtualPodName(t *testing.T) {
 			index:      42,
 			checkLen:   true,
 		},
+		"long name preserves distinct replica index": {
+			wlName:     strings.Repeat("a", 200),
+			podSetName: strings.Repeat("b", 100),
+			index:      1803,
+			checkLen:   true,
+		},
 	}
 
 	for name, tc := range tests {
@@ -64,6 +70,16 @@ func TestVirtualPodName(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("distinct indices produce distinct names on long names", func(t *testing.T) {
+		longWl := strings.Repeat("a", 220)
+		longPs := strings.Repeat("b", 63)
+		name1 := VirtualPodName(longWl, longPs, 1803)
+		name2 := VirtualPodName(longWl, longPs, 1876)
+		if name1 == name2 {
+			t.Errorf("VirtualPodName() collision between index 1803 and 1876: %q", name1)
+		}
+	})
 }
 
 func TestPodsForWorkload(t *testing.T) {
@@ -161,8 +177,11 @@ func TestPodsForWorkload(t *testing.T) {
 				if pod.Namespace != tc.wl.Namespace || pod.Annotations[kueue.WorkloadAnnotation] != tc.wl.Name {
 					t.Errorf("pod[%d] metadata not wired correctly", i)
 				}
-				if pod.Labels[constants.PodSetLabel] != "main" || pod.Status.Phase != corev1.PodRunning {
-					t.Errorf("pod[%d] labels or phase not set correctly", i)
+				if pod.Labels[constants.PodSetLabel] != "main" {
+					t.Errorf("pod[%d] PodSetLabel = %q, want %q", i, pod.Labels[constants.PodSetLabel], "main")
+				}
+				if pod.Status.Phase != corev1.PodRunning {
+					t.Errorf("pod[%d].Status.Phase = %v, want %v", i, pod.Status.Phase, corev1.PodRunning)
 				}
 				if pod.Spec.Containers[0].Ports[0].HostPort != 8080 {
 					t.Errorf("pod[%d] container specs not preserved", i)

@@ -32,7 +32,7 @@ import (
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SchedulingSimulator interface {
-	Snapshot(ctx context.Context, nodes []*corev1.Node, workloads []*kueue.Workload) (SimulatorSnapshot, error)
+	Snapshot(ctx context.Context, nodes []*corev1.Node, assumedWorkloads []*kueue.Workload) (SimulatorSnapshot, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.

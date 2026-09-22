@@ -174,36 +174,40 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulato
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, workloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assumedWorkloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
 	allPods, podsByWorkload := s.pods.snapshot()
 
-	for _, wl := range workloads {
+	replacedWLs := sets.New[client.ObjectKey]()
+	var virtualPods []*corev1.Pod
+	for _, wl := range assumedWorkloads {
 		if wl == nil || wl.Status.Admission == nil {
 			continue
 		}
 
-		wlKey := client.ObjectKeyFromObject(wl)
-		virtualPods := PodsForWorkload(wl)
-		if len(virtualPods) == 0 {
+		vPods := PodsForWorkload(wl)
+		if len(vPods) == 0 {
 			continue
 		}
 
-		// Drop real pods of this admitted workload and replace with virtual pods
-		if realPods, ok := podsByWorkload[wlKey]; ok && len(realPods) > 0 {
-			filteredPods := make([]*corev1.Pod, 0, len(allPods))
-			for _, pod := range allPods {
-				if pod.Annotations[kueue.WorkloadAnnotation] != wl.Name || pod.Namespace != wl.Namespace {
-					filteredPods = append(filteredPods, pod)
-				}
-			}
-			allPods = filteredPods
-			delete(podsByWorkload, wlKey)
-		}
+		wlKey := client.ObjectKeyFromObject(wl)
+		replacedWLs.Insert(wlKey)
+		delete(podsByWorkload, wlKey)
 
-		for _, vPod := range virtualPods {
-			allPods = append(allPods, vPod)
+		for _, vPod := range vPods {
+			virtualPods = append(virtualPods, vPod)
 			podsByWorkload.recordPod(wlKey, client.ObjectKeyFromObject(vPod), vPod)
 		}
+	}
+
+	if len(replacedWLs) > 0 {
+		filteredPods := make([]*corev1.Pod, 0, len(allPods)+len(virtualPods))
+		for _, pod := range allPods {
+			wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: pod.Annotations[kueue.WorkloadAnnotation]}
+			if !replacedWLs.Has(wlKey) {
+				filteredPods = append(filteredPods, pod)
+			}
+		}
+		allPods = append(filteredPods, virtualPods...)
 	}
 
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
