@@ -314,15 +314,16 @@ func TestReconciler(t *testing.T) {
 		RequestWorkerGroup(corev1.ResourceCPU, "10")
 
 	cases := map[string]struct {
-		reconcilerOptions []jobframework.Option
-		job               rayv1.RayCluster
-		initObjects       []client.Object
-		workloads         []kueue.Workload
-		priorityClasses   []client.Object
-		wantJob           rayv1.RayCluster
-		wantWorkloads     []kueue.Workload
-		runInfo           []podset.PodSetInfo
-		wantErr           error
+		reconcilerOptions            []jobframework.Option
+		job                          rayv1.RayCluster
+		initObjects                  []client.Object
+		workloads                    []kueue.Workload
+		priorityClasses              []client.Object
+		wantJob                      rayv1.RayCluster
+		wantWorkloads                []kueue.Workload
+		runInfo                      []podset.PodSetInfo
+		simulateSuspensionCompletion bool
+		wantErr                      error
 	}{
 		"when workload is admitted, cluster is unsuspended": {
 			initObjects: []client.Object{
@@ -450,13 +451,13 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when workload is admitted but workload's conditions is Evicted, suspend it and restore node selector": {
+		"when an admitted workload is evicted, wait for suspension completion before releasing quota": {
+			simulateSuspensionCompletion: true,
 			initObjects: []client.Object{
 				utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj(),
 			},
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
-				State(rayv1.Suspended).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
@@ -698,9 +699,11 @@ func TestReconciler(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				ctx, _ := utiltesting.ContextWithLog(t)
-				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-				})
+				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).
+					WithStatusSubresource(&rayv1.RayCluster{}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 
 				if err := SetupIndexes(ctx, indexer); err != nil {
@@ -738,6 +741,34 @@ func TestReconciler(t *testing.T) {
 				})
 				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
+				}
+				if tc.simulateSuspensionCompletion {
+					var gotWorkload kueue.Workload
+					if err := kClient.Get(ctx, client.ObjectKeyFromObject(&tc.workloads[0]), &gotWorkload); err != nil {
+						t.Fatalf("Could not get Workload after first reconcile: %v", err)
+					}
+					if !workload.HasQuotaReservation(&gotWorkload) {
+						t.Error("Workload quota was released before the RayCluster completed suspension")
+					}
+
+					var suspendedJob rayv1.RayCluster
+					if err := kClient.Get(ctx, jobKey, &suspendedJob); err != nil {
+						t.Fatalf("Could not get Job after first reconcile: %v", err)
+					}
+					if !(*RayCluster)(&suspendedJob).IsSuspended() {
+						t.Fatal("Job was not suspended after first reconcile")
+					}
+					suspendedJob.Status.State = rayv1.Suspended
+					if err := kClient.Status().Update(ctx, &suspendedJob); err != nil {
+						t.Fatalf("Could not simulate RayCluster suspension completion: %v", err)
+					}
+
+					_, err = reconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: jobKey,
+					})
+					if err != nil {
+						t.Errorf("Second Reconcile returned error: %v", err)
+					}
 				}
 
 				var gotJob rayv1.RayCluster
