@@ -218,6 +218,16 @@
   description: |
     The annotation key is used to indicate how many Pods to expect in the group.
 
+- key: kueue.x-k8s.io/pod-inactive
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-inactive: "true"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation marks a Pod as no longer active in its Pod group. Kueue keeps
+    the Workload PodSet count and quota reservation unchanged so an externally
+    created replacement Pod can take over the same group slot.
+
 - key: kueue.x-k8s.io/pod-index-offset
   type: Annotation
   example: '`kueue.x-k8s.io/pod-index-offset: "1"`'

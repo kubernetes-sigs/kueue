@@ -116,6 +116,33 @@ metadata:
     kueue.x-k8s.io/pod-group-total-count: "2"
 ```
 
+### Replacing a Pod in a group
+
+When an external controller replaces a Pod in a group, it can mark the old Pod
+as inactive before deleting it:
+
+```yaml
+metadata:
+  annotations:
+    kueue.x-k8s.io/pod-inactive: "true"
+```
+
+Kueue then stops counting the marked Pod as an active group member. The
+Workload's PodSet count, admission, and quota reservation are kept unchanged,
+so the replacement Pod can take over the same group slot. Kueue does not create
+the replacement Pod; the external controller remains responsible for deleting
+the old Pod and creating the replacement.
+
+The recommended order is:
+
+1. Add `kueue.x-k8s.io/pod-inactive: "true"` to the old Pod.
+2. Delete or terminate the old Pod.
+3. Create the replacement Pod with the same Pod group metadata.
+
+This annotation only removes a single Pod from the active group membership. It
+does not replace `kueue.x-k8s.io/retriable-in-group: "false"`, which terminates
+the whole group without retrying it.
+
 ### Feature limitations
 
 Kueue provides only the minimal required functionality of running Pod groups,

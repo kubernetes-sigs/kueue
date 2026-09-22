@@ -964,6 +964,12 @@ func (p *Pod) shouldFinalizeNow(pod *corev1.Pod, stopReason jobframework.StopRea
 // For serving groups, a terminated pod that's being deleted also can't run, even if it kept
 // its NodeName - see shouldFinalizeNow for why this is scoped to serving groups.
 func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
+	// An external controller can mark a Pod inactive before creating its replacement;
+	// do not count it as active while it remains in the API during termination.
+	if p.Annotations[podconstants.PodInactiveAnnotationKey] == podconstants.PodInactiveAnnotationValue {
+		return false
+	}
+
 	if !p.DeletionTimestamp.IsZero() {
 		serving := p.Annotations[podconstants.GroupServingAnnotationKey] == podconstants.GroupServingAnnotationValue
 		if len(p.Spec.NodeName) == 0 || (serving && utilpod.IsTerminated(p)) {

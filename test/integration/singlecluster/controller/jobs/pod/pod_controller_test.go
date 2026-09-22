@@ -941,6 +941,104 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 			})
 
+			ginkgo.It("Should keep a replacement for a Pod marked inactive", framework.SlowSpec, func() {
+				const holdFinalizer = "test.example.com/hold"
+
+				pod1 := testingpod.MakePod("inactive-pod", ns.Name).
+					GroupNameLabel("inactive-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					Request(corev1.ResourceCPU, "1").
+					Finalizer(holdFinalizer).
+					Obj()
+				pod2 := testingpod.MakePod("active-pod", ns.Name).
+					GroupNameLabel("inactive-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				pod1LookupKey := client.ObjectKeyFromObject(pod1)
+				pod2LookupKey := client.ObjectKeyFromObject(pod2)
+				wlLookupKey := types.NamespacedName{Name: "inactive-group", Namespace: ns.Name}
+
+				ginkgo.By("creating a two-Pod group")
+				util.MustCreate(ctx, k8sClient, pod1)
+				util.MustCreate(ctx, k8sClient, pod2)
+
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+					g.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(createdWorkload.Spec.PodSets[0].Name).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
+					Obj()
+				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
+
+				ginkgo.By("binding both original Pods to a node")
+				util.BindPodWithNode(ctx, k8sClient, "node-1", pod1, pod2)
+				util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
+
+				ginkgo.By("marking the old Pod inactive before deleting it")
+				createdPod1 := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod1)).To(gomega.Succeed())
+					if createdPod1.Annotations == nil {
+						createdPod1.Annotations = make(map[string]string)
+					}
+					createdPod1.Annotations[podconstants.PodInactiveAnnotationKey] = podconstants.PodInactiveAnnotationValue
+					g.Expect(k8sClient.Update(ctx, createdPod1)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Delete(ctx, createdPod1)).To(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod1)).To(gomega.Succeed())
+					g.Expect(createdPod1.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+					g.Expect(createdPod1.Spec.NodeName).To(gomega.Equal("node-1"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("creating the replacement Pod")
+				replacementPod := testingpod.MakePod("replacement-pod", ns.Name).
+					GroupNameLabel("inactive-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				replacementPodLookupKey := client.ObjectKeyFromObject(replacementPod)
+				util.MustCreate(ctx, k8sClient, replacementPod)
+
+				ginkgo.By("checking that the replacement is retained and admitted")
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPodLookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdReplacement := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, replacementPodLookupKey, createdReplacement)).To(gomega.Succeed())
+					g.Expect(createdReplacement.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+					g.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+					g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("allowing the inactive Pod to finish deleting")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod1)).To(gomega.Succeed())
+					g.Expect(controllerutil.RemoveFinalizer(createdPod1, holdFinalizer)).To(gomega.BeTrue())
+					g.Expect(k8sClient.Update(ctx, createdPod1)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey)
+			})
+
 			ginkgo.It("Should keep the running pod group with the queue name if workload is evicted", framework.SlowSpec, func() {
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
