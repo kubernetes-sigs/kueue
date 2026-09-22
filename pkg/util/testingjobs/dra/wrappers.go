@@ -30,9 +30,7 @@ type DeviceClassWrapper struct {
 // MakeDeviceClass creates a DeviceClassWrapper with the provided name.
 func MakeDeviceClass(name string) *DeviceClassWrapper {
 	return &DeviceClassWrapper{
-		DeviceClass: resourcev1.DeviceClass{
-			ObjectMeta: metav1.ObjectMeta{Name: name},
-		},
+		Name: name,
 	}
 }
 
@@ -76,13 +74,11 @@ type DeviceRequestWrapper struct {
 // MakeDeviceRequest creates an exact-count DeviceRequestWrapper.
 func MakeDeviceRequest(name, deviceClassName string, count int64) *DeviceRequestWrapper {
 	return &DeviceRequestWrapper{
-		DeviceRequest: resourcev1.DeviceRequest{
-			Name: name,
-			Exactly: &resourcev1.ExactDeviceRequest{
-				DeviceClassName: deviceClassName,
-				AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-				Count:           count,
-			},
+		Name: name,
+		Exactly: &resourcev1.ExactDeviceRequest{
+			DeviceClassName: deviceClassName,
+			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+			Count:           count,
 		},
 	}
 }

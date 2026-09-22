@@ -46,9 +46,7 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "priority-boost-",
-			},
+			GenerateName: "priority-boost-",
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})

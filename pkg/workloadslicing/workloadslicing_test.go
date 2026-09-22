@@ -71,16 +71,16 @@ func TestEnabled(t *testing.T) {
 		"EmptyAnnotation": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+					Annotations: map[string]string{},
 				},
 			},
 		},
 		"Enabled": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					Annotations: map[string]string{
 						EnabledAnnotationKey: EnabledAnnotationValue,
-					}},
+					},
 				},
 			},
 			want: true,
@@ -88,9 +88,9 @@ func TestEnabled(t *testing.T) {
 		"NotEnabled": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					Annotations: map[string]string{
 						EnabledAnnotationKey: "True", // <-- value is case sensitive.
-					}},
+					},
 				},
 			},
 		},
@@ -668,14 +668,14 @@ func TestPreemptibleSliceKey(t *testing.T) {
 		"EmptyAnnotations": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: make(map[string]string)},
+					Annotations: make(map[string]string),
 				},
 			},
 		},
 		"Found": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadSliceReplacementFor: string(testReference)}},
+					Annotations: map[string]string{WorkloadSliceReplacementFor: string(testReference)},
 				},
 			},
 			want: &testReference,
@@ -694,10 +694,8 @@ var (
 	testJobGVK = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	testJobObject = &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test",
-			UID:  uuid.NewUUID(),
-		},
+		Name: "test",
+		UID:  uuid.NewUUID(),
 	}
 )
 

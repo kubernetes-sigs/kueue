@@ -41,9 +41,7 @@ type PriorityClassWrapper struct {
 // MakePriorityClass creates a wrapper for a PriorityClass.
 func MakePriorityClass(name string) *PriorityClassWrapper {
 	return &PriorityClassWrapper{schedulingv1.PriorityClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		}},
+		Name: name},
 	}
 }
 
@@ -64,9 +62,7 @@ type RuntimeClassWrapper struct{ nodev1.RuntimeClass }
 // MakeRuntimeClass creates a wrapper for a Runtime.
 func MakeRuntimeClass(name, handler string) *RuntimeClassWrapper {
 	return &RuntimeClassWrapper{nodev1.RuntimeClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		Name:    name,
 		Handler: handler,
 	}}
 }
@@ -88,21 +84,17 @@ type LimitRangeWrapper struct{ corev1.LimitRange }
 
 func MakeLimitRange(name, namespace string) *LimitRangeWrapper {
 	return &LimitRangeWrapper{
-		LimitRange: corev1.LimitRange{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: corev1.LimitRangeSpec{
-				Limits: []corev1.LimitRangeItem{
-					{
-						Type:                 corev1.LimitTypeContainer,
-						Max:                  corev1.ResourceList{},
-						Min:                  corev1.ResourceList{},
-						Default:              corev1.ResourceList{},
-						DefaultRequest:       corev1.ResourceList{},
-						MaxLimitRequestRatio: corev1.ResourceList{},
-					},
+		Name:      name,
+		Namespace: namespace,
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type:                 corev1.LimitTypeContainer,
+					Max:                  corev1.ResourceList{},
+					Min:                  corev1.ResourceList{},
+					Default:              corev1.ResourceList{},
+					DefaultRequest:       corev1.ResourceList{},
+					MaxLimitRequestRatio: corev1.ResourceList{},
 				},
 			},
 		},
@@ -238,10 +230,8 @@ type PodTemplateWrapper struct {
 func MakePodTemplate(name, namespace string) *PodTemplateWrapper {
 	return &PodTemplateWrapper{
 		corev1.PodTemplate{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
+			Name:      name,
+			Namespace: namespace,
 		},
 	}
 }
@@ -359,9 +349,7 @@ type NamespaceWrapper struct {
 func MakeNamespaceWrapper(name string) *NamespaceWrapper {
 	return &NamespaceWrapper{
 		corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
+			Name: name,
 		},
 	}
 }
@@ -404,11 +392,9 @@ type EventRecordWrapper struct {
 
 func MakeEventRecord(namespace, name, reason, eventType string) *EventRecordWrapper {
 	return &EventRecordWrapper{
-		EventRecord: EventRecord{
-			Key:       types.NamespacedName{Namespace: namespace, Name: name},
-			Reason:    reason,
-			EventType: eventType,
-		},
+		Key:       types.NamespacedName{Namespace: namespace, Name: name},
+		Reason:    reason,
+		EventType: eventType,
 	}
 }
 
@@ -511,11 +497,9 @@ func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, 
 func (b *ResourceClaimSpecBuilder) WithDeviceConfig(requestName, driver string, parameters []byte) *ResourceClaimSpecBuilder {
 	config := resourcev1.DeviceClaimConfiguration{
 		Requests: []string{requestName},
-		DeviceConfiguration: resourcev1.DeviceConfiguration{
-			Opaque: &resourcev1.OpaqueDeviceConfiguration{
-				Driver:     driver,
-				Parameters: runtime.RawExtension{Raw: parameters},
-			},
+		Opaque: &resourcev1.OpaqueDeviceConfiguration{
+			Driver:     driver,
+			Parameters: runtime.RawExtension{Raw: parameters},
 		},
 	}
 	b.spec.Devices.Config = append(b.spec.Devices.Config, config)
@@ -548,10 +532,8 @@ type ResourceClaimTemplateWrapper struct {
 func MakeResourceClaimTemplate(name, namespace string) *ResourceClaimTemplateWrapper {
 	return &ResourceClaimTemplateWrapper{
 		resourcev1.ResourceClaimTemplate{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
+			Name:      name,
+			Namespace: namespace,
 			Spec: resourcev1.ResourceClaimTemplateSpec{
 				Spec: NewResourceClaimSpecBuilder().Build(),
 			},
@@ -642,11 +624,9 @@ type ResourceClaimWrapper struct{ resourcev1.ResourceClaim }
 func MakeResourceClaim(name, namespace string) *ResourceClaimWrapper {
 	return &ResourceClaimWrapper{
 		resourcev1.ResourceClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: NewResourceClaimSpecBuilder().Build(),
+			Name:      name,
+			Namespace: namespace,
+			Spec:      NewResourceClaimSpecBuilder().Build(),
 		},
 	}
 }
@@ -724,10 +704,8 @@ type SecretWrapper struct{ corev1.Secret }
 func MakeSecret(name, ns string) *SecretWrapper {
 	return &SecretWrapper{
 		corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns,
-			},
+			Name:      name,
+			Namespace: ns,
 		}}
 }
 
@@ -748,10 +726,8 @@ type RoleWrapper struct{ rbacv1.Role }
 func MakeRole(name, ns string) *RoleWrapper {
 	return &RoleWrapper{
 		rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns,
-			},
+			Name:      name,
+			Namespace: ns,
 		},
 	}
 }
@@ -774,10 +750,8 @@ type RoleBindingWrapper struct{ rbacv1.RoleBinding }
 func MakeRoleBinding(name, ns string) *RoleBindingWrapper {
 	return &RoleBindingWrapper{
 		rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns,
-			},
+			Name:      name,
+			Namespace: ns,
 		},
 	}
 }
@@ -862,9 +836,7 @@ type ResourceSliceWrapper struct{ resourcev1.ResourceSlice }
 func MakeResourceSlice(name, driver string) *ResourceSliceWrapper {
 	return &ResourceSliceWrapper{
 		resourcev1.ResourceSlice{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
+			Name: name,
 			Spec: resourcev1.ResourceSliceSpec{
 				Driver: driver,
 				Pool: resourcev1.ResourcePool{

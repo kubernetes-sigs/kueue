@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 		util.MustCreate(ctx, k8sClient, priorityClass)
 	})
 	ginkgo.AfterAll(func() {
-		priorityClass := &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: priorityClassName}}
+		priorityClass := &schedulingv1.PriorityClass{Name: priorityClassName}
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 		fwk.StopManager(ctx)
 	})
@@ -163,11 +163,9 @@ var _ = ginkgo.Describe("AppWrapper controller", ginkgo.Ordered, ginkgo.Continue
 
 			ginkgo.By("checking a second non-matching workload is deleted")
 			secondWl := &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      workloadaw.GetWorkloadNameForAppWrapper("second-workload", "test-uid"),
-					Namespace: createdWorkload.Namespace,
-				},
-				Spec: *createdWorkload.Spec.DeepCopy(),
+				Name:      workloadaw.GetWorkloadNameForAppWrapper("second-workload", "test-uid"),
+				Namespace: createdWorkload.Namespace,
+				Spec:      *createdWorkload.Spec.DeepCopy(),
 			}
 			gomega.Expect(ctrl.SetControllerReference(createdAppWrapper, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 			secondWl.Spec.PodSets[0].Count++

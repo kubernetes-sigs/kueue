@@ -23,7 +23,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -50,12 +49,10 @@ func TestValidateCreate(t *testing.T) {
 	}{
 		"valid rayservice": {
 			service: &rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Labels: map[string]string{
-						constants.QueueLabel: "queue",
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Labels: map[string]string{
+					constants.QueueLabel: "queue",
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -84,12 +81,10 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"too many worker groups": {
 			service: &rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Labels: map[string]string{
-						constants.QueueLabel: "queue",
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Labels: map[string]string{
+					constants.QueueLabel: "queue",
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -109,12 +104,10 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"autoscaling without elastic jobs feature": {
 			service: &rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Labels: map[string]string{
-						constants.QueueLabel: "queue",
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Labels: map[string]string{
+					constants.QueueLabel: "queue",
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{

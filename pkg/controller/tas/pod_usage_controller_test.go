@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -324,14 +323,14 @@ func TestDrainPendingNodes(t *testing.T) {
 		},
 		"existing node is drained": {
 			initialNodes:   []string{"node-a"},
-			objects:        []corev1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}},
+			objects:        []corev1.Node{{Name: "node-a"}},
 			wantPendingLen: 0,
 		},
 		"duplicate nodes are deduplicated": {
 			initialNodes: []string{"node-a", "node-a", "node-b"},
 			objects: []corev1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}},
+				{Name: "node-a"},
+				{Name: "node-b"},
 			},
 			wantPendingLen: 0,
 		},

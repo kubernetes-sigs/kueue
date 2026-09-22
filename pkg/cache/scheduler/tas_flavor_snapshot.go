@@ -1196,9 +1196,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		requiredReplacementDomain: requiredReplacementDomain,
 	}
 	state := &findTopologyAssignmentState{
-		topologyAssignmentParameters: topologyAssignmentParameters{
-			count: workersTasPodSetRequests.Count,
-		},
+		count: workersTasPodSetRequests.Count,
 		stats: &tasExclusionStats{},
 	}
 	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()

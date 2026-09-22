@@ -242,8 +242,8 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	}
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
-		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
-		Value:      100,
+		Name:  constants.DefaultWorkloadPriorityClassName,
+		Value: 100,
 	}
 	boomErr := errors.New("boom")
 

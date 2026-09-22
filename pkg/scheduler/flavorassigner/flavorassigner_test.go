@@ -30,7 +30,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 
@@ -4440,10 +4439,8 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(log, &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/elastic-job": "true",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/elastic-job": "true",
 				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
@@ -4482,10 +4479,8 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(log, &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/elastic-job": "true",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/elastic-job": "true",
 				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
@@ -4513,10 +4508,8 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}},
 			},
 			workload: *workload.NewInfo(log, &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/elastic-job": "true",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/elastic-job": "true",
 				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
@@ -4554,10 +4547,8 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 				}),
 			},
 			workload: *workload.NewInfo(log, &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/elastic-job": "true",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/elastic-job": "true",
 				},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
@@ -6227,10 +6218,8 @@ func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSli
 		},
 	}
 	wl := workload.NewInfo(log, &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				"kueue.x-k8s.io/elastic-job": "true",
-			},
+		Annotations: map[string]string{
+			"kueue.x-k8s.io/elastic-job": "true",
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{

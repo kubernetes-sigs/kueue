@@ -266,13 +266,11 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
 	return &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   obj.GetNamespace(),
-			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
-			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: annotations,
-		},
+		Name:        name,
+		Namespace:   obj.GetNamespace(),
+		Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
+		Finalizers:  []string{kueue.ResourceInUseFinalizerName},
+		Annotations: annotations,
 		Spec: kueue.WorkloadSpec{
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,
