@@ -41,9 +41,9 @@ const (
 	hashLength       = 5
 )
 
-// VirtualPodName returns a collision-free name for a virtual pod
+// virtualPodName returns a collision-free name for a virtual pod
 // following the standard naming convention in Kueue
-func VirtualPodName(wlName, podSetName string, index int) string {
+func virtualPodName(wlName, podSetName string, index int) string {
 	indexStr := strconv.Itoa(index)
 	hash := getVirtualPodHash(wlName, podSetName, indexStr)
 	suffix := fmt.Sprintf("-%s-%s", indexStr, hash)
@@ -68,14 +68,12 @@ func getVirtualPodHash(wlName, podSetName, indexStr string) string {
 	return hex.EncodeToString(h.Sum(nil))[:hashLength]
 }
 
-// PodsForWorkload generates virtual pods for an admitted or quota-reserved
+// VirtualPodsForWorkload generates virtual pods for an admitted or quota-reserved
 // workload based on its PodSets and TopologyAssignments.
-func PodsForWorkload(wl *kueue.Workload) []*corev1.Pod {
+func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 	if wl == nil || wl.Status.Admission == nil || finish.IsFinished(wl) {
 		return nil
 	}
-
-	var virtualPods []*corev1.Pod
 
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment == nil || len(psa.TopologyAssignment.Levels) == 0 || !utiltas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
@@ -99,7 +97,7 @@ func PodsForWorkload(wl *kueue.Workload) []*corev1.Pod {
 			for range domain.Count {
 				pod := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:        VirtualPodName(wl.Name, string(psa.Name), replicaIdx),
+						Name:        virtualPodName(wl.Name, string(psa.Name), replicaIdx),
 						Namespace:   wl.Namespace,
 						UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, psa.Name, replicaIdx)),
 						Labels:      maps.Clone(ps.Template.Labels),

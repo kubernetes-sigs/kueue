@@ -61,12 +61,12 @@ func TestVirtualPodName(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := VirtualPodName(tc.wlName, tc.podSetName, tc.index)
+			got := virtualPodName(tc.wlName, tc.podSetName, tc.index)
 			if tc.wantPrefix != "" && !strings.HasPrefix(got, tc.wantPrefix) {
-				t.Errorf("VirtualPodName() = %q, want prefix %q", got, tc.wantPrefix)
+				t.Errorf("virtualPodName() = %q, want prefix %q", got, tc.wantPrefix)
 			}
 			if tc.checkLen && len(got) > 253 {
-				t.Errorf("VirtualPodName() length = %d, exceeds 253", len(got))
+				t.Errorf("virtualPodName() length = %d, exceeds 253", len(got))
 			}
 		})
 	}
@@ -74,15 +74,15 @@ func TestVirtualPodName(t *testing.T) {
 	t.Run("distinct indices produce distinct names on long names", func(t *testing.T) {
 		longWl := strings.Repeat("a", 220)
 		longPs := strings.Repeat("b", 63)
-		name1 := VirtualPodName(longWl, longPs, 1803)
-		name2 := VirtualPodName(longWl, longPs, 1876)
+		name1 := virtualPodName(longWl, longPs, 1803)
+		name2 := virtualPodName(longWl, longPs, 1876)
 		if name1 == name2 {
-			t.Errorf("VirtualPodName() collision between index 1803 and 1876: %q", name1)
+			t.Errorf("virtualPodName() collision between index 1803 and 1876: %q", name1)
 		}
 	})
 }
 
-func TestPodsForWorkload(t *testing.T) {
+func TestVirtualPodsForWorkload(t *testing.T) {
 	podTemplate := corev1.PodTemplateSpec{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -165,7 +165,7 @@ func TestPodsForWorkload(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got := PodsForWorkload(tc.wl)
+			got := VirtualPodsForWorkload(tc.wl)
 			if len(got) != len(tc.wantNodes) {
 				t.Fatalf("Got %d pods, want %d", len(got), len(tc.wantNodes))
 			}

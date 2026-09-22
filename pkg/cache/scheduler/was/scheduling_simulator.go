@@ -178,7 +178,7 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assum
 	tracker := s.pods.copy()
 
 	for _, wl := range assumedWorkloads {
-		vPods := PodsForWorkload(wl)
+		vPods := VirtualPodsForWorkload(wl)
 		if len(vPods) == 0 {
 			continue
 		}
