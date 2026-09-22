@@ -720,7 +720,7 @@ func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.R
 	return reqs.ToResourceList(formatter)
 }
 
-func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) (retained, generated corev1.ResourceList) {
+func applyResourceTransformations(input, multiplierInput corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) (retained, generated corev1.ResourceList) {
 	match := false
 	for resourceName := range input {
 		if _, ok := transforms[resourceName]; ok {
@@ -750,7 +750,7 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		// requested, so the multiplier does not reach that as well.
 		outputInputVal := inputQuantity
 		if mapping.MultiplyBy != "" {
-			if q, ok := input[mapping.MultiplyBy]; ok {
+			if q, ok := multiplierInput[mapping.MultiplyBy]; ok {
 				outputInputVal = utilresource.MultiplyQuantity(inputQuantity, q)
 			}
 		}
@@ -860,6 +860,7 @@ func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *wi.PodSpec(i)}, resourcehelpers.PodResourcesOptions{})
 		retained, generated := applyResourceTransformations(
 			dropExcludedResources(specRequests, info.excludedResourcePrefixes),
+			specRequests,
 			info.resourceTransformations,
 		)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
