@@ -10,6 +10,7 @@
     - [Story 1: Third-Party Framework Integration](#story-1-third-party-framework-integration)
     - [Story 2: Custom / Third-Party Frameworks with Early Pod Completion](#story-2-custom--third-party-frameworks-with-early-pod-completion)
     - [Story 3: Reduction of API Write Conflicts](#story-3-reduction-of-api-write-conflicts)
+    - [Story 4: Unlocking Partial Readiness Thresholds for Resilient Large-Scale Training](#story-4-unlocking-partial-readiness-thresholds-for-resilient-large-scale-training)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Dedicated Controller Architecture](#dedicated-controller-architecture)
@@ -179,6 +180,10 @@ In large-scale clusters, multiple controllers frequently update the same `Worklo
 resource simultaneously. By separating job admission status updates (owned by
 `JobFramework`) from pod readiness conditions (owned by `PodsReadyController`),
 we eliminate optimistic locking conflicts (`409 Conflict`) during workload startup.
+
+#### Story 4: Unlocking Partial Readiness Thresholds for Resilient Large-Scale Training
+As a platform administrator running large distributed AI training workloads spanning hundreds of GPU nodes, I want Kueue to tolerate a small number of transient node failures or delayed replacement pods without evicting the entire job (as requested in [#15423](https://github.com/kubernetes-sigs/kueue/issues/15423)).
+Because third-party CRDs rarely expose granular ready pod counts in their status, decoupling pod observation into `PodsReadyController` provides the foundational controller architecture required to observe live ready pods and unlock per-workload threshold controls (such as `spec.podSets[].minRunningCount`) across all framework integrations.
 
 ### Risks and Mitigations
 
@@ -599,11 +604,11 @@ To ensure that KEP-15404 delivers a focused, maintainable, and reviewable Alpha 
    will be marked as deprecated adhering to the Kubernetes Deprecation Policy:
    ```go
    // Deprecated: PodsReady will be removed when DecoupledWaitForPodsReady reaches
-   // GA (targeted for v0.14+). Integrations should report
+   // GA (targeted for v0.23+). Integrations should report
    // workload.status.expectedActivePods or rely on the dedicated PodsReadyController.
    PodsReady(ctx context.Context, c client.Client) bool
    ```
-   The method remains functional throughout Alpha (v0.12) and Beta (v0.13) as the fallback mechanism when the feature gate is disabled, and is scheduled for strict code removal at GA (v0.14+).
+   The method remains functional throughout Alpha (v0.21) and Beta (v0.22) as the fallback mechanism when the feature gate is disabled, and is scheduled for strict code removal at GA (v0.23+).
 
 ### Metric Emissions and Clean Single-Owner Model
 
@@ -659,7 +664,7 @@ A new feature gate will be added to `pkg/features/kube_features.go`:
 ```go
 DecoupledWaitForPodsReady featuregate.Feature = "DecoupledWaitForPodsReady"
 ```
-* **Default**: `false` (Alpha in v0.12).
+* **Default**: `false` (Alpha in v0.21).
 
 #### Target API Surfaces: `v1beta1` and `v1beta2`
 In Kueue's CRD definition, `v1beta2` is the current storage version (`storage: true`), while `v1beta1` is deprecated and served for backwards compatibility. Both `apis/kueue/v1beta1/workload_types.go` and `apis/kueue/v1beta2/workload_types.go` (conversion Hub) add the new field to `WorkloadStatus`:
@@ -894,7 +899,7 @@ No new condition types or condition reasons are introduced. The dedicated contro
 
 ## Implementation History
 
-- 2026-09-20: Initial provisional KEP proposal submitted targeting v0.12 Alpha.
+- 2026-09-20: Initial provisional KEP proposal submitted targeting v0.21 Alpha.
 
 ## Drawbacks
 
