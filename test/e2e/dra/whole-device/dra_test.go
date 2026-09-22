@@ -31,6 +31,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -451,23 +452,10 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.BeforeEach(func() {
 			// Create a DeviceClass with extendedResourceName that uses the same driver
 			// as dra-example-driver but exposes GPUs as extended resources
-			extendedResDevClass = &resourceapi.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: extendedResDevClassName,
-				},
-				Spec: resourceapi.DeviceClassSpec{
-					// Use the same selector as the default dra-example-driver DeviceClass
-					Selectors: []resourceapi.DeviceSelector{
-						{
-							CEL: &resourceapi.CELDeviceSelector{
-								Expression: "device.driver == '" + util.DRAExampleDriverName + "'",
-							},
-						},
-					},
-					// This is the key field for Extended Resources backed by DRA
-					ExtendedResourceName: new(extendedResourceName),
-				},
-			}
+			extendedResDevClass = testingdra.MakeDeviceClass(extendedResDevClassName).
+				CELSelector("device.driver == '" + util.DRAExampleDriverName + "'").
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			util.MustCreate(ctx, k8sClient, extendedResDevClass)
 
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("ext-res-dra-flavor-" + ns.Name).Obj()
@@ -767,21 +755,10 @@ var _ = ginkgo.Describe("DRA", func() {
 			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName")
-			deviceClass := &resourceapi.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: lateDeviceClassName,
-				},
-				Spec: resourceapi.DeviceClassSpec{
-					Selectors: []resourceapi.DeviceSelector{
-						{
-							CEL: &resourceapi.CELDeviceSelector{
-								Expression: "device.driver == '" + util.DRAExampleDriverName + "'",
-							},
-						},
-					},
-					ExtendedResourceName: new(extendedResourceName),
-				},
-			}
+			deviceClass := testingdra.MakeDeviceClass(lateDeviceClassName).
+				CELSelector("device.driver == '" + util.DRAExampleDriverName + "'").
+				ExtendedResourceName(extendedResourceName).
+				Obj()
 			util.MustCreate(ctx, k8sClient, deviceClass)
 			defer func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)

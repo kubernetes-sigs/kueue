@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilResource "sigs.k8s.io/kueue/pkg/util/resource"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 // PriorityClassWrapper wraps a PriorityClass.
@@ -438,15 +439,7 @@ func NewResourceClaimSpecBuilder() *ResourceClaimSpecBuilder {
 
 // DeviceRequest adds a basic device request with the specified name and device class
 func (b *ResourceClaimSpecBuilder) DeviceRequest(requestName, deviceClassName string, count int64) *ResourceClaimSpecBuilder {
-	req := resourcev1.DeviceRequest{
-		Name: requestName,
-		Exactly: &resourcev1.ExactDeviceRequest{
-			DeviceClassName: deviceClassName,
-			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-			Count:           count,
-		},
-	}
-	b.spec.Devices.Requests = append(b.spec.Devices.Requests, req)
+	b.spec.Devices.Requests = append(b.spec.Devices.Requests, testingdra.MakeDeviceRequest(requestName, deviceClassName, count).Obj())
 	return b
 }
 
@@ -531,13 +524,12 @@ func (b *ResourceClaimSpecBuilder) WithDeviceConfig(requestName, driver string, 
 
 // FirstAvailableRequest adds a FirstAvailable device request
 func (b *ResourceClaimSpecBuilder) FirstAvailableRequest(requestName, deviceClassName string) *ResourceClaimSpecBuilder {
-	req := resourcev1.DeviceRequest{
-		Name: requestName,
-		FirstAvailable: []resourcev1.DeviceSubRequest{{
+	req := testingdra.MakeDeviceRequest(requestName, deviceClassName, 1).
+		FirstAvailableRequest(resourcev1.DeviceSubRequest{
 			Name:            "sub1",
 			DeviceClassName: deviceClassName,
-		}},
-	}
+		}).
+		Obj()
 	b.spec.Devices.Requests = append(b.spec.Devices.Requests, req)
 	return b
 }
@@ -946,46 +938,4 @@ func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSli
 
 func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
 	return &w.ResourceSlice
-}
-
-// DeviceClassWrapper wraps a resourcev1.DeviceClass.
-type DeviceClassWrapper struct {
-	resourcev1.DeviceClass
-}
-
-// MakeDeviceClass creates a DeviceClassWrapper with basic metadata.
-func MakeDeviceClass(name string) *DeviceClassWrapper {
-	return &DeviceClassWrapper{
-		resourcev1.DeviceClass{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-}
-
-// ExtendedResourceName sets the extended resource name on the DeviceClass.
-func (d *DeviceClassWrapper) ExtendedResourceName(name string) *DeviceClassWrapper {
-	d.Spec.ExtendedResourceName = new(name)
-	return d
-}
-
-// GeneratedName sets the generate name on the DeviceClass and clears the name.
-func (d *DeviceClassWrapper) GeneratedName(name string) *DeviceClassWrapper {
-	d.GenerateName = name
-	d.Name = ""
-	return d
-}
-
-// CELSelector adds a CEL device selector to the DeviceClass.
-func (d *DeviceClassWrapper) CELSelector(expression string) *DeviceClassWrapper {
-	d.Spec.Selectors = append(d.Spec.Selectors, resourcev1.DeviceSelector{
-		CEL: &resourcev1.CELDeviceSelector{Expression: expression},
-	})
-	return d
-}
-
-// Obj returns the inner DeviceClass.
-func (d *DeviceClassWrapper) Obj() *resourcev1.DeviceClass {
-	return &d.DeviceClass
 }
