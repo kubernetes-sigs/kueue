@@ -71,10 +71,6 @@ func (s *kueueInternalSimulator) Schedule(
 	}
 
 	arm := assignment.RepresentativeMode()
-	if arm == flavorassigner.Fit {
-		updateAssignmentForTAS(ctx, s.snapshot, cq, s.wl, &assignment)
-		return assignment, nil, true
-	}
 
 	if arm == flavorassigner.Preempt {
 		strategies := s.preemptionStrategiesFactory(ctx, &assignment)
@@ -84,7 +80,10 @@ func (s *kueueInternalSimulator) Schedule(
 			return assignment, faPreemptionTargets, true
 		}
 	}
-	return assignment, nil, false
+
+	updateAssignmentForTAS(ctx, s.snapshot, cq, s.wl, &assignment)
+	return assignment, nil, arm == flavorassigner.Fit
+
 }
 
 var _ schedulingSimulator = &kueueInternalSimulator{}
