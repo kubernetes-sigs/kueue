@@ -140,12 +140,9 @@ comparable with this scenario and must not be reused.
 
 ## CI calibration
 
-Seven scheduled runs of `periodic-kueue-test-multikueue-perf-main` from September
-18–21, 2026 produced 14 attempts, including each job's retry. Retries are not
-independent jobs. The runs span six source revisions with the same recorded
-scenario, Linux amd64, Go 1.26.8, `GOMAXPROCS=7`, and CPU/memory requests and limits
-of 7 CPUs and 10 GiB. Every attempt admitted all 1,000 workloads with zero watch
-gaps. Only the original 75 workloads/s floor failed, as reported in
+Seven scheduled runs of `periodic-kueue-test-multikueue-perf-main` (14 attempts
+including retries) admitted all 1,000 workloads with zero watch gaps. Only the
+original 75 workloads/s throughput floor failed, as reported in
 [issue 15891](https://github.com/kubernetes-sigs/kueue/issues/15891).
 
 The observed ranges cover the
@@ -162,20 +159,13 @@ through the
 | Total admission time | 21.39–22.31 s |
 | Watch gaps | 0 in all attempts |
 
-The floor of 35 workloads/s leaves about 22% headroom below the slowest CI
-attempt, retaining the broad regression margin intended by the original floor.
-The original 75 workloads/s floor was derived from macOS arm64 runs at
-97.00–102.42 workloads/s and did not transfer to this CI environment. The
-15-second admission P95 and 1-second quota-reservation P95 ceilings remain
-unchanged.
+The 35 workloads/s floor leaves about 22% headroom below the slowest CI attempt.
+The original 75 workloads/s floor came from local macOS measurements. The
+15-second admission P95 and 1-second quota-reservation P95 ceilings are unchanged.
 
-Generation occupies 96–99% of the total interval in these CI attempts. Each
-creator waits for a Job write and then its Workload write before starting the
-next pair. The throughput floor therefore guards this end-to-end scenario,
-including generation; controller regressions that remain faster than the
-generator may be hidden. These measurements do not identify the underlying
-host bottleneck or establish a CPU or memory capacity claim. Increasing
-generation concurrency changes the scenario and requires new CI calibration.
+Generation occupies 96–99% of the measured interval, so this floor covers both
+workload creation and admission. The generator can mask controller regressions;
+changing generation concurrency requires new CI calibration.
 
 ## What bounds the measurement
 
