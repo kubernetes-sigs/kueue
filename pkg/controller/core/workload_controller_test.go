@@ -1384,6 +1384,36 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"admit after waiting": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-time.Minute)).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-time.Minute)).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    "Admitted",
+					Status:  "True",
+					Reason:  "Admitted",
+					Message: "The workload is admitted",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
+					Reason:    "Admitted",
+					Message:   "Admitted by ClusterQueue q1, wait time since reservation was 60s",
+				},
+			},
+		},
 		"already admitted": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).

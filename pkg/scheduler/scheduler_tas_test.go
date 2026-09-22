@@ -11446,3 +11446,129 @@ func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
 		})
 	}
 }
+
+func TestSecondPassAdmittedEventReportsReservationWaitTime(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	const reservationAge = 30 * time.Second
+	reservedAt := now.Add(-reservationAge)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	rf := utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	provCheck := utiltestingapi.MakeAdmissionCheck("prov-check").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Condition(metav1.Condition{
+			Type:   kueue.AdmissionCheckActive,
+			Status: metav1.ConditionTrue,
+		}).
+		Obj()
+	cq := utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").Obj()).
+		AdmissionChecks(kueue.AdmissionCheckReference(provCheck.Name)).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("tas-main", ns.Name).ClusterQueue(cq.Name).Obj()
+	node := *testingnode.MakeNode("x1").
+		Label("tas-node", "true").
+		Label(corev1.LabelHostname, "x1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready().
+		Obj()
+
+	wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+					Obj()).
+				Obj(),
+			reservedAt,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).
+		AdmittedAt(false, reservedAt).
+		Obj()
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(ns.DeepCopy(), topology.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), wl.DeepCopy()).
+		WithStatusSubresource(&kueue.Workload{})
+	_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+	cl := clientBuilder.Build()
+	recorder := &utiltesting.EventRecorder{}
+
+	fakeClock := testingclock.NewFakeClock(now)
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+	cqCache.TASCache().SyncNode(&node)
+	cqCache.AddOrUpdateAdmissionCheck(log, provCheck.DeepCopy())
+	cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+	cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+	if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+		t.Fatalf("adding ClusterQueue to cache: %v", err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+		t.Fatalf("adding ClusterQueue to manager: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+		t.Fatalf("adding LocalQueue to manager: %v", err)
+	}
+	cqCache.AddOrUpdateWorkload(t.Context(), log, wl.DeepCopy())
+
+	if !qManager.QueueSecondPassIfNeeded(ctx, wl, 0) {
+		t.Fatal("expected workload to be queued for second pass")
+	}
+	fakeClock.Step(time.Second)
+
+	scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go qManager.CleanUpOnContext(ctx)
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+		t.Fatalf("getting workload: %v", err)
+	}
+	if !workload.IsAdmitted(&got) {
+		t.Fatal("expected workload to be admitted after second pass")
+	}
+
+	wantElapsed := reservationAge + time.Second
+	wantAdmittedMsg := fmt.Sprintf("Admitted by ClusterQueue tas-main, wait time since reservation was %.0fs", wantElapsed.Seconds())
+	var admittedEvent *utiltesting.EventRecord
+	for i := range recorder.RecordedEvents {
+		if recorder.RecordedEvents[i].Reason == "Admitted" {
+			admittedEvent = &recorder.RecordedEvents[i]
+			break
+		}
+	}
+	if admittedEvent == nil {
+		t.Fatalf("no Admitted event recorded; got events: %v", recorder.RecordedEvents)
+	}
+	if admittedEvent.Message != wantAdmittedMsg {
+		t.Errorf("Admitted event message:\n  got:  %q\n  want: %q", admittedEvent.Message, wantAdmittedMsg)
+	}
+}
