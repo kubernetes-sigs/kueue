@@ -109,6 +109,6 @@ The RayService looks like the following:
 {{< include "examples/jobs/ray-service-sample.yaml" "yaml" >}}
 
 {{% alert title="Note" color="primary" %}}
-The example above comes from [the KubeRay RayService sample](https://raw.githubusercontent.com/ray-project/kuberay/v1.7.0/ray-operator/config/samples/ray-service.sample.yaml)
-and only has the `queue-name` label added.
+The example above comes from [the KubeRay RayService sample](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-service.sample.yaml)
+and only has the `queue-name` label added and requests updated.
 {{% /alert %}}

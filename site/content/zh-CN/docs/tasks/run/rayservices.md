@@ -112,6 +112,6 @@ RayService 如下所示：
 {{< include "examples/jobs/ray-service-sample.yaml" "yaml" >}}
 
 {{% alert title="注意" color="primary" %}}
-上述示例来自[KubeRay RayService 示例](https://raw.githubusercontent.com/ray-project/kuberay/v1.7.0/ray-operator/config/samples/ray-service.sample.yaml)，
-仅添加了 `queue-name` 标签。
+上述示例来自[KubeRay RayService 示例](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-service.sample.yaml)，
+仅添加了 `queue-name` 标签并更新了请求。
 {{% /alert %}}
