@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,6 +67,52 @@ func TestVersionCmd(t *testing.T) {
 Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 `,
 		},
+		"should look up the controller manager in --namespace": {
+			deployment: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kueueControllerManagerName,
+					Namespace: "custom-kueue",
+				},
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "manager",
+									Image: "registry.k8s.io/kueue/kueue:v0.0.0-custom",
+								},
+							},
+						},
+					},
+				},
+			},
+			args: []string{"--namespace", "custom-kueue"},
+			wantOut: `Client Version: v0.0.0-main
+Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-custom
+`,
+		},
+		"should ignore a controller manager outside --namespace": {
+			deployment: &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kueueControllerManagerName,
+					Namespace: kueueNamespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "manager",
+									Image: "registry.k8s.io/kueue/kueue:v0.0.0",
+								},
+							},
+						},
+					},
+				},
+			},
+			args:    []string{"--namespace", "custom-kueue"},
+			wantOut: "Client Version: v0.0.0-main\n",
+		},
 	}
 
 	for name, tc := range testCases {
@@ -78,6 +125,8 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 			}
 
 			cmd := NewVersionCmd(tcg, streams)
+			// Simulate the inherited persistent --namespace flag from the root command.
+			cmd.Flags().StringP("namespace", "n", "", "If present, the namespace scope for this CLI request")
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
@@ -95,5 +144,21 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestExplicitNamespace(t *testing.T) {
+	cmd := &cobra.Command{Use: "version"}
+	cmd.Flags().StringP("namespace", "n", "", "")
+
+	if got := explicitNamespace(cmd); got != "" {
+		t.Fatalf("explicitNamespace() = %q, want empty when flag is unset", got)
+	}
+
+	if err := cmd.Flags().Set("namespace", "custom-kueue"); err != nil {
+		t.Fatalf("Set namespace: %v", err)
+	}
+	if got := explicitNamespace(cmd); got != "custom-kueue" {
+		t.Fatalf("explicitNamespace() = %q, want custom-kueue", got)
 	}
 }
