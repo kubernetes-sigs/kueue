@@ -168,7 +168,7 @@ func fairPreemptionStrategy(
 
 		// The incoming Workload's usage stays simulated while the candidates are
 		// picked, because the DominantResourceShare values have to account for it.
-		// This is hidden from the consumer, as we revert the simulated addition for the durantion of the yield.
+		// This is hidden from the consumer, as we revert the simulated addition for the duration of the yield.
 		wrapperYield := func(t *Target) bool {
 			yieldedCandidates = append(yieldedCandidates, t)
 			revert := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
