@@ -335,10 +335,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 				revertSimulation := fixture.preemptionCtx.preemptorCQ.SimulateUsageRemoval(fixture.preemptionCtx.workloadUsage)
 				fits = workloadFits(ctx, fixture.preemptionCtx, true)
 				revertSimulation()
-				if fits {
-					return false
-				}
-				return true
+				return !fits
 			})
 
 			if tc.wantAllRejected {
