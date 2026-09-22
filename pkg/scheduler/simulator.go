@@ -28,6 +28,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+type schedulingSimulator interface {
+	Schedule(
+		ctx context.Context,
+		initialAssignment flavorassigner.Assignment,
+	) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
+}
+
 func simulateSchedule(
 	ctx context.Context,
 	simulator schedulingSimulator,
@@ -39,13 +46,6 @@ func simulateSchedule(
 		assignment.ResolveNoFitReason(cq)
 	}
 	return
-}
-
-type schedulingSimulator interface {
-	Schedule(
-		ctx context.Context,
-		initialAssignment flavorassigner.Assignment,
-	) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool)
 }
 
 var _ schedulingSimulator = &kueueInternalSimulator{}
