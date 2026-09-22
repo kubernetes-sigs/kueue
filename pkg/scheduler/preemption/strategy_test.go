@@ -98,7 +98,7 @@ func consumeStrategies(strategies iter.Seq[PreemptionStrategy], consumption stra
 	gotStrategies := []wantStrategy{}
 	for strategy := range strategies {
 		targets := []wantTarget{}
-		for candidate := range strategy.Candidates {
+		for candidate := range strategy.candidates {
 			targets = append(targets, wantTarget{
 				Workload: workload.Key(candidate.WorkloadInfo.Obj),
 				Reason:   candidate.Reason,
@@ -109,7 +109,7 @@ func consumeStrategies(strategies iter.Seq[PreemptionStrategy], consumption stra
 				break
 			}
 		}
-		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.AllowBorrowing, Targets: targets})
+		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.allowBorrowing, Targets: targets})
 		if consumption.stopAfterStrategies > 0 && len(gotStrategies) >= consumption.stopAfterStrategies {
 			break
 		}

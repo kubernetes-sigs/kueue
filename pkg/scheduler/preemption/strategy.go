@@ -39,15 +39,21 @@ import (
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
 // One strategy maps to a signle, isolated attempt at finding a possible preemption result.
 type PreemptionStrategy struct {
-	Candidates     iter.Seq[*Target]
-	AllowBorrowing bool
-
+	// candidates is a dynamic iterator over preemption candidates
+	// in order of decreasig preemption appeal.
+	candidates iter.Seq[*Target]
+	// allowBorrowing determines wheteher borrowing is enabled in the scope of this strategy.
+	allowBorrowing bool
+	// pCtx represents the active preemption context.
+	// The context is shared accross all iterations of this strategy's candidates.
+	// Eeach time a candidate is yielded, it is preempted from the active context.
+	// The context is reset once the loop over candidates ends (finishes or is interrupted).
 	pCtx *preemptionCtx
 }
 
 func Materialize(strategies iter.Seq[PreemptionStrategy]) (result [][]*Target) {
 	for strategy := range strategies {
-		result = append(result, slices.Collect(strategy.Candidates))
+		result = append(result, slices.Collect(strategy.candidates))
 	}
 	return
 }
