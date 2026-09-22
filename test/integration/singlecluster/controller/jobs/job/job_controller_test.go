@@ -758,6 +758,73 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				})
 			})
 		})
+
+		ginkgo.It("should adopt a prebuilt Workload with topology spreading and omitted selectors", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+
+			const (
+				spreadingJSON = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+				topologyLevel = "cloud.com/block"
+			)
+			container := corev1.Container{
+				Name:  "c",
+				Image: "pause",
+			}
+			testingjob.SetContainerDefaults(&container)
+
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Containers(*container.DeepCopy()).
+					RequiredTopologyRequest(topologyLevel).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Annotations(map[string]string{
+						kueue.PodSetTopologySpreadingAnnotation: spreadingJSON,
+					}).
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			var originalUID types.UID
+			ginkgo.By("verifying the prebuilt Workload exists without a controller or job-uid label", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					g.Expect(createdWl.OwnerReferences).To(gomega.BeEmpty())
+					g.Expect(createdWl.Labels).NotTo(gomega.HaveKey(constants.JobUIDLabel))
+					originalUID = createdWl.UID
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				PrebuiltWorkloadLabel("wl").
+				Containers(*container.DeepCopy()).
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, topologyLevel).
+				PodAnnotation(kueue.PodSetTopologySpreadingAnnotation, spreadingJSON).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("checking the Job adopts the original Workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := batchv1.Job{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					g.Expect(createdWl.UID).To(gomega.Equal(originalUID))
+					g.Expect(metav1.IsControlledBy(&createdWl, &createdJob)).To(gomega.BeTrue())
+					g.Expect(createdWl.Labels).To(gomega.HaveKeyWithValue(constants.JobUIDLabel, string(createdJob.UID)))
+					g.Expect(createdWl.Spec.PodSets[0].Template.Annotations).To(gomega.HaveKeyWithValue(
+						kueue.PodSetTopologySpreadingAnnotation, spreadingJSON))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					g.Expect(createdWl.Status.Admission).To(gomega.BeNil())
+					g.Expect(createdWl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("WorkloadIdentifierAnnotations feature gate is enabled", func() {

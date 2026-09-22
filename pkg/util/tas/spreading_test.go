@@ -399,3 +399,74 @@ func TestExceedsShare(t *testing.T) {
 		})
 	}
 }
+
+func TestSpreadingAnnotationsAgree(t *testing.T) {
+	const compact = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+	testCases := map[string]struct {
+		a, b string
+		want bool
+	}{
+		"identical valid strings": {
+			a: compact, b: compact, want: true,
+		},
+		"whitespace and property order": {
+			a:    compact,
+			b:    `{ "rules" : [ { "maxShareAllowingPlacement" : "0.45", "topologyKey" : "cloud.com/block" } ] }`,
+			want: true,
+		},
+		"omitted enforcement mode versus explicit Required": {
+			a:    compact,
+			b:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"}]}`,
+			want: true,
+		},
+		"equivalent quantity spellings": {
+			a:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.5"}]}`,
+			b:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"500m"}]}`,
+			want: true,
+		},
+		"omitted selectors versus an empty selector list": {
+			a:    compact,
+			b:    `{"workloadLabelSelectors":[],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			want: true,
+		},
+		"unknown fields discarded by the parser": {
+			a:    compact,
+			b:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}],"unknown":"field"}`,
+			want: true,
+		},
+		"different shares": {
+			a: compact,
+			b: `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.5"}]}`,
+		},
+		"rule array order is significant": {
+			a: `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"},{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.22"}]}`,
+			b: `{"rules":[{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.22"},{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+		},
+		"equivalent In values regardless of order": {
+			a:    `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["a","b"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			b:    `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["b","a"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			want: true,
+		},
+		"different selector values": {
+			a: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["a"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			b: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["b"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+		},
+		"differing unparseable input": {
+			a: "not-json", b: "also-not-json",
+		},
+		"identical malformed strings": {
+			a: "not-json", b: "not-json", want: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := SpreadingAnnotationsAgree(tc.a, tc.b); got != tc.want {
+				t.Errorf("SpreadingAnnotationsAgree() = %t, want %t", got, tc.want)
+			}
+			if got := SpreadingAnnotationsAgree(tc.b, tc.a); got != tc.want {
+				t.Errorf("SpreadingAnnotationsAgree() is not symmetric: reverse = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
