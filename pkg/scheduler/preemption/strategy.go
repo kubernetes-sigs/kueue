@@ -44,19 +44,16 @@ type PreemptionStrategy struct {
 	pCtx *preemptionCtx
 }
 
-// PreemptionStrategiesIterator defines a set of alternate strategies to be attempted when finding a preemption result.
-type PreemptionStrategiesIterator iter.Seq[PreemptionStrategy]
-
-func (p PreemptionStrategiesIterator) Materialize() (result [][]*Target) {
-	for strategy := range p {
+func Materialize(strategies iter.Seq[PreemptionStrategy]) (result [][]*Target) {
+	for strategy := range strategies {
 		result = append(result, slices.Collect(strategy.Candidates))
 	}
 	return
 }
 
-type PreemptionStrategiesFactory func(ctx context.Context, assignment *flavorassigner.Assignment) PreemptionStrategiesIterator
+type PreemptionStrategiesFactory func(ctx context.Context, assignment *flavorassigner.Assignment) iter.Seq[PreemptionStrategy]
 
-func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) PreemptionStrategiesIterator {
+func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
 	log := log.FromContext(ctx)
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
 		Log:               log,
@@ -128,7 +125,7 @@ func fairPreemptionStrategy(
 	preemptor *Preemptor,
 	preemptionCtx *preemptionCtx,
 	fsStrategies []fairsharing.Strategy,
-) PreemptionStrategiesIterator {
+) iter.Seq[PreemptionStrategy] {
 	log := log.FromContext(ctx)
 	allowBorrowing := true
 
