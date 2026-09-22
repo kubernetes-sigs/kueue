@@ -4,6 +4,7 @@ date: 2024-05-28
 weight: 7
 description: >
   Preemption is the process of evicting one or more admitted Workloads to accommodate another Workload.
+no_list: true
 ---
 
 In a preemption, the following terms are relevant:
@@ -51,9 +52,7 @@ The preempting workload can be found by running `kubectl get workloads.kueue.x-k
 
 ## Preemption algorithms
 
-Kueue offers two preemption algorithms. The main difference between them is the criteria to allow
-preemptions from a ClusterQueue to others in the Cohort, when the usage of the preempting ClusterQueue is
-already above the nominal quota. The algorithms are:
+Kueue offers two built-in preemption algorithms, alongside a declarative configurable preemption mechanism:
 
 - **[Classic Preemption](#classic-preemption)**: Preemption in the cohort can only happen when any of the following occurs:
   - The usage of the ClusterQueue for the incoming workload will be under the nominal quota after the ongoing admission process
@@ -64,11 +63,16 @@ already above the nominal quota. The algorithms are:
   if it belongs to a ClusterQueue which is running over its nominal quota. 
   ClusterQueues in a cohort borrow resources in a first-come first-served fashion.
   
-  This algorithm is the most lightweight of the two.
+  This algorithm is the most lightweight of the algorithms.
 
 - **[Fair Sharing](#fair-sharing)**: ClusterQueues with pending Workloads can preempt other Workloads in their cohort
   until the preempting ClusterQueue obtains an equal or weighted share of the borrowable resources.
   The borrowable resources are the unused nominal quota of all the ClusterQueues in the cohort.
+
+- **[Configurable Preemption](/docs/concepts/preemption/configurable_preemption)** {{< feature-state state="alpha" for_version="v0.20" >}}:
+  ClusterQueues can declare custom preemption triggers (such as topology defragmentation under Topology-Aware Scheduling)
+  and candidate selectors (priority comparisons, relational scopes, custom numeric labels, and workload/queue selectors)
+  via the `PreemptionConfig` CRD. In Alpha, candidate outputs from `PreemptionConfig` merge with candidates from Classic or Fair Sharing preemption.
 
 ## Classic Preemption
 
