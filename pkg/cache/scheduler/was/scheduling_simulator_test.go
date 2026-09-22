@@ -382,7 +382,7 @@ func TestSnapshotJoinsInformers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulator failed: %v", err)
 	}
-	if _, err := sim.Snapshot(ctx, nil); err != nil {
+	if _, err := sim.Snapshot(ctx, nil, nil); err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 	armed.Store(true)
