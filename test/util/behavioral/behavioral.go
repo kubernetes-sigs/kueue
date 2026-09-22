@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package behavioral
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"context"
@@ -86,7 +87,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -98,6 +98,56 @@ func init() {
 	// Use large MaxLength to make sure the diff contains relevant output
 	format.MaxLength = 500000
 	format.RegisterCustomFormatter(formatK8sObject)
+}
+
+var (
+	agnHostImageOnce sync.Once
+	agnHostImage     string
+)
+
+// GetAgnHostImage returns the agnhost image used by behavioral tests.
+func GetAgnHostImage() string {
+	agnHostImageOnce.Do(func() {
+		if image := os.Getenv("E2E_TEST_AGNHOST_IMAGE"); image != "" {
+			agnHostImage = image
+			return
+		}
+
+		dockerfilePath := filepath.Join(constants.ProjectBaseDir, "hack", "testing", "agnhost", "Dockerfile")
+		image, err := getDockerImageFromDockerfile(dockerfilePath)
+		if err != nil {
+			panic(fmt.Errorf("failed to get agnhost image: %w", err))
+		}
+		agnHostImage = image
+	})
+	return agnHostImage
+}
+
+func getDockerImageFromDockerfile(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open Dockerfile: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(strings.ToUpper(line), "FROM ") {
+			parts := strings.Fields(line)
+			if len(parts) < 2 {
+				return "", fmt.Errorf("invalid FROM instruction: %s", line)
+			}
+			return parts[1], nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading Dockerfile: %w", err)
+	}
+	return "", errors.New("no FROM instruction found in Dockerfile")
 }
 
 func RunSuite(t *testing.T, suiteName string) {
@@ -1495,27 +1545,6 @@ func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 		}
 	}
 	return active
-}
-
-// FindConcurrentAdmissionVariants returns the subset of workloads that are Concurrent Admission variants.
-func FindConcurrentAdmissionVariants(workloads []kueue.Workload) []kueue.Workload {
-	var variants []kueue.Workload
-	for i := range workloads {
-		if concurrentadmission.IsVariant(&workloads[i]) {
-			variants = append(variants, workloads[i])
-		}
-	}
-	return variants
-}
-
-// FindConcurrentAdmissionParent returns the first non-variant workload, or nil, assuming a ClusterQueue with Concurrent Admission enabled.
-func FindConcurrentAdmissionParent(workloads []kueue.Workload) *kueue.Workload {
-	for i := range workloads {
-		if !concurrentadmission.IsVariant(&workloads[i]) {
-			return &workloads[i]
-		}
-	}
-	return nil
 }
 
 // DeleteWorkloadSliceAndAwaitDeletion deletes the named workload slice and waits

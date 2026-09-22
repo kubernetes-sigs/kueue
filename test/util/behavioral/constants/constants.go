@@ -14,11 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package constants
 
 import (
 	"path/filepath"
-	"sync"
+	"runtime"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -79,6 +79,11 @@ var (
 	ClusterProfileCrds       = filepath.Join(ProjectBaseDir, "dep-crds", "clusterprofile")
 )
 
+func getProjectBaseDir() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", "..", "..", ".."))
+}
+
 var (
 	// For full documentation on agnhost subcommands see the following documentation:
 	// https://pkg.go.dev/k8s.io/kubernetes/test/images/agnhost#section-readme
@@ -106,15 +111,4 @@ const (
 const (
 	Shard0 = "shard-0"
 	Shard1 = "shard-1"
-)
-
-var (
-	sparkTestImageOnce sync.Once
-	sparkTestImage     string
-
-	agnHostImageOnce sync.Once
-	agnHostImage     string
-
-	redisTestImageOnce sync.Once
-	redisTestImage     string
 )

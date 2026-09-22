@@ -30,6 +30,7 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/test/util/behavioral/constants"
 )
 
 func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
@@ -56,7 +57,7 @@ func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client,
 				continue
 			}
 			if workloadevict.IsEvicted(&wl) && workload.HasQuotaReservation(&wl) {
-				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, constants.RealClock, func(wl *kueue.Workload) (bool, error) {
 					return workload.UnsetQuotaReservationWithCondition(wl, "Pending", "Eviction finished by test", time.Now()), nil
 				}),
 				).To(gomega.Succeed())
@@ -65,5 +66,5 @@ func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client,
 		}
 
 		g.Expect(finished.Len()).Should(gomega.Equal(n), "Not enough workloads evicted")
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsgObjList("Not enough workloads evicted in ClusterQueue", wList))
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed(), AssertMsgObjList("Not enough workloads evicted in ClusterQueue", wList))
 }

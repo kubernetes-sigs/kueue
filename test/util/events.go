@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/test/util/behavioral/constants"
 )
 
 func ExpectEventsForObjectsWithTimeout(eventWatcher watch.Interface, objs sets.Set[types.NamespacedName], filter func(*eventsv1.Event) bool, timeout time.Duration) {
@@ -60,5 +61,5 @@ func ExpectEventAppeared(ctx context.Context, k8sClient client.Client, event eve
 		err := k8sClient.List(ctx, observedEvents)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(observedEvents.Items).To(haveEvent(event))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }

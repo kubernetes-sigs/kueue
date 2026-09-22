@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/test/util/behavioral/constants"
 )
 
 func ExpectPendingAdmissionAttempts(want int, operation string) {
@@ -50,7 +51,7 @@ func expectAdmissionAttempts(want int, operation string, result metrics.Admissio
 		v, err := testutil.GetCounterMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.BeNumerically(operation, want), "pending_workloads with status=%s", result)
-	}, Timeout, Interval).WithOffset(2).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).WithOffset(2).Should(gomega.Succeed())
 }
 
 var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
@@ -95,7 +96,7 @@ func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus)
 			g.Expect(err).ToNot(gomega.HaveOccurred())
 			g.Expect(v).Should(gomega.Equal(wantV), "local_queue_status with status=%s", s)
 		}
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int, customLabels ...string) {
@@ -136,7 +137,7 @@ func ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq *kueue.ClusterQueue, prior
 
 func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, priorityClass string, v int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
-	ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq, priorityClass, v, Timeout, customLabels...)
+	ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq, priorityClass, v, constants.Timeout, customLabels...)
 }
 
 // GetMultiKueueWorkloadsAdmittedTotal reads the current value of the
@@ -171,7 +172,7 @@ func ExpectMultiKueueClusterStatusMetric(cqName, cluster string, status metav1.C
 			g.Expect(err).ToNot(gomega.HaveOccurred())
 			g.Expect(v).Should(gomega.Equal(wantV), "multikueue_cluster_status with active=%s", s)
 		}
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
@@ -303,12 +304,12 @@ func expectCounterMetricWithTimeout(metric *prometheus.CounterVec, count int, ti
 		v, err := testutil.GetCounterMetricValue(metric.WithLabelValues(lvs...))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.Equal(count))
-	}, timeout, Interval).Should(gomega.Succeed())
+	}, timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func expectCounterMetric(metric *prometheus.CounterVec, count int, lvs ...string) {
 	ginkgo.GinkgoHelper()
-	expectCounterMetricWithTimeout(metric, count, Timeout, lvs...)
+	expectCounterMetricWithTimeout(metric, count, constants.Timeout, lvs...)
 }
 
 func ExpectLQAdmissionWaitTimeMetric(lq *kueue.LocalQueue, priorityClass string, count int, customLabels ...string) {
@@ -377,7 +378,7 @@ func expectHistogramMetric(metric *prometheus.HistogramVec, matcher gomegatypes.
 		v, err := testutil.GetHistogramMetricCount(metric.WithLabelValues(lvs...))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(matcher)
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func expectGaugeMetric(metric *prometheus.GaugeVec, lvs []string, matcher gomegatypes.GomegaMatcher, msgAndArgs ...any) {
@@ -386,7 +387,7 @@ func expectGaugeMetric(metric *prometheus.GaugeVec, lvs []string, matcher gomega
 		v, err := testutil.GetGaugeMetricValue(metric.WithLabelValues(lvs...))
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(v).Should(matcher, msgAndArgs...)
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, constants.Timeout, constants.Interval).Should(gomega.Succeed())
 }
 
 func ExpectCohortSubtreeQuotaGaugeMetric(cohortName string, flavor, resource string, count float64, customLabels ...string) {
@@ -481,5 +482,5 @@ func ExpectPrometheusTargetForKueue(ctx context.Context, prometheusClient promet
 			}
 		}
 		g.Expect(hasKueueTarget).To(gomega.BeTrue(), "Kueue target not found. Active targets: %v", result.Active)
-	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+	}, constants.VeryLongTimeout, constants.Interval).Should(gomega.Succeed())
 }
