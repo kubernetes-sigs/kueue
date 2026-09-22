@@ -124,24 +124,24 @@ func (t *Target) GetObject() client.Object {
 	return t.WorkloadInfo.Obj
 }
 
-func (p *Preemptor) GetPreemptionPlanFactory(
+func (p *Preemptor) GetPreemptionStrategyFactory(
 	wl workload.Info,
 	snapshot *schdcache.Snapshot,
-) PreemptionPlanFactory {
-	return func(ctx context.Context, assignment *flavorassigner.Assignment) *PreemptionPlan {
-		return p.getPreemptionPlan(ctx, p.buildContext(ctx, wl, *assignment, snapshot))
+) PreemptionStrategiesFactory {
+	return func(ctx context.Context, assignment *flavorassigner.Assignment) PreemptionStrategiesIterator {
+		return p.getPreemptionStrategyIterator(ctx, p.buildContext(ctx, wl, *assignment, snapshot))
 	}
 }
 
-func (p *Preemptor) getPreemptionPlan(ctx context.Context, preemptionCtx *preemptionCtx) *PreemptionPlan {
+func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) PreemptionStrategiesIterator {
 	if p.enableFairSharing {
-		return FairPreemptionPlan(ctx, p, preemptionCtx, p.fsStrategies)
+		return FairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
 	}
-	return ClassicalPreemptionPlan(ctx, p, preemptionCtx)
+	return ClassicalPreemptionStrategy(ctx, p, preemptionCtx)
 }
 
-func (p *Preemptor) GetTargetsUsingPlan(ctx context.Context, plan *PreemptionPlan) []*Target {
-	return p.getTargets(ctx, plan)
+func (p *Preemptor) GetTargetsWithStrategy(ctx context.Context, strategies PreemptionStrategiesIterator) []*Target {
+	return p.getTargets(ctx, strategies)
 }
 
 // GetTargets returns the list of workloads that should be evicted in
@@ -153,7 +153,7 @@ func (p *Preemptor) GetTargets(
 	snapshot *schdcache.Snapshot,
 ) []*Target {
 	pCtx := p.buildContext(ctx, wl, assignment, snapshot)
-	return p.getTargets(ctx, p.getPreemptionPlan(ctx, pCtx))
+	return p.getTargets(ctx, p.getPreemptionStrategyIterator(ctx, pCtx))
 }
 
 func (p *Preemptor) buildContext(
@@ -296,28 +296,25 @@ type preemptionAttemptOpts struct {
 	borrowing bool
 }
 
-func (p *Preemptor) getTargets(ctx context.Context, plan *PreemptionPlan) []*Target {
+func (p *Preemptor) getTargets(ctx context.Context, strategies PreemptionStrategiesIterator) []*Target {
 	log := log.FromContext(ctx)
-	for strategy := range plan.Strategies {
+	for strategy := range strategies {
 		var targets []*Target
 		for candidate := range strategy.Candidates {
 			targets = append(targets, candidate)
-			if workloadFits(ctx, plan.pCtx, strategy.Borrowing) {
-				targets = fillBackWorkloads(ctx, plan.pCtx, targets, strategy.Borrowing)
+			if workloadFits(ctx, strategy.pCtx, strategy.AllowBorrowing) {
+				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.AllowBorrowing)
 				if logV := log.V(6); logV.Enabled() {
 					logV.Info("Preemption strategy succeeded",
-						"preemptingWorkload", klog.KObj(plan.pCtx.preemptor.Obj),
+						"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
 						"targets", logging.GetObjectReferences(targets))
 				}
-				plan.Cleanup()
 				return targets
 			}
 		}
-		plan.Cleanup()
 	}
 	if logV := log.V(6); logV.Enabled() {
-		logV.Info("All preemption strategies failed",
-			"preemptingWorkload", klog.KObj(plan.pCtx.preemptor.Obj))
+		logV.Info("All preemption strategies failed")
 	}
 	return nil
 }
@@ -485,9 +482,9 @@ func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrow
 // FairSharing simulates while it picks candidates for accurate
 // DominantResourceShare calculations.
 //
-// FairPreemptionPlan does this itself around every yield, so a consumer of a
-// plan calls workloadFits directly. This is only for tests that drive the
-// FairSharing iterators without going through the plan.
+// FairPreemptionStrategy does this itself around every yield, so a consumer of
+// a strategy calls workloadFits directly. This is only for tests that drive the
+// FairSharing iterators without going through the strategy.
 func workloadFitsForFairSharing(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
 	res := workloadFits(ctx, preemptionCtx, allowBorrowing)

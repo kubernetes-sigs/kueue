@@ -40,11 +40,11 @@ type schedulingSimulator interface {
 var _ schedulingSimulator = &kueueInternalSimulator{}
 
 type kueueInternalSimulator struct {
-	wl                    *workload.Info
-	snapshot              *schdcache.Snapshot
-	preemptor             *preemption.Preemptor
-	preemptionPlanFactory preemption.PreemptionPlanFactory
-	flavorAssigner        *flavorassigner.FlavorAssigner
+	wl                          *workload.Info
+	snapshot                    *schdcache.Snapshot
+	preemptor                   *preemption.Preemptor
+	preemptionStrategiesFactory preemption.PreemptionStrategiesFactory
+	flavorAssigner              *flavorassigner.FlavorAssigner
 }
 
 func (s *kueueInternalSimulator) Schedule(
@@ -73,8 +73,8 @@ func (s *kueueInternalSimulator) Schedule(
 	}
 
 	if arm == flavorassigner.Preempt {
-		preemptionPlan := s.preemptionPlanFactory(ctx, &assignment)
-		faPreemptionTargets := s.preemptor.GetTargetsUsingPlan(ctx, preemptionPlan)
+		strategies := s.preemptionStrategiesFactory(ctx, &assignment)
+		faPreemptionTargets := s.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
 			targets = slices.Concat(preemptedTargets, faPreemptionTargets)
 			return assignment, targets, true
@@ -86,10 +86,10 @@ func (s *kueueInternalSimulator) Schedule(
 var _ schedulingSimulator = &kueueInternalSimulator{}
 
 type schedulerLibrarySimulator struct {
-	wl                    *workload.Info
-	snapshot              *schdcache.Snapshot
-	preemptor             *preemption.Preemptor
-	preemptionPlanFactory preemption.PreemptionPlanFactory
+	wl                          *workload.Info
+	snapshot                    *schdcache.Snapshot
+	preemptor                   *preemption.Preemptor
+	preemptionStrategiesFactory preemption.PreemptionStrategiesFactory
 }
 
 func (s *schedulerLibrarySimulator) Schedule(
@@ -110,7 +110,7 @@ func (s *schedulerLibrarySimulator) Schedule(
 		return
 	}
 
-	// strategies := s.preemptionPlanFactory(ctx, &assignment).Materialize()
+	// strategies := s.preemptionStrategiesFactory(ctx, &assignment).Materialize()
 	// for _, candidates := range strategies {
 	// 	schedulingResult := s.snapshot.SimulatorSnapshot.ScheduleWorklad(wl, candidates, preemptedTargets)
 	// 	if schedulingResult.Fits() {

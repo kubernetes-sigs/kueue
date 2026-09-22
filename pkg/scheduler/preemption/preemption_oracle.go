@@ -58,7 +58,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 			},
 		},
 	}
-	candidates := p.preemptor.getTargets(ctx, p.preemptor.getPreemptionPlan(ctx, pCtx))
+	candidates := p.preemptor.getTargets(ctx, p.preemptor.getPreemptionStrategyIterator(ctx, pCtx))
 
 	if len(candidates) == 0 {
 		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)

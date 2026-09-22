@@ -37,44 +37,26 @@ import (
 
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
 // One strategy maps to a signle, isolated attempt at finding a possible preemption result.
-//
-// Candidates are yielded already removed from the snapshot, and with any usage the plan may have
-// simulated for its own bookkeeping undone, so that the consumer observes the state the
-// cluster would be in once the candidates yielded so far are preempted.
 type PreemptionStrategy struct {
-	Candidates iter.Seq[*Target]
-	Borrowing  bool
+	Candidates     iter.Seq[*Target]
+	AllowBorrowing bool
+
+	pCtx *preemptionCtx
 }
 
-// PreemptionPlan defines a set of alternate strategies to be attempted when finding a preemption result.
-type PreemptionPlan struct {
-	Strategies iter.Seq[PreemptionStrategy]
+// PreemptionStrategiesIterator defines a set of alternate strategies to be attempted when finding a preemption result.
+type PreemptionStrategiesIterator iter.Seq[PreemptionStrategy]
 
-	pCtx    *preemptionCtx
-	yielded *[]*Target
-}
-
-type PreemptionPlanFactory func(ctx context.Context, assignment *flavorassigner.Assignment) *PreemptionPlan
-
-func (p *PreemptionPlan) Cleanup() {
-	if p.yielded == nil {
-		return
-	}
-	for _, t := range *p.yielded {
-		p.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
-	}
-	*p.yielded = (*p.yielded)[:0]
-}
-
-func (p *PreemptionPlan) Materialize() (result [][]*Target) {
-	for strategy := range p.Strategies {
+func (p PreemptionStrategiesIterator) Materialize() (result [][]*Target) {
+	for strategy := range p {
 		result = append(result, slices.Collect(strategy.Candidates))
 	}
-	p.Cleanup()
 	return
 }
 
-func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) *PreemptionPlan {
+type PreemptionStrategiesFactory func(ctx context.Context, assignment *flavorassigner.Assignment) PreemptionStrategiesIterator
+
+func ClassicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) PreemptionStrategiesIterator {
 	log := log.FromContext(ctx)
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
 		Log:               log,
@@ -118,11 +100,11 @@ func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preempti
 		attemptPossibleOpts = []preemptionAttemptOpts{{true}, {false}}
 	}
 
-	yieldedCandidates := make([]*Target, 0)
-	return &PreemptionPlan{func(yieldStrategy func(PreemptionStrategy) bool) {
+	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		for _, opts := range attemptPossibleOpts {
 			allowBorrowing := opts.borrowing
-			if !yieldStrategy(PreemptionStrategy{func(yieldCandidate func(*Target) bool) {
+			yieldedCandidates := make([]*Target, 0)
+			cont := yieldStrategy(PreemptionStrategy{func(yieldCandidate func(*Target) bool) {
 				candidatesGenerator.Reset()
 				for candidateWl, reason := candidatesGenerator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = candidatesGenerator.Next(allowBorrowing) {
 					candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
@@ -132,25 +114,27 @@ func ClassicalPreemptionPlan(ctx context.Context, preemptor *Preemptor, preempti
 						return
 					}
 				}
-			}, allowBorrowing}) {
+			}, allowBorrowing, preemptionCtx})
+			restoreYieldedCandidates(preemptionCtx, &yieldedCandidates)
+			if !cont {
 				return
 			}
 		}
-	}, preemptionCtx, &yieldedCandidates}
+	}
 }
 
-func FairPreemptionPlan(
+func FairPreemptionStrategy(
 	ctx context.Context,
 	preemptor *Preemptor,
 	preemptionCtx *preemptionCtx,
 	fsStrategies []fairsharing.Strategy,
-) *PreemptionPlan {
+) PreemptionStrategiesIterator {
 	log := log.FromContext(ctx)
 	allowBorrowing := true
 
 	candidateWls := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidateWls) == 0 {
-		return &PreemptionPlan{func(yieldStrategy func(PreemptionStrategy) bool) {}, preemptionCtx, nil}
+		return func(yieldStrategy func(PreemptionStrategy) bool) {}
 	}
 	slices.SortFunc(candidateWls, func(a, b *workload.Info) int {
 		return preemptioncommon.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
@@ -181,6 +165,9 @@ func FairPreemptionPlan(
 			return yield(t)
 		}
 
+		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
+		defer revertSimulation()
+
 		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
 			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 				targetsInPreemptorCQ = true
@@ -198,12 +185,17 @@ func FairPreemptionPlan(
 		}
 	}
 
-	strategiesIter := func(yieldStrategy func(PreemptionStrategy) bool) {
-		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
-		yieldStrategy(PreemptionStrategy{candidatesIter, allowBorrowing})
-		revertSimulation()
+	return func(yieldStrategy func(PreemptionStrategy) bool) {
+		yieldStrategy(PreemptionStrategy{candidatesIter, allowBorrowing, preemptionCtx})
+		restoreYieldedCandidates(preemptionCtx, &yieldedCandidates)
 	}
-	return &PreemptionPlan{strategiesIter, preemptionCtx, &yieldedCandidates}
+}
+
+func restoreYieldedCandidates(pCtx *preemptionCtx, yielded *[]*Target) {
+	for _, t := range *yielded {
+		pCtx.snapshot.AddWorkload(t.WorkloadInfo)
+	}
+	*yielded = (*yielded)[:0]
 }
 
 func iterateWithFirstFsStrategy(

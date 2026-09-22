@@ -42,12 +42,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// The tests in this file exercise the preemption *plans*, not the preemption
-// outcome. A plan is a lazily evaluated sequence of strategies, where each
-// strategy is a sequence of candidate targets together with the
-// StrategyParams the targets were generated for. Which of those targets is
-// finally preempted is decided by classicalPreemptions/fairPreemptions and is
-// covered by TestPreemption, TestFairPreemptions and TestHierarchicalPreemptions.
+// The tests in this file exercise the preemption *strategies*, not the
+// preemption outcome. A strategy iterator is a lazily evaluated sequence of
+// strategies, where each strategy is a sequence of candidate targets together
+// with the StrategyParams the targets were generated for. Which of those
+// targets is finally preempted is decided by classicalPreemptions/fairPreemptions
+// and is covered by TestPreemption, TestFairPreemptions and TestHierarchicalPreemptions.
 
 // wantTarget is a comparable projection of a *Target.
 //
@@ -58,24 +58,24 @@ import (
 // the ClusterQueueSnapshot and IgnoreFields to cut the cohort cycle), and even
 // then a single wrong expectation prints tens of lines of Workload and
 // ClusterQueueSnapshot internals. The projection keeps a failure down to the
-// three fields a plan actually decides.
+// three fields a strategy actually decides.
 type wantTarget struct {
 	Workload workload.Reference
 	Reason   string
 	CQ       kueue.ClusterQueueReference
 }
 
-// wantStrategy is a comparable projection of a single strategy of a plan,
+// wantStrategy is a comparable projection of a single yielded strategy,
 // including the StrategyParams it was yielded with.
 type wantStrategy struct {
 	Borrowing bool
 	Targets   []wantTarget
 }
 
-// planConsumption describes a consumer which abandons the plan early. The
-// zero value consumes the plan in full, which is what most cases do in order
-// to observe the whole candidate sequence.
-type planConsumption struct {
+// strategiesConsumption describes a consumer which abandons the iteration
+// early. The zero value consumes every strategy in full, which is what most
+// cases do in order to observe the whole candidate sequence.
+type strategiesConsumption struct {
 	// stopAfterStrategies, when positive, stops the consumer from requesting
 	// further strategies once that many have been yielded.
 	stopAfterStrategies int
@@ -84,20 +84,18 @@ type planConsumption struct {
 	stopAfterFirstStrategyTargets int
 }
 
-// consumePlan drains the plan and returns a comparable projection of what was
-// yielded.
+// consumeStrategies drains the strategy iterator and returns a comparable
+// projection of what was yielded.
 //
-// Both plans mutate the snapshot while they iterate: a candidate is removed
+// Both iterators mutate the snapshot while they iterate: a candidate is removed
 // from it before being yielded, so that the following candidates are picked
-// against the state the previous ones left behind. Those removals are undone
-// by Cleanup, which every production consumer calls once an attempt is over -
-// classicalPreemptions between the borrowing and the non-borrowing attempt,
-// fairPreemptions after its single strategy. This consumer does the same, so
-// that a later attempt starts from the snapshot the first one saw, and so
-// that the caller can assert the snapshot was left as it was found.
-func consumePlan(plan *PreemptionPlan, consumption planConsumption) []wantStrategy {
+// against the state the previous ones left behind. The classical iterator undoes
+// those removals itself once a strategy is over, so that a later attempt starts
+// from the snapshot the first one saw, and so that the caller can assert the
+// snapshot was left as it was found.
+func consumeStrategies(strategies PreemptionStrategiesIterator, consumption strategiesConsumption) []wantStrategy {
 	gotStrategies := []wantStrategy{}
-	for strategy := range plan.Strategies {
+	for strategy := range strategies {
 		targets := []wantTarget{}
 		for candidate := range strategy.Candidates {
 			targets = append(targets, wantTarget{
@@ -110,8 +108,7 @@ func consumePlan(plan *PreemptionPlan, consumption planConsumption) []wantStrate
 				break
 			}
 		}
-		plan.Cleanup()
-		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.Borrowing, Targets: targets})
+		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.AllowBorrowing, Targets: targets})
 		if consumption.stopAfterStrategies > 0 && len(gotStrategies) >= consumption.stopAfterStrategies {
 			break
 		}
@@ -119,7 +116,7 @@ func consumePlan(plan *PreemptionPlan, consumption planConsumption) []wantStrate
 	return gotStrategies
 }
 
-type planFixtureCfg struct {
+type strategyFixtureCfg struct {
 	flavors          []*kueue.ResourceFlavor
 	clusterQueues    []*kueue.ClusterQueue
 	cohorts          []*kueue.Cohort
@@ -131,20 +128,20 @@ type planFixtureCfg struct {
 	now              time.Time
 }
 
-type planFixture struct {
+type strategyFixture struct {
 	preemptor *Preemptor
 	pCtx      *preemptionCtx
 	snapshot  *schdcache.Snapshot
 	// pristine is an independent snapshot of the same cache, used to assert
-	// that the plan left the working snapshot untouched.
+	// that the strategies left the working snapshot untouched.
 	pristine *schdcache.Snapshot
 }
 
-// newPlanFixture builds the inputs of the plan functions the same way the
-// scheduler does: a cache snapshot, a Preemptor and a preemptionCtx built by
+// newStrategyFixture builds the inputs of the strategy functions the same way
+// the scheduler does: a cache snapshot, a Preemptor and a preemptionCtx built by
 // Preemptor.buildContext, so that frsNeedPreemption and workloadUsage are
 // derived from a real flavor assignment.
-func newPlanFixture(ctx context.Context, t *testing.T, log logr.Logger, cfg planFixtureCfg) planFixture {
+func newStrategyFixture(ctx context.Context, t *testing.T, log logr.Logger, cfg strategyFixtureCfg) strategyFixture {
 	t.Helper()
 
 	// Set the name as UID so that candidate sorting is deterministic.
@@ -197,7 +194,7 @@ func newPlanFixture(ctx context.Context, t *testing.T, log logr.Logger, cfg plan
 		},
 	})
 
-	return planFixture{
+	return strategyFixture{
 		preemptor: preemptor,
 		pCtx:      preemptor.buildContext(ctx, *wlInfo, assignment, snapshot),
 		snapshot:  snapshot,
@@ -205,7 +202,7 @@ func newPlanFixture(ctx context.Context, t *testing.T, log logr.Logger, cfg plan
 	}
 }
 
-func TestClassicalPreemptionPlan(t *testing.T) {
+func TestClassicalPreemptionStrategy(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
 		utiltestingapi.MakeResourceFlavor("default").Obj(),
@@ -249,11 +246,11 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 		targetCQ         kueue.ClusterQueueReference
 		assignmentFlavor kueue.ResourceFlavorReference
 		featureGates     map[featuregate.Feature]bool
-		consumption      planConsumption
+		consumption      strategiesConsumption
 
 		wantStrategies []wantStrategy
 	}{
-		// C1: nothing to preempt anywhere; the plan still offers a single
+		// C1: nothing to preempt anywhere; the iterator still offers a single
 		// borrowing attempt, so that a workload which only needs the quota
 		// freed by admission bookkeeping is evaluated once.
 		"no candidates yields a single borrowing strategy with no targets": {
@@ -443,7 +440,7 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 			},
 		},
 		// C9: candidates from the cohort are offered before the preemptor's
-		// own workloads, so that the plan prefers reclaiming lent quota over
+		// own workloads, so that the strategy prefers reclaiming lent quota over
 		// preempting a tenant of the same ClusterQueue.
 		"cohort candidates precede same ClusterQueue candidates": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -569,7 +566,7 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 			},
 			incoming:    incomingWl("2", 10),
 			targetCQ:    "a",
-			consumption: planConsumption{stopAfterFirstStrategyTargets: 1},
+			consumption: strategiesConsumption{stopAfterFirstStrategyTargets: 1},
 			wantStrategies: []wantStrategy{
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/c1", Reason: kueue.InCohortReclamationReason, CQ: "c"},
@@ -582,8 +579,8 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 			},
 		},
 		// C14: a consumer which found its targets in the first attempt stops
-		// the plan, and the second attempt is never generated.
-		"the plan stops when the consumer stops": {
+		// the iteration, and the second attempt is never generated.
+		"the iteration stops when the consumer stops": {
 			clusterQueues: []*kueue.ClusterQueue{
 				makeCQ("a", "all", "3").Obj(),
 				makeCQ("c", "all", "0").Obj(),
@@ -593,7 +590,7 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 			},
 			incoming:    incomingWl("2", 10),
 			targetCQ:    "a",
-			consumption: planConsumption{stopAfterStrategies: 1},
+			consumption: strategiesConsumption{stopAfterStrategies: 1},
 			wantStrategies: []wantStrategy{
 				{Borrowing: true, Targets: []wantTarget{
 					{Workload: "/c1", Reason: kueue.InCohortReclamationReason, CQ: "c"},
@@ -606,7 +603,7 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
-			fixture := newPlanFixture(ctx, t, log, planFixtureCfg{
+			fixture := newStrategyFixture(ctx, t, log, strategyFixtureCfg{
 				flavors:          flavors,
 				clusterQueues:    tc.clusterQueues,
 				cohorts:          tc.cohorts,
@@ -617,23 +614,23 @@ func TestClassicalPreemptionPlan(t *testing.T) {
 				now:              now,
 			})
 
-			plan := ClassicalPreemptionPlan(ctx, fixture.preemptor, fixture.pCtx)
-			gotStrategies := consumePlan(plan, tc.consumption)
+			strategies := ClassicalPreemptionStrategy(ctx, fixture.preemptor, fixture.pCtx)
+			gotStrategies := consumeStrategies(strategies, tc.consumption)
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected strategies (-want,+got):\n%s", diff)
 			}
-			// The plan removes every candidate it yields from the snapshot,
+			// The strategy removes every candidate it yields from the snapshot,
 			// which is what makes an attempt see the effect of its earlier
-			// candidates. Cleanup, which consumePlan calls once an attempt is
-			// over, must put all of them back.
+			// candidates. The restore the strategy runs once an attempt is
+			// over must put all of them back.
 			if diff := cmp.Diff(fixture.pristine, fixture.snapshot, snapCmpOpts); diff != "" {
-				t.Errorf("Snapshot was not restored after the plan was consumed (-initial,+end):\n%s", diff)
+				t.Errorf("Snapshot was not restored after the strategies were consumed (-initial,+end):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestFairSharingPreemptionPlan(t *testing.T) {
+func TestFairSharingPreemptionStrategy(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
 		utiltestingapi.MakeResourceFlavor("default").Obj(),
@@ -671,16 +668,16 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 		targetCQ      kueue.ClusterQueueReference
 		strategies    []config.PreemptionStrategy
 		featureGates  map[featuregate.Feature]bool
-		// stopAfterTargets, when positive, abandons the plan after that many
-		// targets. A fair sharing plan yields a single strategy, so this is
+		// stopAfterTargets, when positive, abandons the iteration after that
+		// many targets. Fair sharing yields a single strategy, so this is
 		// the only way a consumer can leave it early.
 		stopAfterTargets int
 
 		wantStrategies []wantStrategy
 	}{
-		// F1: without candidates the plan is empty, so the caller never even
-		// simulates the first strategy.
-		"no candidates yields an empty plan": {
+		// F1: without candidates no strategy is yielded, so the caller never
+		// even simulates the first strategy.
+		"no candidates yields no strategies": {
 			clusterQueues: []*kueue.ClusterQueue{
 				makeCQ("a", "3").Obj(),
 				makeCQ("b", "3").Obj(),
@@ -947,9 +944,9 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 				}},
 			},
 		},
-		// F12: a consumer which found enough targets abandons the plan, and
-		// the remaining candidates are never generated.
-		"the plan stops when the consumer stops": {
+		// F12: a consumer which found enough targets abandons the iteration,
+		// and the remaining candidates are never generated.
+		"the iteration stops when the consumer stops": {
 			clusterQueues: []*kueue.ClusterQueue{
 				makeCQ("a", "3").Obj(),
 				makeCQ("b", "0").Obj(),
@@ -973,7 +970,7 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
-			fixture := newPlanFixture(ctx, t, log, planFixtureCfg{
+			fixture := newStrategyFixture(ctx, t, log, strategyFixtureCfg{
 				flavors:       flavors,
 				clusterQueues: tc.clusterQueues,
 				cohorts:       tc.cohorts,
@@ -984,20 +981,20 @@ func TestFairSharingPreemptionPlan(t *testing.T) {
 				now:           now,
 			})
 
-			plan := FairPreemptionPlan(ctx, fixture.preemptor, fixture.pCtx, fixture.preemptor.fsStrategies)
-			// The plan simulates the incoming workload's usage itself, so that
-			// the shares account for it while the strategies are evaluated.
-			// The plan yields a single strategy, so capping the first one
-			// caps the whole plan.
-			gotStrategies := consumePlan(plan, planConsumption{stopAfterFirstStrategyTargets: tc.stopAfterTargets})
+			strategyIter := FairPreemptionStrategy(ctx, fixture.preemptor, fixture.pCtx, fixture.preemptor.fsStrategies)
+			// The strategy simulates the incoming workload's usage itself, so
+			// that the shares account for it while the strategies are
+			// evaluated. Fair sharing yields a single strategy, so capping the
+			// first one caps the whole iteration.
+			gotStrategies := consumeStrategies(strategyIter, strategiesConsumption{stopAfterFirstStrategyTargets: tc.stopAfterTargets})
 
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected strategies (-want,+got):\n%s", diff)
 			}
 
-			// A fair sharing plan removes the workloads it yields from the
-			// snapshot, and nothing else; the Cleanup consumePlan ran must
-			// have added all of them back.
+			// A fair sharing strategy removes the workloads it yields from the
+			// snapshot, and nothing else; all of them must be added back once
+			// the iteration is over.
 			if diff := cmp.Diff(fixture.pristine, fixture.snapshot, snapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified beyond the yielded targets (-initial,+end):\n%s", diff)
 			}

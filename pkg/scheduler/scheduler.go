@@ -1483,7 +1483,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
-	preemptionPlanFactory := s.preemptor.GetPreemptionPlanFactory(*wl, snap)
+	preemptionStrategiesFactory := s.preemptor.GetPreemptionStrategyFactory(*wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
@@ -1495,14 +1495,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 			wl,
 			snap,
 			s.preemptor,
-			preemptionPlanFactory,
+			preemptionStrategiesFactory,
 		}
 	} else {
 		schedulingSimulator = &kueueInternalSimulator{
 			wl,
 			snap,
 			s.preemptor,
-			preemptionPlanFactory,
+			preemptionStrategiesFactory,
 			flvAssigner,
 		}
 	}
