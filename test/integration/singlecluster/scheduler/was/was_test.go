@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			// The GPUs sit on was-n2 on purpose. TAS breaks ties by level values,
 			// so it picks was-n1 on its own; asserting was-n2 therefore fails
 			// unless DRA feasibility actively steered the assignment.
-			gpuSlice = utiltesting.MakeResourceSlice("was-n2-gpus", "gpu.test.com").
+			gpuSlice = testingdra.MakeResourceSlice("was-n2-gpus", "gpu.test.com").
 				NodeName("was-n2").
 				Pool("was-n2-gpu-pool", 1, 1).
 				Device("gpu-0").
@@ -139,7 +139,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
-			claimTemplate = utiltesting.MakeResourceClaimTemplate("gpu-claim", ns.Name).
+			claimTemplate = testingdra.MakeResourceClaimTemplate("gpu-claim", ns.Name).
 				DeviceRequest("gpu", "gpu.test.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, claimTemplate)).To(gomega.Succeed())
@@ -150,13 +150,13 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 
 			// Three devices: within the ClusterQueue's quota of four, but more
 			// than any single node publishes, so only feasibility can reject it.
-			tooBigClaim = utiltesting.MakeResourceClaimTemplate("gpu-claim-too-big", ns.Name).
+			tooBigClaim = testingdra.MakeResourceClaimTemplate("gpu-claim-too-big", ns.Name).
 				DeviceRequest("gpu", "gpu.test.com", 3).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, tooBigClaim)).To(gomega.Succeed())
 
 			// Tolerates the taint the DeviceTaintRule cases below apply.
-			tolerantClaim = utiltesting.MakeResourceClaimTemplate("gpu-claim-tolerant", ns.Name).
+			tolerantClaim = testingdra.MakeResourceClaimTemplate("gpu-claim-tolerant", ns.Name).
 				DeviceRequest("gpu", "gpu.test.com", 1).
 				WithToleration("test.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 				Obj()
@@ -408,7 +408,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				extraSlice = utiltesting.MakeResourceSlice("was-n2-more-gpus", "gpu.test.com").
+				extraSlice = testingdra.MakeResourceSlice("was-n2-more-gpus", "gpu.test.com").
 					NodeName("was-n2").
 					Pool("was-n2-more-gpu-pool", 1, 1).
 					Device("gpu-2").
@@ -441,7 +441,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gpuSlice), gpuSlice)).To(gomega.Succeed())
-					gpuSlice.Spec.Devices = utiltesting.MakeResourceSlice(gpuSlice.Name, "gpu.test.com").
+					gpuSlice.Spec.Devices = testingdra.MakeResourceSlice(gpuSlice.Name, "gpu.test.com").
 						Device("gpu-0").
 						Device("gpu-1").
 						Device("gpu-2").
@@ -453,11 +453,11 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			})
 
 			ginkgo.It("should admit it once a ResourceClaim releases its devices", func() {
-				heldClaim = utiltesting.MakeResourceClaim("was-held", ns.Name).DeviceRequest("gpu", "gpu.test.com", 2).Obj()
+				heldClaim = testingdra.MakeResourceClaim("was-held", ns.Name).DeviceRequest("gpu", "gpu.test.com", 2).Obj()
 				util.MustCreate(ctx, k8sClient, heldClaim)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(heldClaim), heldClaim)).To(gomega.Succeed())
-					heldClaim.Status = utiltesting.MakeResourceClaim("was-held", ns.Name).
+					heldClaim.Status = testingdra.MakeResourceClaim("was-held", ns.Name).
 						Allocated("gpu", "gpu.test.com", "was-n2-gpu-pool", "gpu-0", "gpu-1").
 						Obj().Status
 					g.Expect(k8sClient.Status().Update(ctx, heldClaim)).To(gomega.Succeed())

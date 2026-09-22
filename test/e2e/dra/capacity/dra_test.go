@@ -25,8 +25,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 
 		ginkgo.It("Should admit workload with explicit capacity request", func() {
 			ginkgo.By("Creating ResourceClaimTemplate with capacity.requests")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-explicit-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-explicit-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 
 		ginkgo.It("Should default to full device capacity when no request specified", func() {
 			ginkgo.By("Creating ResourceClaimTemplate without capacity.requests")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-default-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-default-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 
 		ginkgo.It("Should round up capacity request to ValidRange step", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting 15500Mi (rounds up to 16Gi with step=1Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-round-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-round-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCapacityRequests(map[string]string{"memory": "15500Mi"}).
 				Obj()
@@ -160,7 +160,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 
 		ginkgo.It("Should multiply capacity charge by request count", func() {
 			ginkgo.By("Creating ResourceClaimTemplate for 2 devices with capacity.requests")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-count2-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-count2-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 
 		ginkgo.It("Should not admit workload when capacity charge exceeds quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting 5 devices at 80Gi each (400Gi > 320Gi quota)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-exceed-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-exceed-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 5).
 				WithCapacityRequests(map[string]string{"memory": "80Gi"}).
 				Obj()
@@ -223,7 +223,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 
 		ginkgo.It("Should admit multiple workloads sharing capacity quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplate for capacity request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-share-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-share-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -267,7 +267,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 
 		ginkgo.It("Should mark workload inadmissible when capacity dimension has no matching devices", func() {
 			ginkgo.By("Creating ResourceClaimTemplate with unmatchable CEL selector")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-nomatch-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-nomatch-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"999Gi\")) == 0").
 				WithCapacityRequests(map[string]string{"memory": "10Gi"}).

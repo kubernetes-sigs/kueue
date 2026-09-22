@@ -375,7 +375,7 @@ func TestDRADeviceHandler(t *testing.T) {
 		wantRequeue []reconcile.Request
 	}{
 		"ResourceSlice created": {
-			event:       event.CreateEvent{Object: utiltesting.MakeResourceSlice("slice", "driver").Obj()},
+			event:       event.CreateEvent{Object: testingdra.MakeResourceSlice("slice", "driver").Obj()},
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
 		},
 		"DeviceClass created": {
@@ -383,7 +383,7 @@ func TestDRADeviceHandler(t *testing.T) {
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
 		},
 		"ResourceClaim created": {
-			event: event.CreateEvent{Object: utiltesting.MakeResourceClaim("claim", "ns").Obj()},
+			event: event.CreateEvent{Object: testingdra.MakeResourceClaim("claim", "ns").Obj()},
 		},
 		"DeviceTaintRule created": {
 			event:       event.CreateEvent{Object: utiltesting.MakeDeviceTaintRule("rule", "key").Obj()},
@@ -391,8 +391,8 @@ func TestDRADeviceHandler(t *testing.T) {
 		},
 		"ResourceSlice updated": {
 			event: event.UpdateEvent{
-				ObjectOld: utiltesting.MakeResourceSlice("slice", "driver").Obj(),
-				ObjectNew: utiltesting.MakeResourceSlice("slice", "driver").Obj(),
+				ObjectOld: testingdra.MakeResourceSlice("slice", "driver").Obj(),
+				ObjectNew: testingdra.MakeResourceSlice("slice", "driver").Obj(),
 			},
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
 		},
@@ -412,31 +412,31 @@ func TestDRADeviceHandler(t *testing.T) {
 		},
 		"ResourceClaim deallocated": {
 			event: event.UpdateEvent{
-				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
-				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+				ObjectOld: testingdra.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+				ObjectNew: testingdra.MakeResourceClaim("claim", "ns").Obj(),
 			},
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
 		},
 		"ResourceClaim allocated": {
 			event: event.UpdateEvent{
-				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
-				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+				ObjectOld: testingdra.MakeResourceClaim("claim", "ns").Obj(),
+				ObjectNew: testingdra.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
 			},
 		},
 		"ResourceClaim updated while allocated": {
 			event: event.UpdateEvent{
-				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
-				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+				ObjectOld: testingdra.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+				ObjectNew: testingdra.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
 			},
 		},
 		"ResourceClaim updated while unallocated": {
 			event: event.UpdateEvent{
-				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
-				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+				ObjectOld: testingdra.MakeResourceClaim("claim", "ns").Obj(),
+				ObjectNew: testingdra.MakeResourceClaim("claim", "ns").Obj(),
 			},
 		},
 		"ResourceSlice deleted": {
-			event:       event.DeleteEvent{Object: utiltesting.MakeResourceSlice("slice", "driver").Obj()},
+			event:       event.DeleteEvent{Object: testingdra.MakeResourceSlice("slice", "driver").Obj()},
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
 		},
 		"DeviceClass deleted": {
@@ -448,15 +448,15 @@ func TestDRADeviceHandler(t *testing.T) {
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
 		},
 		"allocated ResourceClaim deleted": {
-			event:       event.DeleteEvent{Object: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj()},
+			event:       event.DeleteEvent{Object: testingdra.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj()},
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
 		},
 		"unallocated ResourceClaim deleted": {
-			event: event.DeleteEvent{Object: utiltesting.MakeResourceClaim("claim", "ns").Obj()},
+			event: event.DeleteEvent{Object: testingdra.MakeResourceClaim("claim", "ns").Obj()},
 		},
 		"ResourceClaim deleted with unknown final state": {
 			event: event.DeleteEvent{
-				Object:             utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+				Object:             testingdra.MakeResourceClaim("claim", "ns").Obj(),
 				DeleteStateUnknown: true,
 			},
 			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},

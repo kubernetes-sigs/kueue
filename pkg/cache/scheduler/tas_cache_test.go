@@ -1497,7 +1497,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1554,7 +1554,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1680,7 +1680,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1729,10 +1729,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultOneLevel,
 			draObjects: []client.Object{
 				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
-				utiltesting.MakeResourceClaimTemplate("gpu-claim", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-claim", "ns").
 					DeviceRequest("gpu", "gpu.example.com", 1).
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").

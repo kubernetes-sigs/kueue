@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/test/performance/framework/controllers"
 )
 
@@ -289,7 +289,7 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 		}
 	}
 	for _, count := range sets.List(devices) {
-		rct := utiltesting.MakeResourceClaimTemplate(resourceClaimTemplateName(count), ns.Name).
+		rct := testingdra.MakeResourceClaimTemplate(resourceClaimTemplateName(count), ns.Name).
 			DeviceRequest("gpu", controllers.DRADeviceClassName, count).
 			Obj()
 		if err := c.Create(ctx, rct); err != nil {

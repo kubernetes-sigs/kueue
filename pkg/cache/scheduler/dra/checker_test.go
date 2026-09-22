@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 type testCandidate struct {
@@ -183,7 +184,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 
 	// Tolerates the taint that the DeviceTaintRule cases apply, so the same devices
 	// stay allocatable for it.
-	tolerantTemplate := utiltesting.MakeResourceClaimTemplate("tolerant-template", "default").
+	tolerantTemplate := testingdra.MakeResourceClaimTemplate("tolerant-template", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).
 		WithToleration("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 		Obj()
@@ -761,7 +762,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 		},
 		"a taint the driver publishes in the ResourceSlice makes the device unusable": {
 			objects: []runtime.Object{gpuDeviceClass, gpuClaimTemplate,
-				utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
 					NodeName("gpu-node").Pool("gpu-pool", 1, 1).
 					Device("gpu-0").DeviceTaint("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 					Obj()},
@@ -780,7 +781,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 		},
 		"a request tolerating a ResourceSlice taint still fits": {
 			objects: []runtime.Object{gpuDeviceClass, tolerantTemplate,
-				utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
 					NodeName("gpu-node").Pool("gpu-pool", 1, 1).
 					Device("gpu-0").DeviceTaint("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 					Obj()},
@@ -799,7 +800,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 		},
 		"a taint the driver publishes in the ResourceSlice is ignored when KueueDRAIntegrationDeviceTaints is off": {
 			objects: []runtime.Object{gpuDeviceClass, gpuClaimTemplate,
-				utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
 					NodeName("gpu-node").Pool("gpu-pool", 1, 1).
 					Device("gpu-0").DeviceTaint("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 					Obj()},
