@@ -237,7 +237,7 @@ func TestNodePortsFeasibility(t *testing.T) {
 			if tc.addUnmanagedPod {
 				sim.TrackPod(ctx, unmanagedPod)
 			}
-			snapshot, err := sim.Snapshot(ctx, nodes, nil)
+			snapshot, err := sim.Snapshot(ctx, nodes)
 
 			if err != nil {
 				t.Fatalf("CreateSnapshot failed: %v", err)
@@ -297,7 +297,7 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 			t.Fatalf("NewWASSimulator failed: %v", err)
 		}
 
-		snapshot, err := sim.Snapshot(ctx, nodes, nil)
+		snapshot, err := sim.Snapshot(ctx, nodes)
 		if err != nil {
 			t.Fatalf("Snapshot failed: %v", err)
 		}
@@ -347,7 +347,7 @@ func TestRepeatedSnapshots(t *testing.T) {
 	}
 
 	for i := range 3 {
-		if _, err := sim.Snapshot(ctx, nil, nil); err != nil {
+		if _, err := sim.Snapshot(ctx, nil); err != nil {
 			t.Fatalf("Snapshot %d failed: %v", i, err)
 		}
 	}
@@ -382,7 +382,7 @@ func TestSnapshotJoinsInformers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulator failed: %v", err)
 	}
-	if _, err := sim.Snapshot(ctx, nil, nil); err != nil {
+	if _, err := sim.Snapshot(ctx, nil); err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 	armed.Store(true)
@@ -481,7 +481,7 @@ func TestPreemptWorkload(t *testing.T) {
 			}
 			tc.setup(ctx, sim)
 
-			snapshot, err := sim.Snapshot(ctx, nodes, nil)
+			snapshot, err := sim.Snapshot(ctx, nodes)
 			if err != nil {
 				t.Fatalf("Snapshot failed: %v", err)
 			}
@@ -555,7 +555,7 @@ func TestSimulate(t *testing.T) {
 	}
 	sim.TrackPod(ctx, existingPod)
 
-	snapshot, err := sim.Snapshot(ctx, nodes, nil)
+	snapshot, err := sim.Snapshot(ctx, nodes)
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestSnapshotWithVirtualPods(t *testing.T) {
 		t.Fatalf("NewWASSimulator failed: %v", err)
 	}
 
-	snapshot, err := sim.Snapshot(ctx, nodes, []*kueue.Workload{wl})
+	snapshot, err := sim.Snapshot(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 		Obj()
 	sim.TrackPod(ctx, realPod)
 
-	snapshotRaw, err := sim.Snapshot(ctx, nodes, []*kueue.Workload{wl})
+	snapshotRaw, err := sim.Snapshot(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
@@ -791,7 +791,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 		t.Fatalf("NewWASSimulator failed: %v", err)
 	}
 
-	snapshot, err := sim.Snapshot(ctx, nodes, []*kueue.Workload{wl})
+	snapshot, err := sim.Snapshot(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
@@ -874,7 +874,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 					Port(8080, 8080, corev1.ProtocolTCP).
 					Obj())
 			}
-			snap, err := sim.Snapshot(ctx, nodes, nil)
+			snap, err := sim.Snapshot(ctx, nodes)
 			if err != nil {
 				t.Fatal(err)
 			}

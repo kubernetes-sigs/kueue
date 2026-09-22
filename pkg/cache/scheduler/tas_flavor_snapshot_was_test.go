@@ -64,7 +64,7 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj())
-	simSnapshot, err := sim.Snapshot(ctx, nodes, nil)
+	simSnapshot, err := sim.Snapshot(ctx, nodes)
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
