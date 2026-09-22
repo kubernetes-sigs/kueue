@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"iter"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -128,19 +129,19 @@ func (p *Preemptor) GetPreemptionStrategyFactory(
 	wl workload.Info,
 	snapshot *schdcache.Snapshot,
 ) PreemptionStrategiesFactory {
-	return func(ctx context.Context, assignment *flavorassigner.Assignment) PreemptionStrategiesIterator {
+	return func(ctx context.Context, assignment *flavorassigner.Assignment) iter.Seq[PreemptionStrategy] {
 		return p.getPreemptionStrategyIterator(ctx, p.buildContext(ctx, wl, *assignment, snapshot))
 	}
 }
 
-func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) PreemptionStrategiesIterator {
+func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
 	if p.enableFairSharing {
 		return fairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
 	}
 	return classicalPreemptionStrategy(ctx, p, preemptionCtx)
 }
 
-func (p *Preemptor) GetTargetsWithStrategy(ctx context.Context, strategies PreemptionStrategiesIterator) []*Target {
+func (p *Preemptor) GetTargetsWithStrategy(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	return p.getTargets(ctx, strategies)
 }
 
@@ -324,7 +325,7 @@ type preemptionAttemptOpts struct {
 	borrowing bool
 }
 
-func (p *Preemptor) getTargets(ctx context.Context, strategies PreemptionStrategiesIterator) []*Target {
+func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	log := log.FromContext(ctx)
 	for strategy := range strategies {
 		var targets []*Target

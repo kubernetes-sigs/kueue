@@ -18,6 +18,7 @@ package preemption
 
 import (
 	"context"
+	"iter"
 	"testing"
 	"time"
 
@@ -93,7 +94,7 @@ type strategiesConsumption struct {
 // those removals itself once a strategy is over, so that a later attempt starts
 // from the snapshot the first one saw, and so that the caller can assert the
 // snapshot was left as it was found.
-func consumeStrategies(strategies PreemptionStrategiesIterator, consumption strategiesConsumption) []wantStrategy {
+func consumeStrategies(strategies iter.Seq[PreemptionStrategy], consumption strategiesConsumption) []wantStrategy {
 	gotStrategies := []wantStrategy{}
 	for strategy := range strategies {
 		targets := []wantTarget{}
