@@ -1,0 +1,72 @@
+name: Create Devel Tag
+description: Creates and pushes an unannotated devel tag on the main branch for the next development cycle.
+
+inputs:
+  version:
+    description: Release version, formatted as vX.Y.0 (X - major, Y - minor; e.g. v0.20.0)
+    required: true
+  branch:
+    description: Release branch created for this version, formatted as release-X.Y
+    required: true
+
+outputs:
+  message:
+    description: Detail message about the outcome (success or failure)
+    value: ${{ steps.devel-tag.outputs.message }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create and Push Devel Tag
+      id: devel-tag
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        BRANCH: ${{ inputs.branch }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # Devel tags only make sense after a major or minor release, which is
+        # the only case that starts a new development cycle (vX.Y.0).
+        if [[ ! "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.0$ ]]; then
+          echo "message=❌ Devel tag creation is only supported for major and minor releases (vX.Y.0). \`$VERSION\` is not one." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+        MAJOR="${BASH_REMATCH[1]}"
+        MINOR="${BASH_REMATCH[2]}"
+        DEVEL_TAG="v${MAJOR}.$((MINOR + 1)).0-devel"
+
+        # Configure git identity
+        git config --global user.name "kueue-release-bot"
+        git config --global user.email "kueue-release-bot@kubernetes.io"
+        gh auth setup-git
+
+        # Idempotency: if the devel tag already exists, there is nothing to do
+        if git ls-remote --tags origin "$DEVEL_TAG" | grep -q "refs/tags/${DEVEL_TAG}$"; then
+          echo "message=✅ Devel tag \`$DEVEL_TAG\` already exists." >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # The release branch must exist before main is safe to tag, otherwise
+        # there is nothing yet separating main's future history from it.
+        if ! git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/${BRANCH}$"; then
+          echo "message=❌ Release branch \`$BRANCH\` does not exist yet. Run \`/create-release-branch\` first." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        # Create and push the (unannotated) tag
+        PUSH_EXIT=0
+        set +e
+        git tag "$DEVEL_TAG" origin/main
+        TAG_EXIT=$?
+        if [ $TAG_EXIT -eq 0 ]; then
+          git push origin "$DEVEL_TAG"
+          PUSH_EXIT=$?
+        fi
+        set -e
+
+        if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
+          echo "message=❌ Failed to create or push devel tag \`$DEVEL_TAG\`." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        echo "message=✅ Created and pushed devel tag \`$DEVEL_TAG\` on \`main\`." >> "$GITHUB_OUTPUT"
