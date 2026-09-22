@@ -47,6 +47,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: DeploymentJobUIDLabel
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: DRAExtendedResources
   versionedSpecs:
   - default: false
