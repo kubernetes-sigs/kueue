@@ -1002,12 +1002,8 @@ func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
 func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
 	m.Lock()
 	defer m.Unlock()
-	cq := m.hm.ClusterQueue(cqName)
+	cq := m.activeCQByName(cqName)
 	if cq == nil {
-		return nil
-	}
-	// Cache might be nil in tests, if cache is nil, we'll skip the check.
-	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 		return nil
 	}
 	return m.takePopped(cq, cq.PopMidCycle())
@@ -1019,14 +1015,22 @@ func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
 func (m *Manager) HasQueuedWorkloads(cqName kueue.ClusterQueueReference) bool {
 	m.RLock()
 	defer m.RUnlock()
+	cq := m.activeCQByName(cqName)
+	return cq != nil && cq.hasQueuedWorkloads()
+}
+
+// activeCQByName finds a ClusterQueue that may still contribute workloads to a
+// scheduling cycle. Must be called with the lock held.
+func (m *Manager) activeCQByName(cqName kueue.ClusterQueueReference) *ClusterQueue {
 	cq := m.hm.ClusterQueue(cqName)
 	if cq == nil {
-		return false
+		return nil
 	}
+	// Cache might be nil in tests, if cache is nil, we'll skip the check.
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
-		return false
+		return nil
 	}
-	return cq.hasQueuedWorkloads()
+	return cq
 }
 
 // ForgetInflight ends a scheduler checkout by walking away: the scheduler took
