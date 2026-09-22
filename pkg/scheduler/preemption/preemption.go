@@ -135,9 +135,9 @@ func (p *Preemptor) GetPreemptionStrategyFactory(
 
 func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) PreemptionStrategiesIterator {
 	if p.enableFairSharing {
-		return FairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
+		return fairPreemptionStrategy(ctx, p, preemptionCtx, p.fsStrategies)
 	}
-	return ClassicalPreemptionStrategy(ctx, p, preemptionCtx)
+	return classicalPreemptionStrategy(ctx, p, preemptionCtx)
 }
 
 func (p *Preemptor) GetTargetsWithStrategy(ctx context.Context, strategies PreemptionStrategiesIterator) []*Target {

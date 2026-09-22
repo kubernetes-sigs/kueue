@@ -614,7 +614,7 @@ func TestClassicalPreemptionStrategy(t *testing.T) {
 				now:              now,
 			})
 
-			strategies := ClassicalPreemptionStrategy(ctx, fixture.preemptor, fixture.pCtx)
+			strategies := classicalPreemptionStrategy(ctx, fixture.preemptor, fixture.pCtx)
 			gotStrategies := consumeStrategies(strategies, tc.consumption)
 			if diff := cmp.Diff(tc.wantStrategies, gotStrategies, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected strategies (-want,+got):\n%s", diff)
@@ -981,7 +981,7 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 				now:           now,
 			})
 
-			strategyIter := FairPreemptionStrategy(ctx, fixture.preemptor, fixture.pCtx, fixture.preemptor.fsStrategies)
+			strategyIter := fairPreemptionStrategy(ctx, fixture.preemptor, fixture.pCtx, fixture.preemptor.fsStrategies)
 			// The strategy simulates the incoming workload's usage itself, so
 			// that the shares account for it while the strategies are
 			// evaluated. Fair sharing yields a single strategy, so capping the

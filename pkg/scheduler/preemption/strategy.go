@@ -56,7 +56,7 @@ func (p PreemptionStrategiesIterator) Materialize() (result [][]*Target) {
 
 type PreemptionStrategiesFactory func(ctx context.Context, assignment *flavorassigner.Assignment) PreemptionStrategiesIterator
 
-func ClassicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) PreemptionStrategiesIterator {
+func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) PreemptionStrategiesIterator {
 	log := log.FromContext(ctx)
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
 		Log:               log,
@@ -123,7 +123,7 @@ func ClassicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 	}
 }
 
-func FairPreemptionStrategy(
+func fairPreemptionStrategy(
 	ctx context.Context,
 	preemptor *Preemptor,
 	preemptionCtx *preemptionCtx,
