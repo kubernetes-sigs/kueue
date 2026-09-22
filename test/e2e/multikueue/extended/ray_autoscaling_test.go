@@ -97,7 +97,13 @@ func runRayClusterSequentialScaleUpTest(
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
+		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
+			IdleTimeoutSeconds: ptr.To[int32](1),
+			Env: []corev1.EnvVar{{
+				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+				Value: "1",
+			}},
+		}).
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
@@ -144,7 +150,7 @@ func runRayClusterSequentialScaleUpTest(
 
 	var firstScaleUpSlice *kueue.Workload
 	ginkgo.By("Checking the first scale-up is admitted and exactly one worker runs", func() {
-		firstScaleUpSlice = util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, initialSlice)
+		firstScaleUpSlice = util.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, initialSlice, util.MediumTimeout)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(firstScaleUpSlice), firstScaleUpSlice)).To(gomega.Succeed())
 
@@ -164,7 +170,7 @@ func runRayClusterSequentialScaleUpTest(
 	})
 
 	ginkgo.By("Checking the second scale-up is admitted and exactly two workers run", func() {
-		secondScaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sManagerClient, firstScaleUpSlice)
+		secondScaleUpSlice := util.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, firstScaleUpSlice, util.MediumTimeout)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(secondScaleUpSlice), secondScaleUpSlice)).To(gomega.Succeed())
 
