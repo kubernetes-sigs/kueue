@@ -2618,9 +2618,7 @@ func TestBuildPodRequirements(t *testing.T) {
 		// wantNodeAffinity is compiled into the AffinitySelector and PreferredSchedulingTerms
 		// of wantPodRequirements, because the nodeaffinity constructors return an error.
 		wantNodeAffinity *corev1.NodeAffinity
-		// wantReasonPrefix is the part of the reason that Kueue words. The rest is
-		// the validation error of apimachinery, which changes with the dependency.
-		wantReasonPrefix string
+		wantErr          error
 	}{
 		"flavor toleration joins the template's": {
 			flavorTolerations: []corev1.Toleration{tolerateGPU},
@@ -2690,10 +2688,10 @@ func TestBuildPodRequirements(t *testing.T) {
 			},
 		},
 		"invalid nodeSelector": {
-			levels:           []string{corev1.LabelHostname},
-			info:             podset.PodSetInfo{NodeSelector: map[string]string{"pool": "not a label value"}},
-			podSet:           basePodSet.Clone().NodeSelector(map[string]string{"pool": "not a label value"}).Obj(),
-			wantReasonPrefix: "invalid node selectors: ",
+			levels:  []string{corev1.LabelHostname},
+			info:    podset.PodSetInfo{NodeSelector: map[string]string{"pool": "not a label value"}},
+			podSet:  basePodSet.Clone().NodeSelector(map[string]string{"pool": "not a label value"}).Obj(),
+			wantErr: errInvalidNodeSelector,
 		},
 		"required node affinity is compiled into the affinity selector": {
 			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
@@ -2755,8 +2753,8 @@ func TestBuildPodRequirements(t *testing.T) {
 					}},
 				}},
 			}}},
-			podSet:           basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn).Obj(),
-			wantReasonPrefix: "invalid affinity node selectors: ",
+			podSet:  basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn).Obj(),
+			wantErr: errInvalidRequiredAffinity,
 		},
 		"preferred node affinity is compiled when TASRespectNodeAffinityPreferred is enabled": {
 			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
@@ -2805,8 +2803,8 @@ func TestBuildPodRequirements(t *testing.T) {
 					}}},
 				},
 			}}},
-			podSet:           basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn).Obj(),
-			wantReasonPrefix: "invalid preferred node affinity terms: ",
+			podSet:  basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn).Obj(),
+			wantErr: errInvalidPreferredAffinity,
 		},
 	}
 	for name, tc := range cases {
@@ -2818,20 +2816,20 @@ func TestBuildPodRequirements(t *testing.T) {
 			// The Pod template is a copy, so the merged constraints must not reach the PodSet.
 			wantPodSet := tc.podSet.DeepCopy()
 
-			gotPodRequirements, gotReason := snapshot.buildPodRequirements(tc.info, tc.podSet, "")
+			gotPodRequirements, gotErr := snapshot.buildPodRequirements(tc.info, tc.podSet, "")
 
 			if diff := cmp.Diff(wantPodSet, tc.podSet); diff != "" {
 				t.Errorf("buildPodRequirements() modified the PodSet (-want,+got):\n%s", diff)
 			}
-			if tc.wantReasonPrefix != "" {
-				if !strings.HasPrefix(gotReason, tc.wantReasonPrefix) {
-					t.Errorf("buildPodRequirements() = %q, want a reason starting with %q", gotReason, tc.wantReasonPrefix)
+			if tc.wantErr != nil {
+				if !errors.Is(gotErr, tc.wantErr) {
+					t.Errorf("buildPodRequirements() error = %v, want error wrapping %v", gotErr, tc.wantErr)
 				}
-				// The callers drop the PodRequirements that come with a reason.
+				// The callers drop the PodRequirements that come with an error.
 				return
 			}
-			if gotReason != "" {
-				t.Errorf("buildPodRequirements() = %q, want no reason", gotReason)
+			if gotErr != nil {
+				t.Errorf("buildPodRequirements() error = %v, want no error", gotErr)
 			}
 			wantPodRequirements := tc.wantPodRequirements
 			if tc.wantNodeAffinity != nil {
