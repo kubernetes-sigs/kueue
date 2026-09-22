@@ -225,12 +225,7 @@ func expectPreemptionConfigAccessForbidden(c kueueclientset.Interface, name stri
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 
-	preemptionConfig := &kueuealpha.PreemptionConfig{ObjectMeta: metav1.ObjectMeta{Name: name}}
-	// Only needed if the create below unexpectedly succeeds.
-	ginkgo.DeferCleanup(func() {
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
-	})
-	expectPreemptionConfigAccessForbiddenForWrites(c, preemptionConfig)
+	expectPreemptionConfigAccessForbiddenForWrites(c, &kueuealpha.PreemptionConfig{ObjectMeta: metav1.ObjectMeta{Name: name}})
 }
 
 // expectPreemptionConfigAccessForbiddenForWrites asserts that c is denied every write verb on
@@ -239,6 +234,11 @@ func expectPreemptionConfigAccessForbiddenForWrites(c kueueclientset.Interface, 
 	ginkgo.GinkgoHelper()
 
 	preemptionConfigs := c.KueueV1alpha1().PreemptionConfigs()
+
+	// Only needed if the create below unexpectedly succeeds.
+	ginkgo.DeferCleanup(func() {
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
+	})
 
 	ginkgo.By("Returning a Forbidden error for a create request", func() {
 		_, err := preemptionConfigs.Create(ctx, preemptionConfig, metav1.CreateOptions{})
