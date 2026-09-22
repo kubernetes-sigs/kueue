@@ -108,14 +108,14 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 				candidatesGenerator.Reset()
 				for candidateWl, reason := candidatesGenerator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = candidatesGenerator.Next(allowBorrowing) {
 					candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
-					preemptionCtx.snapshot.RemoveWorkload(candidate.WorkloadInfo)
+					preemptionCtx.snapshot.RemoveWorkload(candidateWl)
 					yieldedCandidates = append(yieldedCandidates, candidate)
 					if !yieldCandidate(candidate) {
 						return
 					}
 				}
 			}, allowBorrowing, preemptionCtx})
-			restoreYieldedCandidates(preemptionCtx, &yieldedCandidates)
+			restoreYieldedCandidates(preemptionCtx, yieldedCandidates)
 			if !cont {
 				return
 			}
@@ -152,17 +152,17 @@ func fairPreemptionStrategy(
 	}
 
 	yieldedCandidates := make([]*Target, 0)
-	candidatesIter := func(yield func(*Target) bool) {
+	candidatesIter := func(yieldCandidate func(*Target) bool) {
 		var cont bool
 		targetsInPreemptorCQ := false
 		// The incoming Workload's usage stays simulated while the candidates are
 		// picked, because the DominantResourceShare values have to account for it.
 		// This is hidden from the consumer, as we revert the simulated addition for the durantion of the yield.
-		yieldCandidate := func(t *Target) bool {
+		wrapperYield := func(t *Target) bool {
 			yieldedCandidates = append(yieldedCandidates, t)
 			revert := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
 			defer revert()
-			return yield(t)
+			return yieldCandidate(t)
 		}
 
 		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
@@ -172,30 +172,28 @@ func fairPreemptionStrategy(
 			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 				targetsInPreemptorCQ = true
 			}
-			return yieldCandidate(t)
+			return wrapperYield(t)
 		})
 
 		if cont && features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
-			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldCandidate)
+			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], wrapperYield)
 		}
 
-		// Use the second fair sharing strategy.
 		if cont && len(fsStrategies) > 1 {
-			iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldCandidate)
+			iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, wrapperYield)
 		}
 	}
 
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		yieldStrategy(PreemptionStrategy{candidatesIter, allowBorrowing, preemptionCtx})
-		restoreYieldedCandidates(preemptionCtx, &yieldedCandidates)
+		restoreYieldedCandidates(preemptionCtx, yieldedCandidates)
 	}
 }
 
-func restoreYieldedCandidates(pCtx *preemptionCtx, yielded *[]*Target) {
-	for _, t := range *yielded {
+func restoreYieldedCandidates(pCtx *preemptionCtx, yielded []*Target) {
+	for _, t := range yielded {
 		pCtx.snapshot.AddWorkload(t.WorkloadInfo)
 	}
-	*yielded = (*yielded)[:0]
 }
 
 func iterateWithFirstFsStrategy(
