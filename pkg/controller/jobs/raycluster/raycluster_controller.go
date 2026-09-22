@@ -89,9 +89,7 @@ func (j *RayCluster) IsSuspended() bool {
 
 func (j *RayCluster) IsActive() bool {
 	// KubeRay sets the Suspended state only after all RayCluster Pods are deleted.
-	return !j.IsSuspended() ||
-		j.Status.ObservedGeneration != j.Generation ||
-		j.Status.State != rayv1.Suspended
+	return j.Status.State != rayv1.Suspended
 }
 
 func (j *RayCluster) Suspend() {
