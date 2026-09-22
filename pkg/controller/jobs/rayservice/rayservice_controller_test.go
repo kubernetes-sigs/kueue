@@ -560,7 +560,9 @@ func TestIsSuspended(t *testing.T) {
 		"not suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					Suspend: false,
+					RayClusterSpec: rayv1.RayClusterSpec{
+						Suspend: new(false),
+					},
 				},
 			}),
 			want: false,
@@ -568,10 +570,20 @@ func TestIsSuspended(t *testing.T) {
 		"suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					Suspend: true,
+					RayClusterSpec: rayv1.RayClusterSpec{
+						Suspend: new(true),
+					},
 				},
 			}),
 			want: true,
+		},
+		"suspend is nil": {
+			rayService: (*RayService)(&rayv1.RayService{
+				Spec: rayv1.RayServiceSpec{
+					RayClusterSpec: rayv1.RayClusterSpec{},
+				},
+			}),
+			want: false,
 		},
 	}
 
@@ -590,20 +602,12 @@ func TestIsActive(t *testing.T) {
 		rayService *RayService
 		want       bool
 	}{
-		"active - suspended condition is absent": {
+		"active - RayServiceReady condition is true": {
 			rayService: (*RayService)(&rayv1.RayService{
-				Spec:   rayv1.RayServiceSpec{Suspend: true},
-				Status: rayv1.RayServiceStatuses{},
-			}),
-			want: true,
-		},
-		"active - suspending condition is true": {
-			rayService: (*RayService)(&rayv1.RayService{
-				Spec: rayv1.RayServiceSpec{Suspend: true},
 				Status: rayv1.RayServiceStatuses{
 					Conditions: []metav1.Condition{
 						{
-							Type:   string(rayv1.RayServiceSuspending),
+							Type:   string(rayv1.RayServiceReady),
 							Status: metav1.ConditionTrue,
 						},
 					},
@@ -611,51 +615,24 @@ func TestIsActive(t *testing.T) {
 			}),
 			want: true,
 		},
-		"active - suspended condition is false": {
+		"not active - RayServiceReady condition is false": {
 			rayService: (*RayService)(&rayv1.RayService{
-				Spec: rayv1.RayServiceSpec{Suspend: true},
 				Status: rayv1.RayServiceStatuses{
 					Conditions: []metav1.Condition{
 						{
-							Type:   string(rayv1.RayServiceSuspended),
+							Type:   string(rayv1.RayServiceReady),
 							Status: metav1.ConditionFalse,
-						},
-					},
-				},
-			}),
-			want: true,
-		},
-		"not active - suspended condition is true": {
-			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{Generation: 1},
-				Spec:       rayv1.RayServiceSpec{Suspend: true},
-				Status: rayv1.RayServiceStatuses{
-					Conditions: []metav1.Condition{
-						{
-							Type:               string(rayv1.RayServiceSuspended),
-							Status:             metav1.ConditionTrue,
-							ObservedGeneration: 1,
 						},
 					},
 				},
 			}),
 			want: false,
 		},
-		"active - suspended condition is stale": {
+		"not active - no conditions": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{Generation: 2},
-				Spec:       rayv1.RayServiceSpec{Suspend: true},
-				Status: rayv1.RayServiceStatuses{
-					Conditions: []metav1.Condition{
-						{
-							Type:               string(rayv1.RayServiceSuspended),
-							Status:             metav1.ConditionTrue,
-							ObservedGeneration: 1,
-						},
-					},
-				},
+				Status: rayv1.RayServiceStatuses{},
 			}),
-			want: true,
+			want: false,
 		},
 	}
 

@@ -18,7 +18,7 @@ description: >
 
 ## 开始之前 {#before-you-begin}
 
-1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.7.0 或更高版本。
+1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.3.0 或更高版本。
 
 2. 请参见 [管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
