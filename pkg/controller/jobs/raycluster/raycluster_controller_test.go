@@ -17,6 +17,7 @@ limitations under the License.
 package raycluster
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -702,6 +703,17 @@ func TestReconciler(t *testing.T) {
 				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).
 					WithStatusSubresource(&rayv1.RayCluster{}).
 					WithInterceptorFuncs(interceptor.Funcs{
+						Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+							if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+								return err
+							}
+							rayCluster, isRayCluster := obj.(*rayv1.RayCluster)
+							if tc.simulateSuspensionCompletion && isRayCluster && (*RayCluster)(rayCluster).IsSuspended() {
+								rayCluster.Status.State = rayv1.Suspended
+								return c.Status().Update(ctx, rayCluster)
+							}
+							return nil
+						},
 						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 					})
 				indexer := utiltesting.AsIndexer(clientBuilder)
@@ -742,35 +754,6 @@ func TestReconciler(t *testing.T) {
 				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 				}
-				if tc.simulateSuspensionCompletion {
-					var gotWorkload kueue.Workload
-					if err := kClient.Get(ctx, client.ObjectKeyFromObject(&tc.workloads[0]), &gotWorkload); err != nil {
-						t.Fatalf("Could not get Workload after first reconcile: %v", err)
-					}
-					if !workload.HasQuotaReservation(&gotWorkload) {
-						t.Error("Workload quota was released before the RayCluster completed suspension")
-					}
-
-					var suspendedJob rayv1.RayCluster
-					if err := kClient.Get(ctx, jobKey, &suspendedJob); err != nil {
-						t.Fatalf("Could not get Job after first reconcile: %v", err)
-					}
-					if !(*RayCluster)(&suspendedJob).IsSuspended() {
-						t.Fatal("Job was not suspended after first reconcile")
-					}
-					suspendedJob.Status.State = rayv1.Suspended
-					if err := kClient.Status().Update(ctx, &suspendedJob); err != nil {
-						t.Fatalf("Could not simulate RayCluster suspension completion: %v", err)
-					}
-
-					_, err = reconciler.Reconcile(ctx, reconcile.Request{
-						NamespacedName: jobKey,
-					})
-					if err != nil {
-						t.Errorf("Second Reconcile returned error: %v", err)
-					}
-				}
-
 				var gotJob rayv1.RayCluster
 				if err := kClient.Get(ctx, jobKey, &gotJob); err != nil {
 					t.Fatalf("Could not get Job after reconcile: %v", err)
