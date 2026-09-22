@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -197,7 +196,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.AfterEach(func() {
 		// Clean up resources created by the RayService test on all clusters.
-		rayServiceConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rayservice-hello", Namespace: managerNs.Name}}
+		rayServiceConfigMap := &corev1.ConfigMap{Name: "rayservice-hello", Namespace: managerNs.Name}
 		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayServiceConfigMap))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())

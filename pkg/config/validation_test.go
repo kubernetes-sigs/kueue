@@ -1309,12 +1309,10 @@ func TestValidate(t *testing.T) {
 		"valid TLS with TLS 1.2 and cipher suites": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS12",
-						CipherSuites: []string{
-							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-						},
+				TLS: &configapi.TLSOptions{
+					MinVersion: "VersionTLS12",
+					CipherSuites: []string{
+						"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
 					},
 				},
 			},
@@ -1322,22 +1320,18 @@ func TestValidate(t *testing.T) {
 		"valid TLS with TLS 1.3 and no cipher suites": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS13",
-					},
+				TLS: &configapi.TLSOptions{
+					MinVersion: "VersionTLS13",
 				},
 			},
 		},
 		"invalid TLS with TLS 1.3 and cipher suites": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS13",
-						CipherSuites: []string{
-							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-						},
+				TLS: &configapi.TLSOptions{
+					MinVersion: "VersionTLS13",
+					CipherSuites: []string{
+						"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
 					},
 				},
 			},
@@ -1351,12 +1345,10 @@ func TestValidate(t *testing.T) {
 		"invalid TLS and valid cipher suites": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "DUMMY",
-						CipherSuites: []string{
-							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-						},
+				TLS: &configapi.TLSOptions{
+					MinVersion: "DUMMY",
+					CipherSuites: []string{
+						"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
 					},
 				},
 			},
@@ -1370,12 +1362,10 @@ func TestValidate(t *testing.T) {
 		"invalid TLS and invalid cipher suites": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "DUMMY",
-						CipherSuites: []string{
-							"DUMMY",
-						},
+				TLS: &configapi.TLSOptions{
+					MinVersion: "DUMMY",
+					CipherSuites: []string{
+						"DUMMY",
 					},
 				},
 			},
@@ -1389,22 +1379,18 @@ func TestValidate(t *testing.T) {
 		"valid TLS with curve preferences": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion:       "VersionTLS12",
-						CurvePreferences: []int32{23, 29}, // P256, X25519
-					},
+				TLS: &configapi.TLSOptions{
+					MinVersion:       "VersionTLS12",
+					CurvePreferences: []int32{23, 29}, // P256, X25519
 				},
 			},
 		},
 		"invalid TLS with invalid curve preferences": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion:       "VersionTLS12",
-						CurvePreferences: []int32{0},
-					},
+				TLS: &configapi.TLSOptions{
+					MinVersion:       "VersionTLS12",
+					CurvePreferences: []int32{0},
 				},
 			},
 			wantErr: field.ErrorList{
@@ -3618,71 +3604,59 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"valid name only": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team"},
 					},
 				},
 			},
 		},
 		"name with underscore valid as k8s label key": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "has_underscore"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "has_underscore"},
 					},
 				},
 			},
 		},
 		"valid multiple entries": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team"},
-							{Name: "env", SourceLabelKey: "environment"},
-							{Name: "cost", SourceAnnotationKey: "billing/cost"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team"},
+						{Name: "env", SourceLabelKey: "environment"},
+						{Name: "cost", SourceAnnotationKey: "billing/cost"},
 					},
 				},
 			},
 		},
 		"valid with sourceLabelKey": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team", SourceLabelKey: "org.example.com/team"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team", SourceLabelKey: "org.example.com/team"},
 					},
 				},
 			},
 		},
 		"valid with sourceAnnotationKey": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "cost_center", SourceAnnotationKey: "billing.example.com/cost-center"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "cost_center", SourceAnnotationKey: "billing.example.com/cost-center"},
 					},
 				},
 			},
 		},
 		"valid workload with tracked values": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{
-								Name:          "team",
-								SourceKind:    new(configapi.SourceKindWorkload),
-								TrackedValues: []string{"a"},
-							},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:          "team",
+							SourceKind:    new(configapi.SourceKindWorkload),
+							TrackedValues: []string{"a"},
 						},
 					},
 				},
@@ -3690,14 +3664,12 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"valid cohort with tracked values": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{
-								Name:          "team",
-								SourceKind:    new(configapi.SourceKindCohort),
-								TrackedValues: []string{"a"},
-							},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:          "team",
+							SourceKind:    new(configapi.SourceKindCohort),
+							TrackedValues: []string{"a"},
 						},
 					},
 				},
@@ -3705,11 +3677,9 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"invalid name - special chars": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team-name"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team-name"},
 					},
 				},
 			},
@@ -3723,11 +3693,9 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"invalid name - leading digit": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "1team"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "1team"},
 					},
 				},
 			},
@@ -3741,11 +3709,9 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"invalid name - empty": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: ""},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: ""},
 					},
 				},
 			},
@@ -3764,12 +3730,10 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"duplicate names": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team"},
-							{Name: "team"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team"},
+						{Name: "team"},
 					},
 				},
 			},
@@ -3782,11 +3746,9 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"mutually exclusive sources": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team", SourceLabelKey: "team-label", SourceAnnotationKey: "team-annotation"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team", SourceLabelKey: "team-label", SourceAnnotationKey: "team-annotation"},
 					},
 				},
 			},
@@ -3800,11 +3762,9 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"invalid sourceLabelKey": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team", SourceLabelKey: "invalid key with spaces"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team", SourceLabelKey: "invalid key with spaces"},
 					},
 				},
 			},
@@ -3818,11 +3778,9 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"invalid sourceAnnotationKey": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "team", SourceAnnotationKey: "invalid key with spaces"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "team", SourceAnnotationKey: "invalid key with spaces"},
 					},
 				},
 			},
@@ -3836,13 +3794,11 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"unknown source kind": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{
-								Name:       "team",
-								SourceKind: new(configapi.SourceKind("Unknown")),
-							},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:       "team",
+							SourceKind: new(configapi.SourceKind("Unknown")),
 						},
 					},
 				},
@@ -3857,15 +3813,13 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"too many custom labels in total": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "c1"}, {Name: "c2"}, {Name: "c3"}, {Name: "c4"}, {Name: "c5"},
-							{Name: "c6"}, {Name: "c7"}, {Name: "c8"}, {Name: "c9"}, {Name: "c10"},
-							{Name: "c11"}, {Name: "c12"}, {Name: "c13"}, {Name: "c14"}, {Name: "c15"},
-							{Name: "c16"}, {Name: "c17"}, {Name: "c18"}, {Name: "c19"}, {Name: "c20"},
-							{Name: "c21"},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "c1"}, {Name: "c2"}, {Name: "c3"}, {Name: "c4"}, {Name: "c5"},
+						{Name: "c6"}, {Name: "c7"}, {Name: "c8"}, {Name: "c9"}, {Name: "c10"},
+						{Name: "c11"}, {Name: "c12"}, {Name: "c13"}, {Name: "c14"}, {Name: "c15"},
+						{Name: "c16"}, {Name: "c17"}, {Name: "c18"}, {Name: "c19"}, {Name: "c20"},
+						{Name: "c21"},
 					},
 				},
 			},
@@ -3884,19 +3838,17 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"too many custom labels": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
-							{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
 					},
 				},
 			},
@@ -3910,17 +3862,15 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"too many custom labels for local queue": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "lq1", SourceKind: new(configapi.SourceKindLocalQueue)},
-							{Name: "lq2", SourceKind: new(configapi.SourceKindLocalQueue)},
-							{Name: "lq3", SourceKind: new(configapi.SourceKindLocalQueue)},
-							{Name: "lq4", SourceKind: new(configapi.SourceKindLocalQueue)},
-							{Name: "lq5", SourceKind: new(configapi.SourceKindLocalQueue)},
-							{Name: "lq6", SourceKind: new(configapi.SourceKindLocalQueue)},
-							{Name: "lq7", SourceKind: new(configapi.SourceKindLocalQueue)},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "lq1", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "lq2", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "lq3", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "lq4", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "lq5", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "lq6", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "lq7", SourceKind: new(configapi.SourceKindLocalQueue)},
 					},
 				},
 			},
@@ -3934,13 +3884,11 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"too many custom labels for workload": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "wl1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
-							{Name: "wl2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
-							{Name: "wl3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
-						},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{Name: "wl1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+						{Name: "wl2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+						{Name: "wl3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
 					},
 				},
 			},
@@ -3954,13 +3902,11 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"workload without tracked values": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{
-								Name:       "team",
-								SourceKind: new(configapi.SourceKindWorkload),
-							},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:       "team",
+							SourceKind: new(configapi.SourceKindWorkload),
 						},
 					},
 				},
@@ -3975,14 +3921,12 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"too many tracked values": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{
-								Name:          "team",
-								SourceKind:    new(configapi.SourceKindCohort),
-								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
-							},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:          "team",
+							SourceKind:    new(configapi.SourceKindCohort),
+							TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
 						},
 					},
 				},
@@ -3997,14 +3941,12 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"too many tracked values for workload": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{
-								Name:          "team",
-								SourceKind:    new(configapi.SourceKindWorkload),
-								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"},
-							},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:          "team",
+							SourceKind:    new(configapi.SourceKindWorkload),
+							TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"},
 						},
 					},
 				},
@@ -4019,14 +3961,12 @@ func TestValidateCustomLabels(t *testing.T) {
 		},
 		"duplicate tracked values": {
 			cfg: &configapi.Configuration{
-				ControllerManager: configapi.ControllerManager{
-					Metrics: configapi.ControllerMetrics{
-						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{
-								Name:          "team",
-								SourceKind:    new(configapi.SourceKindCohort),
-								TrackedValues: []string{"a", "b", "a"},
-							},
+				Metrics: configapi.ControllerMetrics{
+					CustomLabels: []configapi.ControllerMetricsCustomLabel{
+						{
+							Name:          "team",
+							SourceKind:    new(configapi.SourceKindCohort),
+							TrackedValues: []string{"a", "b", "a"},
 						},
 					},
 				},
@@ -4052,34 +3992,32 @@ func TestValidateCustomLabels(t *testing.T) {
 
 	t.Run("too many custom labels message detail", func(t *testing.T) {
 		cfg := &configapi.Configuration{
-			ControllerManager: configapi.ControllerManager{
-				Metrics: configapi.ControllerMetrics{
-					CustomLabels: []configapi.ControllerMetricsCustomLabel{
-						{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
-						{Name: "l1", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l2", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l3", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l4", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l5", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l6", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l7", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l8", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l9", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "l10", SourceKind: new(configapi.SourceKindLocalQueue)},
-						{Name: "w1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w4", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w5", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-					},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
+					{Name: "l1", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l2", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l3", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l4", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l5", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l6", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l7", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l8", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l9", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "l10", SourceKind: new(configapi.SourceKindLocalQueue)},
+					{Name: "w1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+					{Name: "w2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+					{Name: "w3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+					{Name: "w4", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+					{Name: "w5", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
 				},
 			},
 		}

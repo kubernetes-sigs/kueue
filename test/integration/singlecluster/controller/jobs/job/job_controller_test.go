@@ -222,11 +222,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      workloadjob.GetWorkloadNameForJob("second-workload", "test-uid"),
-				Namespace: createdWorkload.Namespace,
-			},
-			Spec: *createdWorkload.Spec.DeepCopy(),
+			Name:      workloadjob.GetWorkloadNameForJob("second-workload", "test-uid"),
+			Namespace: createdWorkload.Namespace,
+			Spec:      *createdWorkload.Spec.DeepCopy(),
 		}
 		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 		secondWl.Spec.PodSets[0].Count++
@@ -6625,21 +6623,19 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 		configuration := &configapi.Configuration{
-			ControllerManager: configapi.ControllerManager{
-				Metrics: configapi.ControllerMetrics{
-					CustomLabels: []configapi.ControllerMetricsCustomLabel{
-						{
-							Name:           "custom_label_key",
-							SourceLabelKey: "job-label",
-							SourceKind:     new(configapi.SourceKindWorkload),
-							TrackedValues:  []string{"label-value"},
-						},
-						{
-							Name:                "custom_annotation_key",
-							SourceAnnotationKey: "job-annotation",
-							SourceKind:          new(configapi.SourceKindWorkload),
-							TrackedValues:       []string{"annotation-value"},
-						},
+			Metrics: configapi.ControllerMetrics{
+				CustomLabels: []configapi.ControllerMetricsCustomLabel{
+					{
+						Name:           "custom_label_key",
+						SourceLabelKey: "job-label",
+						SourceKind:     new(configapi.SourceKindWorkload),
+						TrackedValues:  []string{"label-value"},
+					},
+					{
+						Name:                "custom_annotation_key",
+						SourceAnnotationKey: "job-annotation",
+						SourceKind:          new(configapi.SourceKindWorkload),
+						TrackedValues:       []string{"annotation-value"},
 					},
 				},
 			},

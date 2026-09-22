@@ -307,12 +307,10 @@ func (c *Controller) syncOwnedProvisionRequest(
 		if shouldCreatePr {
 			log.V(3).Info("Creating ProvisioningRequest", "requestName", requestName, "attempt", attempt)
 			req = &autoscaling.ProvisioningRequest{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      requestName,
-					Namespace: wl.Namespace,
-					Labels: map[string]string{
-						constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-					},
+				Name:      requestName,
+				Namespace: wl.Namespace,
+				Labels: map[string]string{
+					constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 				},
 				Spec: autoscaling.ProvisioningRequestSpec{
 					ProvisioningClassName: prc.Spec.ProvisioningClassName,
@@ -434,12 +432,10 @@ func (c *Controller) isMissingInCache(ctx context.Context, obj client.Object) bo
 // buildPodTemplate derives a PodTemplate from the Workload PodSet and admission assignment.
 func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
 	newPt := &corev1.PodTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: wl.Namespace,
-			Labels: map[string]string{
-				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-			},
+		Name:      name,
+		Namespace: wl.Namespace,
+		Labels: map[string]string{
+			constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 		},
 		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
 		Template: *ps.Template.DeepCopy(),
@@ -836,10 +832,8 @@ func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q
 	for i := range wls.Items {
 		wl := &wls.Items[i]
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      wl.Name,
-				Namespace: wl.Namespace,
-			},
+			Name:      wl.Name,
+			Namespace: wl.Namespace,
 		}
 		q.Add(req)
 	}
@@ -909,9 +903,7 @@ func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string,
 			}
 		} else {
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name: user,
-				},
+				Name: user,
 			}
 			q.Add(req)
 		}

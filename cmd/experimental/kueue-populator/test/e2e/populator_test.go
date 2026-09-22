@@ -36,9 +36,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "e2e-dlq-",
-			},
+			GenerateName: "e2e-dlq-",
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
@@ -54,9 +52,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 	ginkgo.When("The controller is enabled", func() {
 		ginkgo.It("Should create a default LocalQueue when namespace matches ClusterQueue selector", func() {
 			cq = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "cq-dlq-",
-				},
+				GenerateName: "cq-dlq-",
 				Spec: kueue.ClusterQueueSpec{
 					NamespaceSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"foo": "bar"},
@@ -84,9 +80,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			gomega.Expect(k8sClient.Update(ctx, ns)).To(gomega.Succeed())
 
 			cq = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "cq-dlq-update-",
-				},
+				GenerateName: "cq-dlq-update-",
 				Spec: kueue.ClusterQueueSpec{
 					NamespaceSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"foo": "other"},
@@ -123,9 +117,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 
 		ginkgo.It("Should not overwrite existing LocalQueue with the same name", func() {
 			cq = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "cq-dlq-conflict-",
-				},
+				GenerateName: "cq-dlq-conflict-",
 				Spec: kueue.ClusterQueueSpec{
 					NamespaceSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"conflict": "true"},
@@ -136,10 +128,8 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 
 			ginkgo.By("creating a conflicting LocalQueue manually")
 			existingLQ := &kueue.LocalQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "default",
-					Namespace: ns.Name,
-				},
+				Name:      "default",
+				Namespace: ns.Name,
 				Spec: kueue.LocalQueueSpec{
 					ClusterQueue: "some-other-queue",
 				},
@@ -163,9 +153,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			gomega.Expect(k8sClient.Update(ctx, ns)).To(gomega.Succeed())
 
 			cq = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "cq-dlq-persist-",
-				},
+				GenerateName: "cq-dlq-persist-",
 				Spec: kueue.ClusterQueueSpec{
 					NamespaceSelector: &metav1.LabelSelector{
 						MatchLabels: map[string]string{"persist": "true"},

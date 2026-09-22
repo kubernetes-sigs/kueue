@@ -23,7 +23,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -289,9 +288,7 @@ func TestGetRemoteClusters(t *testing.T) {
 	}{
 		"no clusters": {
 			multiKueueConfig: &kueue.MultiKueueConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: acTest,
-				},
+				Name: acTest,
 				Spec: kueue.MultiKueueConfigSpec{
 					Clusters: []string{},
 				},
@@ -301,9 +298,7 @@ func TestGetRemoteClusters(t *testing.T) {
 		},
 		"multiple clusters": {
 			multiKueueConfig: &kueue.MultiKueueConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: acTest,
-				},
+				Name: acTest,
 				Spec: kueue.MultiKueueConfigSpec{
 					Clusters: []string{"cluster1", "cluster2"},
 				},
@@ -312,9 +307,7 @@ func TestGetRemoteClusters(t *testing.T) {
 		},
 		"preserves configured (non-alphabetical) order": {
 			multiKueueConfig: &kueue.MultiKueueConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: acTest,
-				},
+				Name: acTest,
 				Spec: kueue.MultiKueueConfigSpec{
 					Clusters: []string{"onprem", "aws", "gcp"},
 				},

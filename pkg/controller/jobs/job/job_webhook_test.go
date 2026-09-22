@@ -1476,10 +1476,8 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 			args: args{
 				job: &Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-						},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 					},
 				},
 			},
@@ -1492,10 +1490,8 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-						},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 					},
 					Spec: batchv1.JobSpec{
 						Template: corev1.PodTemplateSpec{
@@ -1518,10 +1514,8 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-						},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 					},
 					Spec: batchv1.JobSpec{
 						Template: corev1.PodTemplateSpec{

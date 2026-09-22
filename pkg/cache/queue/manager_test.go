@@ -1165,13 +1165,13 @@ func TestStatus(t *testing.T) {
 
 	queues := []kueue.LocalQueue{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Name: "foo",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "fooCq",
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
+			Name: "bar",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "barCq",
 			},
@@ -1179,32 +1179,24 @@ func TestStatus(t *testing.T) {
 	}
 	workloads := []kueue.Workload{
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "a",
-				CreationTimestamp: metav1.NewTime(now.Add(time.Hour)),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "foo"},
+			Name:              "a",
+			CreationTimestamp: metav1.NewTime(now.Add(time.Hour)),
+			Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "b",
-				CreationTimestamp: metav1.NewTime(now),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "bar"},
+			Name:              "b",
+			CreationTimestamp: metav1.NewTime(now),
+			Spec:              kueue.WorkloadSpec{QueueName: "bar"},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "c",
-				CreationTimestamp: metav1.NewTime(now),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "foo"},
+			Name:              "c",
+			CreationTimestamp: metav1.NewTime(now),
+			Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "d",
-				CreationTimestamp: metav1.NewTime(now),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "foo"},
+			Name:              "d",
+			CreationTimestamp: metav1.NewTime(now),
+			Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 		},
 	}
 
@@ -1238,7 +1230,7 @@ func TestStatus(t *testing.T) {
 			wantErr:    nil,
 		},
 		"fake": {
-			queue:      &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
+			queue:      &kueue.LocalQueue{Name: "fake"},
 			wantStatus: 0,
 			wantErr:    ErrLocalQueueDoesNotExistOrInactive,
 		},
@@ -2029,22 +2021,20 @@ func TestHeadsAsync(t *testing.T) {
 		utiltestingapi.MakeClusterQueue("barCq").Obj(),
 	}
 	wl := kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "a",
-			CreationTimestamp: metav1.NewTime(now),
-		},
-		Spec: kueue.WorkloadSpec{QueueName: "foo"},
+		Name:              "a",
+		CreationTimestamp: metav1.NewTime(now),
+		Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 	}
 	var newWl kueue.Workload
 	queues := []kueue.LocalQueue{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Name: "foo",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "fooCq",
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
+			Name: "bar",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "barCq",
 			},
@@ -2072,10 +2062,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2093,10 +2081,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2116,10 +2102,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2140,10 +2124,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2164,10 +2146,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2194,10 +2174,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &newWl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &newWl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2228,10 +2206,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &newWl,
-						ClusterQueue: "barCq",
-					},
+					Obj:          &newWl,
+					ClusterQueue: "barCq",
 				},
 			},
 		},
@@ -2396,10 +2372,8 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 			wantPendingWorkloadsInfo: []*workload.Info{
 				{
 					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "a",
-							Namespace: "",
-						},
+						Name:      "a",
+						Namespace: "",
 						Spec: kueue.WorkloadSpec{
 							QueueName: "foo",
 						},
@@ -2407,10 +2381,8 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 				},
 				{
 					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "b",
-							Namespace: "",
-						},
+						Name:      "b",
+						Namespace: "",
 						Spec: kueue.WorkloadSpec{
 							QueueName: "foo",
 						},

@@ -316,16 +316,14 @@ func TestReconcile(t *testing.T) {
 	baseFlavor2 := utiltestingapi.MakeResourceFlavor("flv2").NodeLabel("f2l1", "v1").Obj()
 
 	baseRequest := &autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: TestNamespace,
-			Name:      "wl-check1-1",
-			Labels: map[string]string{
-				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					Name: "wl",
-				},
+		Namespace: TestNamespace,
+		Name:      "wl-check1-1",
+		Labels: map[string]string{
+			constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+		},
+		OwnerReferences: []metav1.OwnerReference{
+			{
+				Name: "wl",
 			},
 		},
 		Spec: autoscaling.ProvisioningRequestSpec{
@@ -656,13 +654,11 @@ func TestReconcile(t *testing.T) {
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check2",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
+					Namespace: TestNamespace,
+					Name:      "wl-check2",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "wl",
 						},
 					},
 				},
@@ -1060,13 +1056,11 @@ func TestReconcile(t *testing.T) {
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check1-1",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
+					Namespace: TestNamespace,
+					Name:      "wl-check1-1",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "wl",
 						},
 					},
 					Spec: autoscaling.ProvisioningRequestSpec{
@@ -1961,10 +1955,8 @@ func TestReconcile(t *testing.T) {
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check1-1",
-					},
+					Namespace: TestNamespace,
+					Name:      "wl-check1-1",
 				},
 			},
 			templates:          []corev1.PodTemplate{},
@@ -2573,10 +2565,8 @@ func TestReconcile(t *testing.T) {
 				}
 
 				req := reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Namespace: TestNamespace,
-						Name:      tc.workload.Name,
-					},
+					Namespace: TestNamespace,
+					Name:      tc.workload.Name,
 				}
 				_, gotReconcileError := controller.Reconcile(ctx, req)
 				if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError, cmpopts.EquateErrors()); diff != "" {
@@ -2684,13 +2674,11 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
 	baseRequest := autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: TestNamespace,
-			Name:      "wl-check-1",
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					Name: "wl",
-				},
+		Namespace: TestNamespace,
+		Name:      "wl-check-1",
+		OwnerReferences: []metav1.OwnerReference{
+			{
+				Name: "wl",
 			},
 		},
 		Spec: autoscaling.ProvisioningRequestSpec{
@@ -2782,7 +2770,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 func TestIsMissingInCache(t *testing.T) {
 	request := &autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "wl-check1-1"},
+		Namespace: TestNamespace, Name: "wl-check1-1",
 	}
 	cases := map[string]struct {
 		requests []autoscaling.ProvisioningRequest

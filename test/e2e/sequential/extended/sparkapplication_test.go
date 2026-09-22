@@ -25,7 +25,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -73,18 +72,14 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		roleBindingName = "sparkapplication-sa-edit-" + ns.Name
 
 		sa = &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      serviceAccountName,
-				Namespace: ns.Name,
-			},
+			Name:      serviceAccountName,
+			Namespace: ns.Name,
 		}
 		util.MustCreate(ctx, k8sClient, sa)
 
 		rb := &rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      roleBindingName,
-				Namespace: ns.Name,
-			},
+			Name:      roleBindingName,
+			Namespace: ns.Name,
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      rbacv1.ServiceAccountKind,

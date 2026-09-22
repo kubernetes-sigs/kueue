@@ -283,7 +283,7 @@ func (r *cqReconciler) queueEventsForAC(ctx context.Context, acName string, q wo
 	}
 
 	for _, cq := range cqList.Items {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: cq.Name}}, r.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: cq.Name}, r.eventsBatchPeriod)
 	}
 }
 
@@ -326,7 +326,7 @@ func (r *cqReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	remoteHandler := handler.TypedFuncs[kueue.ClusterQueueReference, reconcile.Request]{
 		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[kueue.ClusterQueueReference], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(e.Object)}}, r.eventsBatchPeriod)
+			q.AddAfter(reconcile.Request{Name: string(e.Object)}, r.eventsBatchPeriod)
 		},
 	}
 
@@ -352,7 +352,7 @@ var _ handler.EventHandler = (*lqHandler)(nil)
 
 func (l *lqHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: string(lq.Spec.ClusterQueue)}, l.reconciler.eventsBatchPeriod)
 	}
 }
 
@@ -362,7 +362,7 @@ func (l *lqHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 
 func (l *lqHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: string(lq.Spec.ClusterQueue)}, l.reconciler.eventsBatchPeriod)
 	}
 }
 

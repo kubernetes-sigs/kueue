@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -94,10 +93,8 @@ func registerMPIJobTests(contextProvider func() mpiJobTestContext) {
 
 		ginkgo.By("Checking no objects are left in the worker clusters and the MPIJob is completed", func() {
 			wl := &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      wlLookupKey.Name,
-					Namespace: wlLookupKey.Namespace,
-				},
+				Name:      wlLookupKey.Name,
+				Namespace: wlLookupKey.Namespace,
 			}
 			util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
 			util.ExpectObjectToBeDeletedOnClusters(ctx, mpijob, k8sWorker1Client, k8sWorker2Client)

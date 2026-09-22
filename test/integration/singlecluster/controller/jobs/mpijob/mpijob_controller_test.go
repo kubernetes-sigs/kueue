@@ -118,11 +118,9 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      workloadmpijob.GetWorkloadNameForMPIJob("second-workload", "test-uid"),
-				Namespace: createdWorkload.Namespace,
-			},
-			Spec: *createdWorkload.Spec.DeepCopy(),
+			Name:      workloadmpijob.GetWorkloadNameForMPIJob("second-workload", "test-uid"),
+			Namespace: createdWorkload.Namespace,
+			Spec:      *createdWorkload.Spec.DeepCopy(),
 		}
 		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 		secondWl.Spec.PodSets[0].Count++
