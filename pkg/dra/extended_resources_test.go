@@ -322,7 +322,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
-			name: "init containers use max, regular containers use sum",
+			name: "ordinary init containers use max, regular containers use sum",
 			workload: utiltestingapi.MakeWorkload("wl", "ns1").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					InitContainers(
@@ -332,6 +332,106 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 					Containers(
 						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "1").Obj(),
 						*utiltesting.MakeContainer().Name("c2").Image("pause").WithResourceReq("example.com/gpu", "2").Obj(),
+					).
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("5"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			// The scheduler keeps a sidecar's devices for as long as the regular
+			// containers hold theirs, so the two are held at once.
+			name: "a restartable init container adds to the total rather than being maxed against it",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("sidecar").Image("pause").AsSidecar().WithResourceReq("example.com/gpu", "1").Obj(),
+					).
+					Containers(
+						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("2"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			// A non-positive request is dropped before any aggregation runs, so the
+			// sidecar contributes nothing rather than being subtracted from the
+			// regular container it now shares the long-running total with.
+			name: "a negative restartable init container does not reduce the regular container's charge",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("sidecar").Image("pause").AsSidecar().WithResourceReq("example.com/gpu", "-3").Obj(),
+					).
+					Containers(
+						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "8").Obj(),
+					).
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("8"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			// The init container runs with the sidecar declared before it already up,
+			// so 5 and 2 together beat the 1 and 2 that follow.
+			name: "an ordinary init container is measured with the sidecar already running",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("sidecar").Image("pause").AsSidecar().WithResourceReq("example.com/gpu", "2").Obj(),
+						*utiltesting.MakeContainer().Name("init1").Image("pause").WithResourceReq("example.com/gpu", "5").Obj(),
+					).
+					Containers(
+						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "1").Obj(),
+					).
+					Obj()).
+				Obj(),
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("7"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			// The same two init containers the other way round. Nothing is running
+			// beside the ordinary one this time, so its own 5 stands against the 2
+			// and 1 that outlive it.
+			name: "an ordinary init container declared before the sidecar does not run with it",
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("init1").Image("pause").WithResourceReq("example.com/gpu", "5").Obj(),
+						*utiltesting.MakeContainer().Name("sidecar").Image("pause").AsSidecar().WithResourceReq("example.com/gpu", "2").Obj(),
+					).
+					Containers(
+						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "1").Obj(),
 					).
 					Obj()).
 				Obj(),
