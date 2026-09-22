@@ -334,7 +334,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 			if workloadFits(ctx, strategy.pCtx, strategy.AllowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.AllowBorrowing)
 				if logV := log.V(6); logV.Enabled() {
-					logV.Info("Preemption strategy succeeded",
+					logV.Info("Preemption succeeded",
 						"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
 						"targets", logging.GetObjectReferences(targets))
 				}
