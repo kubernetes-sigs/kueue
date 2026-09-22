@@ -22,6 +22,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // SchedulingSimulator acts as a factory for SimulatorSnapshots.
@@ -30,7 +32,7 @@ import (
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SchedulingSimulator interface {
-	Snapshot(ctx context.Context, nodes []*corev1.Node) (SimulatorSnapshot, error)
+	Snapshot(ctx context.Context, nodes []*corev1.Node, assumedWorkloads []*kueue.Workload) (SimulatorSnapshot, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.

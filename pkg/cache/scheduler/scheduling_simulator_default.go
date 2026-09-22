@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
@@ -45,7 +46,7 @@ func newDefaultSimulatorSnapshot() simulator.SimulatorSnapshot {
 
 type defaultSimulatorSnapshot struct{}
 
-func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node, _ []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
 	return &defaultSimulatorSnapshot{}, nil
 }
 

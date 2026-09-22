@@ -179,19 +179,36 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulato
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
-	allPods, podsByWorkload := s.pods.snapshot()
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assumedWorkloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
+	tracker := s.pods.copy()
+
+	for _, wl := range assumedWorkloads {
+		vPods := VirtualPodsForWorkload(wl)
+		if len(vPods) == 0 {
+			continue
+		}
+
+		wlKey := client.ObjectKeyFromObject(wl)
+		tracker.clearWorkload(wlKey)
+
+		for _, vPod := range vPods {
+			tracker.savePod(client.ObjectKeyFromObject(vPod), vPod)
+		}
+	}
+
+	allPods := tracker.pods.toSlice()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
 	}
 	snapshot := &wasSimulatorSnapshot{
 		wasSnapshot:    clusterSnap,
-		podsByWorkload: podsByWorkload,
+		podsByWorkload: tracker.workloadPods,
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
-		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, podsByWorkload), nodes)
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, tracker.workloadPods), nodes)
 	}
+
 	return snapshot, nil
 }
 
