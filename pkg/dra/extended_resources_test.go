@@ -238,29 +238,13 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 	}{
 		{
 			name: "workload with extended resource backed by DRA",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourceCPU: resource.MustParse("1"),
-											"example.com/gpu":  resource.MustParse("2"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request(corev1.ResourceCPU, "1").
+					Request("example.com/gpu", "2").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {
@@ -273,56 +257,24 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 		{
 			name: "workload with negative extended resource request is not charged",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("-3"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "-3").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
 		{
 			name: "workload with multiple extended resources",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu":        resource.MustParse("1"),
-											"nvidia.com/mig-1g.10gb": resource.MustParse("2"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "1").
+					Request("nvidia.com/mig-1g.10gb", "2").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass, migDeviceClass},
 			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {
@@ -336,148 +288,59 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 		{
 			name: "workload with extended resource not backed by DRA (no matching DeviceClass)",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"other.vendor.io/resource": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("other.vendor.io/resource", "1").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
 		{
 			name: "workload with fractional quantity for extended resource not backed by DRA (no matching DeviceClass)",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"other.vendor.io/resource": resource.MustParse("1500m"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("other.vendor.io/resource", "1500m").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
 		{
 			name: "workload with no extended resources",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourceCPU:    resource.MustParse("1"),
-											corev1.ResourceMemory: resource.MustParse("1Gi"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Gi").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want:          nil,
 		},
 		{
 			name: "workload with DeviceClass that has no extendedResourceName",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"some.other/resource": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("some.other/resource", "1").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{plainDeviceClass},
 			want:          nil,
 		},
 		{
 			name: "workload with multiple containers",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name:  "c1",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("1"),
-											},
-										},
-									},
-									{
-										Name:  "c2",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("2"),
-											},
-										},
-									},
-								},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "1").Obj(),
+						*utiltesting.MakeContainer().Name("c2").Image("pause").WithResourceReq("example.com/gpu", "2").Obj(),
+					).
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {
@@ -490,59 +353,18 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 		{
 			name: "init containers use max, regular containers use sum",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								InitContainers: []corev1.Container{
-									{
-										Name:  "init1",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("5"),
-											},
-										},
-									},
-									{
-										Name:  "init2",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("3"),
-											},
-										},
-									},
-								},
-								Containers: []corev1.Container{
-									{
-										Name:  "c1",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("1"),
-											},
-										},
-									},
-									{
-										Name:  "c2",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("2"),
-											},
-										},
-									},
-								},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("init1").Image("pause").WithResourceReq("example.com/gpu", "5").Obj(),
+						*utiltesting.MakeContainer().Name("init2").Image("pause").WithResourceReq("example.com/gpu", "3").Obj(),
+					).
+					Containers(
+						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "1").Obj(),
+						*utiltesting.MakeContainer().Name("c2").Image("pause").WithResourceReq("example.com/gpu", "2").Obj(),
+					).
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {
@@ -563,41 +385,16 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			// and likewise 5 for B alone, so the quota key must be charged 10, not
 			// max(5, 5) = 5.
 			name: "two extended resource names sharing a quota key are not collapsed by cross-container aggregation",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								InitContainers: []corev1.Container{
-									{
-										Name:  "init",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"vendor.example/a": resource.MustParse("5"),
-											},
-										},
-									},
-								},
-								Containers: []corev1.Container{
-									{
-										Name:  "c",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"vendor.example/b": resource.MustParse("5"),
-											},
-										},
-									},
-								},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("init").Image("pause").WithResourceReq("vendor.example/a", "5").Obj(),
+					).
+					Containers(
+						*utiltesting.MakeContainer().Name("c").Image("pause").WithResourceReq("vendor.example/b", "5").Obj(),
+					).
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{classADeviceClass, classBDeviceClass},
 			mapperMappings: []configapi.DeviceClassMapping{
 				{
@@ -619,29 +416,13 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			// The negative request for b must be dropped before aggregation, not
 			// merged in and left to offset a's positive charge.
 			name: "positive and negative extended resource names sharing a quota key: negative does not offset positive",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"vendor.example/a": resource.MustParse("5"),
-											"vendor.example/b": resource.MustParse("-3"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("vendor.example/a", "5").
+					Request("vendor.example/b", "-3").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{classADeviceClass, classBDeviceClass},
 			mapperMappings: []configapi.DeviceClassMapping{
 				{
@@ -660,28 +441,12 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 		{
 			name: "workload with non-integer extended resource quantity",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("500m"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "500m").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -698,39 +463,14 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			// overflows it. Charging the aggregate without re-checking would
 			// silently charge nothing instead of rejecting the request.
 			name: "workload with per-container integer quantities that overflow int64 when summed",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name:  "c1",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("9e18"),
-											},
-										},
-									},
-									{
-										Name:  "c2",
-										Image: "pause",
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"example.com/gpu": resource.MustParse("9e18"),
-											},
-										},
-									},
-								},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("c1").Image("pause").WithResourceReq("example.com/gpu", "9e18").Obj(),
+						*utiltesting.MakeContainer().Name("c2").Image("pause").WithResourceReq("example.com/gpu", "9e18").Obj(),
+					).
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			wantErr: field.ErrorList{
 				field.Invalid(
@@ -744,28 +484,12 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 		{
 			name: "extended resource uses deviceClassMappings logical name when DeviceClass is mapped",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			mapperMappings: []configapi.DeviceClassMapping{
 				{
@@ -785,28 +509,12 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		{
 			name:     "extended resource with counters is rejected",
 			enablePD: true,
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
 			mapperMappings: []configapi.DeviceClassMapping{
 				{
@@ -834,28 +542,12 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 		{
 			name: "the mapping of the later DeviceClass decides the quota key",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{alphaDeviceClass, omegaDeviceClass},
 			mapperMappings: []configapi.DeviceClassMapping{
 				{
@@ -878,28 +570,12 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 		{
 			name: "an unmapped later DeviceClass leaves the extended resource name as the quota key",
-			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name:  "c",
-									Image: "pause",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Image("pause").
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			deviceClasses: []*resourceapi.DeviceClass{alphaDeviceClass, omegaDeviceClass},
 			mapperMappings: []configapi.DeviceClassMapping{
 				{
@@ -962,75 +638,33 @@ func TestNeedsDRAReconcile(t *testing.T) {
 	}{
 		{
 			name: "workload with RCT always needs DRA reconcile",
-			workload: &kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{Name: "c"}},
-								ResourceClaims: []corev1.PodResourceClaim{{
-									Name:                      "gpu",
-									ResourceClaimTemplateName: new("gpu-template"),
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
 			draGate: true,
 			erGate:  true,
 			want:    true,
 		},
 		{
 			name: "extended resource not in cache returns false",
-			workload: &kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name: "c",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			draGate: true,
 			erGate:  true,
 			want:    false,
 		},
 		{
 			name: "extended resource in cache returns true",
-			workload: &kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name: "c",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			cachedResources: map[corev1.ResourceName]string{
 				"example.com/gpu": "gpu.example.com",
 			},
@@ -1040,26 +674,11 @@ func TestNeedsDRAReconcile(t *testing.T) {
 		},
 		{
 			name: "DRA gate disabled returns false",
-			workload: &kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name: "c",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			cachedResources: map[corev1.ResourceName]string{
 				"example.com/gpu": "gpu.example.com",
 			},
@@ -1069,26 +688,11 @@ func TestNeedsDRAReconcile(t *testing.T) {
 		},
 		{
 			name: "ER gate disabled returns false for extended resource",
-			workload: &kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name: "c",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											"example.com/gpu": resource.MustParse("1"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request("example.com/gpu", "1").
+					Obj()).
+				Obj(),
 			cachedResources: map[corev1.ResourceName]string{
 				"example.com/gpu": "gpu.example.com",
 			},
@@ -1098,27 +702,12 @@ func TestNeedsDRAReconcile(t *testing.T) {
 		},
 		{
 			name: "cpu and memory only returns false",
-			workload: &kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{{
-						Name:  "main",
-						Count: 1,
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{
-									Name: "c",
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourceCPU:    resource.MustParse("1"),
-											corev1.ResourceMemory: resource.MustParse("1Gi"),
-										},
-									},
-								}},
-							},
-						},
-					}},
-				},
-			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Gi").
+					Obj()).
+				Obj(),
 			draGate: true,
 			erGate:  true,
 			want:    false,
