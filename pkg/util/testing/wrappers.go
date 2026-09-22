@@ -778,6 +778,42 @@ func (rb *RoleBindingWrapper) Subject(kind, name, namespace string) *RoleBinding
 	return rb
 }
 
+type ClusterRoleBindingWrapper struct{ rbacv1.ClusterRoleBinding }
+
+func MakeClusterRoleBinding(name string) *ClusterRoleBindingWrapper {
+	return &ClusterRoleBindingWrapper{
+		rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (crb *ClusterRoleBindingWrapper) Obj() *rbacv1.ClusterRoleBinding {
+	return &crb.ClusterRoleBinding
+}
+
+func (crb *ClusterRoleBindingWrapper) RoleRef(apiGroup, kind, name string) *ClusterRoleBindingWrapper {
+	crb.ClusterRoleBinding.RoleRef = rbacv1.RoleRef{
+		APIGroup: apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
+	return crb
+}
+
+// UserSubject adds a User subject. User subjects must carry the rbac.authorization.k8s.io API
+// group; a subject without it matches nothing and the binding silently grants no access.
+func (crb *ClusterRoleBindingWrapper) UserSubject(name string) *ClusterRoleBindingWrapper {
+	crb.Subjects = append(crb.Subjects, rbacv1.Subject{
+		Kind:     rbacv1.UserKind,
+		APIGroup: rbacv1.GroupName,
+		Name:     name,
+	})
+	return crb
+}
+
 type PreferredSchedulingTermsWrapper struct {
 	terms []corev1.PreferredSchedulingTerm
 }
