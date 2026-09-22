@@ -75,7 +75,9 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if err := jobframework.ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, w.client, trainJob.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())
+	if err := jobframework.ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, w.client, trainJob.Object(), w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
 	suspend, err := jobframework.WorkloadShouldBeSuspended(
 		ctx,
