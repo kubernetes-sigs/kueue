@@ -1515,7 +1515,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	)
 
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
-		// bestPA is tracked here, not returned by fits(), so it can't drift from
+		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPA *partialAssignment
 		fitsFn := func(nextCounts []int32) bool {
