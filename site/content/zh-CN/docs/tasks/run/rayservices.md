@@ -73,6 +73,8 @@ Kueue 控制 RayService 的 `spec.rayClusterConfig.suspend` 字段。当 RayServ
 
 [Ray 自动扩缩](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html)可以根据资源使用需求自动添加或移除 Ray worker pod 实例。
 
+该特性从 Kueue v0.19.0 开始支持 RayService。
+
 自动扩缩仅支持[弹性](/zh-cn/docs/concepts/elastic_workload) RayService 对象。
 
 ### 如何在 RayService 中启用动态扩容 {#how-to-enable-autoscaling-in-rayservice}

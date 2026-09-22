@@ -70,6 +70,8 @@ Kueue controls the `spec.rayClusterConfig.suspend` field of the RayService. When
 
 [Ray Autoscaling](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html) can automatically add or remove Ray worker pods based on resource demand.
 
+This feature is supported for RayService starting in Kueue v0.19.0.
+
 Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) RayService objects.
 
 ### How to enable autoscaling in RayService
