@@ -59,7 +59,6 @@ func (y *yieldedCandidates) restore(pCtx *preemptionCtx) {
 	for _, t := range *y {
 		pCtx.snapshot.AddWorkload(t.WorkloadInfo)
 	}
-	*y = (*y)[:0]
 }
 
 func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
