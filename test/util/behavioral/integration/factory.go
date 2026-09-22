@@ -18,9 +18,14 @@ import (
 	"context"
 	"time"
 
+	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // NewManager is a factory for cache.queue.Manager for Integration Tests,
@@ -36,4 +41,15 @@ func NewManagerWithBatchPeriod(ctx context.Context, client client.Client, checke
 		_ = requeuer.Start(ctx)
 	}()
 	return qcache.NewManager(client, checker, requeuer, options...)
+}
+
+// SimulatorFactoryCacheOptions mirrors cmd/kueue/main.go: the scheduler cache is
+// backed by the WAS simulator only when SchedulerLibraryIntegration is enabled.
+func SimulatorFactoryCacheOptions(ctx context.Context, cfg *rest.Config) []schdcache.Option {
+	if !features.Enabled(features.SchedulerLibraryIntegration) {
+		return nil
+	}
+	simulatorFactory, err := was.NewWASSimulatorFactory(ctx, cfg)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "Failed to initialize WAS scheduling simulator")
+	return []schdcache.Option{schdcache.WithSimulatorFactory(simulatorFactory)}
 }
