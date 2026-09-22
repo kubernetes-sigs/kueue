@@ -1064,6 +1064,13 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 	return clock.Since(queuedTime)
 }
 
+func QuotaReservedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); c != nil {
+		return clock.Since(c.LastTransitionTime.Time)
+	}
+	return 0
+}
+
 // SetQuotaReservation records that quota has been reserved for the given Workload
 // in the specified ClusterQueue and updates the Workload status accordingly.
 //

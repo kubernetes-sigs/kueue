@@ -760,8 +760,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		isAdmitted := workload.IsAdmitted(&wl)
 		if isAdmitted {
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
-			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
+			quotaReservedWaitTime := workload.QuotaReservedWaitTime(&wl, r.clock)
 			r.recorder.Eventf(
 				&wl,
 				nil,
