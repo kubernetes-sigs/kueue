@@ -466,13 +466,15 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(event *eventsv1.Event) bool {
-				return event.Reason == "Admitted" && event.Type == corev1.EventTypeNormal &&
-					strings.Contains(event.Note, "Admitted by ClusterQueue cluster-queue, wait time since reservation was ") &&
-					!strings.HasSuffix(event.Note, " 0s")
-			})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			gomega.Expect(found).To(gomega.BeTrue())
+			gomega.Eventually(func(g gomega.Gomega) {
+				found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(event *eventsv1.Event) bool {
+					return event.Reason == "Admitted" && event.Type == corev1.EventTypeNormal &&
+						strings.Contains(event.Note, "Admitted by ClusterQueue cluster-queue, wait time since reservation was ") &&
+						!strings.HasSuffix(event.Note, " 0s")
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(found).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectAdmissionChecksWaitTimeMetricAtLeast(clusterQueue, "", 60)
 		})
 
