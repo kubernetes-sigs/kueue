@@ -31,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
@@ -97,11 +98,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
-			deviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			behavioral.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate
@@ -330,11 +327,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
-			deviceClass = &resourcev1.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			behavioral.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate

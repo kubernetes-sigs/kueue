@@ -37,6 +37,8 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func newFakeClient(deviceClasses ...*resourceapi.DeviceClass) client.Client {
@@ -116,7 +118,7 @@ func TestIsExtendedResourceName(t *testing.T) {
 func TestSelectedDeviceClass(t *testing.T) {
 	at := func(sec int64) metav1.Time { return metav1.Unix(sec, 0) }
 	class := func(name string, created metav1.Time) resourceapi.DeviceClass {
-		return resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: created}}
+		return *testingdra.MakeDeviceClass(name).CreationTimestamp(created).Obj()
 	}
 	cases := map[string]struct {
 		items []resourceapi.DeviceClass
@@ -161,72 +163,37 @@ func TestSelectedDeviceClass(t *testing.T) {
 }
 
 func TestResolveExtendedResourceQuota(t *testing.T) {
-	gpuDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "gpu.nvidia.com",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("example.com/gpu"),
-		},
-	}
+	gpuDeviceClass := testingdra.MakeDeviceClass("gpu.nvidia.com").
+		ExtendedResourceName("example.com/gpu").
+		Obj()
 
-	migDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "mig.nvidia.com",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("nvidia.com/mig-1g.10gb"),
-		},
-	}
+	migDeviceClass := testingdra.MakeDeviceClass("mig.nvidia.com").
+		ExtendedResourceName("nvidia.com/mig-1g.10gb").
+		Obj()
 
-	plainDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "plain.nvidia.com",
-		},
-		Spec: resourceapi.DeviceClassSpec{},
-	}
+	plainDeviceClass := testingdra.MakeDeviceClass("plain.nvidia.com").Obj()
 
 	// Two classes on one extendedResourceName. The names sort against the
 	// timestamps, so only the creation order can explain the class picked.
-	alphaDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "alpha.example.com",
-			CreationTimestamp: metav1.Unix(100, 0),
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("example.com/gpu"),
-		},
-	}
+	alphaDeviceClass := testingdra.MakeDeviceClass("alpha.example.com").
+		CreationTimestamp(metav1.Unix(100, 0)).
+		ExtendedResourceName("example.com/gpu").
+		Obj()
 
-	omegaDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "omega.example.com",
-			CreationTimestamp: metav1.Unix(200, 0),
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("example.com/gpu"),
-		},
-	}
+	omegaDeviceClass := testingdra.MakeDeviceClass("omega.example.com").
+		CreationTimestamp(metav1.Unix(200, 0)).
+		ExtendedResourceName("example.com/gpu").
+		Obj()
 
 	// Two distinct extendedResourceNames, both mapped by the same deviceClassMappings
 	// entry to the logical key "gpu-claims".
-	classADeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "class-a",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("vendor.example/a"),
-		},
-	}
+	classADeviceClass := testingdra.MakeDeviceClass("class-a").
+		ExtendedResourceName("vendor.example/a").
+		Obj()
 
-	classBDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "class-b",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("vendor.example/b"),
-		},
-	}
+	classBDeviceClass := testingdra.MakeDeviceClass("class-b").
+		ExtendedResourceName("vendor.example/b").
+		Obj()
 
 	tests := []struct {
 		name           string
@@ -948,6 +915,49 @@ func TestNeedsDRAReconcile(t *testing.T) {
 			got := NeedsDRAReconcile(tc.workload, cache)
 			if got != tc.want {
 				t.Errorf("NeedsDRAReconcile() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDRADetectionAndQuotaUseEffectiveRequests verifies that both DRA consumers
+// use Info's effective requests when the raw Workload has no explicit requests.
+// NeedsDRAReconcile must detect the defaulted GPU request, and
+// ResolveExtendedResourceQuota must account for the same two GPUs and mark the
+// resource as replaced so it is not also charged as a regular extended resource.
+// Limits-only and LimitRange inputs exercise the two sources of those requests;
+// this test covers the DRA helpers, without running a controller or scheduler.
+func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+	const gpu corev1.ResourceName = "example.com/gpu"
+	for name, useLimitRange := range map[string]bool{"limits only": false, "LimitRange defaults": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Limit(gpu, "2").Obj()
+			inputs := workload.AdjustmentInputs{}
+			if useLimitRange {
+				wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Limits = nil
+				inputs.LimitRangeSummary = limitrange.Summary{corev1.LimitTypeContainer: {DefaultRequest: corev1.ResourceList{gpu: resource.MustParse("2")}}}
+			}
+			original := wl.DeepCopy()
+			info := workload.NewInfo(log, wl, workload.WithAdjustmentInputs(inputs))
+			cache := NewExtendedResourceCache()
+			cache.Add(gpu, "gpu.example.com")
+			if !NeedsDRAReconcile(info, cache) {
+				t.Fatal("effective GPU requests did not trigger DRA processing")
+			}
+			dc := testingdra.MakeDeviceClass("gpu.example.com").ExtendedResourceName(string(gpu)).Obj()
+			got, replaced, errs := ResolveExtendedResourceQuota(ctx, newFakeClient(dc), NewResourceMapper(), info)
+			if len(errs) != 0 {
+				t.Fatal(errs)
+			}
+			qty := got["main"][gpu]
+			if qty.Cmp(resource.MustParse("2")) != 0 || !replaced["main"].Has(gpu) {
+				t.Errorf("effective DRA requests not charged: requests %v, replaced %v", got, replaced)
+			}
+			if diff := cmp.Diff(original, wl); diff != "" {
+				t.Fatalf("raw Workload changed: %s", diff)
 			}
 		})
 	}
