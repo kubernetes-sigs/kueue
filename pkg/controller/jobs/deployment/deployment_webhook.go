@@ -182,7 +182,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *appsv1.De
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldDeployment.Object(), newDeployment.Object())...)
 	}
 
-	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(newDeployment.Object(), wh.maxTimeoutOnWorkload)...)
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldDeployment.Object(), newDeployment.Object(), wh.maxTimeoutOnWorkload)...)
 
 	return warnings, allErrs.ToAggregate()
 }

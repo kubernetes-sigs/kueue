@@ -18,11 +18,13 @@ package rayservice
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -145,11 +147,12 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		oldService     *rayv1.RayService
-		newService     *rayv1.RayService
-		defaultLqExist bool
-		featureGates   map[featuregate.Feature]bool
-		wantErr        error
+		oldService           *rayv1.RayService
+		newService           *rayv1.RayService
+		defaultLqExist       bool
+		featureGates         map[featuregate.Feature]bool
+		wantErr              error
+		maxTimeoutOnWorkload *metav1.Duration
 	}{
 		"valid update": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
@@ -271,6 +274,34 @@ func TestValidateUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
 			wantErr:      nil,
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
+			oldService: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newService: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			wantErr:              nil,
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
+			oldService: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newService: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -287,8 +318,9 @@ func TestValidateUpdate(t *testing.T) {
 				}
 			}
 			webhook := &RayServiceWebhook{
-				queues: queueManager,
-				cache:  cqCache,
+				queues:               queueManager,
+				cache:                cqCache,
+				maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload,
 			}
 			warnings, err := webhook.ValidateUpdate(ctx, tc.oldService, tc.newService)
 			if diff := cmp.Diff(tc.wantErr, err); diff != "" {

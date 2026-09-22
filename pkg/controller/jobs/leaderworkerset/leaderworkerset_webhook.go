@@ -166,10 +166,11 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating create")
 
-	validationErrs, err := validateCreate(lws, wh.maxTimeoutOnWorkload)
+	validationErrs, err := validateCreate(lws)
 	if err != nil {
 		return nil, err
 	}
+	validationErrs = append(validationErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), wh.maxTimeoutOnWorkload)...)
 
 	return nil, validationErrs.ToAggregate()
 }
@@ -181,10 +182,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs, err := validateCreate(newLeaderWorkerSet, wh.maxTimeoutOnWorkload)
+	allErrs, err := validateCreate(newLeaderWorkerSet)
 	if err != nil {
 		return nil, err
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldLeaderWorkerSet.Object(), newLeaderWorkerSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	oldQueueName := jobframework.QueueNameForObject(oldLeaderWorkerSet.Object())
 	newQueueName := jobframework.QueueNameForObject(newLeaderWorkerSet.Object())
@@ -252,7 +254,7 @@ func GetWorkloadName(uid types.UID, name string, groupIndex string) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(fmt.Sprintf("%s-%s", name, groupIndex), uid, gvk)
 }
 
-func validateCreate(lws *LeaderWorkerSet, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func validateCreate(lws *LeaderWorkerSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateQueueName(lws.Object())...)
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(lws.Object(), lws.GVK())...)
@@ -269,7 +271,6 @@ func validateCreate(lws *LeaderWorkerSet, maxTimeoutOnWorkload *metav1.Duration)
 		}
 		allErrs = append(allErrs, validationErrs...)
 	}
-	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), maxTimeoutOnWorkload)...)
 	return allErrs, nil
 }
 

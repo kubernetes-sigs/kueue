@@ -104,14 +104,14 @@ var _ admission.Validator[*rayv1.RayJob] = &RayJobWebhook{}
 func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayJob) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (field.ErrorList, error) {
+func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
@@ -152,7 +152,7 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 		allErrors = append(allErrors, rayClusterSpecErrors...)
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, w.maxTimeoutOnWorkload)...)
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
@@ -179,7 +179,7 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newObj)
+	validationErrs, err := w.validateCreate(ctx, newObj, nil)
 	if err != nil {
 		return nil, err
 	}

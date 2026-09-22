@@ -108,7 +108,7 @@ var _ admission.Validator[*sparkv1beta2.SparkApplication] = &SparkApplicationWeb
 func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *sparkv1beta2.SparkApplication) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func isAnElasticJob(sparkApp *sparkv1beta2.SparkApplication) bool {
 	return workloadslicing.Enabled(sparkApp)
 }
 
-func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication) (field.ErrorList, error) {
+func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*SparkApplication)(job)
 
@@ -141,7 +141,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 		}
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, w.maxTimeoutOnWorkload)...)
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, kueueJob)
 		if err != nil {
@@ -183,7 +183,7 @@ func (w *SparkApplicationWebhook) ValidateUpdate(ctx context.Context, oldSparkAp
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(fromObject(oldSparkApp), fromObject(newSparkApp), w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newSparkApp)
+	validationErrs, err := w.validateCreate(ctx, newSparkApp, nil)
 	if err != nil {
 		return nil, err
 	}

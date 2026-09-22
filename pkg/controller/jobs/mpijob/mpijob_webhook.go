@@ -134,7 +134,7 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj *v2beta1.MPIJob)
 	mpiJob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCommon(ctx, mpiJob)
+	validationErrs, err := w.validateCommon(ctx, mpiJob, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update")
 	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCommon(ctx, newMpiJob)
+	validationErrs, err := w.validateCommon(ctx, newMpiJob, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -201,9 +201,9 @@ func expectedWorkerPodIndexOffset(mpiJob *MPIJob) (expected string, managed bool
 	return "1", true
 }
 
-func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
+func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = jobframework.ValidateJobOnCreate(mpiJob, w.maxTimeoutOnWorkload)
+	allErrs = jobframework.ValidateJobOnCreate(mpiJob, maxTimeoutOnWorkload)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, mpiJob)
 		if err != nil {

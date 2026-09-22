@@ -188,7 +188,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object())...)
 	}
-	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(newStatefulSet.Object(), wh.maxTimeoutOnWorkload)...)
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta)...)

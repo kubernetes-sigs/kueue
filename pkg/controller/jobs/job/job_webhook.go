@@ -213,7 +213,11 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1
 
 func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob, w.maxTimeoutOnWorkload)...)
+	// Pass a nil maxTimeoutOnWorkload so the create-path validation does not re-reject an
+	// unchanged wait-for-pods-ready annotation that now exceeds a lowered maxTimeoutOnWorkload
+	// (that would block eviction from suspending the Job). The bound is still enforced for a
+	// changed annotation by ValidateJobOnUpdate below, via ValidateWaitForPodsReadyAnnotationOnUpdate.
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob, nil)...)
 	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
 		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
 	}
