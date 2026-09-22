@@ -343,7 +343,9 @@ The two failure directions carry distinct operational consequences:
    `expectedActivePods` is owned exclusively by the managing framework adapter. It is updated whenever the framework reconciles changes in desired pod counts (e.g., initial launch, pod completion, or elastic re-configuration).
 2. **Workload Re-Admission (Preemption $\rightarrow$ Re-Admission Cycle)**:
    When a workload is evicted or preempted (`Admitted = False`), all in-flight pods are terminated. Upon subsequent re-admission (`Admitted = True`), the workload starts a new scheduling cycle from scratch.
-   * **Stale Count Invalidation via Admission Boundary Reset**: To prevent stale values from a prior partial run (e.g., `count: 2` left over after 6 pods had finished prior to preemption) from corrupting the new run, Kueue's core admission controller (`WorkloadController`) explicitly clears `workload.status.expectedActivePods = nil` whenever a workload transitions to un-admitted (`Admitted = False`). Upon subsequent re-admission (`Admitted = True`), the field is physically empty in etcd. Consequently, `PodsReadyController` observes an uninitialized state and naturally falls back to Level 3 (`ps.count`) for the new admission cycle, ensuring full gang readiness is required until the managing framework explicitly publishes fresh active targets for the new execution.
+   * **Stale Count Invalidation via Admission Boundary Reset**: To prevent stale values from a prior partial run (e.g., `count: 2` left over after 6 pods had finished prior to preemption) from corrupting the new run, Kueue's core admission controller (`WorkloadController`) explicitly clears `workload.status.expectedActivePods = nil` whenever a workload transitions to un-admitted (`Admitted = False`). Upon subsequent re-admission (`Admitted = True`), the field is physically empty in etcd. Consequently, `PodsReadyController` observes an uninitialized `expectedActivePods` state and naturally evaluates the remaining fallback chain:
+     1. If `reclaimablePods` is present (Level 2), the target active count resolves to $\max(ps.\text{count} - \text{reclaimablePods}[ps], 0)$, accurately accounting for pods that previously finished and released quota (e.g., in standard `batch/v1.Job`).
+     2. If `reclaimablePods` is absent (Level 3, standard for all-or-nothing and gang ML workloads), the target active count defaults to the full declared size ($ps.\text{count}$), ensuring complete gang readiness is required until the managing framework explicitly publishes fresh active targets for the new execution.
    * **In-Memory Debounce & Deficit State Reset**: Any internal debounce tracking state (including `firstDeficitTime` and pending grace deadlines) is strictly scoped to the workload's current admission cycle (keyed by admission transition timestamp). On preemption or re-admission, all internal deficit timers are cleared, preventing deadlines computed against a prior run's pods from leaking into the new cycle.
 3. **Elastic Scaling & Defensive Clamping**:
    When elastic scaling occurs (e.g., via `ElasticJobUngater` or Workload Slicing) and `spec.podSets[i].count` decreases (e.g., from 10 to 6), a framework could theoretically update the spec but omit or delay updating `expectedActivePods`.
@@ -816,8 +818,10 @@ No new condition types or condition reasons are introduced. The dedicated contro
   2. Both `head` (1/1) and `workers` (8/8) ready $\rightarrow$ evaluates to `True` (`WorkloadStarted`).
 - **Workload Preemption and Re-Admission State Reset**:
   Simulate a workload admitted with a reduced target (`expectedActivePods = 4` of 8), which is preempted (`Admitted = False`) and subsequently re-admitted (`Admitted = True`):
-  1. Verify that upon re-admission, `PodsReadyController` treats stale `expectedActivePods` from the prior run as invalid and defaults to full gang size (`ps.count = 8`).
-  2. Verify all internal debounce timers reset cleanly across admission cycles.
+  1. Verify that `WorkloadController` clears `status.expectedActivePods = nil` on un-admission (`Admitted = False`).
+  2. For a gang workload without `reclaimablePods`, verify target active count falls back to Level 3 (`ps.count = 8`).
+  3. For a workload with `reclaimablePods = 2`, verify target active count falls back to Level 2 ($\max(8 - 2, 0) = 6$).
+  4. Verify all internal debounce timers reset cleanly across admission cycles.
 - **ExpectedActivePods Webhook & CEL Validation Test**:
   Verify admission webhook enforcement in `ValidateWorkloadUpdate`:
   1. Rejects negative counts (`count < 0`).
