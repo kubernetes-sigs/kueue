@@ -195,6 +195,45 @@ type containerExtendedResourceRequests struct {
 	resources corev1.ResourceList
 }
 
+func collectContainerExtendedResourceRequests(containers []corev1.Container, containersPath *field.Path) []containerExtendedResourceRequests {
+	var entries []containerExtendedResourceRequests
+	for i, container := range containers {
+		res := extendedResourceRequests(container)
+		if len(res) == 0 {
+			continue
+		}
+		entries = append(entries, containerExtendedResourceRequests{
+			path:      containersPath.Index(i),
+			resources: res,
+		})
+	}
+	return entries
+}
+
+func calculateExtendedResourceCharge(initEntries, regularEntries []containerExtendedResourceRequests) (corev1.ResourceList, map[corev1.ResourceName]*field.Path) {
+	// The field path of the first container an original resource name is seen in,
+	// for error reporting once that name is resolved below.
+	firstPath := map[corev1.ResourceName]*field.Path{}
+	var maxInitResources, sumRegularResources corev1.ResourceList
+	for _, entry := range initEntries {
+		for name := range entry.resources {
+			if _, found := firstPath[name]; !found {
+				firstPath[name] = entry.path
+			}
+		}
+		maxInitResources = utilresource.MergeResourceListKeepMax(maxInitResources, entry.resources)
+	}
+	for _, entry := range regularEntries {
+		for name := range entry.resources {
+			if _, found := firstPath[name]; !found {
+				firstPath[name] = entry.path
+			}
+		}
+		sumRegularResources = utilresource.MergeResourceListKeepSum(sumRegularResources, entry.resources)
+	}
+	return utilresource.MergeResourceListKeepMax(maxInitResources, sumRegularResources), firstPath
+}
+
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
 // into DRA logical quota resources. Per PodSet, init containers are aggregated with
 // max (sequential) and regular containers with sum (concurrent), then combined with
@@ -220,45 +259,9 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		ps := &wl.Spec.PodSets[i]
 		podSetPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec")
 
-		collect := func(containers []corev1.Container, pathSegment string) []containerExtendedResourceRequests {
-			var entries []containerExtendedResourceRequests
-			for j, container := range containers {
-				res := extendedResourceRequests(container)
-				if len(res) == 0 {
-					continue
-				}
-				entries = append(entries, containerExtendedResourceRequests{
-					path:      podSetPath.Child(pathSegment).Index(j),
-					resources: res,
-				})
-			}
-			return entries
-		}
-
-		initEntries := collect(wi.PodSpec(i).InitContainers, "initContainers")
-		regularEntries := collect(wi.PodSpec(i).Containers, "containers")
-
-		// The field path of the first container an original resource name is seen in,
-		// for error reporting once that name is resolved below.
-		firstPath := map[corev1.ResourceName]*field.Path{}
-		var maxInitResources, sumRegularResources corev1.ResourceList
-		for _, e := range initEntries {
-			for name := range e.resources {
-				if _, ok := firstPath[name]; !ok {
-					firstPath[name] = e.path
-				}
-			}
-			maxInitResources = utilresource.MergeResourceListKeepMax(maxInitResources, e.resources)
-		}
-		for _, e := range regularEntries {
-			for name := range e.resources {
-				if _, ok := firstPath[name]; !ok {
-					firstPath[name] = e.path
-				}
-			}
-			sumRegularResources = utilresource.MergeResourceListKeepSum(sumRegularResources, e.resources)
-		}
-		podRequests := utilresource.MergeResourceListKeepMax(maxInitResources, sumRegularResources)
+		initEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).InitContainers, podSetPath.Child("initContainers"))
+		regularEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).Containers, podSetPath.Child("containers"))
+		podRequests, firstPath := calculateExtendedResourceCharge(initEntries, regularEntries)
 
 		aggregated := corev1.ResourceList{}
 		replaced := sets.New[corev1.ResourceName]()

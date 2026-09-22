@@ -162,6 +162,106 @@ func TestSelectedDeviceClass(t *testing.T) {
 	}
 }
 
+func TestCollectContainerExtendedResourceRequests(t *testing.T) {
+	containers := []corev1.Container{
+		{
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}},
+		},
+		{
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				"example.com/zero":     resource.MustParse("0"),
+				"example.com/negative": resource.MustParse("-1"),
+			}},
+		},
+		{
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				"example.com/gpu": resource.MustParse("2"),
+			}},
+		},
+	}
+	containersPath := field.NewPath("spec", "podSets").Index(1).Child("template", "spec", "containers")
+
+	got := collectContainerExtendedResourceRequests(containers, containersPath)
+
+	if len(got) != 1 {
+		t.Fatalf("collectContainerExtendedResourceRequests() returned %d entries, want 1", len(got))
+	}
+	if diff := cmp.Diff(corev1.ResourceList{"example.com/gpu": resource.MustParse("2")}, got[0].resources); diff != "" {
+		t.Errorf("collectContainerExtendedResourceRequests() resources mismatch (-want +got):\n%s", diff)
+	}
+	if gotPath, wantPath := got[0].path.String(), "spec.podSets[1].template.spec.containers[2]"; gotPath != wantPath {
+		t.Errorf("collectContainerExtendedResourceRequests() path = %q, want %q", gotPath, wantPath)
+	}
+}
+
+func TestCalculateExtendedResourceCharge(t *testing.T) {
+	resourceA := corev1.ResourceName("example.com/a")
+	resourceB := corev1.ResourceName("example.com/b")
+	resourceC := corev1.ResourceName("example.com/c")
+	initPath0 := field.NewPath("initContainers").Index(0)
+	initPath1 := field.NewPath("initContainers").Index(1)
+	regularPath0 := field.NewPath("containers").Index(0)
+	regularPath1 := field.NewPath("containers").Index(1)
+	initEntries := []containerExtendedResourceRequests{
+		{
+			path: initPath0,
+			resources: corev1.ResourceList{
+				resourceA: resource.MustParse("5"),
+				resourceB: resource.MustParse("2"),
+			},
+		},
+		{
+			path: initPath1,
+			resources: corev1.ResourceList{
+				resourceA: resource.MustParse("3"),
+				resourceB: resource.MustParse("6"),
+			},
+		},
+	}
+	regularEntries := []containerExtendedResourceRequests{
+		{
+			path: regularPath0,
+			resources: corev1.ResourceList{
+				resourceA: resource.MustParse("1"),
+				resourceB: resource.MustParse("2"),
+				resourceC: resource.MustParse("1"),
+			},
+		},
+		{
+			path: regularPath1,
+			resources: corev1.ResourceList{
+				resourceA: resource.MustParse("2"),
+				resourceC: resource.MustParse("4"),
+			},
+		},
+	}
+
+	gotCharge, gotFirstPath := calculateExtendedResourceCharge(initEntries, regularEntries)
+
+	wantCharge := corev1.ResourceList{
+		resourceA: resource.MustParse("5"),
+		resourceB: resource.MustParse("6"),
+		resourceC: resource.MustParse("5"),
+	}
+	if diff := cmp.Diff(wantCharge, gotCharge); diff != "" {
+		t.Errorf("calculateExtendedResourceCharge() charge mismatch (-want +got):\n%s", diff)
+	}
+	gotFirstPathStrings := make(map[corev1.ResourceName]string, len(gotFirstPath))
+	for name, path := range gotFirstPath {
+		gotFirstPathStrings[name] = path.String()
+	}
+	wantFirstPathStrings := map[corev1.ResourceName]string{
+		resourceA: initPath0.String(),
+		resourceB: initPath0.String(),
+		resourceC: regularPath0.String(),
+	}
+	if diff := cmp.Diff(wantFirstPathStrings, gotFirstPathStrings); diff != "" {
+		t.Errorf("calculateExtendedResourceCharge() first paths mismatch (-want +got):\n%s", diff)
+	}
+}
+
 func TestResolveExtendedResourceQuota(t *testing.T) {
 	gpuDeviceClass := &resourceapi.DeviceClass{
 		ObjectMeta: metav1.ObjectMeta{
