@@ -38,6 +38,7 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -118,7 +119,7 @@ func TestIsExtendedResourceName(t *testing.T) {
 func TestSelectedDeviceClass(t *testing.T) {
 	at := func(sec int64) metav1.Time { return metav1.Unix(sec, 0) }
 	class := func(name string, created metav1.Time) resourceapi.DeviceClass {
-		return resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: created}}
+		return *testingdra.MakeDeviceClass(name).CreationTimestamp(created).Obj()
 	}
 	cases := map[string]struct {
 		items []resourceapi.DeviceClass
@@ -163,72 +164,37 @@ func TestSelectedDeviceClass(t *testing.T) {
 }
 
 func TestResolveExtendedResourceQuota(t *testing.T) {
-	gpuDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "gpu.nvidia.com",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("example.com/gpu"),
-		},
-	}
+	gpuDeviceClass := testingdra.MakeDeviceClass("gpu.nvidia.com").
+		ExtendedResourceName("example.com/gpu").
+		Obj()
 
-	migDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "mig.nvidia.com",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("nvidia.com/mig-1g.10gb"),
-		},
-	}
+	migDeviceClass := testingdra.MakeDeviceClass("mig.nvidia.com").
+		ExtendedResourceName("nvidia.com/mig-1g.10gb").
+		Obj()
 
-	plainDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "plain.nvidia.com",
-		},
-		Spec: resourceapi.DeviceClassSpec{},
-	}
+	plainDeviceClass := testingdra.MakeDeviceClass("plain.nvidia.com").Obj()
 
 	// Two classes on one extendedResourceName. The names sort against the
 	// timestamps, so only the creation order can explain the class picked.
-	alphaDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "alpha.example.com",
-			CreationTimestamp: metav1.Unix(100, 0),
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("example.com/gpu"),
-		},
-	}
+	alphaDeviceClass := testingdra.MakeDeviceClass("alpha.example.com").
+		CreationTimestamp(metav1.Unix(100, 0)).
+		ExtendedResourceName("example.com/gpu").
+		Obj()
 
-	omegaDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "omega.example.com",
-			CreationTimestamp: metav1.Unix(200, 0),
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("example.com/gpu"),
-		},
-	}
+	omegaDeviceClass := testingdra.MakeDeviceClass("omega.example.com").
+		CreationTimestamp(metav1.Unix(200, 0)).
+		ExtendedResourceName("example.com/gpu").
+		Obj()
 
 	// Two distinct extendedResourceNames, both mapped by the same deviceClassMappings
 	// entry to the logical key "gpu-claims".
-	classADeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "class-a",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("vendor.example/a"),
-		},
-	}
+	classADeviceClass := testingdra.MakeDeviceClass("class-a").
+		ExtendedResourceName("vendor.example/a").
+		Obj()
 
-	classBDeviceClass := &resourceapi.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "class-b",
-		},
-		Spec: resourceapi.DeviceClassSpec{
-			ExtendedResourceName: new("vendor.example/b"),
-		},
-	}
+	classBDeviceClass := testingdra.MakeDeviceClass("class-b").
+		ExtendedResourceName("vendor.example/b").
+		Obj()
 
 	tests := []struct {
 		name           string
@@ -762,7 +728,7 @@ func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
 			if !NeedsDRAReconcile(info, cache) {
 				t.Fatal("effective GPU requests did not trigger DRA processing")
 			}
-			dc := &resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: "gpu.example.com"}, Spec: resourceapi.DeviceClassSpec{ExtendedResourceName: new(string(gpu))}}
+			dc := testingdra.MakeDeviceClass("gpu.example.com").ExtendedResourceName(string(gpu)).Obj()
 			got, replaced, errs := ResolveExtendedResourceQuota(ctx, newFakeClient(dc), NewResourceMapper(), info)
 			if len(errs) != 0 {
 				t.Fatal(errs)
