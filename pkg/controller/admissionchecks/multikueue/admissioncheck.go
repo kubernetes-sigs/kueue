@@ -112,7 +112,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	needsUpdate := false
 	oldCondition := apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive)
-	if !cmpConditionState(oldCondition, &newCondition) || oldCondition.ObservedGeneration != newCondition.ObservedGeneration {
+	if !isConditionEqual(oldCondition, &newCondition) || oldCondition.ObservedGeneration != newCondition.ObservedGeneration {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		needsUpdate = true
 	}
@@ -250,7 +250,7 @@ func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 
 	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
-	if !cmpConditionState(oldActive, newActive) {
+	if !isConditionEqual(oldActive, newActive) {
 		if err := m.queue(ctx, newMKC, q); err != nil {
 			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(oldMKC))
 		}
@@ -293,7 +293,7 @@ func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueue.MultiKueueC
 	return nil
 }
 
-func cmpConditionState(a, b *metav1.Condition) bool {
+func isConditionEqual(a, b *metav1.Condition) bool {
 	if a == b {
 		return true
 	}
