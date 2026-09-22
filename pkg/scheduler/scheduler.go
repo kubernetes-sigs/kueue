@@ -1531,7 +1531,8 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 			return false
 		}
 		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, fitsFn)
-		// Only an admitted predecessor can already be running these MinCounts.
+		// Only an admitted predecessor can already be running these MinCounts. A predecessor
+		// that only holds quota may still be waiting for admission checks and needs the baseline back.
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
 		if _, found := reducer.Reduce(mustGrow); found {
 			assignment, targets, fits = bestPA.assignment, bestPA.preemptionTargets, true
