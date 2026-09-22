@@ -18,7 +18,7 @@ package core
 
 import (
 	"context"
-	stderrors "errors"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -32,7 +32,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1272,7 +1272,7 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 }
 
 func TestReconcile(t *testing.T) {
-	errTest := stderrors.New("test error")
+	errTest := errors.New("test error")
 	_, log := utiltesting.ContextWithLog(t)
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
@@ -2611,7 +2611,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				case tc.wantError != nil:
 					if gotError == nil {
 						t.Errorf("expected error %v, got nil", tc.wantError)
-					} else if !stderrors.Is(gotError, tc.wantError) {
+					} else if !errors.Is(gotError, tc.wantError) {
 						t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
 					}
 				case tc.wantErrorMsg != "":
@@ -2631,7 +2631,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				if tc.wantWorkload != nil {
 					gotWorkload := &kueue.Workload{}
 					if err := cl.Get(ctx, client.ObjectKeyFromObject(testWl), gotWorkload); err != nil {
-						if !errors.IsNotFound(err) {
+						if !apierrors.IsNotFound(err) {
 							t.Fatalf("Could not get Workloads after reconcile: %v", err)
 						}
 						t.Fatalf("expected workload to persist")
