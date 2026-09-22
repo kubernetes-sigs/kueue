@@ -1054,6 +1054,19 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 		act.Status != metav1.ConditionTrue || act.Message != "Connected" {
 		t.Fatalf("want Active=True message %q, got %+v", "Connected", act)
 	}
+
+	got2.Generation = 2
+	if err := cRec.updateStatus(ctx, got2, true, "Active", "Connected"); err != nil {
+		t.Fatalf("updateStatus with stale observed generation: %v", err)
+	}
+	got3 := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(got2), got3); err != nil {
+		t.Fatalf("get cluster after generation update: %v", err)
+	}
+	if act := apimeta.FindStatusCondition(got3.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
+		act.ObservedGeneration != 2 {
+		t.Fatalf("want Active observed generation 2, got %+v", act)
+	}
 }
 
 func TestRemoteClientGC(t *testing.T) {
