@@ -495,14 +495,6 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		} else {
 			seenKeys.Insert(transform.Input)
 		}
-		// Exclusions are applied before transformations, so a transformation whose
-		// input matches an excluded prefix would never apply.
-		for _, prefix := range res.ExcludeResourcePrefixes {
-			if strings.HasPrefix(string(transform.Input), prefix) {
-				allErrs = append(allErrs, field.Invalid(resourceTransformationPath.Index(idx).Child("input"), transform.Input,
-					fmt.Sprintf("matches the excludeResourcePrefixes entry %q, so the transformation would never apply", prefix)))
-			}
-		}
 		// pods is reserved for the request Kueue synthesizes from the PodSet
 		// count, so a transformation must not name it in any position. Gated
 		// because the refusal exits the manager on a file that used to load.
