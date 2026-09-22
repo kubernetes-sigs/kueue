@@ -38,9 +38,9 @@ func MakeService(name, ns string) *ServiceWrapper {
 			Annotations: make(map[string]string, 1),
 		},
 		Spec: rayv1.RayServiceSpec{
+			Suspend: true,
 			RayClusterSpec: rayv1.RayClusterSpec{
 				RayVersion: utiltesting.TestRayVersion(),
-				Suspend:    new(true),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
@@ -95,7 +95,7 @@ func (j *ServiceWrapper) Obj() *rayv1.RayService {
 
 // Suspend updates the suspend status of the RayService
 func (j *ServiceWrapper) Suspend(s bool) *ServiceWrapper {
-	j.Spec.RayClusterSpec.Suspend = new(s)
+	j.Spec.Suspend = s
 	return j
 }
 

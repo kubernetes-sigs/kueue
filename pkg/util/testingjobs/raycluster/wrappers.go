@@ -257,6 +257,12 @@ func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
 	return j
 }
 
+// State sets the RayCluster status state.
+func (j *ClusterWrapper) State(state rayv1.ClusterState) *ClusterWrapper {
+	j.Status.State = state
+	return j
+}
+
 // FirstWorkerGroupReplicas pins replicas, minReplicas and maxReplicas of the first worker group.
 func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *ClusterWrapper {
 	wgs := &j.Spec.WorkerGroupSpecs[0]

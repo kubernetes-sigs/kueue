@@ -58,6 +58,74 @@ var (
 	}
 )
 
+func TestIsActive(t *testing.T) {
+	testCases := map[string]struct {
+		suspend            bool
+		generation         int64
+		observedGeneration int64
+		state              rayv1.ClusterState
+		want               bool
+	}{
+		"new": {
+			suspend:            true,
+			generation:         1,
+			observedGeneration: 1,
+			want:               true,
+		},
+		"ready": {
+			suspend:            true,
+			generation:         1,
+			observedGeneration: 1,
+			state:              rayv1.Ready,
+			want:               true,
+		},
+		"suspended": {
+			suspend:            true,
+			generation:         1,
+			observedGeneration: 1,
+			state:              rayv1.Suspended,
+			want:               false,
+		},
+		"stale suspended state": {
+			suspend:            true,
+			generation:         2,
+			observedGeneration: 1,
+			state:              rayv1.Suspended,
+			want:               true,
+		},
+		"unsuspended spec with stale suspended state": {
+			generation:         1,
+			observedGeneration: 1,
+			state:              rayv1.Suspended,
+			want:               true,
+		},
+		"failed": {
+			suspend:            true,
+			generation:         1,
+			observedGeneration: 1,
+			state:              rayv1.Failed,
+			want:               true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			suspend := tc.suspend
+			rayCluster := (*RayCluster)(&rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{Generation: tc.generation},
+				Spec:       rayv1.RayClusterSpec{Suspend: &suspend},
+				Status: rayv1.RayClusterStatus{
+					ObservedGeneration: tc.observedGeneration,
+					State:              tc.state,
+				},
+			})
+			if got := rayCluster.IsActive(); got != tc.want {
+				t.Errorf("IsActive() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayCluster   *RayCluster
@@ -456,10 +524,12 @@ func TestReconciler(t *testing.T) {
 			},
 			job: *baseJobWrapper.Clone().
 				Suspend(false).
+				State(rayv1.Suspended).
 				NodeSelectorHeadGroup(corev1.LabelArchStable, "arm64").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(true).
+				State(rayv1.Suspended).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test", "ns").
