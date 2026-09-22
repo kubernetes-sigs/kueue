@@ -76,120 +76,146 @@ type keyUIDs struct {
 }
 
 func TestPodsReady(t *testing.T) {
-	readyCond := corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}
-	readyPod := func(name string) corev1.Pod {
-		return *testingpod.MakePod(name, "test-ns").StatusConditions(readyCond).Obj()
-	}
-	pendingPod := func(name string) corev1.Pod {
-		return *testingpod.MakePod(name, "test-ns").Obj()
-	}
+	basePodWrapper := testingpod.MakePod("test-pod", "test-ns").Queue("test-queue")
+	readyPodWrapper := basePodWrapper.Clone().
+		StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue})
 	// The kubelet flips PodReady to False once a pod completes, so a Succeeded pod
 	// carries the same conditions as a pod that is not ready.
-	succeededPod := func(name string) corev1.Pod {
-		return *testingpod.MakePod(name, "test-ns").
-			StatusPhase(corev1.PodSucceeded).
-			StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
-			Obj()
-	}
-	makePodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
-		driver := testingpod.MakePod("driver", "test-ns").
-			GroupNameLabel("test-group").
-			GroupTotalCount(totalCount)
-		return &Pod{
-			pod:     *driver.Obj(),
-			isGroup: true,
-			list:    corev1.PodList{Items: pods},
-		}
-	}
-	makeServingPodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
-		group := makePodGroup(totalCount, pods...)
-		group.pod.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
-		return group
-	}
+	succeededPodWrapper := basePodWrapper.Clone().
+		StatusPhase(corev1.PodSucceeded).
+		StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse})
+	groupDriverWrapper := basePodWrapper.Clone().Name("driver").GroupNameLabel("test-group")
 
 	testCases := map[string]struct {
-		pod                           *Pod
+		pod                           *corev1.Pod
+		groupPods                     []corev1.Pod
 		countSucceededPodsAsReadyGate bool
 		want                          bool
 	}{
 		"single pod is ready": {
-			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").StatusConditions(readyCond).Obj()),
+			pod:  readyPodWrapper.Clone().Obj(),
 			want: true,
 		},
 		"single pod is not ready": {
-			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").Obj()),
+			pod:  basePodWrapper.Clone().Obj(),
 			want: false,
 		},
 		"pod group with all pods ready": {
-			pod:  makePodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: true,
 		},
 		"pod group with fewer pods than expected": {
-			pod:  makePodGroup("3", readyPod("driver")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+			},
 			want: false,
 		},
 		"pod group with all pods present but not all ready": {
-			pod:  makePodGroup("3", readyPod("driver"), pendingPod("worker-1"), pendingPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: false,
 		},
 		"single pod succeeded": {
-			pod: FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").
-				StatusPhase(corev1.PodSucceeded).
-				StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
-				Obj()),
+			pod:                           succeededPodWrapper.Clone().Obj(),
 			countSucceededPodsAsReadyGate: true,
 			want:                          true,
 		},
 		"single pod succeeded, gate disabled": {
-			pod: FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").
-				StatusPhase(corev1.PodSucceeded).
-				StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse}).
-				Obj()),
+			pod:  succeededPodWrapper.Clone().Obj(),
 			want: false,
 		},
 		"pod group with some pods succeeded and the rest ready": {
-			pod:                           makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			countSucceededPodsAsReadyGate: true,
 			want:                          true,
 		},
 		"pod group with some pods succeeded and the rest ready, gate disabled": {
-			pod:  makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: false,
 		},
 		"pod group with all pods succeeded": {
-			pod:                           makePodGroup("3", succeededPod("driver"), succeededPod("worker-1"), succeededPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			countSucceededPodsAsReadyGate: true,
 			want:                          true,
 		},
 		"pod group with all pods succeeded, gate disabled": {
-			pod:  makePodGroup("3", succeededPod("driver"), succeededPod("worker-1"), succeededPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: false,
 		},
 		"pod group with some pods succeeded and one pending": {
-			pod:                           makePodGroup("3", succeededPod("driver"), readyPod("worker-1"), pendingPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			countSucceededPodsAsReadyGate: true,
 			want:                          false,
 		},
 		"serving pod group with some pods succeeded and the rest ready": {
-			pod:                           makeServingPodGroup("3", succeededPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			countSucceededPodsAsReadyGate: true,
 			want:                          false,
 		},
 		"serving pod group with all pods ready": {
-			pod:                           makeServingPodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			countSucceededPodsAsReadyGate: true,
 			want:                          true,
 		},
 		"pod group without total count annotation": {
-			pod: &Pod{
-				pod:     *testingpod.MakePod("driver", "test-ns").GroupNameLabel("test-group").Obj(),
-				isGroup: true,
-				list:    corev1.PodList{Items: []corev1.Pod{readyPod("driver"), readyPod("worker-1")}},
+			pod: groupDriverWrapper.Clone().Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 			},
 			want: false,
 		},
 		"pod group with malformed total count annotation": {
-			pod:  makePodGroup("invalid", readyPod("driver"), readyPod("worker-1")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("invalid").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+			},
 			want: false,
 		},
 	}
@@ -198,7 +224,12 @@ func TestPodsReady(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.PodIntegrationCountSucceededPodsAsReady, tc.countSucceededPodsAsReadyGate)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.pod.PodsReady(ctx, nil)
+			pod := FromObject(tc.pod)
+			if len(tc.groupPods) != 0 {
+				pod.isGroup = true
+				pod.list = corev1.PodList{Items: tc.groupPods}
+			}
+			got := pod.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
