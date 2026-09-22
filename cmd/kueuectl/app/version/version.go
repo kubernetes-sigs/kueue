@@ -41,12 +41,16 @@ var (
 	versionExample = templates.Examples(`
 		# Prints the client version and the kueue controller manager image, if installed
   		kueuectl version
+
+		# Look up the controller manager in a custom install namespace
+		kueuectl version -n kueue
 	`)
 )
 
 // VersionOptions is a struct to support version command
 type VersionOptions struct {
 	K8sClientset k8s.Interface
+	Namespace    string
 
 	genericiooptions.IOStreams
 }
@@ -70,7 +74,7 @@ func NewVersionCmd(clientGetter clientgetter.ClientGetter, streams genericioopti
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
-			err := o.Complete(clientGetter)
+			err := o.Complete(clientGetter, cmd)
 			if err != nil {
 				return err
 			}
@@ -81,7 +85,7 @@ func NewVersionCmd(clientGetter clientgetter.ClientGetter, streams genericioopti
 	return cmd
 }
 
-func (o *VersionOptions) Complete(clientGetter clientgetter.ClientGetter) error {
+func (o *VersionOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command) error {
 	var err error
 
 	o.K8sClientset, err = clientGetter.K8sClientSet()
@@ -89,14 +93,34 @@ func (o *VersionOptions) Complete(clientGetter clientgetter.ClientGetter) error 
 		return err
 	}
 
+	o.Namespace = kueueNamespace
+	if ns := explicitNamespace(cmd); ns != "" {
+		o.Namespace = ns
+	}
+
 	return nil
+}
+
+// explicitNamespace returns the namespace from -n/--namespace when that flag was
+// explicitly set on the command line. The version command defaults to
+// kueue-system rather than the kubeconfig current namespace, so an unset flag
+// must not override that default.
+func explicitNamespace(cmd *cobra.Command) string {
+	f := cmd.Flags().Lookup("namespace")
+	if f == nil {
+		f = cmd.InheritedFlags().Lookup("namespace")
+	}
+	if f == nil || !f.Changed {
+		return ""
+	}
+	return f.Value.String()
 }
 
 // Run executes version command
 func (o *VersionOptions) Run(ctx context.Context) error {
 	fmt.Fprintf(o.Out, "Client Version: %s\n", version.GitVersion)
 
-	deployment, err := o.K8sClientset.AppsV1().Deployments(kueueNamespace).Get(ctx, kueueControllerManagerName, metav1.GetOptions{})
+	deployment, err := o.K8sClientset.AppsV1().Deployments(o.Namespace).Get(ctx, kueueControllerManagerName, metav1.GetOptions{})
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
