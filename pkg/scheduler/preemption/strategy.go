@@ -45,7 +45,7 @@ type PreemptionStrategy struct {
 	// allowBorrowing determines wheteher borrowing is enabled in the scope of this strategy.
 	allowBorrowing bool
 	// pCtx represents the active preemption context.
-	// The context is shared accross all iterations of this strategy's candidates.
+	// The context is shared across all iterations of this strategy's candidates.
 	// Eeach time a candidate is yielded, it is preempted from the active context.
 	// The context is reset once the loop over candidates ends (finishes or is interrupted).
 	pCtx *preemptionCtx
