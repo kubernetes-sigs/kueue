@@ -101,8 +101,11 @@ Actions.
   `hack/make/deps.mk`, so the operator deployed in the test cluster and
   the client library compiled into Kueue cannot drift apart. The one
   exception is the Prometheus Operator, which Kueue does not import as
-  a Go module: its version is pinned independently by
-  `PROMETHEUS_OPERATOR_VERSION` in `hack/make/test.mk`.
+  a Go module: its version is pinned in
+  [`hack/testing/prometheus-operator/Dockerfile`](hack/testing/prometheus-operator/Dockerfile)
+  (the same digest-pinned pattern as other test helper images) and
+  extracted from there into `PROMETHEUS_OPERATOR_VERSION` by
+  `hack/make/test.mk`.
 - **Test helper images.** Auxiliary images used only by tests (for
   example, `agnhost`, Ray, Redis, Spark, Cypress, and shellcheck) are
   built from the Dockerfiles under
