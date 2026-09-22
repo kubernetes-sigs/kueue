@@ -28,10 +28,12 @@ import (
 // PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
 type PreemptionConfigPriorityConstraintApplyConfiguration struct {
 	// mode specifies whether priority comparison uses base or boosted (effective) priority.
+	//
 	Mode *kueuev1alpha1.PreemptionConfigPriorityMode `json:"mode,omitempty"`
 	// comparison defines how the candidate's priority compares to the preemptor's priority.
 	// For example, "LessThan" means that only workloads with lower
 	// priority will be allowed as preemption candidates.
+	//
 	Comparison *kueuev1alpha1.NumericComparison `json:"comparison,omitempty"`
 }
 

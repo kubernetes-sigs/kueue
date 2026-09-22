@@ -43,22 +43,27 @@ import (
 type PreemptionConfigNumericLabelConstraintApplyConfiguration struct {
 	// key is the label key that stores the integer value in the workload that will
 	// be used for candidate selection.
+	//
 	Key *string `json:"key,omitempty"`
 	// fallbackValue is used when a workload does not have the label key
 	// or the value under the key cannot be parsed as an integer.
 	// If not specified, workloads without the label or
 	// with a label value not parsable as int are treated as incomparable,
 	// and therefore excluded from preemption candidates.
+	//
 	FallbackValue *int32 `json:"fallbackValue,omitempty"`
 	// comparison defines how the candidate's label value compares to the preemptor's.
+	//
 	Comparison *kueuev1alpha1.NumericComparison `json:"comparison,omitempty"`
 	// minValue specifies the lowest label value a candidate workload can have to be
 	// considered for preemption.
 	// If not specified, no lower bound is enforced.
+	//
 	MinValue *int32 `json:"minValue,omitempty"`
 	// maxValue specifies the highest label value a candidate workload can have to be
 	// considered for preemption.
 	// If not specified, no upper bound is enforced.
+	//
 	MaxValue *int32 `json:"maxValue,omitempty"`
 }
 

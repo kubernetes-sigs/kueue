@@ -43,6 +43,7 @@ type PreemptionConfigActivationPolicyApplyConfiguration struct {
 	// - candidates selected by the preemptor's ClusterQueue.spec.preemption policy;
 	// - candidates selected by applicable rules in the referenced PreemptionConfig
 	// whose activationPolicy.trigger is Always.
+	//
 	Trigger *kueuev1alpha1.PreemptionConfigActivationTrigger `json:"trigger,omitempty"`
 }
 

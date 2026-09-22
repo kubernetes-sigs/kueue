@@ -29,16 +29,20 @@ import (
 // and the candidate workloads eligible for preemption.
 type PreemptionConfigPreemptionRuleApplyConfiguration struct {
 	// name is the identifier of the preemption rule.
+	//
 	Name *string `json:"name,omitempty"`
 	// preemptorSelector is a label selector indicating which workloads can trigger preemptions
 	// using this rule. Accepts all workloads if not set.
+	//
 	PreemptorSelector *v1.LabelSelectorApplyConfiguration `json:"preemptorSelector,omitempty"`
 	// activationPolicy determines when this rule contributes matching
 	// candidates to preemption evaluation.
+	//
 	ActivationPolicy *PreemptionConfigActivationPolicyApplyConfiguration `json:"activationPolicy,omitempty"`
 	// candidateSelectors specifies the selection rules for workloads that are candidates for preemption.
 	// Candidates resulting from multiple selectors are summed into one set.
 	// No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.
+	//
 	CandidateSelectors []PreemptionConfigPreemptionCandidateSelectorApplyConfiguration `json:"candidateSelectors,omitempty"`
 }
 

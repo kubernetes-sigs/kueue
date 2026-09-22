@@ -29,20 +29,25 @@ import (
 // PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
 type PreemptionConfigPreemptionCandidateSelectorApplyConfiguration struct {
 	// scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
+	//
 	Scope *kueuev1alpha1.PreemptionConfigPreemptionQueueScope `json:"scope,omitempty"`
 	// clusterQueueSelector defines label selector constraints on candidate ClusterQueues.
 	// Accepts all if not set.
+	//
 	ClusterQueueSelector *v1.LabelSelectorApplyConfiguration `json:"clusterQueueSelector,omitempty"`
 	// labelSelector defines label selector constraints on candidate Workloads.
 	// Accepts all if not set.
+	//
 	LabelSelector *v1.LabelSelectorApplyConfiguration `json:"labelSelector,omitempty"`
 	// numericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
 	// Multiple numeric labels are joined using AND-rule (all have to be satisfied).
 	// Accepts all if not set.
+	//
 	NumericLabels []PreemptionConfigNumericLabelConstraintApplyConfiguration `json:"numericLabels,omitempty"`
 	// priority defines the requirements for the priority of candidates.
 	// Workloads not matching those requirements will not be considered as preemption candidates.
 	// If nil, no priority requirements are enforced.
+	//
 	Priority *PreemptionConfigPriorityConstraintApplyConfiguration `json:"priority,omitempty"`
 }
 
