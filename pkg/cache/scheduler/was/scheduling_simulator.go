@@ -180,9 +180,6 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assum
 	replacedWLs := sets.New[client.ObjectKey]()
 	var virtualPods []*corev1.Pod
 	for _, wl := range assumedWorkloads {
-		if wl == nil || wl.Status.Admission == nil {
-			continue
-		}
 
 		vPods := PodsForWorkload(wl)
 		if len(vPods) == 0 {
