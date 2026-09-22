@@ -177,37 +177,27 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulato
 func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assumedWorkloads []*kueue.Workload) (simulator.SimulatorSnapshot, error) {
 	allPods, podsByWorkload := s.pods.snapshot()
 
-	replacedWLs := sets.New[client.ObjectKey]()
-	var virtualPods []*corev1.Pod
 	for _, wl := range assumedWorkloads {
-
 		vPods := PodsForWorkload(wl)
 		if len(vPods) == 0 {
 			continue
 		}
 
 		wlKey := client.ObjectKeyFromObject(wl)
-		replacedWLs.Insert(wlKey)
+		for podKey := range podsByWorkload[wlKey] {
+			delete(allPods, podKey)
+		}
 		delete(podsByWorkload, wlKey)
 
 		for _, vPod := range vPods {
-			virtualPods = append(virtualPods, vPod)
-			podsByWorkload.recordPod(wlKey, client.ObjectKeyFromObject(vPod), vPod)
+			podKey := client.ObjectKeyFromObject(vPod)
+			allPods[podKey] = vPod
+			podsByWorkload.recordPod(wlKey, podKey, vPod)
 		}
 	}
 
-	if len(replacedWLs) > 0 {
-		filteredPods := make([]*corev1.Pod, 0, len(allPods)+len(virtualPods))
-		for _, pod := range allPods {
-			wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: pod.Annotations[kueue.WorkloadAnnotation]}
-			if !replacedWLs.Has(wlKey) {
-				filteredPods = append(filteredPods, pod)
-			}
-		}
-		allPods = append(filteredPods, virtualPods...)
-	}
-
-	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
+	allPodsSlice := allPods.toSlice()
+	clusterSnap, err := s.newSnapshot(ctx, allPodsSlice, nodes)
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +206,9 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, assum
 		podsByWorkload: podsByWorkload,
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
-		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, podsByWorkload), nodes)
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPodsSlice, podsByWorkload), nodes)
 	}
+
 	return snapshot, nil
 }
 
