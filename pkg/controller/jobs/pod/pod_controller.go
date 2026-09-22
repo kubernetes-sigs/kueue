@@ -860,26 +860,23 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 	var (
 		foundRoleHash string
 		podSets       []kueue.PodSet
-		found         bool
 	)
-	for i := range pods {
-		podInGroup := &pods[i]
-		if !isPodRunnableOrSucceeded(podInGroup) {
+	for _, podInGroup := range pods {
+		if !isPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
-		hash, err := getRoleHash(*podInGroup)
+		hash, err := getRoleHash(podInGroup)
 		if err != nil {
-			return nil, errRoleHashCalculation(podInGroup.Name, err)
+			return nil, errRoleHashCalculationForPod(podInGroup.Name, err)
 		}
-		if !found {
-			podSets, err = constructPodSets(podInGroup)
+		if foundRoleHash == "" {
+			podSets, err = constructPodSets(&podInGroup)
 			if err != nil {
 				return nil, err
 			}
 			foundRoleHash = hash
 			podSets[0].Name = kueue.NewPodSetReference(foundRoleHash)
 			podSets[0].Count = int32(groupTotalCount)
-			found = true
 			continue
 		}
 		if hash != foundRoleHash {
@@ -887,23 +884,24 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 		}
 		mergeMaxPodSpecsInto(&podSets[0].Template.Spec, &podInGroup.Spec)
 	}
-	if !found {
+	if foundRoleHash == "" {
 		return nil, errors.New("failed to find a runnable pod in the group")
 	}
 	return podSets, nil
 }
 
 // mergeMaxPodSpecsInto merges resource requests, taking the element-wise maximum.
-// Regular containers are merged by index. InitContainers (including sidecars
-// with restartPolicy: Always) are merged by index, and extra init containers on
-// other are appended. Pod-level Resources (KEP-2837) are merged the same way.
-// This matches resourcehelpers.PodRequests, which accounts for all three.
+// Containers and InitContainers (including sidecars with restartPolicy: Always)
+// are merged by index, and extras on other are appended. Pod-level Resources
+// (KEP-2837) are merged the same way. This matches resourcehelpers.PodRequests,
+// which accounts for all three.
 func mergeMaxPodSpecsInto(template, other *corev1.PodSpec) {
 	if template == nil || other == nil {
 		return
 	}
-	for i := range template.Containers {
-		if i >= len(other.Containers) {
+	for i := range other.Containers {
+		if i >= len(template.Containers) {
+			template.Containers = append(template.Containers, *other.Containers[i].DeepCopy())
 			continue
 		}
 		merged := mergeMaxRequests(
@@ -1007,7 +1005,7 @@ func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder 
 		}
 		role, err := getRoleHash(*pod)
 		if err != nil {
-			return errRoleHashCalculation(pod.Name, err)
+			return errRoleHashCalculationForPod(pod.Name, err)
 		}
 		ps, found := podSets[kueue.NewPodSetReference(role)]
 		if !found {
@@ -1034,11 +1032,11 @@ func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {
 		podName, gotRole, expectedRole))
 }
 
-func errRoleHashCalculation(podName string, err error) error {
+func errRoleHashCalculationForPod(podName string, err error) error {
 	return fmt.Errorf("failed to calculate pod role hash for pod %q: %w", podName, err)
 }
 
-func errRoleHashCalculations(errs []error) error {
+func errRoleHashCalculation(errs []error) error {
 	return fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(errs...))
 }
 
@@ -1048,7 +1046,7 @@ func validateFastAdmissionSingleRole(activePods []corev1.Pod, expectedRole strin
 		pod := &activePods[i]
 		hash, err := getRoleHash(*pod)
 		if err != nil {
-			return errRoleHashCalculation(pod.Name, err)
+			return errRoleHashCalculationForPod(pod.Name, err)
 		}
 		if hash != expectedRole {
 			return errFastAdmissionRoleMismatch(pod.Name, hash, expectedRole)
@@ -1071,7 +1069,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 
 		roleHash, err := getRoleHash(podInGroup)
 		if err != nil {
-			return nil, errRoleHashCalculation(podInGroup.Name, err)
+			return nil, errRoleHashCalculationForPod(podInGroup.Name, err)
 		}
 
 		info, ok := roles[roleHash]
@@ -1645,7 +1643,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
-			return nil, nil, errRoleHashCalculations(roleHashErrors)
+			return nil, nil, errRoleHashCalculation(roleHashErrors)
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
