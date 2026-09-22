@@ -67,25 +67,41 @@ spec:
 Kueue 控制 RayService 的 `spec.rayClusterConfig.suspend` 字段。当 RayService 被 Kueue 接纳时，Kueue 会通过将 `spec.rayClusterConfig.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
 
 ### d. 限制事项 {#c-limitations}
-- 内建自动扩缩约束：自动扩缩仅支持[弹性](/zh-cn/docs/concepts/elastic_workload) RayService 对象。要启用内建自动扩缩：
+- 有限的 Worker Group：由于 Kueue 工作负载最多可以有 18 个 PodSet，所以 `spec.rayClusterConfig.workerGroupSpecs` 的最大数量为 17。
 
-  1. 启用 `ElasticJobsViaWorkloadSlices` 特性门控。
-  2. 为 RayService 对象添加注解：
+## 动态扩容（也称为 InTreeAutoscaling）{#autoscaling-aka-intreeautoscaling}
 
-     ```yaml
-     metadata:
-       annotations:
-         kueue.x-k8s.io/elastic-job: "true"
-     ```
-  3. 设置以下字段启用 RayService 的 Ray 自动扩缩器：
+[Ray 自动扩缩](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html)可以根据资源使用需求自动添加或移除 Ray worker pod 实例。
 
-     ```yaml
-     spec:
-       rayClusterConfig:
-         enableInTreeAutoscaling: true
-     ```
+自动扩缩仅支持[弹性](/zh-cn/docs/concepts/elastic_workload) RayService 对象。
 
-- 滚动升级限制：Kueue 的工作负载切片特性目前仅管理单个活跃集群的配额。启用工作负载切片时，暂不支持创建二级临时集群的升级策略（`spec.upgradeStrategy.type: NewCluster` 或 `NewClusterWithIncrementalUpgrade`），因为待处理集群的 Pod 会保持被门控状态。要在使用工作负载切片的同时进行自动扩缩，请使用 `spec.upgradeStrategy.type: None` 或进行就地更新。
+### 如何在 RayService 中启用动态扩容 {#how-to-enable-autoscaling-in-rayservice}
+
+1. 启用 [弹性工作负载（Workload Slices）](/zh-cn/docs/concepts/elastic_workload) 特性门控：
+
+   ```yaml
+   ElasticJobsViaWorkloadSlices: true
+   ```
+
+2. 为 RayService 对象添加注解：
+
+   ```yaml
+   metadata:
+     annotations:
+       kueue.x-k8s.io/elastic-job: "true"
+   ```
+
+3. 设置以下字段启用 RayService 的 Ray 自动扩缩器：
+
+   ```yaml
+   spec:
+     rayClusterConfig:
+       enableInTreeAutoscaling: true
+   ```
+
+### 滚动升级限制 {#rolling-upgrade-limitation}
+
+Kueue 的工作负载切片特性目前仅管理单个活跃集群的配额。启用工作负载切片时，暂不支持创建二级临时集群的升级策略（`spec.upgradeStrategy.type: NewCluster` 或 `NewClusterWithIncrementalUpgrade`），因为待处理集群的 Pod 会保持被门控状态。要在使用工作负载切片的同时进行自动扩缩，请使用 `spec.upgradeStrategy.type: None` 或进行就地更新。
 
 ## RayService 示例{#example-rayservice}
 
