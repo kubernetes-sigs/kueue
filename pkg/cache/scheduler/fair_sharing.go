@@ -184,7 +184,20 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 
 // calculateLendable aggregates capacity for resources across all
 // FlavorResources.
+//
+// The fair-sharing tournament calls this once per preemption candidate. The
+// result depends only on quota and the Cohort tree, never on usage, which is the
+// only thing the tournament mutates, so snapshot Cohorts serve it from a value
+// precomputed in Cache.Snapshot. Cache Cohorts compute it every time, because
+// their quota changes as objects are reconciled.
 func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
+	if snapshotCohort, ok := node.(*CohortSnapshot); ok && snapshotCohort.lendable != nil {
+		return snapshotCohort.lendable
+	}
+	return computeLendable(node)
+}
+
+func computeLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
 	for root.HasParent() {

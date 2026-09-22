@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	corev1 "k8s.io/api/core/v1"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -29,6 +31,13 @@ type CohortSnapshot struct {
 	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
 
 	FairWeight float64
+
+	// lendable holds calculateLendable for this Cohort, precomputed in
+	// Cache.Snapshot once the tree is complete. Quota is fixed for a snapshot's
+	// lifetime, because every quota update replaces ResourceNode.SubtreeQuota
+	// with a new map rather than mutating it. Served directly, so callers must
+	// not mutate it.
+	lendable map[corev1.ResourceName]resources.Amount
 }
 
 func (c *CohortSnapshot) GetName() kueue.CohortReference {

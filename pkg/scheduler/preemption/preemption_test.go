@@ -58,6 +58,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors"),
 	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
 	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
+	cmp.AllowUnexported(schdcache.CohortSnapshot{}),
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
 	cmp.AllowUnexported(schdcache.ClusterQueueSnapshot{}),
 	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "ClusterQueue"),

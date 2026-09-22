@@ -247,6 +247,12 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
 	}
+	// Lendable capacity depends only on quota and the tree, both fixed for this
+	// snapshot, so compute it once here rather than once per preemption candidate
+	// during fair sharing. Requires the edges set above.
+	for _, cohort := range snap.Cohorts() {
+		cohort.lendable = computeLendable(cohort)
+	}
 	log := ctrl.LoggerFrom(ctx)
 	cqNames := c.hm.ClusterQueues()
 	for _, cq := range cqNames {
