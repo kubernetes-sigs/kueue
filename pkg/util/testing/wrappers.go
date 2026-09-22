@@ -782,11 +782,7 @@ type ClusterRoleBindingWrapper struct{ rbacv1.ClusterRoleBinding }
 
 func MakeClusterRoleBinding(name string) *ClusterRoleBindingWrapper {
 	return &ClusterRoleBindingWrapper{
-		rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		Name: name,
 	}
 }
 

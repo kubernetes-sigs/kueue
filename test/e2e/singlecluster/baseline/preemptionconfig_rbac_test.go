@@ -151,7 +151,7 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 // validation, so the rule's content does not matter here;
 func makePreemptionConfig(name string) *kueuealpha.PreemptionConfig {
 	return &kueuealpha.PreemptionConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Name: name,
 		Spec: kueuealpha.PreemptionConfigSpec{
 			Rules: []kueuealpha.PreemptionConfigPreemptionRule{{
 				Name: "rule",
@@ -225,7 +225,7 @@ func expectPreemptionConfigAccessForbidden(c kueueclientset.Interface, name stri
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 
-	expectPreemptionConfigAccessForbiddenForWrites(c, &kueuealpha.PreemptionConfig{ObjectMeta: metav1.ObjectMeta{Name: name}})
+	expectPreemptionConfigAccessForbiddenForWrites(c, &kueuealpha.PreemptionConfig{Name: name})
 }
 
 // expectPreemptionConfigAccessForbiddenForWrites asserts that c is denied every write verb on
