@@ -61,15 +61,11 @@ import (
 
 func TestDefault(t *testing.T) {
 	defaultNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Label(corev1.LabelMetadataName, "test-ns").Obj()
-	defaultNamespaceSelector := &metav1.LabelSelector{
-		MatchExpressions: []metav1.LabelSelectorRequirement{
-			{
-				Key:      corev1.LabelMetadataName,
-				Operator: metav1.LabelSelectorOpNotIn,
-				Values:   []string{"kube-system"},
-			},
-		},
-	}
+	defaultNamespaceSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
+		Key:      corev1.LabelMetadataName,
+		Operator: metav1.LabelSelectorOpNotIn,
+		Values:   []string{"kube-system"},
+	}).Obj()
 	defaultPodSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
