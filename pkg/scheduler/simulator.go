@@ -28,6 +28,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+func simulateSchedule(
+	ctx context.Context,
+	simulator schedulingSimulator,
+	cq *schdcache.ClusterQueueSnapshot,
+	initialAssignment flavorassigner.Assignment,
+) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
+	assignment, targets, fits = simulator.Schedule(ctx, initialAssignment)
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		assignment.ResolveNoFitReason(cq)
+	}
+	return
+}
+
 type schedulingSimulator interface {
 	Schedule(
 		ctx context.Context,
@@ -48,17 +61,10 @@ type kueueInternalSimulator struct {
 func (s *kueueInternalSimulator) Schedule(
 	ctx context.Context,
 	initialAssignment flavorassigner.Assignment,
-) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
+) (flavorassigner.Assignment, []*preemption.Target, bool) {
 	log := log.FromContext(ctx)
 	cq := s.snapshot.ClusterQueue(s.wl.ClusterQueue)
-	assignment = initialAssignment
-
-	defer func() {
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			assignment.ResolveNoFitReason(cq)
-		}
-		updateAssignmentForTAS(ctx, s.snapshot, cq, s.wl, &assignment, targets)
-	}()
+	assignment := initialAssignment
 
 	if assignment.RepresentativeMode() != flavorassigner.NoFit {
 		s.flavorAssigner.AssignTopology(ctx, log, &assignment)
@@ -66,6 +72,7 @@ func (s *kueueInternalSimulator) Schedule(
 
 	arm := assignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
+		updateAssignmentForTAS(ctx, s.snapshot, cq, s.wl, &assignment)
 		return assignment, nil, true
 	}
 
@@ -73,10 +80,11 @@ func (s *kueueInternalSimulator) Schedule(
 		strategies := s.preemptionStrategiesFactory(ctx, &assignment)
 		faPreemptionTargets := s.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
+			updateAssignmentForTAS(ctx, s.snapshot, cq, s.wl, &assignment, faPreemptionTargets...)
 			return assignment, faPreemptionTargets, true
 		}
 	}
-	return
+	return assignment, nil, false
 }
 
 var _ schedulingSimulator = &kueueInternalSimulator{}
@@ -92,14 +100,7 @@ func (s *schedulerLibrarySimulator) Schedule(
 	ctx context.Context,
 	initialAssignment flavorassigner.Assignment,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
-	cq := s.snapshot.ClusterQueue(s.wl.ClusterQueue)
 	assignment = initialAssignment
-
-	defer func() {
-		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			assignment.ResolveNoFitReason(cq)
-		}
-	}()
 
 	if assignment.RepresentativeMode() == flavorassigner.NoFit {
 		return

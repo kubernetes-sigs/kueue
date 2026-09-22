@@ -950,7 +950,7 @@ func updateAssignmentForTAS(
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
 	assignment *flavorassigner.Assignment,
-	targets []*preemption.Target,
+	targets ...*preemption.Target,
 ) {
 	log := log.FromContext(ctx)
 
@@ -1507,9 +1507,11 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		}
 	}
 
-	assignment, targets, fits := schedulingSimulator.Schedule(
+	assignment, targets, fits := simulateSchedule(
 		ctx,
-		flvAssigner.AssignFlavors(ctx, log, nil),
+		schedulingSimulator,
+		cq,
+		flvAssigner.AssignFlavors(ctx, log),
 	)
 
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
@@ -1517,8 +1519,11 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		// the counts Reduce returns.
 		var bestPA *partialAssignment
 		fitsFn := func(nextCounts []int32) bool {
-			if assignment, targets, fits := schedulingSimulator.Schedule(
-				ctx, flvAssigner.AssignFlavors(ctx, log, nextCounts),
+			if assignment, targets, fits := simulateSchedule(
+				ctx,
+				schedulingSimulator,
+				cq,
+				flvAssigner.AssignFlavors(ctx, log, nextCounts...),
 			); fits {
 				bestPA = &partialAssignment{assignment: assignment, preemptionTargets: targets}
 				return true
