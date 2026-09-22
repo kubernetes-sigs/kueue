@@ -73,7 +73,9 @@ func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 	if err := ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, w.Client, job.Object(), w.Queues.DefaultLocalQueueExist, w.ManagedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object())
+	if err := ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, w.Client, job.Object(), w.ManagedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	if err := ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector); err != nil {
 		return err
 	}
