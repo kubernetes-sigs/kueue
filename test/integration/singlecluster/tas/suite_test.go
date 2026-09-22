@@ -110,6 +110,7 @@ func managerSetupWithClientTransform(
 			// suites that do not configure it.
 			schdcache.WithFairSharing(fairsharing.Enabled(controllersCfg.FairSharing)),
 		}
+		cacheOptions = append(cacheOptions, integration.SimulatorFactoryCacheOptions(ctx, mgr.GetConfig())...)
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
