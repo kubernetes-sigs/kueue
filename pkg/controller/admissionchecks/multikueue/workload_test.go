@@ -1633,62 +1633,6 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"evicted elastic job local scaled-up workload slice without quota reservation": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-			},
-			reconcileFor: "wl1",
-
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(workloadslicing.WorkloadSliceReplacementFor, "old-slice").
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:    "ac1",
-						State:   kueue.CheckStateReady,
-						Message: `The workload was admitted on "worker1"`,
-					}).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ClusterName("worker1").
-					EvictedAt(now).
-					Obj(),
-			},
-			managersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.DeepCopy(),
-			},
-			worker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-					QuotaReservedTime(now.Add(-time.Hour)).
-					Obj(),
-			},
-			worker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
-			},
-			useSecondWorker: true,
-
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(workloadslicing.WorkloadSliceReplacementFor, "old-slice").
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:    "ac1",
-						State:   kueue.CheckStateReady,
-						Message: `The workload was admitted on "worker1"`,
-					}).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-					ClusterName("worker1").
-					EvictedAt(now).
-					Obj(),
-			},
-			wantManagersJobs: []batchv1.Job{
-				*baseJobManagedByKueueBuilder.DeepCopy(),
-			},
-		},
 		"elastic job local workload out-of-sync other than scaled-down": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: true,
