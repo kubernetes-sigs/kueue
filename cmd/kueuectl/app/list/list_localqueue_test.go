@@ -288,6 +288,31 @@ lq1    cq1            1                   1                    true     60m
 lq2    cq2            2                   2                    false    120m
 `,
 		},
+		"should skip empty filtered pages before the first matching page": {
+			args: []string{"--active", "true"},
+			listPages: []runtime.Object{
+				&kueue.LocalQueueList{
+					ListMeta: metav1.ListMeta{Continue: "page2"},
+					Items: []kueue.LocalQueue{
+						*utiltestingapi.MakeLocalQueue("inactive", metav1.NamespaceDefault).
+							Active(metav1.ConditionFalse).
+							Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+				&kueue.LocalQueueList{
+					Items: []kueue.LocalQueue{
+						*utiltestingapi.MakeLocalQueue("active", metav1.NamespaceDefault).
+							Active(metav1.ConditionTrue).
+							Creation(testStartTime.Add(-time.Hour).Truncate(time.Second)).
+							Obj(),
+					},
+				},
+			},
+			wantOut: `NAME     CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+active                  0                   0                    true     60m
+`,
+		},
 		"should return error when multiple active flags are provided": {
 			args:    []string{"--active", "true", "--active", "false"},
 			wantErr: errMultipleActiveFlags,

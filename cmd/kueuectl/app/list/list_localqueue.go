@@ -191,6 +191,11 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 
 		totalCount += len(list.Items)
 
+		if !o.PrintFlags.OutputFlagSpecified() && len(list.Items) == 0 && list.Continue != "" {
+			opts.Continue = list.Continue
+			continue
+		}
+
 		printer, err := o.ToPrinter(headers)
 		if err != nil {
 			return err
