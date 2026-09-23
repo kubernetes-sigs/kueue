@@ -206,6 +206,22 @@
   description: |
     The annotation key indicates a label name used to retrieve the Pod's index within the group.
 
+- key: kueue.x-k8s.io/pod-group-pods-ready-min-count
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-group-pods-ready-min-count: "2"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/),
+    [StatefulSet](/docs/tasks/run/statefulset/),
+    [LeaderWorkerSet](/docs/tasks/run/leaderworkerset/).
+  description: |
+    The annotation key indicates the minimum number of ready Pods in the
+    group required for the Workload to satisfy the `PodsReady` condition when
+    `WaitForPodsReady` is enabled. Set it on the Pods of the group, or on the
+    `StatefulSet` / `LeaderWorkerSet`, which propagates it to their Pods.
+    All Pods of a group are expected to carry the same value.
+  note: |
+    This annotation is honored only when the `WaitForPodsReadyMinPods` feature gate is enabled.
+
 - key: kueue.x-k8s.io/pod-group-serving
   type: Annotation
   example: '`kueue.x-k8s.io/pod-group-serving: "true"`'

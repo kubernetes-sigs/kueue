@@ -529,7 +529,8 @@ func (p *Pod) isPodReadyOrSucceeded(pod *corev1.Pod) bool {
 	return hasPodReadyTrue(pod.Status.Conditions)
 }
 
-// PodsReady instructs whether job derived pods are all ready now.
+// PodsReady reports whether the pod or pod group has reached the required number
+// of ready (or succeeded) pods.
 func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
 		return p.isPodReadyOrSucceeded(&p.pod)
@@ -540,16 +541,29 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
 		return false
 	}
-	if len(p.list.Items) < tc {
-		return false
+	requiredCount := tc
+	if features.Enabled(features.WaitForPodsReadyMinPods) {
+		requiredCount = p.groupPodsReadyMinCount(tc)
 	}
 
+	var readyCount int
 	for i := range p.list.Items {
-		if !p.isPodReadyOrSucceeded(&p.list.Items[i]) {
-			return false
+		if p.isPodReadyOrSucceeded(&p.list.Items[i]) {
+			readyCount++
 		}
 	}
-	return true
+	if readyCount >= requiredCount {
+		if readyCount < tc {
+			ctrl.LoggerFrom(ctx).V(4).Info("Pod group reached minimum ready pods threshold",
+				"podGroup", utilpod.GetPodGroupName(&p.pod),
+				"readyPods", readyCount,
+				"minReadyPods", requiredCount,
+				"totalPods", tc,
+			)
+		}
+		return true
+	}
+	return false
 }
 
 // GVK returns GVK (Group Version Kind) for the job.
@@ -694,6 +708,29 @@ func SetPodGroupName(p *corev1.Pod, groupName string) {
 	}
 }
 
+// SyncGroupPodsReadyMinCountAnnotation propagates or removes the
+// GroupPodsReadyMinCountAnnotation from the parent object onto the pod,
+// returning true if the pod's annotations were modified.
+func SyncGroupPodsReadyMinCountAnnotation(parent client.Object, pod *corev1.Pod) bool {
+	parentMinCount, parentHasMinCount := parent.GetAnnotations()[podconstants.GroupPodsReadyMinCountAnnotation]
+	podMinCount, podHasMinCount := pod.GetAnnotations()[podconstants.GroupPodsReadyMinCountAnnotation]
+	if parentHasMinCount {
+		if podHasMinCount && podMinCount == parentMinCount {
+			return false
+		}
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string, 1)
+		}
+		pod.Annotations[podconstants.GroupPodsReadyMinCountAnnotation] = parentMinCount
+		return true
+	}
+	if podHasMinCount {
+		delete(pod.Annotations, podconstants.GroupPodsReadyMinCountAnnotation)
+		return true
+	}
+	return false
+}
+
 // groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
 // It doesn't check if the whole group has the same total group count annotation value.
 func (p *Pod) groupTotalCount() (int, error) {
@@ -721,6 +758,35 @@ func (p *Pod) groupTotalCount() (int, error) {
 	}
 
 	return gtc, nil
+}
+
+// groupPodsReadyMinCount returns the strictest GroupPodsReadyMinCountAnnotation
+// threshold across the group, falling back to totalCount for any pod whose
+// annotation is missing, malformed, or outside [1, totalCount]. Reading the
+// whole group - rather than only the reconciled pod - keeps the result independent
+// of which pod triggered the reconcile while the annotation is being propagated,
+// and a missing or malformed annotation never marks an incomplete group as PodsReady.
+func (p *Pod) groupPodsReadyMinCount(totalCount int) int {
+	if len(p.list.Items) == 0 {
+		return totalCount
+	}
+	threshold := 1
+	for i := range p.list.Items {
+		threshold = max(threshold, podPodsReadyMinCount(&p.list.Items[i], totalCount))
+	}
+	return threshold
+}
+
+// podPodsReadyMinCount returns the GroupPodsReadyMinCountAnnotation threshold of a
+// single pod, or totalCount when the annotation is missing, malformed, or
+// outside [1, totalCount].
+func podPodsReadyMinCount(pod *corev1.Pod, totalCount int) int {
+	if v, ok := pod.GetAnnotations()[podconstants.GroupPodsReadyMinCountAnnotation]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= totalCount {
+			return n
+		}
+	}
+	return totalCount
 }
 
 // getRoleHash will filter all the fields of the pod that are relevant to admission (pod role) and return a sha256

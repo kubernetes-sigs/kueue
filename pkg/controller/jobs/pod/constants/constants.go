@@ -27,6 +27,7 @@ const (
 	GroupNameLabel                    = "kueue.x-k8s.io/pod-group-name"
 	GroupNameAnnotation               = "kueue.x-k8s.io/pod-group-name"
 	GroupTotalCountAnnotation         = "kueue.x-k8s.io/pod-group-total-count"
+	GroupPodsReadyMinCountAnnotation  = "kueue.x-k8s.io/pod-group-pods-ready-min-count"
 	GroupFastAdmissionAnnotationKey   = "kueue.x-k8s.io/pod-group-fast-admission"
 	GroupFastAdmissionAnnotationValue = "true"
 	GroupServingAnnotationKey         = "kueue.x-k8s.io/pod-group-serving"

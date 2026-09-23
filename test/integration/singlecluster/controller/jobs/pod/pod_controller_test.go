@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -3226,6 +3227,110 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("should mark workload PodsReady when min pods count is reached and only evict on recoveryTimeout when ready pods drop below min count", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinPods, true)
+		podGroupName := "pod-group-min-count"
+		pods := make([]*corev1.Pod, 3)
+		for i := range pods {
+			pods[i] = testingpod.MakePod(fmt.Sprintf("pod-%d", i), ns.Name).
+				GroupNameLabel(podGroupName).
+				GroupTotalCount("3").
+				GroupPodsReadyMinCount("2").
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+		}
+		ginkgo.By("creating the pod group", func() {
+			for _, pod := range pods {
+				util.MustCreate(ctx, k8sClient, pod)
+			}
+		})
+
+		wlKey := types.NamespacedName{Name: podGroupName, Namespace: ns.Name}
+		wl := utiltestingapi.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
+
+		ginkgo.By("admitting the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "3").
+					Count(wl.Spec.PodSets[0].Count).
+					Obj()).
+				Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("running only 1 pod (below min count of 2) and verifying workload is not PodsReady yet", func() {
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[0])
+			setPodReady(ctx, k8sClient, pods[0], corev1.ConditionTrue)
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded",
+			})
+		})
+
+		ginkgo.By("updating min count annotation to 1 and verifying workload becomes PodsReady with 1 ready pod", func() {
+			setGroupPodsReadyMinCount(ctx, k8sClient, pods, "1")
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
+			})
+		})
+
+		ginkgo.By("running the 2nd pod and updating min count annotation back to 2 while 3rd pod stays Pending", func() {
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[1])
+			setPodReady(ctx, k8sClient, pods[1], corev1.ConditionTrue)
+			setGroupPodsReadyMinCount(ctx, k8sClient, pods, "2")
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("running the 3rd pod and then making it unready (2 of 3 still ready >= min count of 2)", func() {
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[2])
+			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionTrue)
+			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionFalse)
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				g.Expect(wl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updating min count annotation to 3 (while 2 of 3 pods are ready) and verifying workload becomes PodsReady=False and is evicted on recoveryTimeout", func() {
+			setGroupPodsReadyMinCount(ctx, k8sClient, pods, "3")
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+				},
+			)
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Pod controller when waitForPodsReady enabled with scheduling observations", ginkgo.Label("job:pod", "area:jobs"), func() {
@@ -4765,4 +4870,29 @@ type staticNameTB struct {
 
 func (tb staticNameTB) Name() string {
 	return tb.name
+}
+
+func setPodReady(ctx context.Context, k8sClient client.Client, pod *corev1.Pod, status corev1.ConditionStatus) {
+	ginkgo.GinkgoHelper()
+	updatedPod := &corev1.Pod{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), updatedPod)).To(gomega.Succeed())
+		updatedPod.Status.Conditions = []corev1.PodCondition{{
+			Type:   corev1.PodReady,
+			Status: status,
+		}}
+		g.Expect(k8sClient.Status().Update(ctx, updatedPod)).To(gomega.Succeed())
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}
+
+func setGroupPodsReadyMinCount(ctx context.Context, k8sClient client.Client, pods []*corev1.Pod, minCount string) {
+	ginkgo.GinkgoHelper()
+	for _, pod := range pods {
+		updatedPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), updatedPod)).To(gomega.Succeed())
+			updatedPod.Annotations[podconstants.GroupPodsReadyMinCountAnnotation] = minCount
+			g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
 }
