@@ -396,6 +396,23 @@ func normalizeActiveSlices(
 		}
 	}
 
+	// The probe's floor goes stale once its predecessor is evicted. The predecessor's
+	// own floor is one step further back in the job's history and still achievable.
+	if latestWithQuotaReservation == nil && latestNonEvicted != nil &&
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		hasMinCount(latestNonEvicted) {
+		if replKey := ReplacementForKey(latestNonEvicted); replKey != nil {
+			for i := range workloads {
+				if workload.Key(&workloads[i]) == *replKey && workloadevict.IsEvicted(&workloads[i]) {
+					if err := lowerProbeMinCount(ctx, clnt, latestNonEvicted, &workloads[i]); err != nil {
+						return nil, err
+					}
+					break
+				}
+			}
+		}
+	}
+
 	log.V(3).Info("Classified workload slices",
 		"total", len(workloads),
 		"latestWithQuotaReservation", klog.KObj(latestWithQuotaReservation),
@@ -428,6 +445,44 @@ func normalizeActiveSlices(
 	}
 
 	return selectedWorkload, nil
+}
+
+// hasMinCount reports whether any of the workload's PodSets carries a minCount.
+func hasMinCount(wl *kueue.Workload) bool {
+	for i := range wl.Spec.PodSets {
+		if wl.Spec.PodSets[i].MinCount != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// lowerProbeMinCount lowers probe's MinCount to evictedPredecessor's own MinCount, per
+// PodSet, wherever that's lower - read before the predecessor is finished, since a
+// finished workload can later be garbage collected by retention.
+func lowerProbeMinCount(ctx context.Context, clnt client.Client, probe, evictedPredecessor *kueue.Workload) error {
+	predecessorMinCounts := make(map[kueue.PodSetReference]int32, len(evictedPredecessor.Spec.PodSets))
+	for i := range evictedPredecessor.Spec.PodSets {
+		if ps := &evictedPredecessor.Spec.PodSets[i]; ps.MinCount != nil {
+			predecessorMinCounts[ps.Name] = *ps.MinCount
+		}
+	}
+
+	changed := false
+	for i := range probe.Spec.PodSets {
+		ps := &probe.Spec.PodSets[i]
+		if ps.MinCount == nil {
+			continue
+		}
+		if lower, ok := predecessorMinCounts[ps.Name]; ok && lower < *ps.MinCount {
+			ps.MinCount = &lower
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return clnt.Update(ctx, probe)
 }
 
 // ReplacedWorkloadSlice returns the replacement workload slice for the given workload `wl`

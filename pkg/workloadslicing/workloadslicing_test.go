@@ -1881,6 +1881,86 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	}
 }
 
+func TestLowerProbeFloor(t *testing.T) {
+	const otherPodSet kueue.PodSetReference = "other"
+
+	tests := map[string]struct {
+		probeMinCount       int32
+		predecessorMinCount *int32
+		predecessorPodSet   kueue.PodSetReference
+		wantMinCount        int32
+		wantUpdated         bool
+	}{
+		"lowers when predecessor's floor is lower": {
+			probeMinCount:       6,
+			predecessorMinCount: new(int32(5)),
+			predecessorPodSet:   kueue.DefaultPodSetName,
+			wantMinCount:        5,
+			wantUpdated:         true,
+		},
+		"never raises when predecessor's floor is higher": {
+			probeMinCount:       6,
+			predecessorMinCount: new(int32(7)),
+			predecessorPodSet:   kueue.DefaultPodSetName,
+			wantMinCount:        6,
+			wantUpdated:         false,
+		},
+		"skips when predecessor has no floor at all": {
+			probeMinCount:       6,
+			predecessorMinCount: nil,
+			predecessorPodSet:   kueue.DefaultPodSetName,
+			wantMinCount:        6,
+			wantUpdated:         false,
+		},
+		"skips a PodSet name the predecessor doesn't have": {
+			probeMinCount:       6,
+			predecessorMinCount: new(int32(5)),
+			predecessorPodSet:   otherPodSet,
+			wantMinCount:        6,
+			wantUpdated:         false,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			testSchema := runtime.NewScheme()
+			_ = kueue.AddToScheme(testSchema)
+
+			probe := utiltestingapi.MakeWorkload("probe", "ns").ResourceVersion("1").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(tc.probeMinCount).Obj()).Obj()
+			predecessorPodSet := utiltestingapi.MakePodSet(tc.predecessorPodSet, 6)
+			if tc.predecessorMinCount != nil {
+				predecessorPodSet = predecessorPodSet.SetMinimumCount(*tc.predecessorMinCount)
+			}
+			predecessor := utiltestingapi.MakeWorkload("predecessor", "ns").
+				PodSets(*predecessorPodSet.Obj()).Obj()
+
+			clnt := fake.NewClientBuilder().WithScheme(testSchema).WithObjects(probe).Build()
+
+			if err := lowerProbeMinCount(ctx, clnt, probe, predecessor); err != nil {
+				t.Fatalf("lowerProbeMinCount() error = %v", err)
+			}
+
+			if got := *probe.Spec.PodSets[0].MinCount; got != tc.wantMinCount {
+				t.Errorf("probe.Spec.PodSets[0].MinCount = %d, want %d", got, tc.wantMinCount)
+			}
+
+			persisted := &kueue.Workload{}
+			if err := clnt.Get(ctx, client.ObjectKeyFromObject(probe), persisted); err != nil {
+				t.Fatalf("failed to get probe: %v", err)
+			}
+			gotPersisted := *persisted.Spec.PodSets[0].MinCount
+			wantPersisted := tc.probeMinCount
+			if tc.wantUpdated {
+				wantPersisted = tc.wantMinCount
+			}
+			if gotPersisted != wantPersisted {
+				t.Errorf("persisted MinCount = %d, want %d (wantUpdated=%v)", gotPersisted, wantPersisted, tc.wantUpdated)
+			}
+		})
+	}
+}
+
 func TestReplacedWorkloadSlice(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	type args struct {

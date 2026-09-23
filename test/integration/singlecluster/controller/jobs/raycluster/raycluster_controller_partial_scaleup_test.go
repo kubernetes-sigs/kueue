@@ -488,12 +488,12 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, newProbe)
 	})
 
-	ginkgo.It("Should stay pending, not degrade, if a ClusterQueue drain also shrinks the quota below the old baseline", func() {
-		// Known gap, not a regression: the probe's floor is frozen at the old baseline, and
-		// mustGrow=false only decides whether landing on that floor is a fit - it can't lower it.
-		// So the probe recovers once quota returns to that floor, not to any smaller level in
-		// between. Graceful degradation to a smaller floor would need a new mechanism; nothing
-		// in the codebase attempts that today.
+	ginkgo.It("Should stay pending, not degrade, if a ClusterQueue drain also shrinks the quota below one hop of history", func() {
+		// Known gap, not a regression: once its predecessor is evicted, the probe's floor is
+		// lowered to that predecessor's own floor (one hop of history - see the previous spec),
+		// not to the job's true all-time minimum. Here the quota shrinks below even that one-hop
+		// floor, so the probe still can't recover. Reaching further back would need walking the
+		// job's full admission history; nothing in the codebase attempts that today.
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
@@ -532,11 +532,16 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 				kueue.WorkloadEvicted, kueue.WorkloadEvictedByClusterQueueStopped))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("the evicted slice is finished; the probe survives, still pending")
+		ginkgo.By("the evicted slice is finished; the probe survives, its floor lowered to 5")
 		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
 		expectPodsUsage(0)
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(probe), wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("resuming the ClusterQueue with the quota shrunk below the probe's floor")
+		ginkgo.By("resuming the ClusterQueue with the quota shrunk below even the one-hop floor")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
 			clusterQueue.Spec.StopPolicy = new(kueue.None)
@@ -544,7 +549,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("the probe stays pending: 3 workers would fit, but its floor demands 6")
+		ginkgo.By("the probe stays pending: 3 workers would fit, but its floor demands 5")
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 		expectPodsUsage(0)
 
@@ -558,12 +563,13 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		expectPodsUsage(7)
 	})
 
-	ginkgo.It("Should recover at a worker count the job already ran at, even below the probe's frozen floor", func() {
-		// Bug reproduction: the probe's floor (6 workers) is frozen at the count its immediate
-		// predecessor held, not at any point earlier in the job's own history. Once the quota
-		// shrinks to fit only the job's ORIGINAL count (5 workers, proven to have worked earlier
-		// in this same run), the probe should recover there - but nothing lowers its floor, so it
-		// stays pending forever even though the job has already demonstrated it can run this way.
+	ginkgo.It("Should recover at a worker count the job already ran at, even below the probe's original floor", func() {
+		// The probe's floor (6 workers) is set relative to its immediate predecessor's
+		// admission. Once that predecessor is evicted, its own floor (5 - the job's original,
+		// pre-scale-up count) is a proven, achievable count one step earlier in the job's
+		// history, and the probe's floor is lowered to it - see normalizeActiveSlices'
+		// lowerProbeFloor. So once quota shrinks to fit only that original count, the probe
+		// still recovers there instead of staying stuck on the now-unreachable 6.
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
