@@ -459,7 +459,6 @@ jobs:
         uses: $/.github/actions/create-devel-tag
         with:
           version: ${{ needs.authorize.outputs.version }}
-          branch: ${{ needs.authorize.outputs.branch }}
 
       - name: Report Success
         if: ${{ success() }}

@@ -5,9 +5,6 @@ inputs:
   version:
     description: Release version, formatted as vX.Y.0 (X - major, Y - minor; e.g. v0.20.0)
     required: true
-  branch:
-    description: Release branch created for this version, formatted as release-X.Y
-    required: true
 
 outputs:
   message:
@@ -22,7 +19,6 @@ runs:
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
-        BRANCH: ${{ inputs.branch }}
         GH_TOKEN: ${{ github.token }}
       run: |
         # Devel tags only make sense after a major or minor release, which is
@@ -40,16 +36,10 @@ runs:
         git config --global user.email "kueue-release-bot@kubernetes.io"
         gh auth setup-git
 
-        # Idempotency: if the devel tag already exists, there is nothing to do
+        # An existing devel tag means it was created manually or by an earlier
+        # run, so fail and let the release manager check it.
         if git ls-remote --tags origin "$DEVEL_TAG" | grep -q "refs/tags/${DEVEL_TAG}$"; then
-          echo "message=✅ Devel tag \`$DEVEL_TAG\` already exists." >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
-        # The release branch must exist before main is safe to tag, otherwise
-        # there is nothing yet separating main's future history from it.
-        if ! git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/${BRANCH}$"; then
-          echo "message=❌ Release branch \`$BRANCH\` does not exist yet. Run \`/create-release-branch\` first." >> "$GITHUB_OUTPUT"
+          echo "message=❌ Devel tag \`$DEVEL_TAG\` already exists." >> "$GITHUB_OUTPUT"
           exit 1
         fi
 
