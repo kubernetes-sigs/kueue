@@ -146,7 +146,6 @@ func (p *Preemptor) GetPreemptionStrategyIterator(
 	assignment flavorassigner.Assignment,
 ) iter.Seq[PreemptionStrategy] {
 	return p.getPreemptionStrategyIterator(ctx, p.buildContext(ctx, wl, assignment, snapshot))
-
 }
 
 func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
