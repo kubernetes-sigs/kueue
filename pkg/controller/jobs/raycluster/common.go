@@ -357,7 +357,7 @@ func RestorePodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpe
 	return changed
 }
 
-func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
+func ValidateRayClusterSpec(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 
 	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.

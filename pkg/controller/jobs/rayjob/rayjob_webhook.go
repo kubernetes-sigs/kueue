@@ -145,7 +145,7 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 
 		clusterSpec := spec.RayClusterSpec
 		clusterSpecPath := specPath.Child("rayClusterSpec")
-		rayClusterSpecErrors := raycluster.ValidateCreate(job, clusterSpec, clusterSpecPath)
+		rayClusterSpecErrors := raycluster.ValidateRayClusterSpec(job, clusterSpec, clusterSpecPath)
 		allErrors = append(allErrors, rayClusterSpecErrors...)
 	}
 

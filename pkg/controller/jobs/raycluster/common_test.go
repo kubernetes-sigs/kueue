@@ -1309,7 +1309,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	}
 }
 
-func TestValidateCreateRayClusterSpec(t *testing.T) {
+func TestValidateRayClusterSpec(t *testing.T) {
 	tooManyWorkerGroups := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
 	tooManyWorkerGroupsWithHead := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
 	tooManyWorkerGroupsWithHead[0] = rayv1.WorkerGroupSpec{GroupName: "head"}
@@ -1412,7 +1412,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			gotErrors := ValidateCreate(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
+			gotErrors := ValidateRayClusterSpec(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
 
 			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("Unexpected errors (-want +got):\n%s", diff)
