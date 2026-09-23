@@ -1577,7 +1577,7 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 }
 
 // DefaultUnhealthyNodesEvictionThreshold is used when the
-// TASUnhealthyNodesEvictionThresholdAnnotation is absent or invalid. It
+// UnhealthyNodesConcurrentEvictionThresholdAnnotation is absent or invalid. It
 // reproduces the default single-node-replacement behavior: the Workload is
 // evicted as soon as a second distinct node fails (i.e. it tolerates one
 // unhealthy node while a replacement is in flight).
@@ -1590,7 +1590,7 @@ const MaxUnhealthyNodesEvictionThreshold = 8
 // UnhealthyNodesEvictionThreshold returns the maximum number of the Workload's
 // nodes that may be unhealthy at once before the Workload is evicted instead of
 // having its failed nodes replaced in place, as configured by the
-// TASUnhealthyNodesEvictionThresholdAnnotation:
+// UnhealthyNodesConcurrentEvictionThresholdAnnotation:
 //   - an integer N in the range [1, MaxUnhealthyNodesEvictionThreshold]
 //     tolerates up to N unhealthy nodes;
 //   - an absent value returns DefaultUnhealthyNodesEvictionThreshold (1);
@@ -1600,17 +1600,17 @@ func UnhealthyNodesEvictionThreshold(w *kueue.Workload) (int, error) {
 	if w == nil {
 		return DefaultUnhealthyNodesEvictionThreshold, nil
 	}
-	if v, ok := w.Annotations[kueue.TASUnhealthyNodesEvictionThresholdAnnotation]; ok {
+	if v, ok := w.Annotations[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation]; ok {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: %w", kueue.TASUnhealthyNodesEvictionThresholdAnnotation, v, err)
+			return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: %w", kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, v, err)
 		}
 		if n >= DefaultUnhealthyNodesEvictionThreshold && n <= MaxUnhealthyNodesEvictionThreshold {
 			return n, nil
 		}
 		return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf(
 			"invalid %s annotation value %q: must be between %d and %d",
-			kueue.TASUnhealthyNodesEvictionThresholdAnnotation,
+			kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation,
 			v,
 			DefaultUnhealthyNodesEvictionThreshold,
 			MaxUnhealthyNodesEvictionThreshold,

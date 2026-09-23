@@ -4509,7 +4509,7 @@ func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			wlWrapper := utiltestingapi.MakeWorkload("wl", "ns")
 			if tc.annotationSet {
-				wlWrapper = wlWrapper.Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, tc.annotationValue)
+				wlWrapper = wlWrapper.Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, tc.annotationValue)
 			}
 			wl := wlWrapper.Obj()
 			got, err := UnhealthyNodesEvictionThreshold(wl)

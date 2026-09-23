@@ -874,7 +874,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
-					Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, "1").
+					Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "1").
 					UnhealthyNodes("x0", "x1").
 					Queue("tas-main").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).

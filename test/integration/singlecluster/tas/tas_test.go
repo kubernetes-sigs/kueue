@@ -3643,7 +3643,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("creating a 4-pod workload tolerating up to 2 unhealthy nodes", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl-exceed", ns.Name).
-						Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, "2").
+						Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "2").
 						PodSets(*utiltestingapi.MakePodSet("worker", 4).
 							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
@@ -3777,7 +3777,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 					ginkgo.By("creating a two-pod workload requiring one block", func() {
 						wl = utiltestingapi.MakeWorkload("wl-required-greedy", ns.Name).
-							Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, "2").
+							Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "2").
 							PodSets(*utiltestingapi.MakePodSet("worker", 2).
 								RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 								Obj()).
@@ -3874,7 +3874,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 					ginkgo.By("creating a two-pod workload requiring one block", func() {
 						wl = utiltestingapi.MakeWorkload("wl-required-limitation", ns.Name).
-							Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, "2").
+							Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "2").
 							PodSets(*utiltestingapi.MakePodSet("worker", 2).
 								RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 								Obj()).
@@ -3954,7 +3954,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("creating a workload", func() {
 					wl1 = utiltestingapi.MakeWorkload("wl-count", ns.Name).
-						Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, "2").
+						Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "2").
 						PodSets(*utiltestingapi.MakePodSet("worker", podCount).
 							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).

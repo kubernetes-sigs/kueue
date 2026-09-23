@@ -504,7 +504,7 @@ func (r *nodeReconciler) checkPodsOnNode(
 // It returns whether the node was evicted, and whether an error was encountered.
 //
 // When the TASReplaceMultipleFailedNodes feature gate is enabled and the number of unhealthy
-// nodes is below the threshold configured via the kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold
+// nodes is below the threshold configured via the kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold
 // annotation (default 1), eviction is suppressed. The new node is appended via addUnhealthyNode
 // and the workload remains admitted; the scheduler will keep attempting head replacement.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
