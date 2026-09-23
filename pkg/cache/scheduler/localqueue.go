@@ -35,7 +35,7 @@ type LocalQueue struct {
 	admittedWorkloads  int
 	// Usage maps are protected by the LocalQueue lock because some readers do
 	// not hold the scheduler-cache lock.
-	totalReserved resources.FlavorResourceQuantities
+	reservedUsage resources.FlavorResourceQuantities
 	admittedUsage resources.FlavorResourceQuantities
 
 	// allows access to values extracted from K8s labels/annotations, used as custom Prometheus metric labels
@@ -48,18 +48,18 @@ func (q *LocalQueue) customMetricLabelValues() []string {
 	return q.customLabels.LQGet(q.key)
 }
 
-func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
+func (q *LocalQueue) AdmittedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
 	return q.admittedUsage.ToResourceList(q.resourceFormatter)
 }
 
-// GetReservedUsage returns the usage of every Workload actively holding a quota
+// ReservedUsage returns the usage of every Workload actively holding a quota
 // reservation.
-func (q *LocalQueue) GetReservedUsage() corev1.ResourceList {
+func (q *LocalQueue) ReservedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
-	return q.totalReserved.ToResourceList(q.resourceFormatter)
+	return q.reservedUsage.ToResourceList(q.resourceFormatter)
 }
 
 func (q *LocalQueue) GetLabels() map[string]string {
@@ -72,7 +72,7 @@ func (q *LocalQueue) resetFlavorsAndResources(cqUsage resources.FlavorResourceQu
 	// Clean up removed flavors or resources.
 	q.Lock()
 	defer q.Unlock()
-	q.totalReserved = resetUsage(q.totalReserved, cqUsage)
+	q.reservedUsage = resetUsage(q.reservedUsage, cqUsage)
 	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
 }
 
@@ -82,10 +82,10 @@ func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantitie
 	updateFlavorUsage(usage, q.admittedUsage, op)
 }
 
-func (q *LocalQueue) updateTotalReserved(usage resources.FlavorResourceQuantities, op usageOp) {
+func (q *LocalQueue) updateReservedUsage(usage resources.FlavorResourceQuantities, op usageOp) {
 	q.Lock()
 	defer q.Unlock()
-	updateFlavorUsage(usage, q.totalReserved, op)
+	updateFlavorUsage(usage, q.reservedUsage, op)
 }
 
 func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
@@ -108,7 +108,7 @@ func (q *LocalQueue) reportResourceMetrics(cqQuotas map[resources.FlavorResource
 	lqRef := metrics.LocalQueueReference{Name: name, Namespace: namespace}
 	for fr := range cqQuotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, q.totalReserved[fr].AsApproximateFloat64(fr.Resource), q.customMetricLabelValues(), tracker)
+		metrics.ReportLocalQueueResourceReservations(lqRef, fName, rName, q.reservedUsage[fr].AsApproximateFloat64(fr.Resource), q.customMetricLabelValues(), tracker)
 		metrics.ReportLocalQueueResourceUsage(lqRef, fName, rName, q.admittedUsage[fr].AsApproximateFloat64(fr.Resource), q.customMetricLabelValues(), tracker)
 	}
 }
