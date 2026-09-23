@@ -441,7 +441,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
-			totalReserved:      make(resources.FlavorResourceQuantities),
+			reservedUsage:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 			labels:             q.GetLabels(),
 		}
@@ -1023,7 +1023,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}
 
 	return &LocalQueueUsageStats{
-		ReservedResources:  filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
+		ReservedResources:  filterLocalQueueUsage(qImpl.reservedUsage, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,

@@ -415,7 +415,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	}
 
 	oldUsage := entry.Resources
-	newUsage := cacheLq.GetAdmittedUsage()
+	newUsage := cacheLq.AdmittedUsage()
 	// A concurrent settlement can stamp an entry's LastUpdate later than now.
 	// A negative elapsed would drive the decay alpha outside [0, 1] and inflate
 	// consumed usage, so every elapsed derived from a stored LastUpdate is

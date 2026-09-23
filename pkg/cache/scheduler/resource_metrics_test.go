@@ -67,7 +67,7 @@ func TestLocalQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	unlimited := resources.NewAmount(math.MaxInt64)
 	lq := &LocalQueue{
 		key:           queue.NewLocalQueueReference("namespace", "unlimited-lq"),
-		totalReserved: resources.FlavorResourceQuantities{fr: unlimited},
+		reservedUsage: resources.FlavorResourceQuantities{fr: unlimited},
 		admittedUsage: resources.FlavorResourceQuantities{fr: unlimited},
 	}
 
