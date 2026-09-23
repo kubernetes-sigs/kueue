@@ -1559,7 +1559,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	)
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	assignment, targets, fits := schedule(
+	assignment, targets, fits := findFit(
 		ctx,
 		wl,
 		snap,
@@ -1574,7 +1574,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		var bestPA *partialAssignment
 		fitsFn := func(nextCounts []int32) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if assignment, targets, fits := schedule(
+			if assignment, targets, fits := findFit(
 				ctx,
 				wl,
 				snap,
@@ -1603,7 +1603,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	return assignment, targets
 }
 
-func schedule(
+func findFit(
 	ctx context.Context,
 	wl *workload.Info,
 	snapshot *schdcache.Snapshot,
