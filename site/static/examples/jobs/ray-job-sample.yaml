@@ -38,7 +38,7 @@ spec:
 
   # rayClusterSpec specifies the RayCluster instance to be created by the RayJob controller.
   rayClusterSpec:
-    rayVersion: '2.9.0' # should match the Ray version in the image of the containers
+    rayVersion: '2.55.1' # should match the Ray version in the image of the containers
     # Ray head pod template
     headGroupSpec:
       # The `rayStartParams` are used to configure the `ray start` command.
@@ -51,7 +51,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: rayproject/ray:2.9.0
+              image: rayproject/ray:2.55.1
               ports:
                 - containerPort: 6379
                   name: gcs-server
@@ -93,7 +93,7 @@ spec:
           spec:
             containers:
               - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
-                image: rayproject/ray:2.9.0
+                image: rayproject/ray:2.55.1
                 lifecycle:
                   preStop:
                     exec:
@@ -110,7 +110,7 @@ spec:
   #     restartPolicy: Never
   #     containers:
   #       - name: my-custom-rayjob-submitter-pod
-  #         image: rayproject/ray:2.9.0
+  #         image: rayproject/ray:2.55.1
   #         # If Command is not specified, the correct command will be supplied at runtime using the RayJob spec `entrypoint` field.
   #         # Specifying Command is not recommended.
   #         # command: ["sh", "-c", "ray job submit --address=http://$RAY_DASHBOARD_ADDRESS --submission-id=$RAY_JOB_SUBMISSION_ID -- echo hello world"]
