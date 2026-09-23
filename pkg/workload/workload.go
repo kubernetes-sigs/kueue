@@ -858,11 +858,8 @@ func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
 			Count: count,
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *wi.PodSpec(i)}, resourcehelpers.PodResourcesOptions{})
-		retained, generated := applyResourceTransformations(
-			dropExcludedResources(specRequests, info.excludedResourcePrefixes),
-			specRequests,
-			info.resourceTransformations,
-		)
+		retained, generated := applyResourceTransformations(specRequests, specRequests, info.resourceTransformations)
+		retained = dropExcludedResources(retained, info.excludedResourcePrefixes)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
 				subtractReplacedRequestsFrom(retained, wi.PodSpec(i), replacedRes)
