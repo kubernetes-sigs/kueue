@@ -72,6 +72,15 @@ var (
 	}
 )
 
+func gpuFlavorForPodSet(wl *kueue.Workload, podSet kueue.PodSet) kueue.ResourceFlavorReference {
+	for _, assignment := range wl.Status.Admission.PodSetAssignments {
+		if assignment.Name == podSet.Name {
+			return assignment.Flavors[corev1.ResourceName("nvidia.com/gpu")]
+		}
+	}
+	return ""
+}
+
 var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.When("manageJobsWithoutQueueName is disabled", func() {
 		var defaultFlavor = utiltestingapi.MakeResourceFlavor("default").NodeLabel(corev1.LabelArchStable, "arm64").Obj()
@@ -4903,15 +4912,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 					To(gomega.HaveLen(2))
 
 				for _, podSet := range wl.Spec.PodSets {
-					var flavor kueue.ResourceFlavorReference
-
-					for _, assignment := range wl.Status.Admission.PodSetAssignments {
-						if assignment.Name == podSet.Name {
-							flavor = assignment.Flavors[corev1.ResourceName("nvidia.com/gpu")]
-							break
-						}
-					}
-
+					flavor := gpuFlavorForPodSet(wl, podSet)
 					gomega.Expect(flavor).NotTo(gomega.BeEmpty())
 
 					gpuRequest := podSet.Template.Spec.Containers[0].

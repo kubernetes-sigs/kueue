@@ -457,7 +457,7 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
-		return p.constructGroupPodSets()
+		return p.constructGroupPodSets(nil)
 	}
 }
 
@@ -806,15 +806,22 @@ func (p *Pod) fastAdmission() bool {
 	return p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey] == podconstants.GroupFastAdmissionAnnotationValue
 }
 
-func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
+func (p *Pod) constructGroupPodSets(reference []kueue.PodSet) ([]kueue.PodSet, error) {
 	if p.fastAdmission() {
 		tc, err := p.groupTotalCount()
 		if err != nil {
 			return nil, err
 		}
-		return constructGroupPodSetsFast(p.list.Items, tc)
+
+		podSets, err := constructGroupPodSetsFast(p.list.Items, tc)
+		if err != nil {
+			return nil, err
+		}
+
+		return reorderPodSets(podSets, reference), nil
 	}
-	return constructGroupPodSets(p.list.Items)
+
+	return constructGroupPodSets(p.list.Items, reference)
 }
 
 func reorderPodSets(podSets, reference []kueue.PodSet) []kueue.PodSet {
@@ -904,7 +911,7 @@ type podSetWithShapeHash struct {
 	shapeHash string
 }
 
-func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
+func constructGroupPodSets(pods []corev1.Pod, reference []kueue.PodSet) ([]kueue.PodSet, error) {
 	var resultPodSets []podSetWithShapeHash
 
 	for _, podInGroup := range pods {
@@ -964,7 +971,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		podSets[i] = resultPodSets[i].podSet
 	}
 
-	return podSets, nil
+	return reorderPodSets(podSets, reference), nil
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
@@ -1520,12 +1527,10 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		}
 	}
 
-	jobPodSets, err := constructGroupPodSets(keptPods)
+	jobPodSets, err := constructGroupPodSets(keptPods, workload.Spec.PodSets)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	jobPodSets = reorderPodSets(jobPodSets, workload.Spec.PodSets)
 
 	if len(keptPods) == 0 || !p.equivalentToWorkload(workload, jobPodSets) {
 		return nil, []*kueue.Workload{workload}, nil
@@ -1712,12 +1717,10 @@ func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kue
 		return jobframework.EquivalentToWorkload(ctx, c, p, wl)
 	}
 
-	podSets, err := p.constructGroupPodSets()
+	podSets, err := p.constructGroupPodSets(wl.Spec.PodSets)
 	if err != nil {
 		return false, err
 	}
-
-	podSets = reorderPodSets(podSets, wl.Spec.PodSets)
 
 	return p.equivalentToWorkload(wl, podSets), nil
 }

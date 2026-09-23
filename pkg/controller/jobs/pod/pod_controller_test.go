@@ -330,11 +330,13 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 	}
 }
 func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: false,
+	})
+
 	leader := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "zzzz",
-			},
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "zzzz",
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -349,10 +351,8 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 	}
 
 	worker := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "aaaa",
-			},
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "aaaa",
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -366,7 +366,7 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 		},
 	}
 
-	got, err := constructGroupPodSets([]corev1.Pod{leader, worker})
+	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
 	if err != nil {
 		t.Fatalf("constructGroupPodSets() error = %v", err)
 	}
@@ -391,11 +391,9 @@ func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
 	})
 
 	leader := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "leader",
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "aaaa",
-			},
+		Name: "leader",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "aaaa",
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -410,11 +408,9 @@ func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
 	}
 
 	worker := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "worker",
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "zzzz",
-			},
+		Name: "worker",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "zzzz",
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -428,7 +424,7 @@ func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
 		},
 	}
 
-	got, err := constructGroupPodSets([]corev1.Pod{worker, leader})
+	got, err := constructGroupPodSets([]corev1.Pod{worker, leader}, nil)
 	if err != nil {
 		t.Fatalf("constructGroupPodSets() error = %v", err)
 	}
@@ -457,9 +453,7 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
 	leader := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{},
-		},
+		Annotations: map[string]string{},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
 				Name: "leader",
@@ -473,9 +467,7 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 	}
 
 	worker := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{},
-		},
+		Annotations: map[string]string{},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
 				Name: "worker",
@@ -509,7 +501,7 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 
 	pods := []corev1.Pod{leader, worker}
 
-	got, err := constructGroupPodSets(pods)
+	got, err := constructGroupPodSets(pods, nil)
 	if err != nil {
 		t.Fatalf("constructGroupPodSets() error = %v", err)
 	}
@@ -530,7 +522,7 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 		worker.Annotations[podconstants.RoleHashAnnotation],
 		leader.Annotations[podconstants.RoleHashAnnotation]
 
-	got, err = constructGroupPodSets(pods)
+	got, err = constructGroupPodSets(pods, nil)
 	if err != nil {
 		t.Fatalf("constructGroupPodSets() after swapping role-hashes error = %v", err)
 	}
@@ -554,11 +546,9 @@ func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
 	leader := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "leader",
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "zzzz",
-			},
+		Name: "leader",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "zzzz",
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -573,11 +563,9 @@ func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
 	}
 
 	worker := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "worker",
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "aaaa",
-			},
+		Name: "worker",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "aaaa",
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -605,12 +593,12 @@ func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
 			leaderShapeHash, workerShapeHash)
 	}
 
-	got1, err := constructGroupPodSets([]corev1.Pod{leader, worker})
+	got1, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
 	if err != nil {
 		t.Fatalf("constructGroupPodSets() error = %v", err)
 	}
 
-	got2, err := constructGroupPodSets([]corev1.Pod{worker, leader})
+	got2, err := constructGroupPodSets([]corev1.Pod{worker, leader}, nil)
 	if err != nil {
 		t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
 	}
