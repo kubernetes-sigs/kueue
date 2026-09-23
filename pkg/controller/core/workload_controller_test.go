@@ -1487,7 +1487,56 @@ func TestReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
 
+	onHoldWorkload := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+		Condition(metav1.Condition{
+			Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+			Reason: kueue.WorkloadOnHold, Message: "StatefulSet is scaled to zero",
+		})
+	wantOnHoldWorkload := onHoldWorkload.Clone().Condition(metav1.Condition{
+		Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+		Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+	}).Obj()
+
 	cases := map[string]reconcileTestCase{
+		"on-hold workload preserves its condition when the LocalQueue is missing": {
+			workload:     onHoldWorkload.Clone().Obj(),
+			wantWorkload: wantOnHoldWorkload.DeepCopy(),
+		},
+		"on-hold workload preserves its condition when the LocalQueue is held": {
+			workload:     onHoldWorkload.Clone().Obj(),
+			cq:           utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.Hold).Obj(),
+			wantWorkload: wantOnHoldWorkload.DeepCopy(),
+		},
+		"on-hold workload preserves its condition when the LocalQueue is draining": {
+			workload:     onHoldWorkload.Clone().Obj(),
+			cq:           utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			wantWorkload: wantOnHoldWorkload.DeepCopy(),
+		},
+		"on-hold workload preserves its condition when the ClusterQueue is missing": {
+			workload:     onHoldWorkload.Clone().Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: wantOnHoldWorkload.DeepCopy(),
+		},
+		"on-hold workload preserves its condition when the ClusterQueue is inactive": {
+			workload:     onHoldWorkload.Clone().Obj(),
+			cq:           utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionFalse).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: wantOnHoldWorkload.DeepCopy(),
+		},
+		"on-hold workload preserves its condition when the ClusterQueue is held": {
+			workload:     onHoldWorkload.Clone().Obj(),
+			cq:           utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).StopPolicy(kueue.Hold).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: wantOnHoldWorkload.DeepCopy(),
+		},
+		"on-hold workload preserves its condition when the ClusterQueue is draining": {
+			workload:     onHoldWorkload.Clone().Obj(),
+			cq:           utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).StopPolicy(kueue.HoldAndDrain).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: wantOnHoldWorkload.DeepCopy(),
+		},
 		"assign Admission Checks from ClusterQueue.spec.AdmissionCheckStrategy": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
@@ -2144,6 +2193,47 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"on-hold workload keeps its reason while admission is gated": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+				Annotation(constants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadOnHold}).Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+				Annotation(constants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadOnHold}).
+				Condition(metav1.Condition{
+					Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+				}).Obj(),
+		},
+		"on-hold workload keeps its reason after the admission gate is removed": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+				Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadOnHold}).Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+				Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadOnHold}).
+				Condition(metav1.Condition{
+					Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+				}).Obj(),
+		},
+		"on-hold workload keeps its reason with the admission-gate feature disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+				Annotation(constants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadOnHold}).Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
+				Annotation(constants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse, Reason: kueue.WorkloadOnHold}).
+				Condition(metav1.Condition{
+					Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+				}).Obj(),
+		},
 		"workload with AdmissionGatedBy annotation should set QuotaReserved condition to AdmissionGated": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
 				Queue("lq").
@@ -2794,11 +2884,10 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t, UnadmittedWorkloadsObservability enabled: %t",
 				name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]), func(t *testing.T) {
-				fgMap := make(map[featuregate.Feature]bool)
+				fgMap := map[featuregate.Feature]bool{features.AdmissionGatedBy: true}
 				maps.Copy(fgMap, scenario)
 				maps.Copy(fgMap, tc.featureGates)
 				features.SetFeatureGatesDuringTest(t, fgMap)
-				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 
 				testWl := tc.workload.DeepCopy()
 				if _, ok := tc.featureGates[features.UnadmittedWorkloadsObservability]; !ok && !features.Enabled(features.UnadmittedWorkloadsObservability) {
