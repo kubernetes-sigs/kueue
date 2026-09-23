@@ -33,6 +33,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -120,16 +121,18 @@ func TestReconciler(t *testing.T) {
 		},
 	}
 	cases := map[string]struct {
-		featureGates    map[featuregate.Feature]bool
-		stsKey          client.ObjectKey
-		statefulSet     *appsv1.StatefulSet
-		pods            []corev1.Pod
-		workloads       []kueue.Workload
-		wantStatefulSet *appsv1.StatefulSet
-		wantPods        []corev1.Pod
-		wantWorkloads   []kueue.Workload
-		wantEvents      []utiltesting.EventRecord
-		wantErr         error
+		featureGates      map[featuregate.Feature]bool
+		labelKeysToCopy   sets.Set[string]
+		annotationsToCopy sets.Set[string]
+		stsKey            client.ObjectKey
+		statefulSet       *appsv1.StatefulSet
+		pods              []corev1.Pod
+		workloads         []kueue.Workload
+		wantStatefulSet   *appsv1.StatefulSet
+		wantPods          []corev1.Pod
+		wantWorkloads     []kueue.Workload
+		wantEvents        []utiltesting.EventRecord
+		wantErr           error
 	}{
 		"statefulset not found": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -330,6 +333,99 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantEvents: createdWorkloadEvents,
+		},
+		"should copy configured labels and annotations into the created workload when CustomMetricLabels is enabled": {
+			wantEvents: createdWorkloadEvents,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+				features.CustomMetricLabels:      true,
+			},
+			labelKeysToCopy:   sets.New("toCopyKey"),
+			annotationsToCopy: sets.New("toCopyAnnotation"),
+			stsKey:            client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Label("toCopyKey", "toCopyValue").
+				Label("doNotCopyKey", "doNotCopyValue").
+				Annotation("toCopyAnnotation", "toCopyValue").
+				Annotation("doNotCopyAnnotation", "doNotCopyValue").
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Label("toCopyKey", "toCopyValue").
+				Label("doNotCopyKey", "doNotCopyValue").
+				Annotation("toCopyAnnotation", "toCopyValue").
+				Annotation("doNotCopyAnnotation", "doNotCopyValue").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("lq").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Label("toCopyKey", "toCopyValue").
+					Annotation("toCopyAnnotation", "toCopyValue").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+		},
+		"should copy configured labels but not annotations into the created workload when CustomMetricLabels is disabled": {
+			wantEvents: createdWorkloadEvents,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+				features.CustomMetricLabels:      false,
+			},
+			labelKeysToCopy:   sets.New("toCopyKey"),
+			annotationsToCopy: sets.New("toCopyAnnotation"),
+			stsKey:            client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Label("toCopyKey", "toCopyValue").
+				Label("doNotCopyKey", "doNotCopyValue").
+				Annotation("toCopyAnnotation", "toCopyValue").
+				Annotation("doNotCopyAnnotation", "doNotCopyValue").
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Label("toCopyKey", "toCopyValue").
+				Label("doNotCopyKey", "doNotCopyValue").
+				Annotation("toCopyAnnotation", "toCopyValue").
+				Annotation("doNotCopyAnnotation", "doNotCopyValue").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("lq").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Label("toCopyKey", "toCopyValue").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
 		},
 		"should create workload with TAS topology request when TAS enabled": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
@@ -846,7 +942,14 @@ func TestReconciler(t *testing.T) {
 			kClient := clientBuilder.WithObjects(objs...).Build()
 
 			recorder := &utiltesting.EventRecorder{}
-			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder)
+			var opts []jobframework.Option
+			if tc.labelKeysToCopy != nil {
+				opts = append(opts, jobframework.WithLabelKeysToCopy(tc.labelKeysToCopy))
+			}
+			if tc.annotationsToCopy != nil {
+				opts = append(opts, jobframework.WithAnnotationsToCopy(tc.annotationsToCopy))
+			}
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, opts...)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}

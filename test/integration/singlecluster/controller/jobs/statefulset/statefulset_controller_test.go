@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -54,6 +55,8 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 			jobframework.WithEnabledFrameworks([]string{"statefulset", "pod"}),
+			jobframework.WithLabelKeysToCopy(sets.New("toCopyKey")),
+			jobframework.WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
 		))
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-")
 
@@ -456,7 +459,59 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			behavioral.MustHaveOwnerReference(g, wl.OwnerReferences, createdSTS, k8sClient.Scheme())
 		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should copy the configured labels and annotations from the StatefulSet into its Workload when CustomMetricLabels is enabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+
+		wl := createStatefulSetWithMetadataToCopyAndGetWorkload(ns.Name)
+
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("toCopyKey", "toCopyValue"))
+		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("doNotCopyKey"))
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("toCopyAnnotation", "toCopyValue"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
+	})
+
+	ginkgo.It("Should copy the configured labels but no annotations from the StatefulSet into its Workload when CustomMetricLabels is disabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, false)
+
+		wl := createStatefulSetWithMetadataToCopyAndGetWorkload(ns.Name)
+
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("toCopyKey", "toCopyValue"))
+		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("doNotCopyKey"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("toCopyAnnotation"))
+		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("doNotCopyAnnotation"))
+	})
 })
+
+// createStatefulSetWithMetadataToCopyAndGetWorkload creates a StatefulSet carrying
+// both configured and unconfigured label and annotation keys, then returns the
+// Workload the StatefulSet reconciler creates for it.
+func createStatefulSetWithMetadataToCopyAndGetWorkload(ns string) *kueue.Workload {
+	ginkgo.GinkgoHelper()
+
+	sts := testingstatefulset.MakeStatefulSet("test-sts", ns).
+		Queue("lq").
+		Request(corev1.ResourceCPU, "100m").
+		Label("toCopyKey", "toCopyValue").
+		Label("doNotCopyKey", "doNotCopyValue").
+		Annotation("toCopyAnnotation", "toCopyValue").
+		Annotation("doNotCopyAnnotation", "doNotCopyValue").
+		Obj()
+	behavioral.MustCreate(ctx, k8sClient, sts)
+
+	createdSTS := &appsv1.StatefulSet{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+		g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+	wl := &kueue.Workload{}
+	wlKey := types.NamespacedName{Name: statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name), Namespace: ns}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	return wl
+}
 
 func findWorkloadCondition(wl *kueue.Workload, condType string) *metav1.Condition {
 	for i := range wl.Status.Conditions {
