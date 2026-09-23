@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should admit MIG workload with correct counter-based gpu.memory charge", func() {
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
-			slice := utiltesting.MakeResourceSlice("pd-test-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-test-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating a ResourceClaimTemplate with CEL selector for 1g.5gb")
-			rct := utiltesting.MakeResourceClaimTemplate("mig-1g5gb", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("mig-1g5gb", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 1).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == '1g.5gb'").
 				Obj()
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should multiply counter charge by request count", func() {
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
-			slice := utiltesting.MakeResourceSlice("pd-count-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-count-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -177,7 +177,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating RCT with count=2")
-			rct := utiltesting.MakeResourceClaimTemplate("mig-count2", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("mig-count2", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 2).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == '1g.5gb'").
 				Obj()
@@ -211,7 +211,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should charge MAX when CEL matches multiple profiles", func() {
 			ginkgo.By("Creating a ResourceSlice with different MIG profiles")
-			slice := utiltesting.MakeResourceSlice("pd-broad-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-broad-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -226,7 +226,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating RCT with broad CEL matching both profiles")
-			rct := utiltesting.MakeResourceClaimTemplate("mig-broad", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("mig-broad", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 1).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == '1g.5gb' || device.attributes['gpu.example.com'].profile == '3g.20gb'").
 				Obj()
@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should mark workload inadmissible when CEL matches no devices", framework.SlowSpec, func() {
 			ginkgo.By("Creating a ResourceSlice with devices")
-			slice := utiltesting.MakeResourceSlice("pd-nomatch-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-nomatch-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -271,7 +271,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating RCT with CEL that matches no device")
-			rct := utiltesting.MakeResourceClaimTemplate("mig-nonexistent", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("mig-nonexistent", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 1).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == 'nonexistent'").
 				Obj()
@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should admit workload with unified whole GPU and MIG charges", func() {
 			ginkgo.By("Creating a ResourceSlice with whole GPU and MIG devices")
-			slice := utiltesting.MakeResourceSlice("pd-unified-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-unified-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -324,12 +324,12 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating RCTs for whole GPU and MIG")
-			rctGPU := utiltesting.MakeResourceClaimTemplate("whole-gpu", ns.Name).
+			rctGPU := testingdra.MakeResourceClaimTemplate("whole-gpu", ns.Name).
 				DeviceRequest("gpu", "gpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rctGPU)).To(gomega.Succeed())
 
-			rctMIG := utiltesting.MakeResourceClaimTemplate("mig-1g5gb", ns.Name).
+			rctMIG := testingdra.MakeResourceClaimTemplate("mig-1g5gb", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 1).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == '1g.5gb'").
 				Obj()
@@ -365,7 +365,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should mark workload inadmissible with incomplete pool", framework.SlowSpec, func() {
 			ginkgo.By("Creating only 1 of 2 ResourceSlices for a pool")
-			slice := utiltesting.MakeResourceSlice("pd-incomplete-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-incomplete-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 2).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -378,7 +378,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating RCT with CEL selector")
-			rct := utiltesting.MakeResourceClaimTemplate("mig-incomplete", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("mig-incomplete", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 1).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == '1g.5gb'").
 				Obj()
@@ -411,7 +411,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should requeue inadmissible workload when ResourceSlice is created", framework.SlowSpec, func() {
 			ginkgo.By("Creating RCT with CEL selector")
-			rct := utiltesting.MakeResourceClaimTemplate("mig-requeue", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("mig-requeue", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 1).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == '1g.5gb'").
 				Obj()
@@ -441,7 +441,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating ResourceSlice — should trigger requeue")
-			slice := utiltesting.MakeResourceSlice("pd-requeue-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-requeue-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -466,7 +466,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 		ginkgo.It("Should charge consumesCounters for whole GPU request without CEL", func() {
 			ginkgo.By("Creating a ResourceSlice with whole GPU device")
-			slice := utiltesting.MakeResourceSlice("pd-whole-gpu-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-whole-gpu-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -484,7 +484,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating RCT for whole GPU without CEL selectors")
-			rct := utiltesting.MakeResourceClaimTemplate("whole-gpu-nocel", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("whole-gpu-nocel", ns.Name).
 				DeviceRequest("gpu", "gpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -552,7 +552,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
 			ginkgo.By("Creating a ResourceSlice with MIG devices")
-			slice := utiltesting.MakeResourceSlice("pd-nomatch-observability-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("pd-nomatch-observability-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").Attribute("type", "gpu").
 				CounterConsumption("gpu-0-counter-set", "memory", "40320Mi").
@@ -565,7 +565,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating RCT with non-matching CEL selectors")
-			rct := utiltesting.MakeResourceClaimTemplate("mig-nonexistent-obs", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("mig-nonexistent-obs", ns.Name).
 				DeviceRequest("gpu", "mig.example.com", 1).
 				WithCELSelectors("device.attributes['gpu.example.com'].profile == 'nonexistent'").
 				Obj()
@@ -625,7 +625,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, migDeviceClass)).To(gomega.Succeed())
 
-			slice = utiltesting.MakeResourceSlice("pd-borrow-slice", "gpu.example.com").
+			slice = testingdra.MakeResourceSlice("pd-borrow-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("mig-0").Attribute("type", "mig").Attribute("profile", "1g.10gb").
 				CounterConsumption("gpu-0-counters", "memory", "10Gi").
@@ -686,7 +686,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 		})
 
 		ginkgo.It("Should borrow counter-based gpu.memory quota from another ClusterQueue in the cohort", func() {
-			rct := utiltesting.MakeResourceClaimTemplate("pd-borrow-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("pd-borrow-template", ns.Name).
 				DeviceRequest("mig-device", "mig.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -736,7 +736,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 		})
 
 		ginkgo.It("Should not admit PD workload when cohort counter capacity is exhausted", func() {
-			rct := utiltesting.MakeResourceClaimTemplate("pd-exhaust-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("pd-exhaust-template", ns.Name).
 				DeviceRequest("mig-device", "mig.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())

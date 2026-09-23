@@ -29,7 +29,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -101,7 +100,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			util.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate
-			rct = utiltesting.MakeResourceClaimTemplate("gpu-claim-template", ns.Name).
+			rct = testingdra.MakeResourceClaimTemplate("gpu-claim-template", ns.Name).
 				DeviceRequest("gpu", "gpu.example.com", 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
@@ -330,7 +329,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			util.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate
-			rct = utiltesting.MakeResourceClaimTemplate("gpu-claim-template", ns.Name).
+			rct = testingdra.MakeResourceClaimTemplate("gpu-claim-template", ns.Name).
 				DeviceRequest("gpu", "gpu.example.com", 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)

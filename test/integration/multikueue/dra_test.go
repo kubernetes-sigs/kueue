@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -150,17 +151,17 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 	ginkgo.When("Jobs have DRA resources", func() {
 		ginkgo.It("Should sync job with DRA resources to worker clusters", func() {
 			ginkgo.By("creating a ResourceClaimTemplate on manager and workers", func() {
-				managerRct := utiltesting.MakeResourceClaimTemplate("gpu-template", managerNs.Name).
+				managerRct := testingdra.MakeResourceClaimTemplate("gpu-template", managerNs.Name).
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj()
 				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerRct)
 
-				worker1Rct := utiltesting.MakeResourceClaimTemplate("gpu-template", worker1Ns.Name).
+				worker1Rct := testingdra.MakeResourceClaimTemplate("gpu-template", worker1Ns.Name).
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj()
 				util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Rct)
 
-				worker2Rct := utiltesting.MakeResourceClaimTemplate("gpu-template", worker2Ns.Name).
+				worker2Rct := testingdra.MakeResourceClaimTemplate("gpu-template", worker2Ns.Name).
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj()
 				util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Rct)
@@ -259,7 +260,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("area:multikueue", "
 
 		ginkgo.It("Should not admit job when ResourceClaimTemplate is missing on all workers", func() {
 			ginkgo.By("creating ResourceClaimTemplate only on manager (NOT on workers)", func() {
-				managerRct := utiltesting.MakeResourceClaimTemplate("missing-rct", managerNs.Name).
+				managerRct := testingdra.MakeResourceClaimTemplate("missing-rct", managerNs.Name).
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj()
 				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerRct)
