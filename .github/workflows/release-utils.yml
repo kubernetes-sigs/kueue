@@ -172,13 +172,13 @@ jobs:
           RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
 
-          if [ "$RELEASE_STATE" = "published" ] && [ "$COMMAND" != "merge-main-into-website" ]; then
+          if [ "$RELEASE_STATE" = "published" ] && [ "$COMMAND" != "merge-main-into-website" ] && [ "$COMMAND" != "create-devel-tag" ]; then
             echo "error_message=❌ Release \`$VERSION\` has already been published. No further commands are allowed." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          if [ "$RELEASE_STATE" != "published" ] && [ "$COMMAND" = "merge-main-into-website" ]; then
-            echo "error_message=❌ Release \`$VERSION\` must be published before running \`/merge-main-into-website\`." >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE_STATE" != "published" ] && { [ "$COMMAND" = "merge-main-into-website" ] || [ "$COMMAND" = "create-devel-tag" ]; }; then
+            echo "error_message=❌ Release \`$VERSION\` must be published before running \`/$COMMAND\`." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
