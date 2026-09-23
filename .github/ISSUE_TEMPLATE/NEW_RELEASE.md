@@ -52,12 +52,10 @@ Please do not remove items from the checklist
 - [ ] For major and minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
-  - [ ] Wait for the first commit to merge into `main` after the release
-        branch has been created (presumably the README update commit above),
-        then run ChatOps command `/create-devel-tag` on this issue. This will
-        create an unannotated _devel_ tag (`v$MAJ.$(($MIN+1)).0-devel`) on
-        `main` and push it, so that devel builds on the `main` branch will
-        have a meaningful version number.  
+  - [ ] Run the ChatOps command `/create-devel-tag` on this issue. This will:
+        create and push an unannotated `_devel` tag
+        (`v$MAJ.$(($MIN+1)).0-devel`) on `main`, so that development builds
+        from the `main` branch have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
         <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and periodic jobs for the next patch release, and remove the CI jobs for testing the unsupported branch:
