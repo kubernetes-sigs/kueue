@@ -172,12 +172,18 @@ jobs:
           RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
 
-          if [ "$RELEASE_STATE" = "published" ] && [ "$COMMAND" != "merge-main-into-website" ] && [ "$COMMAND" != "create-devel-tag" ]; then
+          # Commands that can only run after the release has been published.
+          case "$COMMAND" in
+            merge-main-into-website|create-devel-tag) POST_PUBLISH=true ;;
+            *) POST_PUBLISH=false ;;
+          esac
+
+          if [ "$RELEASE_STATE" = "published" ] && [ "$POST_PUBLISH" = "false" ]; then
             echo "error_message=❌ Release \`$VERSION\` has already been published. No further commands are allowed." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          if [ "$RELEASE_STATE" != "published" ] && { [ "$COMMAND" = "merge-main-into-website" ] || [ "$COMMAND" = "create-devel-tag" ]; }; then
+          if [ "$RELEASE_STATE" != "published" ] && [ "$POST_PUBLISH" = "true" ]; then
             echo "error_message=❌ Release \`$VERSION\` must be published before running \`/$COMMAND\`." >> "$GITHUB_OUTPUT"
             exit 1
           fi
