@@ -872,7 +872,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantUnderlyingCause: kueue.WorkloadWaitForStart,
 			wantRecheckAfter:    math.MaxInt64 - 3*time.Minute,
 		},
-		"PodsReady=False/WaitForRecovery with annotation timeout only; recoveryTimeout defaults to timeout": {
+		"PodsReady=False/WaitForRecovery with annotation timeout only; recoveryTimeout defaults to cluster-level configuration": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadLevelWaitForPodsReady: true,
 			},
@@ -899,38 +899,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
+			waitForPodsReady:    &waitForPodsReadyConfig{recoveryTimeout: new(5 * time.Minute)},
 			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
 			wantRecheckAfter:    4 * time.Minute,
-		},
-		"PodsReady=False/WaitForRecovery with annotation timeout only; recoveryTimeout disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadLevelWaitForPodsReady: true,
-			},
-			workload: kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						controllerconstants.WaitForPodsReadyAnnotation: `{"timeoutSeconds": 300,"recoveryTimeoutSeconds": 0}`,
-					},
-				},
-				Status: kueue.WorkloadStatus{
-					Admission: &kueue.Admission{},
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadAdmitted,
-							Status:             metav1.ConditionTrue,
-							LastTransitionTime: metav1.NewTime(minuteAgo),
-						},
-						{
-							Type:               kueue.WorkloadPodsReady,
-							Status:             metav1.ConditionFalse,
-							Reason:             kueue.WorkloadWaitForRecovery,
-							LastTransitionTime: metav1.NewTime(minuteAgo),
-						},
-					},
-				},
-			},
-			wantUnderlyingCause: "",
-			wantRecheckAfter:    0,
 		},
 	}
 

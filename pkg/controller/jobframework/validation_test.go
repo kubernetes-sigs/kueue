@@ -616,6 +616,16 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				},
 			},
 		},
+		"zero recoveryTimeoutSeconds is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 0}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "recoveryTimeoutSeconds must be greater than 0 seconds",
+				},
+			},
+		},
 		"timeout exceeding MaxTimeoutOnWorkload is rejected": {
 			annotation: `{"timeoutSeconds": 7201}`,
 			wantErr: field.ErrorList{

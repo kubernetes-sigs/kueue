@@ -219,8 +219,7 @@ type WaitForPodsReady struct {
     // After exceeding the timeout the corresponding job gets suspended again
     // and requeued after the backoff delay.
     // If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
-    // are set, this field takes precedence. Defaults to timeoutSeconds when
-    // timeoutSeconds is set and this field is not. Setting 0 disables it.
+    // are set, this field takes precedence.
     // +optional
     // +kubebuilder:validation:Minimum=0
     RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`

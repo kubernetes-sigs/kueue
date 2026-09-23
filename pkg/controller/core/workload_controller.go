@@ -1711,8 +1711,7 @@ func (r *WorkloadReconciler) determineTimeouts(wl *kueue.Workload) (timeout time
 		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > 0 {
 			recoveryTimeout = cfg.RecoveryTimeout
 		} else if cfg.RecoveryTimeout == nil {
-			t := timeout
-			recoveryTimeout = &t
+			recoveryTimeout = r.waitForPodsReady.recoveryTimeout
 		}
 	case r.waitForPodsReady != nil:
 		timeout = r.waitForPodsReady.timeout
