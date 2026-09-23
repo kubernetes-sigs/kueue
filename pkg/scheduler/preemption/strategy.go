@@ -28,7 +28,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -50,8 +49,6 @@ type PreemptionStrategy struct {
 	// The context is reset once the loop over candidates ends (finishes or is interrupted).
 	pCtx *preemptionCtx
 }
-
-type PreemptionStrategiesFactory func(ctx context.Context, assignment *flavorassigner.Assignment) iter.Seq[PreemptionStrategy]
 
 func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
 	log := log.FromContext(ctx)

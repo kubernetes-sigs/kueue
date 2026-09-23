@@ -1553,7 +1553,6 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
-	preemptionStrategiesFactory := s.preemptor.GetPreemptionStrategyFactory(*wl, snap)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
@@ -1564,7 +1563,6 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		wl,
 		snap,
 		s.preemptor,
-		preemptionStrategiesFactory,
 		flvAssigner,
 		flvAssigner.AssignFlavors(ctx, log),
 	)
@@ -1579,7 +1577,6 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 				wl,
 				snap,
 				s.preemptor,
-				preemptionStrategiesFactory,
 				flvAssigner,
 				flvAssigner.AssignFlavors(ctx, log, nextCounts...),
 			); fits {
@@ -1609,7 +1606,6 @@ func schedule(
 	wl *workload.Info,
 	snapshot *schdcache.Snapshot,
 	preemptor *preemption.Preemptor,
-	preemptionStrategiesFactory preemption.PreemptionStrategiesFactory,
 	flavorAssigner *flavorassigner.FlavorAssigner,
 	initialAssignment flavorassigner.Assignment,
 ) (flavorassigner.Assignment, []*preemption.Target, bool) {
@@ -1624,7 +1620,7 @@ func schedule(
 	arm := assignment.RepresentativeMode()
 
 	if arm == flavorassigner.Preempt {
-		strategies := preemptionStrategiesFactory(ctx, &assignment)
+		strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wl, snapshot, assignment)
 		faPreemptionTargets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
 			updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, faPreemptionTargets...)

@@ -125,13 +125,14 @@ func (t *Target) GetObject() client.Object {
 	return t.WorkloadInfo.Obj
 }
 
-func (p *Preemptor) GetPreemptionStrategyFactory(
+func (p *Preemptor) GetPreemptionStrategyIterator(
+	ctx context.Context,
 	wl workload.Info,
 	snapshot *schdcache.Snapshot,
-) PreemptionStrategiesFactory {
-	return func(ctx context.Context, assignment *flavorassigner.Assignment) iter.Seq[PreemptionStrategy] {
-		return p.getPreemptionStrategyIterator(ctx, p.buildContext(ctx, wl, *assignment, snapshot))
-	}
+	assignment flavorassigner.Assignment,
+) iter.Seq[PreemptionStrategy] {
+	return p.getPreemptionStrategyIterator(ctx, p.buildContext(ctx, wl, assignment, snapshot))
+
 }
 
 func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
