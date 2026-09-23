@@ -3699,7 +3699,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("making replacement nodes unavailable", func() {
 					for _, name := range []string{"x4", "x2"} {
-						nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+						nodeToDelete := &corev1.Node{Name: name}
 						util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, true)
 					}
 				})
@@ -3793,7 +3793,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 					ginkgo.By("removing all replacement capacity", func() {
 						for _, name := range []string{"x4", "x2"} {
-							nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+							nodeToDelete := &corev1.Node{Name: name}
 							util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, true)
 						}
 					})
@@ -3947,7 +3947,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				ginkgo.By("making replacement nodes unavailable", func() {
 					for _, name := range []string{"x4", "x2"} {
-						nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name}}
+						nodeToDelete := &corev1.Node{Name: name}
 						util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, true)
 					}
 				})
@@ -3977,7 +3977,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("deleting the first assigned node", func() {
-					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: node1Name}}
+					nodeToDelete := &corev1.Node{Name: node1Name}
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, true)
 				})
 				ginkgo.By("verify the first failed node is queued", func() {
@@ -3985,7 +3985,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("deleting the second assigned node", func() {
-					nodeToDelete := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: node2Name}}
+					nodeToDelete := &corev1.Node{Name: node2Name}
 					gomega.Expect(k8sClient.Delete(ctx, nodeToDelete)).Should(gomega.Succeed())
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
 				})
