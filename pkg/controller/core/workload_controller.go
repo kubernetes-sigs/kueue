@@ -1542,9 +1542,9 @@ func reachedAfsAnchor(e event.TypedUpdateEvent[*kueue.Workload], status, prevSta
 func afsAccountedUsage(cache *schdcache.Cache, cqName kueue.ClusterQueueReference, lq *schdcache.LocalQueue) corev1.ResourceList {
 	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) &&
 		cache.ClusterQueueUsesAdmissionFairSharing(cqName) {
-		return lq.GetReservedUsage()
+		return lq.ReservedUsage()
 	}
-	return lq.GetAdmittedUsage()
+	return lq.AdmittedUsage()
 }
 
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
