@@ -40,6 +40,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -72,6 +73,11 @@ type tasScheduleForTASCase struct {
 	clusterQueues           []kueue.ClusterQueue
 	workloads               []kueue.Workload
 	patchStatusErr          error
+	// objects are further objects in the cluster, such as the DRA ones the device check reads.
+	objects []client.Object
+	// draResources stands in for the workload controller, which resolves a Workload's
+	// ResourceClaims before it reaches the queue.
+	draResources map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList
 
 	// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
 	wantNewAssignments map[workload.Reference]kueue.Admission
@@ -3760,6 +3766,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 							&corev1.NodeList{Items: tc.nodes},
 							&kueue.LocalQueueList{Items: queues}).
 						WithObjects(utiltesting.MakeNamespace("default")).
+						WithObjects(tc.objects...).
 						WithInterceptorFuncs(interceptor.Funcs{
 							SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 								if tc.patchStatusErr != nil {
@@ -3782,7 +3789,11 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
-					cacheOptions := []schdcache.Option{schdcache.WithResourceTransformations(tc.resourceTransformations)}
+					cacheOptions := []schdcache.Option{
+						schdcache.WithResourceTransformations(tc.resourceTransformations),
+						// The fake client serves every kind, DeviceTaintRules included.
+						schdcache.WithDeviceTaintRules(true),
+					}
 					if features.Enabled(features.SchedulerLibraryIntegration) {
 						simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 						if err != nil {
@@ -3792,8 +3803,13 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					}
 					cqCache := schdcache.New(cl, cacheOptions...)
 					fakeClock := testingclock.NewFakeClock(now)
+					preemptionExpectations := preemptexpectations.New()
 					qManager := qcache.NewManagerForUnitTests(cl, cqCache,
-						qcache.WithClock(fakeClock), qcache.WithResourceTransformations(tc.resourceTransformations))
+						qcache.WithClock(fakeClock), qcache.WithResourceTransformations(tc.resourceTransformations),
+						qcache.WithPreemptionExpectations(preemptionExpectations))
+					// Buffered so a DRA Workload handed to the workload controller doesn't block;
+					// draResources below does what that controller would.
+					qManager.SetDRAReconcileChannel(make(chan event.TypedGenericEvent[*kueue.Workload], len(testWls)))
 					topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 						return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 					})
@@ -3826,6 +3842,13 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 							t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 						}
 					}
+					for i := range testWls {
+						if resources, ok := tc.draResources[workload.Key(&testWls[i])]; ok {
+							if err := qManager.AddOrUpdateWorkload(ctx, log, &testWls[i], workload.WithPreprocessedDRAResources(resources, nil)); err != nil {
+								t.Fatalf("Queueing DRA workload %s: %v", testWls[i].Name, err)
+							}
+						}
+					}
 					for _, pod := range tc.pods {
 						cqCache.TASCache().UpdateNonTASUsage(&pod, log)
 					}
@@ -3846,7 +3869,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 							fakeClock.Step(time.Second)
 						}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
+					scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptionExpectations))
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 						func() { wg.Add(1) },

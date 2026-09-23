@@ -364,6 +364,16 @@ func main() {
 	if draBackedResources != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))
 	}
+	if features.Enabled(features.KueueDRADeviceFeasibility) {
+		// Only a discovery failure errors. Carrying on unregistered would let a scheduling
+		// cycle block on the informer once discovery recovered.
+		served, err := utildra.RegisterDeviceTaintRuleInformer(ctx, mgr)
+		if err != nil {
+			setupLog.Error(err, "Unable to watch DeviceTaintRules")
+			os.Exit(1)
+		}
+		cacheOptions = append(cacheOptions, schdcache.WithDeviceTaintRules(served))
+	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
 	// setup inadmissible workload requeuer
