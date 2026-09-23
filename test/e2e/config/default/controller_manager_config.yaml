@@ -42,6 +42,7 @@ featureGates:
   ConcurrentAdmission: true
   MultiKueueManagerQuotaAutomation: true
   TASGroupedPodSetSlicing: true
+  EnforceProvisioningPodTemplateContents: true
 tls:
   minVersion: "VersionTLS12"
   # this is the default ciphersuite for golang 1.26
