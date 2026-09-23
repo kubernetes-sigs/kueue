@@ -109,33 +109,41 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("warning about fallback before scale-up only when the capacity probe failed")
-		checkFallbackWarning := func(g gomega.Gomega) {
-			events := &eventsv1.EventList{}
-			g.Expect(k8sClient.List(ctx, events, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-			var warnings []eventsv1.Event
-			for _, event := range events.Items {
-				if event.Regarding.Name == rootWorkloadName && event.Reason == "ZeroCountFlavorFallback" {
-					warnings = append(warnings, event)
+		if wantScaleUpAdmitted {
+			gomega.Consistently(func(g gomega.Gomega) {
+				events := &eventsv1.EventList{}
+				g.Expect(k8sClient.List(ctx, events, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				var warnings []eventsv1.Event
+				for _, event := range events.Items {
+					if event.Regarding.Name == rootWorkloadName && event.Reason == "ZeroCountFlavorFallback" {
+						warnings = append(warnings, event)
+					}
 				}
-			}
-			if wantScaleUpAdmitted {
 				g.Expect(warnings).Should(gomega.BeEmpty())
-				return
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		} else {
+			checkFallbackWarning := func(g gomega.Gomega) {
+				events := &eventsv1.EventList{}
+				g.Expect(k8sClient.List(ctx, events, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				var warnings []eventsv1.Event
+				for _, event := range events.Items {
+					if event.Regarding.Name == rootWorkloadName && event.Reason == "ZeroCountFlavorFallback" {
+						warnings = append(warnings, event)
+					}
+				}
+				g.Expect(warnings).Should(gomega.HaveLen(1))
+				g.Expect(warnings[0].Type).Should(gomega.Equal(corev1.EventTypeWarning))
+				g.Expect(warnings[0].Note).Should(gomega.And(
+					gomega.ContainSubstring("Assigned flavor cpu to zero-count PodSets [main]"),
+					gomega.ContainSubstring("ClusterQueue elastic-flavor"),
+					gomega.ContainSubstring("insufficient quota for example.com/gpu in flavor cpu"),
+					gomega.ContainSubstring("insufficient quota for example.com/gpu in flavor gpu"),
+					gomega.ContainSubstring("Review capacity and flavor constraints before scaling up"),
+				))
 			}
-			g.Expect(warnings).Should(gomega.HaveLen(1))
-			g.Expect(warnings[0].Type).Should(gomega.Equal(corev1.EventTypeWarning))
-			g.Expect(warnings[0].Note).Should(gomega.And(
-				gomega.ContainSubstring("Assigned flavor cpu to zero-count PodSets [main]"),
-				gomega.ContainSubstring("ClusterQueue elastic-flavor"),
-				gomega.ContainSubstring("insufficient quota for example.com/gpu in flavor cpu"),
-				gomega.ContainSubstring("insufficient quota for example.com/gpu in flavor gpu"),
-				gomega.ContainSubstring("Review capacity and flavor constraints before scaling up"),
-			))
-		}
-		if !wantScaleUpAdmitted {
 			gomega.Eventually(checkFallbackWarning, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(checkFallbackWarning, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		}
-		gomega.Consistently(checkFallbackWarning, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("scaling the Job to two pods")
 		gomega.Eventually(func(g gomega.Gomega) {

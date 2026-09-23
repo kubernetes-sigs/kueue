@@ -799,24 +799,11 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	for _, podSets := range groupedRequests.InOrder {
 		requests := resources.NewRequests()
 		psIDs := make([]int, len(podSets))
-		var totalCount int64
 		for idx, podset := range podSets {
 			psIDs[idx] = podset.originalIndex
 			requests.Add(podset.podSet.Requests)
-			totalCount += int64(podset.podSet.Count)
 		}
-		var probeRequests resources.Requests
-		if totalCount == 0 {
-			probeRequests = resources.NewRequests()
-			for _, podset := range podSets {
-				if podset.podSet.PerPodRequests != nil {
-					probeRequests.Add(podset.podSet.PerPodRequests)
-				}
-			}
-			if a.cq.RGByResource(corev1.ResourcePods) != nil {
-				probeRequests.Set(corev1.ResourcePods, int64(len(podSets)))
-			}
-		}
+		probeRequests := a.probeRequestsFor(podSets)
 
 		consideredFlavors := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt)
 
@@ -851,18 +838,10 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				probeReason := status.Message()
 				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, resName, assignment.Usage.Quota.Assigned, assignedRequests)
 				if len(flavors) > 0 && !status.IsError() {
-					podSetNames := make([]kueue.PodSetReference, len(podSets))
-					for i, ps := range podSets {
-						podSetNames[i] = ps.podSet.Name
-					}
-					message := fmt.Sprintf("Assigned flavor %s to zero-count PodSets %v for resources %v in ClusterQueue %s. "+
-						"No considered flavor could satisfy one pod per PodSet: %s. "+
-						"Review capacity and flavor constraints before scaling up.",
-						flavors[resName].Name, podSetNames, slices.Sorted(maps.Keys(flavors)), a.cq.Name, probeReason)
 					if assignment.ZeroCountFlavorFallback != "" {
 						assignment.ZeroCountFlavorFallback += " "
 					}
-					assignment.ZeroCountFlavorFallback += message
+					assignment.ZeroCountFlavorFallback += a.zeroCountFallbackMessage(podSets, flavors, resName, probeReason)
 				}
 			}
 			mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
@@ -1108,6 +1087,38 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 	}
 
 	return 0
+}
+
+// probeRequestsFor returns one pod's requests per PodSet for an all-zero group.
+func (a *FlavorAssigner) probeRequestsFor(podSets []indexedPodSet) resources.Requests {
+	var totalCount int64
+	for _, podSet := range podSets {
+		totalCount += int64(podSet.podSet.Count)
+	}
+	if totalCount != 0 {
+		return nil
+	}
+	probeRequests := resources.NewRequests()
+	for _, podSet := range podSets {
+		if podSet.podSet.PerPodRequests != nil {
+			probeRequests.Add(podSet.podSet.PerPodRequests)
+		}
+	}
+	if a.cq.RGByResource(corev1.ResourcePods) != nil {
+		probeRequests.Set(corev1.ResourcePods, int64(len(podSets)))
+	}
+	return probeRequests
+}
+
+func (a *FlavorAssigner) zeroCountFallbackMessage(podSets []indexedPodSet, flavors ResourceAssignment, resName corev1.ResourceName, probeReason string) string {
+	podSetNames := make([]kueue.PodSetReference, len(podSets))
+	for i, ps := range podSets {
+		podSetNames[i] = ps.podSet.Name
+	}
+	return fmt.Sprintf("Assigned flavor %s to zero-count PodSets %v for resources %v in ClusterQueue %s. "+
+		"No considered flavor could satisfy one pod per PodSet: %s. "+
+		"Review capacity and flavor constraints before scaling up.",
+		flavors[resName].Name, podSetNames, slices.Sorted(maps.Keys(flavors)), a.cq.Name, probeReason)
 }
 
 // findFlavorForPodSets finds the flavor which can satisfy all the PodSet requests
