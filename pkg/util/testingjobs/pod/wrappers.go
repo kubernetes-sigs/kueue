@@ -421,6 +421,12 @@ func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
 	return p
 }
 
+// DeletionGracePeriod sets the deletion grace period recorded by the API server.
+func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
+	p.DeletionGracePeriodSeconds = &seconds
+	return p
+}
+
 // Delete sets a deletion timestamp for the pod object
 func (p *PodWrapper) Delete() *PodWrapper {
 	t := metav1.NewTime(time.Now())
