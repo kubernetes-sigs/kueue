@@ -97,19 +97,24 @@ type strategiesConsumption struct {
 func consumeStrategies(strategies iter.Seq[PreemptionStrategy], consumption strategiesConsumption) []wantStrategy {
 	gotStrategies := []wantStrategy{}
 	for strategy := range strategies {
-		targets := []wantTarget{}
+		targets := make([]*Target, 0)
 		for candidate := range strategy.candidates {
-			targets = append(targets, wantTarget{
-				Workload: workload.Key(candidate.WorkloadInfo.Obj),
-				Reason:   candidate.Reason,
-				CQ:       candidate.WorkloadCq.Name,
-			})
+			targets = append(targets, candidate)
 			if len(gotStrategies) == 0 && consumption.stopAfterFirstStrategyTargets > 0 &&
 				len(targets) >= consumption.stopAfterFirstStrategyTargets {
 				break
 			}
 		}
-		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.allowBorrowing, Targets: targets})
+		restoreSnapshot(strategy.pCtx.snapshot, targets)
+		wantTargets := make([]wantTarget, len(targets))
+		for i, target := range targets {
+			wantTargets[i] = wantTarget{
+				Workload: workload.Key(target.WorkloadInfo.Obj),
+				Reason:   target.Reason,
+				CQ:       target.WorkloadCq.Name,
+			}
+		}
+		gotStrategies = append(gotStrategies, wantStrategy{Borrowing: strategy.allowBorrowing, Targets: wantTargets})
 		if consumption.stopAfterStrategies > 0 && len(gotStrategies) >= consumption.stopAfterStrategies {
 			break
 		}

@@ -333,6 +333,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 			targets = append(targets, candidate)
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+				restoreSnapshot(strategy.pCtx.snapshot, targets)
 				if logV := log.V(6); logV.Enabled() {
 					logV.Info("Preemption succeeded",
 						"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
@@ -341,11 +342,18 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 				return targets
 			}
 		}
+		restoreSnapshot(strategy.pCtx.snapshot, targets)
 	}
 	if logV := log.V(6); logV.Enabled() {
 		logV.Info("All preemption strategies failed")
 	}
 	return nil
+}
+
+func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
+	for _, t := range targets {
+		snapshot.AddWorkload(t.WorkloadInfo)
+	}
 }
 
 func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {

@@ -60,14 +60,6 @@ func Materialize(strategies iter.Seq[PreemptionStrategy]) (result [][]*Target) {
 
 type PreemptionStrategiesFactory func(ctx context.Context, assignment *flavorassigner.Assignment) iter.Seq[PreemptionStrategy]
 
-type yieldedCandidates []*Target
-
-func (y *yieldedCandidates) restore(pCtx *preemptionCtx) {
-	for _, t := range *y {
-		pCtx.snapshot.AddWorkload(t.WorkloadInfo)
-	}
-}
-
 func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
 	log := log.FromContext(ctx)
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
@@ -117,14 +109,11 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 			allowBorrowing := opts.borrowing
 
 			candidates := func(yieldCandidate func(*Target) bool) {
-				yieldedCandidates := make(yieldedCandidates, 0)
-				defer yieldedCandidates.restore(preemptionCtx)
 
 				candidatesGenerator.Reset()
 				for candidateWl, reason := candidatesGenerator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = candidatesGenerator.Next(allowBorrowing) {
 					candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
 					preemptionCtx.snapshot.RemoveWorkload(candidateWl)
-					yieldedCandidates = append(yieldedCandidates, candidate)
 					if !yieldCandidate(candidate) {
 						return
 					}
@@ -170,8 +159,7 @@ func fairPreemptionStrategy(
 		var cont bool
 		targetsInPreemptorCQ := false
 
-		yieldedCandidates := make(yieldedCandidates, 0)
-		defer yieldedCandidates.restore(preemptionCtx)
+		yieldedCandidates := make([]*Target, 0)
 
 		// The incoming Workload's usage stays simulated while the candidates are
 		// picked, because the DominantResourceShare values have to account for it.
