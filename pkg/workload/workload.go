@@ -299,6 +299,8 @@ type PodSetResources struct {
 	Name kueue.PodSetReference
 	// Requests incorporates the requests from all pods in the podset.
 	Requests resources.Requests
+	// PerPodRequests preserves the processed, unscaled requests derived from the PodSet.
+	PerPodRequests resources.Requests
 	// Count indicates how many pods are in the podset.
 	Count int32
 
@@ -348,6 +350,9 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 		Requests: req,
 		Count:    p.Count,
 		Flavors:  maps.Clone(p.Flavors),
+	}
+	if p.PerPodRequests != nil {
+		ret.PerPodRequests = p.PerPodRequests.Clone()
 	}
 
 	if p.Count != 0 && p.Count != newCount {
@@ -805,6 +810,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		effectiveRequests := resource.MergeResourceListKeepSum(retained, generated)
 		setRes.Requests = resources.NewRequestsFromResourceList(effectiveRequests)
 		setRes.Requests.FloorToZero()
+		setRes.PerPodRequests = setRes.Requests.Clone()
 		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
