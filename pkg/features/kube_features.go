@@ -751,10 +751,11 @@ const (
 
 	// owner: @spencer-p
 	//
-	// AllowRayPodSetTopologyMutation allows relaxed comparison in ComparePodSets and
-	// mutation in validateImmutablePodSet for Ray TopologyRequest index and subgroup fields
-	// to support workload migration to rank-based ordering.
-	AllowRayPodSetTopologyMutation featuregate.Feature = "AllowRayPodSetTopologyMutation"
+	// Enables strict comparison in ComparePodSets and rejects mutation in
+	// validateImmutablePodSet for Ray TopologyRequest index and subgroup fields.
+	// When disabled (the default), relaxed comparison and mutation are allowed to
+	// prevent eviction during workload migration to rank-based ordering.
+	KubeRayEvictOnInconsistentTopologyRequest featuregate.Feature = "KubeRayEvictOnInconsistentTopologyRequest"
 )
 
 func init() {
@@ -1160,9 +1161,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PodIntegrationCountSucceededPodsAsReady: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
-	AllowRayPodSetTopologyMutation: {
-		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Deprecated},
+	KubeRayEvictOnInconsistentTopologyRequest: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha}, // Beta in 0.21
 	},
 }
 

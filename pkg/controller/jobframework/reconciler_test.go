@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1284,6 +1285,17 @@ func TestFindMatchingWorkloads(t *testing.T) {
 // whose Kind, APIVersion and Name all match the job (and whose UID matches
 // when FinishOrphanedWorkloads is enabled). Each test case provides a fully
 // constructed job and Workload.
+type jobWithCustomEquivalence struct {
+	*job.Job
+	options []equality.ComparePodSetsOption
+}
+
+var _ JobWithCustomEquivalenceOptions = (*jobWithCustomEquivalence)(nil)
+
+func (j *jobWithCustomEquivalence) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	return j.options
+}
+
 func TestEquivalentToWorkload(t *testing.T) {
 	const (
 		testJobName = "test-job"
@@ -1316,11 +1328,24 @@ func TestEquivalentToWorkload(t *testing.T) {
 		PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "not-a-bool").
 		Obj())
 
+	tasJob := (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+		UID(testJobUID).
+		PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+		Obj())
+
 	baseWl := utiltestingapi.MakeWorkload("base", testNS).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			PodSpec(baseJob().Spec.Template.Spec).
 			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 			Obj())
+
+	tasWlWithoutIndex := utiltestingapi.MakeWorkload("tas-wl", testNS).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			PodSpec(tasJob.Spec.Template.Spec).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Obj()).
+		ControllerReference(testGVK, testJobName, testJobUID).
+		Obj()
 
 	admittedWl := baseWl.Clone().
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
@@ -1482,6 +1507,18 @@ func TestEquivalentToWorkload(t *testing.T) {
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			wantErr: true,
+		},
+		"custom equivalence options: WithIgnoreTopologyIndexLabels matches missing index on workload": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          &jobWithCustomEquivalence{Job: tasJob, options: []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}},
+			wl:           tasWlWithoutIndex,
+			want:         true,
+		},
+		"without custom equivalence options: missing index on workload does not match": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          tasJob,
+			wl:           tasWlWithoutIndex,
+			want:         false,
 		},
 	}
 	for name, tc := range testCases {

@@ -125,6 +125,14 @@ var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
+
+func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -165,7 +173,6 @@ func (j *RayService) PodLabelSelector() string {
 }
 
 func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
-	ctx = equality.WithRayWorkload(ctx)
 	// Always build PodSets from RayService spec first
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {

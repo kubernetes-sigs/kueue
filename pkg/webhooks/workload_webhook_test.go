@@ -1520,8 +1520,8 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			after:   quotaReservedWithoutAdmission(now),
 			wantErr: nil,
 		},
-		"Ray workload: allow adding pod index label, subgroup index label, and subgroup count on admitted workload when AllowRayPodSetTopologyMutation enabled": {
-			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+		"Ray workload: allow adding pod index label, subgroup index label, and subgroup count on admitted workload when KubeRayEvictOnInconsistentTopologyRequest disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: false},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
 				PodSets(*utiltestingapi.MakePodSet("workers", 2).
@@ -1549,8 +1549,8 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"Ray workload: reject adding pod index label on admitted workload when AllowRayPodSetTopologyMutation disabled": {
-			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: false},
+		"Ray workload: reject adding pod index label on admitted workload when KubeRayEvictOnInconsistentTopologyRequest enabled": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: true},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
 				PodSets(*utiltestingapi.MakePodSet("workers", 2).
@@ -1578,8 +1578,8 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(podSetsPath.Child("0"), nil, apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
-		"Non-Ray workload: reject adding pod index label on admitted workload even when AllowRayPodSetTopologyMutation enabled": {
-			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+		"Non-Ray workload: reject adding pod index label on admitted workload even when KubeRayEvictOnInconsistentTopologyRequest disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: false},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("workers", 2).
 					RequiredTopologyRequest(corev1.LabelHostname).
@@ -1606,7 +1606,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"Ray workload: allow adding TopologyRequest with only SubGroupCount when previously nil on admitted workload": {
-			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: false},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
 				PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
@@ -1630,7 +1630,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		"Ray workload: reject mutating actual topology constraints on admitted workload": {
-			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: false},
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
 				PodSets(*utiltestingapi.MakePodSet("workers", 2).

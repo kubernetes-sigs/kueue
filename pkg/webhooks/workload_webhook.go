@@ -501,7 +501,7 @@ func validateImmutablePodSet(ctx context.Context, new, old kueue.PodSet, path *f
 		// Allow scale-down for elastic jobs.
 		new.Count = old.Count
 	}
-	if features.Enabled(features.AllowRayPodSetTopologyMutation) && equality.IsRayWorkload(ctx) {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) && equality.IsRayWorkload(ctx) {
 		if new.TopologyRequest != nil && old.TopologyRequest != nil {
 			oldTR := old.TopologyRequest.DeepCopy()
 			oldTR.PodIndexLabel = new.TopologyRequest.PodIndexLabel

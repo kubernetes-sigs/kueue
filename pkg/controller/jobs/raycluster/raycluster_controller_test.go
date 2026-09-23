@@ -857,3 +857,32 @@ func TestReconciler(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomEquivalenceOptions(t *testing.T) {
+	cases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		wantEmpty    bool
+	}{
+		"feature gate disabled (default): returns WithIgnoreTopologyIndexLabels": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: false},
+			wantEmpty:    false,
+		},
+		"feature gate enabled: returns nil": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: true},
+			wantEmpty:    true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			cluster := &RayCluster{}
+			opts := cluster.CustomEquivalenceOptions(t.Context(), nil, nil)
+			if tc.wantEmpty && len(opts) != 0 {
+				t.Errorf("CustomEquivalenceOptions() = %v, want nil", opts)
+			}
+			if !tc.wantEmpty && len(opts) == 0 {
+				t.Errorf("CustomEquivalenceOptions() = nil, want non-empty")
+			}
+		})
+	}
+}

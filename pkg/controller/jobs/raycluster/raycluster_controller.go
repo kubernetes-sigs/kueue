@@ -79,6 +79,14 @@ type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
+
+func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
 
 func (j *RayCluster) Object() client.Object {
 	return (*rayv1.RayCluster)(j)
@@ -105,7 +113,6 @@ func (j *RayCluster) PodLabelSelector() string {
 }
 
 func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	ctx = equality.WithRayWorkload(ctx)
 	podSets, err := BuildPodSets(&j.Spec, j.Annotations)
 	if err != nil {
 		return nil, err
