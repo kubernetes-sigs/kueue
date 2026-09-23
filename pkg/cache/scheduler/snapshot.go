@@ -66,9 +66,6 @@ type Snapshot struct {
 // updates resource usage.
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
-	if _, exists := cq.Workloads[workload.Key(wl.Obj)]; !exists {
-		return
-	}
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	s.removeUsage(cq, wl.Usage())
 }
@@ -77,9 +74,6 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 // updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
-	if _, alreadyExists := cq.Workloads[workload.Key(wl.Obj)]; alreadyExists {
-		return
-	}
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	s.AddUsage(cq, wl.Usage())
 }
