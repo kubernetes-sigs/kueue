@@ -42,26 +42,8 @@ Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/d
 - **No AI authorship markers.** Do not add AI co-author lines, `assisted-by`, `co-developed`, or similar commit trailers.
 - **No auto-close keywords or `#` mentions in commit messages.** [Keywords which can automatically close issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue) (for example `Fixes #123`) and `#` mentions are not allowed in commit messages — Prow flags them with the `do-not-merge/invalid-commit-message` label. Put issue references in the PR description instead.
 
-### Opening pull requests
-
-- Read `.github/PULL_REQUEST_TEMPLATE.md` and fill its existing sections.
- Preserve their titles and order; do not add, remove, rename, or combine
- sections.
-- Before submitting or updating the description, check it against the template.
-- CodeRabbit AI (@coderabbitai) may append its `AI summary` section,
- including `Suggested release note`.
-
-### Opening issues
-
-- Inspect `.github/ISSUE_TEMPLATE/`, select the single template that best
- matches the issue type, and read it in full.
-- Apply all labels specified in the selected template's `labels` field,
- including every `kind/*` label when multiple are listed.
-- Fill its existing sections. Preserve their titles and order; do not add,
- remove, rename, or combine sections.
-- Start the title with the emoji from the template's `title` field.
-- When CodeRabbit AI (@coderabbitai) opens an issue on behalf of a contributor,
-  mention the requester as @username and include a link to the comment requesting the issue.
+For step-by-step guidance on opening pull requests and issues, follow the
+[kueue-pr-issue-workflow](cmd/experimental/skills/kueue-pr-issue-workflow/SKILL.md) skill.
 
 ## Skills
 

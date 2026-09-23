@@ -20,11 +20,11 @@ import (
 	"fmt"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
+	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -72,18 +72,14 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		roleBindingName = "sparkapplication-sa-edit-" + ns.Name
 
 		sa = &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      serviceAccountName,
-				Namespace: ns.Name,
-			},
+			Name:      serviceAccountName,
+			Namespace: ns.Name,
 		}
 		util.MustCreate(ctx, k8sClient, sa)
 
 		rb := &rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      roleBindingName,
-				Namespace: ns.Name,
-			},
+			Name:      roleBindingName,
+			Namespace: ns.Name,
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      rbacv1.ServiceAccountKind,
@@ -116,7 +112,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
 						Resource(corev1.ResourceCPU, "1").
-						Resource(corev1.ResourceMemory, "1Gi").
+						Resource(corev1.ResourceMemory, "2Gi").
 						Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -182,6 +178,30 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 			})
 
+			ginkgo.By("Check the workload reserves the resources Spark requests for its Pods", func() {
+				for _, ps := range createdWorkload.Spec.PodSets {
+					pods := &corev1.PodList{}
+					// The driver creates the executor Pods only once it is running, so
+					// they may not exist yet when the SparkApplication becomes Running.
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
+							sparkcommon.LabelSparkAppName: sparkApp.Name,
+							sparkcommon.LabelSparkRole:    string(ps.Name),
+						})).To(gomega.Succeed())
+						g.Expect(pods.Items).To(gomega.HaveLen(int(ps.Count)), "unexpected number of %s pods", ps.Name)
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					want := ps.Template.Spec.Containers[0].Resources.Requests
+					for _, pod := range pods.Items {
+						got := pod.Spec.Containers[0].Resources.Requests
+						for _, res := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+							gotQuantity, wantQuantity := got[res], want[res]
+							gomega.Expect(gotQuantity.Equal(wantQuantity)).To(gomega.BeTrueBecause(
+								"%s pod %s requests %s of %s, workload reserved %s", ps.Name, pod.Name, gotQuantity.String(), res, wantQuantity.String()))
+						}
+					}
+				}
+			})
+
 			ginkgo.By("Check workload is finished", func() {
 				// Using longer timeout instead of util.ExpectWorkloadToFinish
 				// because SparkApplication may take longer time to finish
@@ -218,7 +238,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
 						Resource(corev1.ResourceCPU, "1").
-						Resource(corev1.ResourceMemory, "1Gi").
+						Resource(corev1.ResourceMemory, "2Gi").
 						Obj(),
 				).
 				Obj()

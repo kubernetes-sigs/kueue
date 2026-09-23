@@ -243,12 +243,16 @@ func TestMultiKueueAdapter(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			managerBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			managerBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
+				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+			})
 			managerBuilder = managerBuilder.WithLists(&leaderworkersetv1.LeaderWorkerSetList{Items: tc.managersLeaderWorkerSets})
 			managerBuilder = managerBuilder.WithStatusSubresource(slices.Map(tc.managersLeaderWorkerSets, func(w *leaderworkersetv1.LeaderWorkerSet) client.Object { return w })...)
 			managerClient := managerBuilder.Build()
 
-			workerBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+			workerBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
+				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+			})
 			workerBuilder = workerBuilder.WithLists(&leaderworkersetv1.LeaderWorkerSetList{Items: tc.workerLeaderWorkerSets})
 			workerClient := workerBuilder.Build()
 
@@ -293,49 +297,39 @@ func TestGetWorkloadIndex(t *testing.T) {
 	}{
 		"workload with index 0": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "0",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "0",
 				},
 			},
 			wantIndex: 0,
 		},
 		"workload with index 5": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "5",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "5",
 				},
 			},
 			wantIndex: 5,
 		},
 		"workload with index 10": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "10",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "10",
 				},
 			},
 			wantIndex: 10,
 		},
 		"workload with index 100": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "100",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "100",
 				},
 			},
 			wantIndex: 100,
 		},
 		"workload without annotation": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{},
-				},
+				Annotations: map[string]string{},
 			},
 			wantIndex: -1,
 		},
@@ -347,10 +341,8 @@ func TestGetWorkloadIndex(t *testing.T) {
 		},
 		"workload with non-numeric index": {
 			workload: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						"kueue.x-k8s.io/component-workload-index": "abc",
-					},
+				Annotations: map[string]string{
+					"kueue.x-k8s.io/component-workload-index": "abc",
 				},
 			},
 			wantIndex: -1,

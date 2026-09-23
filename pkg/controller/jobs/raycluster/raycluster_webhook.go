@@ -92,7 +92,9 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj *rayv1.RayCluster) 
 	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
+	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object(), w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -216,14 +218,14 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 		)
 	}
 
-	// MultiKueue does not support Ray autoscaling yet.
 	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) &&
-		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName {
+		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName &&
+		!features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
 		allErrors = append(
 			allErrors,
 			field.Forbidden(
 				specPath.Child("enableInTreeAutoscaling"),
-				"in-tree autoscaling is not supported for a MultiKueue-managed elastic RayCluster",
+				fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic RayCluster requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
 			),
 		)
 	}

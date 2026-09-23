@@ -99,7 +99,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -156,6 +156,21 @@ define _e2e_common_test_recipe
 bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
 endef
 
+define _release_utils_test_recipe
+@venv_dir=$$(mktemp -d); \
+trap 'rm -r "$$venv_dir"' EXIT; \
+python3 -m venv "$$venv_dir"; \
+"$$venv_dir/bin/python" -m pip install \
+	--disable-pip-version-check \
+	--no-deps \
+	--only-binary=:all: \
+	--require-hashes \
+	--requirement $(PROJECT_DIR)/hack/releasing/requirements.txt; \
+PYTHONPATH=$(PROJECT_DIR)/hack/releasing "$$venv_dir/bin/python" -m unittest discover \
+	-s $(PROJECT_DIR)/hack/releasing \
+	-p '*_test.py'
+endef
+
 define _helm_verify_recipe
 $(HELM) lint charts/kueue
 $(HELM) template charts/kueue > /dev/null
@@ -187,11 +202,16 @@ endef
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+$(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
 endef
 
 
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
+
+.PHONY: verify-artifacts
+verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
+verify-artifacts: verify-tree-prereqs verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Build artifacts after ensuring generated code is up to date.
+	$(_artifacts_recipe)
 
 .PHONY: verify-ci-lint
 verify-ci-lint: verify-tree-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
@@ -212,6 +232,14 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 .PHONY: verify-e2e-common-test
 verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
 	$(_e2e_common_test_recipe)
+
+.PHONY: verify-release-utils-test
+verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit tests after generation
+	$(_release_utils_test_recipe)
+
+.PHONY: verify-test-performance-multikueue-runner
+verify-test-performance-multikueue-runner: verify-tree-prereqs ## MultiKueue performance runner unit tests after generation
+	$(MAKE) test-performance-multikueue-runner
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
@@ -270,6 +298,10 @@ shell-lint: ## Run shell script linting (via shellcheck).
 .PHONY: e2e-common-test
 e2e-common-test: ## Run e2e-common shell helper tests.
 	$(_e2e_common_test_recipe)
+
+.PHONY: release-utils-test
+release-utils-test: ## Run release utility Python unit tests.
+	$(_release_utils_test_recipe)
 
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.

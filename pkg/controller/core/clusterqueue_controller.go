@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -327,6 +326,21 @@ func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.
 	}
 }
 
+func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.Cohort) {
+	var cohortName kueue.CohortReference
+	switch {
+	case newCohort != nil:
+		cohortName = kueue.CohortReference(newCohort.Name)
+	case oldCohort != nil:
+		cohortName = kueue.CohortReference(oldCohort.Name)
+	default:
+		return
+	}
+	r.nonCQObjectUpdateCh <- event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]]{
+		Object: slices.Values(r.cache.ClusterQueuesUsingCohort(cohortName)),
+	}
+}
+
 // Event handlers return true to signal the controller to reconcile the
 // ClusterQueue associated with the event.
 
@@ -482,9 +496,8 @@ func (h *nonCQObjectHandler) Delete(context.Context, event.TypedDeleteEvent[iter
 }
 func (h *nonCQObjectHandler) Generic(_ context.Context, e event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	for cq := range e.Object {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-			Name: string(cq),
-		}}, constants.UpdatesBatchPeriod)
+		q.AddAfter(reconcile.Request{
+			Name: string(cq)}, constants.UpdatesBatchPeriod)
 	}
 }
 
@@ -512,6 +525,8 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
 
+// updateCqStatusIfChanged recomputes the ClusterQueue status from the queue manager and the cache,
+// and writes it to the API server only when it differs from the current status.
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	ctx context.Context,
 	cq *kueue.ClusterQueue,
@@ -559,7 +574,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	} else {
 		cq.Status.FairSharing = nil
 	}
-	if !equality.Semantic.DeepEqual(cq.Status, oldStatus) {
+	if !equality.Semantic.DeepEqual(&cq.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cq)
 	}
 	return nil

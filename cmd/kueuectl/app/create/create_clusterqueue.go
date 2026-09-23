@@ -19,6 +19,7 @@ package create
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -37,7 +39,6 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -78,11 +79,10 @@ var (
 )
 
 var (
-	errResourceQuotaNotFound = errors.New("resource quota not found")
-	errInvalidFlavor         = errors.New("invalid flavor")
-	errInvalidResourceGroup  = errors.New("invalid resource group")
-	errInvalidResourceQuota  = errors.New("invalid resource quota")
-	errInvalidResourcesSpec  = errors.New("invalid resources specification")
+	errMisconfiguredFlavor  = errors.New("misconfigured flavor")
+	errInvalidResourceGroup = errors.New("invalid resource group")
+	errInvalidResourceQuota = errors.New("invalid resource quota")
+	errInvalidResourcesSpec = errors.New("invalid resources specification")
 )
 
 type ClusterQueueOptions struct {
@@ -266,8 +266,8 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 
 func (o *ClusterQueueOptions) createClusterQueue() *kueue.ClusterQueue {
 	return &kueue.ClusterQueue{
-		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ClusterQueue"},
-		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
+		APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ClusterQueue",
+		Name: o.Name,
 		Spec: kueue.ClusterQueueSpec{
 			CohortName:        kueue.CohortReference(o.Cohort),
 			QueueingStrategy:  o.QueueingStrategy,
@@ -334,7 +334,9 @@ func parseUserSpecifiedResourceQuotas(resources []string, quotaType string) ([]k
 
 func toResourceGroup(spec, quotaType string) (kueue.ResourceGroup, error) {
 	flavorName, userSpecifiedResources := parseKeyValue(spec, ":")
-	resourceSpecs := strings.Split(userSpecifiedResources, ";")
+	// The spec regex allows a single trailing ";", which would otherwise
+	// produce an empty resource spec after splitting.
+	resourceSpecs := strings.Split(strings.TrimSuffix(userSpecifiedResources, ";"), ";")
 	flavorQuotas, err := toFlavorQuotas(flavorName, resourceSpecs, quotaType)
 	if err != nil {
 		return kueue.ResourceGroup{}, err
@@ -360,11 +362,16 @@ func getCoveredResources(resourceSpecs []string) []corev1.ResourceName {
 
 func toFlavorQuotas(name string, resourceSpecs []string, quotaType string) (kueue.FlavorQuotas, error) {
 	resourceQuotas := make([]kueue.ResourceQuota, 0, len(resourceSpecs))
+	seen := sets.New[corev1.ResourceName]()
 	for _, spec := range resourceSpecs {
 		rq, err := toResourceQuota(spec, quotaType)
 		if err != nil {
 			return kueue.FlavorQuotas{}, err
 		}
+		if seen.Has(rq.Name) {
+			return kueue.FlavorQuotas{}, fmt.Errorf("%w %q: resource %q is specified more than once in --%s", errMisconfiguredFlavor, name, rq.Name, quotaType)
+		}
+		seen.Insert(rq.Name)
 
 		resourceQuotas = append(resourceQuotas, rq)
 	}
@@ -424,78 +431,97 @@ func mergeResourcesByFlavor(resourceGroups []kueue.ResourceGroup) ([]kueue.Resou
 		var err error
 		mergedResources[idx].Flavors[0].Resources, err = mergeResourceQuotas(mergedResources[idx].Flavors[0].Resources, rg.Flavors[0].Resources)
 		if err != nil {
-			// multiple FlavorQuotas with same name have been found but resources listed don't match
-			return mergedResources, errInvalidFlavor
+			return mergedResources, fmt.Errorf("%w %q: %w", errMisconfiguredFlavor, flavorName, err)
 		}
 	}
 
 	return mergedResources, nil
 }
 
+// mergeResourceQuotas merges rQuotas2, the ResourceQuotas freshly parsed from
+// one flag for a flavor, into rQuotas1, the quotas already accumulated for that
+// flavor. Flags are concatenated in nominal, borrowing, lending order, so when
+// --nominal-quota names the flavor it is always the first list seen.
+//
+// Every resource in rQuotas1 is kept, whether or not rQuotas2 mentions it,
+// because borrowingLimit and lendingLimit are optional per resource. A resource
+// that appears only in rQuotas2 is rejected rather than silently dropped, as is
+// a resource whose value is given twice by the same flag.
 func mergeResourceQuotas(rQuotas1, rQuotas2 []kueue.ResourceQuota) ([]kueue.ResourceQuota, error) {
-	var mergedResourceQuotas []kueue.ResourceQuota
+	mergedResourceQuotas := make([]kueue.ResourceQuota, 0, len(rQuotas1))
+	matched := make([]bool, len(rQuotas2))
 
 	for _, rq1 := range rQuotas1 {
 		idx := slices.IndexFunc(rQuotas2, func(rq kueue.ResourceQuota) bool { return rq.Name == rq1.Name })
-		if idx == -1 {
-			// both ResourceQuota lists should contain exactly the same resource names
-			return mergedResourceQuotas, errResourceQuotaNotFound
+		if idx != -1 {
+			matched[idx] = true
+			rq2 := rQuotas2[idx]
+			// --nominal-quota is always the first list for a flavor, so a matched
+			// nominal entry in rQuotas2 is a repeat regardless of its value.
+			quotaType := quotaTypeOf(rq2)
+			if quotaType == nominalQuota ||
+				(quotaType == borrowingLimit && rq1.BorrowingLimit != nil) ||
+				(quotaType == lendingLimit && rq1.LendingLimit != nil) {
+				return nil, fmt.Errorf("resource %q is specified more than once in --%s", rq1.Name, quotaType)
+			}
+			if rq1.BorrowingLimit == nil {
+				rq1.BorrowingLimit = rq2.BorrowingLimit
+			}
+			if rq1.LendingLimit == nil {
+				rq1.LendingLimit = rq2.LendingLimit
+			}
 		}
-
-		rq2 := rQuotas2[idx]
-		if rq1.NominalQuota.IsZero() {
-			rq1.NominalQuota = rq2.NominalQuota
-		}
-		if rq1.BorrowingLimit == nil {
-			rq1.BorrowingLimit = rq2.BorrowingLimit
-		}
-		if rq1.LendingLimit == nil {
-			rq1.LendingLimit = rq2.LendingLimit
-		}
-
 		mergedResourceQuotas = append(mergedResourceQuotas, rq1)
+	}
+
+	for idx, rq2 := range rQuotas2 {
+		if matched[idx] {
+			continue
+		}
+		quotaType := quotaTypeOf(rq2)
+		if quotaType == nominalQuota {
+			return nil, fmt.Errorf("flavor is specified more than once in --%s", nominalQuota)
+		}
+		return nil, fmt.Errorf("resource %q is set in --%s but has no matching --%s", rq2.Name, quotaType, nominalQuota)
 	}
 
 	return mergedResourceQuotas, nil
 }
 
+// quotaTypeOf returns the flag a freshly parsed ResourceQuota came from.
+// toResourceQuota sets exactly one of the three fields, so the set field
+// identifies the flag. Only call it on an unmerged ResourceQuota.
+func quotaTypeOf(rq kueue.ResourceQuota) string {
+	switch {
+	case rq.BorrowingLimit != nil:
+		return borrowingLimit
+	case rq.LendingLimit != nil:
+		return lendingLimit
+	default:
+		return nominalQuota
+	}
+}
+
 func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kueue.ResourceGroup, error) {
 	var mergedResources []kueue.ResourceGroup
 
-	indexByResourceGroupID := make(map[string]int)
-	var index int
+	coveredResources := sets.New[corev1.ResourceName]()
 	for _, rg := range resourceGroups {
-		resourcesGroupID := getResourcesGroupID(rg.CoveredResources)
-		if idx, found := indexByResourceGroupID[resourcesGroupID]; found {
+		resourceGroupResources := sets.New(rg.CoveredResources...)
+		idx := slices.IndexFunc(mergedResources, func(existing kueue.ResourceGroup) bool {
+			return resourceGroupResources.Equal(sets.New(existing.CoveredResources...))
+		})
+		if idx != -1 {
 			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 			continue
 		}
 
-		if !isResourceGroupValid(indexByResourceGroupID, resourcesGroupID) {
+		if coveredResources.HasAny(rg.CoveredResources...) {
 			return mergedResources, errInvalidResourceGroup
 		}
 		mergedResources = append(mergedResources, rg)
-		indexByResourceGroupID[resourcesGroupID] = index
-		index++
+		coveredResources.Insert(rg.CoveredResources...)
 	}
 
 	return mergedResources, nil
-}
-
-func getResourcesGroupID(coveredResources []corev1.ResourceName) string {
-	s := utilslices.Map(coveredResources, func(rn *corev1.ResourceName) string { return string(*rn) })
-	slices.Sort(s)
-
-	return strings.Join(s, ".")
-}
-
-func isResourceGroupValid(indexByResourceGroup map[string]int, newResourceGroup string) bool {
-	// check that new resource groups doesn't share resources with another group
-	for k := range indexByResourceGroup {
-		if strings.Contains(k, newResourceGroup) {
-			return false
-		}
-	}
-
-	return true
 }

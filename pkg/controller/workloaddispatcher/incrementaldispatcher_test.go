@@ -17,7 +17,6 @@ limitations under the License.
 package workloaddispatcher
 
 import (
-	"context"
 	"slices"
 	"testing"
 	"time"
@@ -34,7 +33,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -160,7 +158,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 			}
 
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: workloadName}}
+			req := ctrl.Request{Namespace: metav1.NamespaceDefault, Name: workloadName}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
@@ -349,12 +347,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 
 			objs := []client.Object{tc.workload}
 			client := fake.NewClientBuilder().WithScheme(scheme).
-				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						tc.workload.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
-					},
-				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
+				WithObjects(objs...).WithStatusSubresource(objs...).Build()
 
 			reconciler := &IncrementalDispatcherReconciler{
 				client:          client,

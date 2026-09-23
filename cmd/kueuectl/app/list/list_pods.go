@@ -19,9 +19,11 @@ package list
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 var (
@@ -75,6 +78,8 @@ type PodOptions struct {
 	ForGVK                 schema.GroupVersionKind
 	ForObject              *unstructured.Unstructured
 	PodLabelSelector       string
+	PodFieldSelector       string
+	PodAnnotationSelector  *podAnnotationSelector
 	IntegrationManager     *jobframework.IntegrationManager
 
 	Clientset k8s.Interface
@@ -109,7 +114,7 @@ func NewPodCmd(clientGetter clientgetter.ClientGetter, streams genericiooptions.
 			if o.ForObject == nil {
 				return nil
 			}
-			if len(o.PodLabelSelector) == 0 {
+			if len(o.PodLabelSelector) == 0 && len(o.PodFieldSelector) == 0 && o.PodAnnotationSelector == nil {
 				return fmt.Errorf("unsupported kind: %s", o.ForObject.GetKind())
 			}
 			return o.Run(clientGetter)
@@ -185,7 +190,61 @@ func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 		return err
 	}
 
+	if err := o.completePodSelectors(); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// completePodSelectors adjusts the selectors when --for points to a Pod. A pod group that
+// keys its members by a label is already covered by getPodLabelSelector; the other two
+// cases are not.
+func (o *PodOptions) completePodSelectors() error {
+	if o.ForGVK != corev1.SchemeGroupVersion.WithKind("Pod") {
+		return nil
+	}
+	var pod corev1.Pod
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(o.ForObject.UnstructuredContent(), &pod); err != nil {
+		return fmt.Errorf("failed to convert unstructured object: %w", err)
+	}
+
+	if pod.Labels[podconstants.GroupNameLabel] != "" {
+		return nil
+	}
+
+	// The group name may live in an annotation instead. It is read directly rather than
+	// through utilpod.GetPodGroupName because that helper consults the
+	// WorkloadIdentifierAnnotations feature gate, and this runs in the kueuectl binary,
+	// whose gates are unrelated to those of the cluster that wrote the annotation.
+	if groupName := pod.Annotations[podconstants.GroupNameAnnotation]; groupName != "" {
+		// Label selectors cannot match annotations, so the members are listed without a
+		// pod group selector and filtered client-side instead.
+		o.PodLabelSelector = ""
+		o.PodAnnotationSelector = &podAnnotationSelector{
+			key:   podconstants.GroupNameAnnotation,
+			value: groupName,
+		}
+		return nil
+	}
+
+	// A Pod without a group name has no label shared with other members,
+	// so a label selector cannot find it. Select it by name instead.
+	o.PodLabelSelector = ""
+	o.PodFieldSelector = fmt.Sprintf("metadata.namespace=%s,metadata.name=%s", pod.Namespace, pod.Name)
+
+	return nil
+}
+
+// podAnnotationSelector identifies the pods of a group whose name lives in an annotation,
+// which the API server cannot select on.
+type podAnnotationSelector struct {
+	key   string
+	value string
+}
+
+func (s *podAnnotationSelector) matches(annotations map[string]string) bool {
+	return annotations[s.key] == s.value
 }
 
 // getForObjectInfos builds and executes a dynamic client query for a resource specified in --for
@@ -251,6 +310,11 @@ func (o *PodOptions) getPodLabelSelector() (string, error) {
 	return jobWithPodLabelSelector.PodLabelSelector(), nil
 }
 
+// joinSelectors joins non-empty selector requirements with commas.
+func joinSelectors(selectors ...string) string {
+	return strings.Join(slices.DeleteFunc(selectors, func(s string) bool { return s == "" }), ",")
+}
+
 type trackingWriterWrapper struct {
 	Delegate io.Writer
 	Written  int
@@ -276,9 +340,19 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 		return err
 	}
 
-	for _, pod := range infos {
-		if err = printer.PrintObj(pod.Object, tabWriter); err != nil {
+	if o.shouldPrintPodList() && len(infos) > 0 {
+		podList, err := podListFromInfos(infos)
+		if err != nil {
 			return err
+		}
+		if err = printer.PrintObj(podList, tabWriter); err != nil {
+			return err
+		}
+	} else {
+		for _, pod := range infos {
+			if err = printer.PrintObj(pod.Object, tabWriter); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -291,6 +365,28 @@ func (o *PodOptions) Run(clientGetter clientgetter.ClientGetter) error {
 	}
 
 	return nil
+}
+
+func (o *PodOptions) shouldPrintPodList() bool {
+	outputFormat := ptr.Deref(o.PrintFlags.OutputFormat, "")
+	return outputFormat == "json" || outputFormat == "yaml"
+}
+
+func podListFromInfos(infos []*resource.Info) (*unstructured.UnstructuredList, error) {
+	podList := &unstructured.UnstructuredList{
+		Items: make([]unstructured.Unstructured, len(infos)),
+	}
+	podList.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("PodList"))
+
+	for i, info := range infos {
+		pod, ok := info.Object.(*unstructured.Unstructured)
+		if !ok {
+			return nil, fmt.Errorf("unexpected type %T", info.Object)
+		}
+		podList.Items[i] = *pod
+	}
+
+	return podList, nil
 }
 
 func (o *PodOptions) ToPrinter() (printers.ResourcePrinterFunc, error) {
@@ -324,15 +420,10 @@ func (o *PodOptions) getPodsInfos(clientGetter clientgetter.ClientGetter) ([]*re
 		namespace = ""
 	}
 
-	podLabelSelector := o.PodLabelSelector
-	if len(o.LabelSelector) != 0 {
-		podLabelSelector = "," + o.PodLabelSelector
-	}
-
 	r := clientGetter.NewResourceBuilder().Unstructured().
 		NamespaceParam(namespace).DefaultNamespace().AllNamespaces(o.AllNamespaces).
-		FieldSelectorParam(o.FieldSelector).
-		LabelSelectorParam(o.LabelSelector+podLabelSelector).
+		FieldSelectorParam(joinSelectors(o.FieldSelector, o.PodFieldSelector)).
+		LabelSelectorParam(joinSelectors(o.LabelSelector, o.PodLabelSelector)).
 		ResourceTypeOrNameArgs(true, "pods").
 		ContinueOnError().
 		RequestChunksOf(o.Limit).
@@ -350,7 +441,67 @@ func (o *PodOptions) getPodsInfos(clientGetter clientgetter.ClientGetter) ([]*re
 		return nil, err
 	}
 
+	if o.PodAnnotationSelector != nil {
+		return filterPodsByAnnotation(infos, o.PodAnnotationSelector)
+	}
+
 	return infos, nil
+}
+
+// filterPodsByAnnotation drops the pods that do not carry the selector's annotation.
+//
+// With server-side printing each info holds a Table whose rows embed the pod metadata, so
+// the rows are filtered in place; otherwise each info holds a single pod.
+func filterPodsByAnnotation(infos []*resource.Info, selector *podAnnotationSelector) ([]*resource.Info, error) {
+	filtered := make([]*resource.Info, 0, len(infos))
+
+	for _, info := range infos {
+		obj, ok := info.Object.(*unstructured.Unstructured)
+		if !ok {
+			return nil, fmt.Errorf("unexpected type %T", info.Object)
+		}
+
+		if obj.GetKind() != "Table" {
+			if selector.matches(obj.GetAnnotations()) {
+				filtered = append(filtered, info)
+			}
+			continue
+		}
+
+		if err := filterTableRowsByAnnotation(obj, selector); err != nil {
+			return nil, err
+		}
+		filtered = append(filtered, info)
+	}
+
+	return filtered, nil
+}
+
+func filterTableRowsByAnnotation(table *unstructured.Unstructured, selector *podAnnotationSelector) error {
+	rows, found, err := unstructured.NestedSlice(table.Object, "rows")
+	if err != nil {
+		return fmt.Errorf("failed to read table rows: %w", err)
+	}
+	if !found {
+		return nil
+	}
+
+	filtered := make([]any, 0, len(rows))
+	for _, row := range rows {
+		rowMap, ok := row.(map[string]any)
+		if !ok {
+			return fmt.Errorf("unexpected table row type %T", row)
+		}
+		annotations, _, err := unstructured.NestedStringMap(rowMap, "object", "metadata", "annotations")
+		if err != nil {
+			return fmt.Errorf("failed to read table row annotations: %w", err)
+		}
+		if selector.matches(annotations) {
+			filtered = append(filtered, row)
+		}
+	}
+
+	return unstructured.SetNestedSlice(table.Object, filtered, "rows")
 }
 
 func (o *PodOptions) transformRequests(req *rest.Request) {

@@ -381,10 +381,8 @@ func TestPodSets(t *testing.T) {
 						},
 						RestartPolicy: corev1.RestartPolicyNever,
 					},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 				}).
 				Obj()),
@@ -926,10 +924,13 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		podSetsInfo []podset.PodSetInfo
 		wantChanged bool
 	}{
-		"fewer podSetsInfo than expected is a no-op": {
-			job:         baseJob.Clone().Obj(),
+		"fewer podSetsInfo than expected skips restore but clears runtime annotations": {
+			job: baseJob.Clone().
+				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"group1","count":2}]`).
+				Annotation(raycluster.RayClusterGenerationAnnotation, "worker-2").
+				Obj(),
 			podSetsInfo: []podset.PodSetInfo{{}, {}},
-			wantChanged: false,
+			wantChanged: true,
 		},
 		"more podSetsInfo than expected is a no-op": {
 			job:         baseJob.Clone().Obj(),
@@ -967,6 +968,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			genJob := (*RayJob)(tc.job)
 			if gotChanged := genJob.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
 				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+			for _, key := range []string{raycluster.RayClusterPodsetReplicaSizesAnnotation, raycluster.RayClusterGenerationAnnotation} {
+				if _, found := tc.job.Annotations[key]; found {
+					t.Errorf("RestorePodSetsInfo() did not clear annotation %q", key)
+				}
 			}
 		})
 	}

@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 			ginkgo.By("Creating a new Workload")
 			// Not using the wrappers to avoid hiding any defaulting.
 			workload := kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
+				Name: workloadName, Namespace: ns.Name,
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet("", 1).
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 			ginkgo.By("Creating a new Workload")
 			// Not using the wrappers to avoid hiding any defaulting.
 			workload := kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
+				Name: workloadName, Namespace: ns.Name,
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet("", 1).

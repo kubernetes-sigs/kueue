@@ -25,6 +25,9 @@ kueuectl version
 ```
   # Prints the client version and the kueue controller manager image, if installed
   kueuectl version
+  
+  # Look up the controller manager in a custom install namespace
+  kueuectl version -n kueue
 ```
 
 
@@ -182,6 +185,15 @@ kueuectl version
         <td></td>
         <td style="line-height: 130%; word-wrap: break-word;">
             <p>If present, the namespace scope for this CLI request</p>
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2">--proxy-url string</td>
+    </tr>
+    <tr>
+        <td></td>
+        <td style="line-height: 130%; word-wrap: break-word;">
+            <p>Proxy URL to use for requests to the API server</p>
         </td>
     </tr>
     <tr>

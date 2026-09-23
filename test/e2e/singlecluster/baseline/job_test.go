@@ -142,10 +142,8 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 		ginkgo.It("Should allow to schedule Jobs via CronJob", func() {
 			cronJob := &batchv1.CronJob{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cronjob",
-					Namespace: ns.Name,
-				},
+				Name:      "test-cronjob",
+				Namespace: ns.Name,
 				Spec: batchv1.CronJobSpec{
 					Schedule:          "* * * * *",
 					ConcurrencyPolicy: batchv1.ForbidConcurrent,
@@ -583,7 +581,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			})
 
 			highCreatedWorkload := &kueue.Workload{}
-			highWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: ns.Name}
+			highWlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("Checking that the high-priority workload is created and admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {

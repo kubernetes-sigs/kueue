@@ -56,6 +56,14 @@ export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 # Shared by `e2e_docker_pull_if_needed` and `e2e_docker_manifest_available` below.
 export E2E_NON_RETRIABLE_IMAGE_ERRORS="no such manifest|manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
 
+# Retriable: transport-level failures reaching a git remote.
+# Composed from git's transport error strings; extend it as CI hits new ones.
+export E2E_RETRIABLE_GIT_ERRORS="could not resolve host|connection refused|connection reset by peer|connection timed out|operation timed out|rpc failed|early eof|remote end hung up unexpectedly|gnutls_handshake|ssl_error|tls handshake timeout|500 internal server error|502 bad gateway|503 service unavailable"
+
+# Retriable: registry and module proxy failures during an image build.
+# Duplicates IMAGE_BUILD_RETRIABLE_ERRORS, which Make does not export to this script.
+export E2E_RETRIABLE_IMAGE_BUILD_ERRORS="context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout|stream error: stream ID [0-9]+; INTERNAL_ERROR|http2: server sent GOAWAY|500 Internal Server Error|i/o timeout"
+
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
         echo "Skipping kind node image build for non-standard image: $E2E_KIND_VERSION"
@@ -304,6 +312,10 @@ if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$G
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
+if [[ "${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
+    export PROVISIONING_REQUEST_CRDS=${ROOT_DIR}/dep-crds/cluster-autoscaler/
+fi
+
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
@@ -325,6 +337,8 @@ if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
     export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
     export PROMETHEUS_OPERATOR_IMAGE="quay.io/prometheus-operator/prometheus-operator:${PROMETHEUS_OPERATOR_VERSION}"
     export PROMETHEUS_CONFIG_RELOADER_IMAGE="quay.io/prometheus-operator/prometheus-config-reloader:${PROMETHEUS_OPERATOR_VERSION}"
+    PROMETHEUS_IMAGE_WITH_SHA=$(grep '^FROM' "${SOURCE_DIR}/prometheus/Dockerfile" | awk '{print $2}')
+    export PROMETHEUS_IMAGE=${PROMETHEUS_IMAGE_WITH_SHA%%@*}
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
@@ -698,6 +712,7 @@ function prepare_docker_images {
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+        e2e_docker_pull_if_needed "${PROMETHEUS_IMAGE}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -770,6 +785,9 @@ function kind_load {
     fi
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
+    fi
+    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
+        install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
 
@@ -1018,6 +1036,25 @@ function install_appwrapper {
     cluster_kind_load_image "${name}" "${APPWRAPPER_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${APPWRAPPER_MANIFEST}"
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
+}
+
+# $1 kubeconfig option
+function install_provisioning_request_crds {
+    local kubeconfig=${1:-}
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    if e2e_crd_exists "${kubeconfig}" "provisioningrequests.autoscaling.x-k8s.io"; then
+        if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+            echo "ProvisioningRequest CRD already installed; skipping install (E2E_MODE=dev)."
+            return 0
+        fi
+    fi
+
+    echo "Installing ProvisioningRequest CRDs from ${PROVISIONING_REQUEST_CRDS}"
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} apply --server-side -f "${PROVISIONING_REQUEST_CRDS}"
 }
 
 # $1 cluster name
@@ -1397,11 +1434,17 @@ function install_prometheus_operator {
 
     cluster_kind_load_image "${name}" "${PROMETHEUS_OPERATOR_IMAGE}"
     cluster_kind_load_image "${name}" "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    cluster_kind_load_image "${name}" "${PROMETHEUS_IMAGE}"
     e2e_kubectl_apply_url "${PROMETHEUS_OPERATOR_BUNDLE}" --kubeconfig="${kubeconfig}"
     kubectl wait deploy/"${deployment_name}" -n "${ns}" \
         --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side \
-        -f "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml"
+    (
+        prometheus_setup=$(mktemp) && trap 'rm -f "$prometheus_setup"' EXIT
+        cp "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml" "$prometheus_setup"
+        $YQ -i "(select(.kind == \"Prometheus\") | .spec.image) = \"${PROMETHEUS_IMAGE}\"" "$prometheus_setup"
+        $YQ -i "(select(.kind == \"Prometheus\") | .spec.version) = \"${PROMETHEUS_IMAGE##*:}\"" "$prometheus_setup"
+        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "$prometheus_setup"
+    )
 }
 
 # $1 kubeconfig option
@@ -1457,7 +1500,10 @@ function install_dra_example_driver {
     dra_driver_temp_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
     trap "rm -rf '$dra_driver_temp_dir'" RETURN
-    git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "grep -qiE '${E2E_RETRIABLE_GIT_ERRORS}' {output}" \
+        --cleanup "rm -rf -- '${dra_driver_temp_dir}'" \
+        -- git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
 
     local dra_image_repo="dra-example-driver"
     local dra_image_tag="${expected_version#v}"
@@ -1473,7 +1519,9 @@ function install_dra_example_driver {
     # Patch Makefile to ensure static build with CGO_ENABLED=0
     sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
         && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
-    docker build -t "${dra_image_repo}:${dra_image_tag}" \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "grep -qiE '${E2E_RETRIABLE_IMAGE_BUILD_ERRORS}' {output}" \
+        -- docker build -t "${dra_image_repo}:${dra_image_tag}" \
         --build-arg GO_VERSION="${go_version}" \
         --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
         -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \

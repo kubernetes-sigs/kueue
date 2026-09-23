@@ -98,6 +98,15 @@ func getRuntimeSnapshot(ctx context.Context, c client.Client, trainJob *trainer.
 // The ConfigMap is owned by the TrainJob and will be automatically deleted when the TrainJob is deleted.
 // An existing configmap will be overwritten. Callers must only invoke this when no snapshot exists.
 func createRuntimeSnapshot(ctx context.Context, c client.Client, trainJob *trainer.TrainJob, runtimeObj client.Object) error {
+	// client.Get() does not populate TypeMeta on typed objects, so the GVK must be resolved
+	// from the scheme before serializing. Otherwise the stored snapshot has an empty
+	// kind/apiVersion and getRuntimeSnapshot rejects it on the next reconciliation.
+	gvk, err := c.GroupVersionKindFor(runtimeObj)
+	if err != nil {
+		return fmt.Errorf("getting GroupVersionKind for the runtime: %w", err)
+	}
+	runtimeObj.GetObjectKind().SetGroupVersionKind(gvk)
+
 	// Serialize the runtime object to YAML
 	runtimeYAML, err := yaml.Marshal(runtimeObj)
 	if err != nil {

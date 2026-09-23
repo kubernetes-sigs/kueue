@@ -19,8 +19,6 @@ package preemption
 import (
 	"testing"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -67,5 +65,5 @@ func TestWorkloadsToRemoveNilReceiver(t *testing.T) {
 }
 
 func workloadInfoForTest(namespace, name string) *workload.Info {
-	return &workload.Info{Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}}
+	return &workload.Info{Obj: &kueue.Workload{Namespace: namespace, Name: name}}
 }

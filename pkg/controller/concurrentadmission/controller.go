@@ -111,7 +111,7 @@ func (r *variantReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.Co
 					return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(obj)}}
 				}
 				if concurrentadmission.IsVariant(obj) {
-					return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.Namespace, Name: concurrentadmission.GetParentWorkloadName(obj)}}}
+					return []reconcile.Request{{Namespace: obj.Namespace, Name: concurrentadmission.GetParentWorkloadName(obj)}}
 				}
 				return nil
 			}),
@@ -362,15 +362,13 @@ func (r *variantReconciler) deleteStaleVariants(ctx context.Context, parent *kue
 
 func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReference) *kueue.Workload {
 	variant := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
-			Namespace:     parent.Namespace,
-			Labels:        parent.Labels,
-			Annotations:   parent.Annotations,
-			ManagedFields: parent.ManagedFields,
-		},
-		Spec:   parent.Spec,
-		Status: parent.Status,
+		Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
+		Namespace:     parent.Namespace,
+		Labels:        parent.Labels,
+		Annotations:   parent.Annotations,
+		ManagedFields: parent.ManagedFields,
+		Spec:          parent.Spec,
+		Status:        parent.Status,
 	}
 	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
 	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
@@ -784,7 +782,7 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		}
 		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
 			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if quotaReserved == nil {
+			if quotaReserved == nil || quotaReserved.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation {
 				wlLog.Info("Variant has not been evaluated for admission yet")
 				return nil
 			}

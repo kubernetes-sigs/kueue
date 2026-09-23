@@ -28,7 +28,6 @@ import (
 	"github.com/gin-gonic/gin"
 	authorizationv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -75,10 +74,8 @@ func TestGetResource(t *testing.T) {
 		"success returns yaml content": {
 			objs: []runtime.Object{
 				&corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "my-pod",
-						Namespace: "default",
-					},
+					Name:      "my-pod",
+					Namespace: "default",
 				},
 			},
 			path:       "/api/pod/my-pod?namespace=default&output=yaml",

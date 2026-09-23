@@ -63,16 +63,21 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerAndSchedulerSetup(transformations []config.ResourceTransformation) framework.ManagerSetup {
+func managerAndSchedulerSetup(transformations []config.ResourceTransformation, excludedResourcePrefixes []string) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		cCache := schdcache.New(mgr.GetClient())
 		var queueOptions []qcache.Option
+		var cacheOptions []schdcache.Option
 		if len(transformations) > 0 {
 			queueOptions = append(queueOptions, qcache.WithResourceTransformations(transformations))
 		}
+		if len(excludedResourcePrefixes) > 0 {
+			queueOptions = append(queueOptions, qcache.WithExcludedResourcePrefixes(excludedResourcePrefixes))
+			cacheOptions = append(cacheOptions, schdcache.WithExcludedResourcePrefixes(excludedResourcePrefixes))
+		}
+		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)

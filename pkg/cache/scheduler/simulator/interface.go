@@ -22,7 +22,33 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
+
+type snapshotOptions struct {
+	assumedWorkloads []*kueue.Workload
+}
+
+type SnapshotOption func(*snapshotOptions)
+
+// WithAssumedWorkloads configures the assumed workloads for virtual pod generation and deduplication
+func WithAssumedWorkloads(wls []*kueue.Workload) SnapshotOption {
+	return func(o *snapshotOptions) {
+		o.assumedWorkloads = wls
+	}
+}
+
+// AssumedWorkloads extracts the assumed workloads from the given snapshot options.
+func AssumedWorkloads(options ...SnapshotOption) []*kueue.Workload {
+	opts := &snapshotOptions{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts.assumedWorkloads
+}
 
 // SchedulingSimulator acts as a factory for SimulatorSnapshots.
 // It also tracks all existing Pods (even those not managed by Kueue),
@@ -30,7 +56,7 @@ import (
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SchedulingSimulator interface {
-	Snapshot(ctx context.Context, nodes []*corev1.Node) (SimulatorSnapshot, error)
+	Snapshot(ctx context.Context, nodes []*corev1.Node, options ...SnapshotOption) (SimulatorSnapshot, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.

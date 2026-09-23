@@ -30,6 +30,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -744,6 +746,32 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"transformUsesExcludedResourceAsMultiplier": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				Request("acme.io/cores-per-vgpu", "20").
+				Request("acme.io/vgpu-count", "2").
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"acme.io/vgpu-count"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "acme.io/cores-per-vgpu",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "acme.io/vgpu-count",
+					Outputs: corev1.ResourceList{
+						"quota.acme.io/total-vgpu-cores": resource.MustParse("1"),
+					},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: kueue.DefaultPodSetName,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.acme.io/total-vgpu-cores"): 40,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformResources": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
@@ -1111,6 +1139,223 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// A Replace consumes its input, so an output under that same name is not the
+		// container request and the DRA subtraction leaves it whole.
+		"replaceOutputOnItsOwnInputSurvivesTheDRASubtraction": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:    "example.com/gpu",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("5")},
+				}}),
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+				),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 5,
+						"gpu":             1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The excluded prefix removed the request the charge replaces, so an output
+		// that recreates the name later belongs to the transformation, not to it.
+		"outputRecreatingAnExcludedNameSurvivesTheDRASubtraction": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("vendor.example/gpu", "2").
+					Request("quota.example/credit", "1").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:    "quota.example/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"vendor.example/gpu": resource.MustParse("1")},
+				}}),
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("2")}},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("vendor.example/gpu")},
+				),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"vendor.example/gpu": 1,
+						"gpu":                2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// With the integration off nothing is taken back and nothing is added, so the
+		// PodSet keeps the extended resource it asked for and no logical name appears.
+		"withTheDRAGateOffTheExtendedResourceIsLeftAlone": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The DRA charge replaces what the containers asked for, so an overhead on
+		// the same name is not part of it and has to survive the replacement.
+		"overheadOnAReplacedKeySurvives": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The resolver drops the sidecar's negative before charging, so it charges 8
+		// where the accounting view of the same spec reads 5. Both leave nothing under
+		// the replaced name: what the containers asked for is taken back in full.
+		"aNegativeSidecarLeavesNothingUnderTheReplacedName": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+						WithResourceReq("example.com/gpu", "-3").Obj()).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"gpu": 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"anOverheadSurvivesBesideANegativeSidecar": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+						WithResourceReq("example.com/gpu", "-3").Obj()).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// Without a deviceClassMappings entry, the DRA charge for the container
+		// request and the Pod overhead both use the original resource name.
+		"withNoMappingTheChargeAndTheOverheadShareOneKey": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"example.com/gpu": resource.MustParse("1")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The DRA replacement subtracts only the container request; a transformation
+		// output under the same name remains.
+		"transformOutputOnAReplacedKeySurvives": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "1").
+					Request("example.com/gpu", "1").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				}}),
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+				),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// A transformation product past the range must not arrive negative and
 		// be floored away.
 		"transformProductPastTheRangeIsNotFlooredAway": {
@@ -1181,6 +1426,7 @@ func TestNewInfo(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
 			info := NewInfo(log, &tc.workload, tc.infoOptions...)
+			tc.wantInfo.EffectivePodSpecs = effectivePodSpecs(&tc.workload, AdjustmentInputs{})
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
@@ -1376,7 +1622,13 @@ func TestSetConditionAndUpdate(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -1451,7 +1703,13 @@ func TestUpdateReclaimablePods(t *testing.T) {
 							if tc.err != nil {
 								return tc.err
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if tc.err != nil {
+								return tc.err
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -3500,6 +3758,17 @@ func TestSchedulingHash(t *testing.T) {
 				features.ConcurrentAdmission:          true,
 			},
 		},
+		"same spec, different topology spreading annotation produces different hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"key":"rack","maxShare":50}]}`}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wantSame:     false,
+			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+		},
 		"different PodSet names when the name is part of the hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
 				PodSets(*utiltestingapi.MakePodSet("4f7aac39", 1).
@@ -3569,9 +3838,9 @@ func TestSchedulingHash(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(log, tc.wl1)
-			info1.updateSchedulingHash(log)
+			info1.updateDerivedFields(log)
 			info2 := NewInfo(log, tc.wl2)
-			info2.updateSchedulingHash(log)
+			info2.updateDerivedFields(log)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -3592,7 +3861,7 @@ func TestSchedulingHash(t *testing.T) {
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
-		before.updateSchedulingHash(log)
+		before.updateDerivedFields(log)
 
 		after := NewInfo(log, wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -3604,7 +3873,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.updateSchedulingHash(log)
+		after.updateDerivedFields(log)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -3709,7 +3978,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 			}
 			// A recomputed hash must describe the inputs the Info now holds.
 			if !tc.wantReuse {
-				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests)
+				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests, tc.info.EffectivePodSpecs)
 				if tc.info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, does not describe the Info's own inputs (%q)", tc.info.SchedulingHash, want)
 				}
@@ -4311,6 +4580,47 @@ func TestTotalExecutionTime(t *testing.T) {
 	}
 }
 
+func TestHasPodsScheduledCondition(t *testing.T) {
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"no conditions": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+		},
+		"only another condition": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue}).
+				Obj(),
+		},
+		"scheduled": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionTrue}).
+				Obj(),
+			want: true,
+		},
+		"not scheduled": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionFalse}).
+				Obj(),
+			want: true,
+		},
+		"unknown": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{Type: kueue.WorkloadPodsScheduled, Status: metav1.ConditionUnknown}).
+				Obj(),
+			want: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := HasPodsScheduledCondition(tc.workload); got != tc.want {
+				t.Errorf("HasPodsScheduledCondition() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCurrentPodsScheduledCondition(t *testing.T) {
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	admittedAt := fakeClock.Now()
@@ -4435,6 +4745,142 @@ func TestCurrentPodsScheduledCondition(t *testing.T) {
 			got := CurrentPodsScheduledCondition(tc.workload, admittedAt)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected condition (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestInfoTopologySpreading(t *testing.T) {
+	validAnnotation := `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`
+	noSelectorAnnotation := `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`
+	malformedAnnotation := `{"workloadLabelSelectors":`
+
+	spreadingPodSet := func(annotation string) kueue.PodSet {
+		return *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: annotation}).
+			Request(corev1.ResourceCPU, "1").Obj()
+	}
+
+	cases := map[string]struct {
+		wl           *kueue.Workload
+		featureGates map[featuregate.Feature]bool
+		wantSpec     bool
+		// peerLabels are the labels of another Workload in the namespace, and
+		// wantMatchesPeer is whether the resolved selector puts it in the same
+		// spreading group. Only asserted when wantSpec is set.
+		peerLabels      map[string]string
+		wantMatchesPeer bool
+		// wantSpecCount is the number of resolved groups, asserted only when
+		// set, so a multi-PodSet group is shown to resolve to one entry.
+		wantSpecCount int
+	}{
+		"annotation absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+		},
+		"gate off, annotation present: treated as absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
+		},
+		"valid annotation, gate on: populates spec": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(spreadingPodSet(validAnnotation)).Obj(),
+			featureGates:    map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:        true,
+			peerLabels:      map[string]string{"app": "main"},
+			wantMatchesPeer: true,
+		},
+		// The selector the user omitted is resolved from the Workload's own
+		// job-uid label, so the group becomes every Workload of that job.
+		// Resolved here rather than defaulted into the annotation by the
+		// mutating webhook, which a prebuilt Workload - labelled only by the
+		// later update that adopts it - would never reach.
+		"selectors omitted, job-uid label set: group is the parent job": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Label(controllerconstants.JobUIDLabel, "job-uid-1").
+				PodSets(spreadingPodSet(noSelectorAnnotation)).Obj(),
+			featureGates:    map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:        true,
+			peerLabels:      map[string]string{controllerconstants.JobUIDLabel: "job-uid-1"},
+			wantMatchesPeer: true,
+		},
+		"selectors omitted, job-uid label set: another job is not in the group": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Label(controllerconstants.JobUIDLabel, "job-uid-1").
+				PodSets(spreadingPodSet(noSelectorAnnotation)).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:     true,
+			peerLabels:   map[string]string{controllerconstants.JobUIDLabel: "job-uid-2"},
+		},
+		// With no parent job there is no group, so the Workload schedules as
+		// if it carried no spreading rather than being spread against every
+		// Workload in the namespace.
+		"selectors omitted, no job-uid label: group is empty": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(spreadingPodSet(noSelectorAnnotation)).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:     true,
+			peerLabels:   map[string]string{controllerconstants.JobUIDLabel: "job-uid-1"},
+		},
+		"malformed annotation, gate on: no panic, treated as absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: malformedAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+		},
+		// The group resolves once, from the first PodSet carrying the
+		// annotation, so the second member's value is never parsed - the
+		// webhook already requires the two to match.
+		"multi-PodSet group: only the first annotated PodSet is consulted": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("leader", 1).PodSetGroup("g").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validAnnotation}).
+						Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("workers", 2).PodSetGroup("g").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: malformedAnnotation}).
+						Request(corev1.ResourceCPU, "1").Obj(),
+				).Obj(),
+			featureGates:    map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:        true,
+			wantSpecCount:   1,
+			peerLabels:      map[string]string{"app": "main"},
+			wantMatchesPeer: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			_, log := utiltesting.ContextWithLog(t)
+
+			info := NewInfo(log, tc.wl)
+
+			if !tc.wantSpec {
+				if info.TopologySpreading != nil {
+					t.Errorf("TopologySpreading = %+v, want nil", info.TopologySpreading)
+				}
+				return
+			}
+			if info.TopologySpreading == nil {
+				t.Fatal("TopologySpreading = nil, want non-nil")
+			}
+			if tc.wantSpecCount != 0 && len(info.TopologySpreading) != tc.wantSpecCount {
+				t.Errorf("len(TopologySpreading) = %d, want %d", len(info.TopologySpreading), tc.wantSpecCount)
+			}
+
+			groupKey := utiltas.GroupKeyForPodSet(&tc.wl.Spec.PodSets[0])
+			spec := info.TopologySpreading[groupKey]
+			if spec == nil {
+				t.Fatalf("TopologySpreading[%q] = nil, want a spec", groupKey)
+			}
+			if got := spec.Selector().Matches(labels.Set(tc.peerLabels)); got != tc.wantMatchesPeer {
+				t.Errorf("Selector().Matches(%v) = %t, want %t", tc.peerLabels, got, tc.wantMatchesPeer)
 			}
 		})
 	}

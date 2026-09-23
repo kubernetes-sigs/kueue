@@ -77,6 +77,14 @@ var (
 		cmpopts.IgnoreFields(corev1.PodSpec{}, "RestartPolicy"),
 	}
 
+	// tmplCmpOptions without RestartPolicy ignore — for tests that assert skip-on-equivalent preserves spec.
+	tmplCmpOptionsWithRestartPolicy = cmp.Options{
+		cmpopts.EquateEmpty(),
+		cmpopts.IgnoreTypes(metav1.TypeMeta{}),
+		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+	}
+
 	acCmpOptions = cmp.Options{
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
@@ -308,16 +316,14 @@ func TestReconcile(t *testing.T) {
 	baseFlavor2 := utiltestingapi.MakeResourceFlavor("flv2").NodeLabel("f2l1", "v1").Obj()
 
 	baseRequest := &autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: TestNamespace,
-			Name:      "wl-check1-1",
-			Labels: map[string]string{
-				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					Name: "wl",
-				},
+		Namespace: TestNamespace,
+		Name:      "wl-check1-1",
+		Labels: map[string]string{
+			constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+		},
+		OwnerReferences: []metav1.OwnerReference{
+			{
+				Name: "wl",
 			},
 		},
 		Spec: autoscaling.ProvisioningRequestSpec{
@@ -371,6 +377,40 @@ func TestReconcile(t *testing.T) {
 			},
 		}).
 		NodeSelector("f2l1", "v1")
+
+	// Tenant-precreated PodTemplate at the deterministic name; must be replaced, not reused.
+	foreignTemplate1 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
+		Containers(corev1.Container{
+			Name: "c",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1000"),
+					"example.com/gpu":  resource.MustParse("8"),
+				},
+			},
+		})
+
+	// Kueue-derived PodTemplates already created for this attempt (skip content Update).
+	workloadOwnerGVK := schema.GroupVersionKind{Group: "kueue.x-k8s.io", Version: "v1beta2", Kind: "Workload"}
+	identicalTemplate1 := baseTemplate1.Clone().ControllerReference(workloadOwnerGVK, "wl", "").Obj()
+	identicalTemplate1.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	identicalTemplate2 := baseTemplate2.Clone().ControllerReference(workloadOwnerGVK, "wl", "").Obj()
+	identicalTemplate2.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+
+	identicalWantTemplate1 := baseTemplate1.Clone().
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+		Obj()
+	identicalWantTemplate1.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+	identicalWantTemplate2 := baseTemplate2.Clone().
+		ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+		Obj()
+	identicalWantTemplate2.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
+
+	// Same spec as identicalTemplate1, but a non-Workload controller owns it.
+	identicalForeignOwnedTemplate1 := baseTemplate1.Clone().
+		ControllerReference(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, "foreign-deploy", "foreign-uid").
+		Obj()
+	identicalForeignOwnedTemplate1.Template.Spec.RestartPolicy = corev1.RestartPolicyNever
 
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
@@ -456,6 +496,7 @@ func TestReconcile(t *testing.T) {
 
 	cases := map[string]struct {
 		interceptorFuncsCreate func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error
+		interceptorFuncsUpdate func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error
 
 		requests             []autoscaling.ProvisioningRequest
 		templates            []corev1.PodTemplate
@@ -468,8 +509,11 @@ func TestReconcile(t *testing.T) {
 		wantWorkloads        map[string]*kueue.Workload
 		wantRequests         map[string]*autoscaling.ProvisioningRequest
 		wantTemplates        map[string]*corev1.PodTemplate
+		templateCmpOptions   cmp.Options
 		wantRequestsNotFound []string
 		wantEvents           []utiltesting.EventRecord
+		// Non-nil: listed PodTemplates Updated once for ownership; others Updated zero times.
+		wantPodTemplateOwnershipUpdates []string
 	}{
 		"unrelated workload": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
@@ -554,7 +598,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(allZeroCountWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: the provisioning request is not needed`,
 				},
 			},
@@ -610,13 +654,11 @@ func TestReconcile(t *testing.T) {
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check2",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
+					Namespace: TestNamespace,
+					Name:      "wl-check2",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "wl",
 						},
 					},
 				},
@@ -633,20 +675,12 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"one template already created": {
-			workload: baseWorkload.DeepCopy(),
-			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
-			requests: []autoscaling.ProvisioningRequest{},
-			templates: []corev1.PodTemplate{
-				*baseTemplate1.Clone().
-					ControllerReference(schema.GroupVersionKind{
-						Group:   "kueue.x-k8s.io",
-						Version: "v1beta2",
-						Kind:    "Workload",
-					}, "wl", "").
-					Obj(),
-			},
+			workload:  baseWorkload.DeepCopy(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{*identicalTemplate1},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.GetName(): baseWorkload.DeepCopy(),
 			},
@@ -670,6 +704,351 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"pre-existing foreign PodTemplate is replaced": {
+			workload:  baseWorkload.DeepCopy(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{*foreignTemplate1.Clone().Obj()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing PodTemplate with different nodeSelector is replaced": {
+			// ComparePodTemplate ignores nodeSelector; flavor labels must still force replace.
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{
+				*baseTemplate1.Clone().
+					NodeSelector("foreign-key", "foreign-value").
+					Obj(),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing PodTemplate with different Affinity is replaced": {
+			// ComparePodTemplate ignores Affinity; leftover placement must still force replace.
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{
+				*baseTemplate1.Clone().
+					RequiredNodeSelectorRequirement("topology.kubernetes.io/zone", corev1.NodeSelectorOpIn, "zone-a").
+					Obj(),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing foreign PodTemplate is reused when Retry FG is disabled": {
+			// Gate off: reuse divergent PodTemplate and transfer ownership (legacy behavior).
+			workload:  baseWorkload.DeepCopy(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{*foreignTemplate1.Clone().Obj()},
+			featureGates: map[featuregate.Feature]bool{
+				features.EnforceProvisioningPodTemplateContents: false,
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				foreignTemplate1.Name: foreignTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				foreignTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing divergent Kueue-managed PodTemplate is replaced": {
+			// Stale ManagedByKueue template from a prior admission: replace in place.
+			// Divergence must be in containers/tolerations (ComparePodTemplate strategy).
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{
+				*baseTemplate1.Clone().
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("999"),
+							},
+						},
+					}).
+					ControllerReference(workloadOwnerGVK, "wl", "").
+					Obj(),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing identical PodTemplates are not rewritten": {
+			// ComparePodTemplate matches existing vs desired; RestartPolicyNever must be preserved (not rewritten).
+			workload:  baseWorkload.DeepCopy(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{*identicalTemplate1, *identicalTemplate2},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: identicalWantTemplate1,
+				baseTemplate2.Name: identicalWantTemplate2,
+			},
+			templateCmpOptions: tmplCmpOptionsWithRestartPolicy,
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing PodTemplate with forged workload owner is replaced": {
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{
+				*foreignTemplate1.Clone().
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "kueue.x-k8s.io",
+						Version: "v1beta2",
+						Kind:    "Workload",
+					}, "wl", "").
+					Obj(),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"pre-existing identical PodTemplate with foreign controller is replaced": {
+			// Spec matches identicalTemplate1, but a non-Workload controller owns it.
+			workload:  baseWorkload.DeepCopy(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{},
+			templates: []corev1.PodTemplate{*identicalForeignOwnedTemplate1},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantPodTemplateOwnershipUpdates: []string{
+				baseTemplate1.Name,
+				baseTemplate2.Name,
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"steady-state reconcile does not update PodTemplates": {
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				func() autoscaling.ProvisioningRequest {
+					r := *baseRequest.DeepCopy()
+					r.UID = "pr-uid"
+					return r
+				}(),
+			},
+			// Already owned by the ProvReq (matching UID): no ownership transfer.
+			templates: []corev1.PodTemplate{
+				*baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "pr-uid").
+					Obj(),
+				*baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "pr-uid").
+					Obj(),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "pr-uid").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "pr-uid").
+					Obj(),
+			},
+			// Empty non-nil slice: assert zero ownership Updates.
+			wantPodTemplateOwnershipUpdates: []string{},
+		},
 		"request out of sync": {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -677,13 +1056,11 @@ func TestReconcile(t *testing.T) {
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check1-1",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
+					Namespace: TestNamespace,
+					Name:      "wl-check1-1",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "wl",
 						},
 					},
 					Spec: autoscaling.ProvisioningRequestSpec{
@@ -885,7 +1262,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Retry with message: Retrying after failure: By test`,
 				},
 			},
@@ -915,7 +1292,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Rejected with message: By test`,
 				},
 			},
@@ -961,7 +1338,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: By test`,
 				},
 			},
@@ -987,7 +1364,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: the provisioning request is not needed`,
 				},
 			},
@@ -1188,7 +1565,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Rejected`,
 				},
 			},
@@ -1237,7 +1614,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Rejected`,
 				},
 			},
@@ -1369,7 +1746,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Retry with message: Retrying after booking expired: Expired By test`,
 				},
 			},
@@ -1418,7 +1795,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Rejected`,
 				},
 			},
@@ -1578,10 +1955,8 @@ func TestReconcile(t *testing.T) {
 			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests: []autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: TestNamespace,
-						Name:      "wl-check1-1",
-					},
+					Namespace: TestNamespace,
+					Name:      "wl-check1-1",
 				},
 			},
 			templates:          []corev1.PodTemplate{},
@@ -1696,7 +2071,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready`,
 				},
 			},
@@ -1754,7 +2129,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: By test`,
 				},
 			},
@@ -1806,7 +2181,7 @@ func TestReconcile(t *testing.T) {
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
-					Reason:    "AdmissionCheckUpdated",
+					Reason:    "UpdatedAdmissionCheck",
 					Message:   `Admission check check1 updated state from Pending to Ready with message: By test`,
 				},
 			},
@@ -2148,9 +2523,21 @@ func TestReconcile(t *testing.T) {
 					features.SetFeatureGateDuringTest(t, featureGate, enabled)
 				}
 
-				interceptorFuncs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
+				interceptorFuncs := interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}
 				if tc.interceptorFuncsCreate != nil {
 					interceptorFuncs.Create = tc.interceptorFuncsCreate
+				}
+				podTemplateUpdates := map[string]int{}
+				interceptorFuncs.Update = func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if _, ok := obj.(*corev1.PodTemplate); ok {
+						podTemplateUpdates[obj.GetName()]++
+					}
+					if tc.interceptorFuncsUpdate != nil {
+						return tc.interceptorFuncsUpdate(ctx, cl, obj, opts...)
+					}
+					return cl.Update(ctx, obj, opts...)
 				}
 
 				ctx, _ := utiltesting.ContextWithLog(t)
@@ -2178,10 +2565,8 @@ func TestReconcile(t *testing.T) {
 				}
 
 				req := reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Namespace: TestNamespace,
-						Name:      tc.workload.Name,
-					},
+					Namespace: TestNamespace,
+					Name:      tc.workload.Name,
 				}
 				_, gotReconcileError := controller.Reconcile(ctx, req)
 				if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError, cmpopts.EquateErrors()); diff != "" {
@@ -2219,7 +2604,11 @@ func TestReconcile(t *testing.T) {
 						t.Errorf("unexpected error getting template %q", name)
 					}
 
-					if diff := cmp.Diff(wantTemplate, gotTemplate, tmplCmpOptions...); diff != "" {
+					cmpOpts := tmplCmpOptions
+					if tc.templateCmpOptions != nil {
+						cmpOpts = tc.templateCmpOptions
+					}
+					if diff := cmp.Diff(wantTemplate, gotTemplate, cmpOpts...); diff != "" {
 						t.Errorf("unexpected template %q (-want/+got):\n%s", name, diff)
 					}
 					if diff := cmp.Diff(wantTemplate.GetLabels(), gotTemplate.GetLabels()); diff != "" {
@@ -2236,6 +2625,16 @@ func TestReconcile(t *testing.T) {
 
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+
+				if tc.wantPodTemplateOwnershipUpdates != nil {
+					wantUpdates := map[string]int{}
+					for _, name := range tc.wantPodTemplateOwnershipUpdates {
+						wantUpdates[name] = 1
+					}
+					if diff := cmp.Diff(wantUpdates, podTemplateUpdates, cmpopts.EquateEmpty()); diff != "" {
+						t.Errorf("unexpected PodTemplate ownership updates (-want/+got):\n%s", diff)
+					}
 				}
 			})
 		}
@@ -2275,13 +2674,11 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("config1").ProvisioningClass("class1").WithParameter("p1", "v1")
 
 	baseRequest := autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: TestNamespace,
-			Name:      "wl-check-1",
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					Name: "wl",
-				},
+		Namespace: TestNamespace,
+		Name:      "wl-check-1",
+		OwnerReferences: []metav1.OwnerReference{
+			{
+				Name: "wl",
 			},
 		},
 		Spec: autoscaling.ProvisioningRequestSpec{
@@ -2373,7 +2770,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 func TestIsMissingInCache(t *testing.T) {
 	request := &autoscaling.ProvisioningRequest{
-		ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "wl-check1-1"},
+		Namespace: TestNamespace, Name: "wl-check1-1",
 	}
 	cases := map[string]struct {
 		requests []autoscaling.ProvisioningRequest
