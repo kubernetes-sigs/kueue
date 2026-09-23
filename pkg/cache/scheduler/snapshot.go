@@ -54,7 +54,7 @@ type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
-	SimulatorSnapshot        simulator.SimulatorSnapshot
+	SchedulerSimulator       simulator.SchedulerSimulator
 
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
@@ -230,7 +230,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
-		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(
+		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
@@ -284,7 +284,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			tasSnapshots[flavor], err = cache.snapshot(
 				ctx,
 				log,
-				snap.SimulatorSnapshot,
+				snap.SchedulerSimulator,
 				aggregatedDomainUsagesForFlavor,
 			)
 			if err != nil {

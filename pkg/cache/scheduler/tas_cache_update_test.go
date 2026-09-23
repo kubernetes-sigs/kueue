@@ -30,7 +30,7 @@ import (
 )
 
 func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	topology := utiltestingapi.MakeDefaultOneLevelTopology("default")
 	tasCache.AddTopology(topology)
 
@@ -97,7 +97,7 @@ func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
 }
 
 func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	topology := utiltestingapi.MakeDefaultOneLevelTopology("default")
 	tasCache.AddTopology(topology)
 
@@ -151,7 +151,7 @@ func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
 }
 
 func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	topology := utiltestingapi.MakeTopology("default").
 		Levels(utiltesting.DefaultRackTopologyLevel, corev1.LabelHostname).
 		Obj()

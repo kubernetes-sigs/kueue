@@ -1070,12 +1070,12 @@ func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *sc
 func simulatePodRemoval(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, workloads []*workload.Info) func() {
 	// The default simulator reports the same cluster whatever is running, so there is
 	// nothing to take out of it and nothing cached to drop.
-	if snapshot.SimulatorSnapshot == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+	if snapshot.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
 		return func() {}
 	}
 	reverts := make([]func() error, 0, len(workloads))
 	for _, w := range workloads {
-		revert, err := snapshot.SimulatorSnapshot.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		revert, err := snapshot.SchedulerSimulator.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
 		if err != nil {
 			// The simulation still holds this victim's Pods, so it can only be
 			// stricter than reality. Log it and keep scheduling.

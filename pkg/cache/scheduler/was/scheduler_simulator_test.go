@@ -218,9 +218,9 @@ func TestNodePortsFeasibility(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+			simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 			if err != nil {
-				t.Fatalf("NewWASSimulator failed: %v", err)
+				t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 			}
 
 			candidates := func(yield func(simulator.Candidate) bool) {
@@ -232,12 +232,12 @@ func TestNodePortsFeasibility(t *testing.T) {
 			}
 
 			if tc.addExistingPod {
-				sim.TrackPod(ctx, existingPod)
+				simulatorFactory.TrackPod(ctx, existingPod)
 			}
 			if tc.addUnmanagedPod {
-				sim.TrackPod(ctx, unmanagedPod)
+				simulatorFactory.TrackPod(ctx, unmanagedPod)
 			}
-			snapshot, err := sim.Snapshot(ctx, nodes)
+			schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
 
 			if err != nil {
 				t.Fatalf("CreateSnapshot failed: %v", err)
@@ -246,7 +246,7 @@ func TestNodePortsFeasibility(t *testing.T) {
 			stats := &simulator.NodeExclusionStats{}
 			podTemplate := &corev1.PodTemplateSpec{Spec: tc.candidateSpec}
 			origSpec := *tc.candidateSpec.DeepCopy()
-			results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+			results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 				PodTemplate:   podTemplate,
 				SimulateEmpty: tc.simulateEmpty,
 			}, stats)
@@ -292,12 +292,12 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 	nodes := []*corev1.Node{node1, unschedulable, node2}
 
 	t.Run("return all schedulable notes, skip unschedulable ones", func(t *testing.T) {
-		sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+		simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 		if err != nil {
-			t.Fatalf("NewWASSimulator failed: %v", err)
+			t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 		}
 
-		snapshot, err := sim.Snapshot(ctx, nodes)
+		schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
 		if err != nil {
 			t.Fatalf("Snapshot failed: %v", err)
 		}
@@ -315,7 +315,7 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 			&testCandidate{node: node2, id: utiltas.TopologyDomainID("node2")},
 		}
 
-		got, err := snapshot.FindFeasibleNodes(
+		got, err := schedulerSimulator.FindFeasibleNodes(
 			ctx,
 			candidates,
 			&simulator.PodRequirements{
@@ -341,13 +341,13 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 func TestRepeatedSnapshots(t *testing.T) {
 	ctx := klog.NewContext(t.Context(), logr.Discard())
 
-	sim, err := NewWASSimulator(ctx, nil)
+	simulatorFactory, err := NewWASSimulatorFactory(ctx, nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator failed: %v", err)
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
 
 	for i := range 3 {
-		if _, err := sim.Snapshot(ctx, nil); err != nil {
+		if _, err := simulatorFactory.NewSimulator(ctx, nil); err != nil {
 			t.Fatalf("Snapshot %d failed: %v", i, err)
 		}
 	}
@@ -378,11 +378,11 @@ func TestSnapshotJoinsInformers(t *testing.T) {
 	var early, late atomic.Int32
 	ctx := klog.NewContext(t.Context(), logr.New(&afterReturnSink{armed: &armed, early: &early, late: &late}))
 
-	sim, err := NewWASSimulator(ctx, nil)
+	simulatorFactory, err := NewWASSimulatorFactory(ctx, nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator failed: %v", err)
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	if _, err := sim.Snapshot(ctx, nil); err != nil {
+	if _, err := simulatorFactory.NewSimulator(ctx, nil); err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 	armed.Store(true)
@@ -433,8 +433,8 @@ func TestPreemptWorkload(t *testing.T) {
 		}
 	}
 
-	checkFeasible := func(snapshot simulator.SimulatorSnapshot) bool {
-		results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+	checkFeasible := func(schedulerSimulator simulator.SchedulerSimulator) bool {
+		results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 			PodTemplate: &candidatePod,
 		}, &simulator.NodeExclusionStats{})
 		if err != nil {
@@ -444,29 +444,29 @@ func TestPreemptWorkload(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		setup        func(context.Context, *wasSimulator)
+		setup        func(context.Context, *wasSimulatorFactory)
 		preemptKey   types.NamespacedName
 		wantFeasible bool
 	}{
 		"preempt existing workload": {
-			setup: func(ctx context.Context, sim *wasSimulator) {
-				sim.TrackPod(ctx, existingPod)
+			setup: func(ctx context.Context, simulatorFactory *wasSimulatorFactory) {
+				simulatorFactory.TrackPod(ctx, existingPod)
 			},
 			preemptKey:   existingPodWlKey,
 			wantFeasible: true,
 		},
 		"preempt non-existent workload": {
-			setup: func(ctx context.Context, sim *wasSimulator) {
-				sim.TrackPod(ctx, existingPod)
+			setup: func(ctx context.Context, simulatorFactory *wasSimulatorFactory) {
+				simulatorFactory.TrackPod(ctx, existingPod)
 			},
 			preemptKey:   types.NamespacedName{Namespace: "default", Name: "non-existent"},
 			wantFeasible: false,
 		},
 		"preempt when unassigned pod exists": {
-			setup: func(ctx context.Context, sim *wasSimulator) {
-				sim.TrackPod(ctx, existingPod)
+			setup: func(ctx context.Context, simulatorFactory *wasSimulatorFactory) {
+				simulatorFactory.TrackPod(ctx, existingPod)
 				unassignedPod := testingpod.MakePod("unassigned", "default").Annotation("", "").Obj()
-				sim.TrackPod(ctx, unassignedPod)
+				simulatorFactory.TrackPod(ctx, unassignedPod)
 			},
 			preemptKey:   existingPodWlKey,
 			wantFeasible: true,
@@ -475,27 +475,27 @@ func TestPreemptWorkload(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+			simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 			if err != nil {
-				t.Fatalf("NewWASSimulator failed: %v", err)
+				t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 			}
-			tc.setup(ctx, sim)
+			tc.setup(ctx, simulatorFactory)
 
-			snapshot, err := sim.Snapshot(ctx, nodes)
+			schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
 			if err != nil {
 				t.Fatalf("Snapshot failed: %v", err)
 			}
 
-			if checkFeasible(snapshot) {
+			if checkFeasible(schedulerSimulator) {
 				t.Errorf("expected non-feasible before preemption")
 			}
 
-			revert, err := snapshot.PreemptWorkload(ctx, tc.preemptKey)
+			revert, err := schedulerSimulator.PreemptWorkload(ctx, tc.preemptKey)
 			if err != nil {
 				t.Fatalf("PreemptWorkload failed: %v", err)
 			}
 
-			if got := checkFeasible(snapshot); got != tc.wantFeasible {
+			if got := checkFeasible(schedulerSimulator); got != tc.wantFeasible {
 				t.Errorf("checkFeasible after preemption = %v, want %v", got, tc.wantFeasible)
 			}
 
@@ -503,7 +503,7 @@ func TestPreemptWorkload(t *testing.T) {
 				t.Fatalf("revert failed: %v", err)
 			}
 
-			if checkFeasible(snapshot) {
+			if checkFeasible(schedulerSimulator) {
 				t.Errorf("expected non-feasible after preemption reverted")
 			}
 		})
@@ -539,8 +539,8 @@ func TestSimulate(t *testing.T) {
 		yield(&testCandidate{node: node1, id: utiltas.TopologyDomainID(node1.Name)})
 	}
 
-	checkFeasible := func(snapshot simulator.SimulatorSnapshot) bool {
-		results, err := snapshot.FindFeasibleNodes(ctx, candidateIter, &simulator.PodRequirements{
+	checkFeasible := func(schedulerSimulator simulator.SchedulerSimulator) bool {
+		results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidateIter, &simulator.PodRequirements{
 			PodTemplate: &candidatePod,
 		}, &simulator.NodeExclusionStats{})
 		if err != nil {
@@ -549,28 +549,28 @@ func TestSimulate(t *testing.T) {
 		return len(results) > 0
 	}
 
-	sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+	simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator failed: %v", err)
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
-	sim.TrackPod(ctx, existingPod)
+	simulatorFactory.TrackPod(ctx, existingPod)
 
-	snapshot, err := sim.Snapshot(ctx, nodes)
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
 
-	if checkFeasible(snapshot) {
+	if checkFeasible(schedulerSimulator) {
 		t.Errorf("Expected node1 to be unfeasible before simulation")
 	}
 
-	simErr := snapshot.Simulate(ctx, func() {
-		_, err := snapshot.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
+	simErr := schedulerSimulator.Simulate(ctx, func() {
+		_, err := schedulerSimulator.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
 		if err != nil {
 			t.Fatalf("PreemptWorkload inside Simulate failed: %v", err)
 		}
 
-		if !checkFeasible(snapshot) {
+		if !checkFeasible(schedulerSimulator) {
 			t.Errorf("Expected node1 to be feasible inside simulation after preemption")
 		}
 	})
@@ -578,7 +578,7 @@ func TestSimulate(t *testing.T) {
 		t.Fatalf("Simulation failed: %v", simErr)
 	}
 
-	if checkFeasible(snapshot) {
+	if checkFeasible(schedulerSimulator) {
 		t.Errorf("Expected node1 to be unfeasible after simulation completed (auto-reverted)")
 	}
 }
@@ -631,12 +631,12 @@ func TestSnapshotWithVirtualPods(t *testing.T) {
 		).
 		Obj()
 
-	sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+	simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator failed: %v", err)
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
 
-	snapshot, err := sim.Snapshot(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
@@ -656,7 +656,7 @@ func TestSnapshotWithVirtualPods(t *testing.T) {
 	}
 
 	stats := &simulator.NodeExclusionStats{}
-	results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+	results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 		PodTemplate: &corev1.PodTemplateSpec{Spec: candidateSpec},
 	}, stats)
 	if err != nil {
@@ -714,9 +714,9 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 		).
 		Obj()
 
-	sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+	simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator failed: %v", err)
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
 
 	// Track 1 real pod on node1 for wl1
@@ -726,15 +726,15 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 		NodeName("node1").
 		StatusPhase(corev1.PodRunning).
 		Obj()
-	sim.TrackPod(ctx, realPod)
+	simulatorFactory.TrackPod(ctx, realPod)
 
-	snapshotRaw, err := sim.Snapshot(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
-	snapshot := snapshotRaw.(*wasSimulatorSnapshot)
+	wasSim := schedulerSimulator.(*wasSimulator)
 
-	pods := snapshot.podsByWorkload.getPodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	pods := wasSim.podsByWorkload.getPodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
 	if len(pods) != 2 {
 		t.Fatalf("Expected 2 pods in podsByWorkload, got %d", len(pods))
 	}
@@ -786,12 +786,12 @@ func TestPreemptVirtualPods(t *testing.T) {
 		).
 		Obj()
 
-	sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
+	simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator failed: %v", err)
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
 	}
 
-	snapshot, err := sim.Snapshot(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes, simulator.WithAssumedWorkloads([]*kueue.Workload{wl}))
 	if err != nil {
 		t.Fatalf("Snapshot failed: %v", err)
 	}
@@ -807,7 +807,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 	}
 
 	checkFeasible := func() bool {
-		results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+		results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 			PodTemplate: &corev1.PodTemplateSpec{Spec: candidateSpec},
 		}, &simulator.NodeExclusionStats{})
 		if err != nil {
@@ -820,7 +820,7 @@ func TestPreemptVirtualPods(t *testing.T) {
 		t.Errorf("Expected node1 to be unfeasible due to virtual pod port conflict")
 	}
 
-	revert, err := snapshot.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
+	revert, err := schedulerSimulator.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
 	if err != nil {
 		t.Fatalf("PreemptWorkload failed: %v", err)
 	}
@@ -858,7 +858,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 				nodes = append(nodes, n)
 				cands = append(cands, &testCandidate{node: n, id: utiltas.TopologyDomainID(name)})
 			}
-			sim, err := NewWASSimulator(ctx, nil)
+			simulatorFactory, err := NewWASSimulatorFactory(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -866,7 +866,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			// One Pod per node, each holding the same host port, so every node is
 			// blocked until the whole victim is released.
 			for i := range nodes {
-				sim.TrackPod(ctx, testingpod.MakePod(fmt.Sprintf("victim-%d", i), victim.Namespace).
+				simulatorFactory.TrackPod(ctx, testingpod.MakePod(fmt.Sprintf("victim-%d", i), victim.Namespace).
 					UID(fmt.Sprintf("uid-%d", i)).
 					Annotation(kueue.WorkloadAnnotation, victim.Name).
 					NodeName(nodes[i].Name).
@@ -874,7 +874,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 					Port(8080, 8080, corev1.ProtocolTCP).
 					Obj())
 			}
-			snap, err := sim.Snapshot(ctx, nodes)
+			schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -882,7 +882,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			probe.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8080, HostPort: 8080, Protocol: corev1.ProtocolTCP}}
 			feasible := func() []string {
 				var stats simulator.NodeExclusionStats
-				got, err := snap.FindFeasibleNodes(ctx, slices.Values(cands),
+				got, err := schedulerSimulator.FindFeasibleNodes(ctx, slices.Values(cands),
 					&simulator.PodRequirements{PodTemplate: &corev1.PodTemplateSpec{ObjectMeta: probe.ObjectMeta, Spec: probe.Spec}}, &stats)
 				if err != nil {
 					t.Fatal(err)
@@ -897,7 +897,7 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			if got := feasible(); len(got) != 0 {
 				t.Fatalf("before preemption: want no feasible node, got %v", got)
 			}
-			revert, err := snap.PreemptWorkload(ctx, victim)
+			revert, err := schedulerSimulator.PreemptWorkload(ctx, victim)
 			if err != nil {
 				t.Fatal(err)
 			}

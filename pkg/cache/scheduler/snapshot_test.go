@@ -55,7 +55,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot", "hostnameLeafTASFlavors"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -1746,7 +1746,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2245,7 +2245,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
