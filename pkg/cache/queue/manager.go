@@ -1089,23 +1089,15 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 	m.secondPassQueue.deleteByKey(wlKey)
 }
 
-func (m *Manager) deleteSecondPassForWorkload(w *kueue.Workload) {
-	m.Lock()
-	defer m.Unlock()
-	m.secondPassQueue.deleteByKeyIfUID(workload.Key(w), w.UID)
-}
-
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
-// delay. The pass re-reads the live Workload when the delay elapses.
+// delay. Each callback re-reads the Workload and queues it only if its request is still current.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
 	if workload.NeedsSecondPass(w) {
-		if !m.secondPassQueue.prequeueIfAbsent(w) {
-			return false
-		}
+		pending := m.secondPassQueue.prequeue(w)
 		iteration++
-		delay := m.scheduleSecondPass(ctx, w, iteration)
+		delay := m.scheduleSecondPass(ctx, w, pending, iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
 		return true
 	} else if iteration > 0 {
@@ -1118,42 +1110,51 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	return false
 }
 
-func (m *Manager) scheduleSecondPass(ctx context.Context, w *kueue.Workload, iteration int) time.Duration {
+func (m *Manager) scheduleSecondPass(ctx context.Context, w *kueue.Workload, pending secondPassPending, iteration int) time.Duration {
 	delay := m.secondPassQueue.nextDelay(iteration)
 	m.clock.AfterFunc(delay, func() {
-		m.queueSecondPass(ctx, w, iteration, 0)
+		m.queueSecondPass(ctx, w, pending, iteration, 0)
 	})
 	return delay
 }
 
-func (m *Manager) rescheduleSecondPass(ctx context.Context, w *kueue.Workload, iteration, refreshIteration int) time.Duration {
+func (m *Manager) rescheduleSecondPass(ctx context.Context, w *kueue.Workload, pending secondPassPending, iteration, refreshIteration int) time.Duration {
 	delay := m.secondPassQueue.nextDelay(refreshIteration)
 	// Clock callbacks aren't guaranteed to support registering another timer
 	// synchronously from inside the callback.
 	go m.clock.AfterFunc(delay, func() {
-		m.queueSecondPass(ctx, w, iteration, refreshIteration)
+		m.queueSecondPass(ctx, w, pending, iteration, refreshIteration)
 	})
 	return delay
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration, refreshIteration int) {
+func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, pending secondPassPending, iteration, refreshIteration int) {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
+	if !m.secondPassQueue.isPending(wlKey, pending) {
+		return
+	}
 	var latest kueue.Workload
-	if err := m.client.Get(ctx, client.ObjectKeyFromObject(w), &latest); err != nil {
+	err := m.client.Get(ctx, client.ObjectKeyFromObject(w), &latest)
+	if !m.secondPassQueue.isPending(wlKey, pending) {
+		return
+	}
+	if err != nil {
 		switch {
 		case apierrors.IsNotFound(err), ctx.Err() != nil:
-			m.deleteSecondPassForWorkload(w)
+			m.secondPassQueue.deletePending(wlKey, pending)
 		default:
 			refreshIteration++
-			delay := m.rescheduleSecondPass(ctx, w, iteration, refreshIteration)
+			delay := m.rescheduleSecondPass(ctx, w, pending, iteration, refreshIteration)
 			log.Error(err, "Failed to refresh workload before the second pass; retrying", "workload", wlKey, "delay", delay)
 		}
 		return
 	}
 	if latest.UID != w.UID {
+		if !m.secondPassQueue.deletePending(wlKey, pending) {
+			return
+		}
 		log.V(3).Info("Workload was replaced before the second pass; resetting the retry", "workload", wlKey, "oldUID", w.UID, "newUID", latest.UID)
-		m.deleteSecondPassForWorkload(w)
 		go m.QueueSecondPassIfNeeded(ctx, &latest, 0)
 		return
 	}
@@ -1163,7 +1164,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	defer m.Unlock()
 
 	wInfo.SecondPassIteration = iteration
-	if m.secondPassQueue.queue(wInfo) {
+	if m.secondPassQueue.queue(wInfo, pending) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
 		m.Broadcast()
 	}

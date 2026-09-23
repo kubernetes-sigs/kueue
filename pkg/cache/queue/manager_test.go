@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,11 +34,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -2513,7 +2516,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.NewReference("default", "second")),
 		},
-		"one workload gets queued twice, don't queue if already in present in queue": {
+		"one workload gets queued twice, only the latest request is queued": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
@@ -2521,8 +2524,8 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
 			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
-			wantUpdateQueued: new(false),
-			passTime:         time.Second,
+			wantUpdateQueued: new(true),
+			passTime:         2 * time.Second,
 			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
 	}
@@ -2865,13 +2868,13 @@ func TestQueueSecondPassResetsForRecreatedWorkload(t *testing.T) {
 		t.Fatalf("expected the recreated workload to start a new backoff, got %d ready workloads", len(ready))
 	}
 	manager.secondPassQueue.RLock()
-	prequeuedUID, recreatedPrequeued := manager.secondPassQueue.prequeued[workload.Key(recreatedWl)]
+	pending, recreatedPrequeued := manager.secondPassQueue.prequeued[workload.Key(recreatedWl)]
 	manager.secondPassQueue.RUnlock()
 	if !recreatedPrequeued {
 		t.Fatal("recreated workload should be pre-queued with a fresh backoff")
 	}
-	if prequeuedUID != recreatedWl.UID {
-		t.Errorf("pre-queued workload UID = %q, want %q", prequeuedUID, recreatedWl.UID)
+	if pending.uid != recreatedWl.UID {
+		t.Errorf("pre-queued workload UID = %q, want %q", pending.uid, recreatedWl.UID)
 	}
 
 	fakeClock.Step(initialBackoff / 2)
@@ -2928,6 +2931,234 @@ func TestQueueSecondPassRefreshStopsRecoveredWorkloadRetryLoop(t *testing.T) {
 		t.Fatal("a fresh manager should not queue the recovered workload")
 	}
 	t.Fatalf("stale recovered workload remained in the second-pass retry loop for %d cycles; restarting the manager was required to clear it", retryCycles)
+}
+
+func TestQueueSecondPassPreservesNewerRequestDuringRefresh(t *testing.T) {
+	now := time.Now()
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		UID("uid").
+		Queue("cq").
+		PodSets(*utiltestingapi.MakePodSet("one", 2).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "rf", "2").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"a"}, 1).Obj()).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), now).
+		AdmittedAt(true, now).
+		UnhealthyNodes("a").
+		Obj()
+	cases := map[string]struct {
+		recovered  bool
+		refreshErr error
+	}{
+		"healthy snapshot cannot discard a newer node failure": {
+			recovered: true,
+		},
+		"unhealthy snapshot cannot queue an obsolete request": {},
+		"not found cannot discard a newer request": {
+			refreshErr: apierrors.NewNotFound(kueue.Resource("workloads"), wl.Name),
+		},
+		"read error cannot retry an obsolete request": {
+			refreshErr: errors.New("temporary read error"),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			stored := wl.DeepCopy()
+			if tc.recovered {
+				stored.Status.UnhealthyNodes = nil
+			}
+			readDone := make(chan struct{})
+			releaseRead := make(chan struct{})
+			resumeRead := sync.OnceFunc(func() { close(releaseRead) })
+			defer resumeRead()
+			var firstRead atomic.Bool
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(stored).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if err := cl.Get(ctx, key, obj, opts...); err != nil {
+							return err
+						}
+						if firstRead.CompareAndSwap(false, true) {
+							close(readDone)
+							select {
+							case <-releaseRead:
+							case <-ctx.Done():
+								return ctx.Err()
+							}
+							return tc.refreshErr
+						}
+						return nil
+					},
+				}).
+				Build()
+			fakeClock := testingclock.NewFakeClock(now)
+			manager := NewManagerForUnitTests(cl, nil, WithClock(fakeClock))
+			if !manager.QueueSecondPassIfNeeded(ctx, wl.DeepCopy(), 0) {
+				t.Fatal("Expected the first node failure to be queued")
+			}
+			if tc.recovered && manager.QueueSecondPassIfNeeded(ctx, stored.DeepCopy(), 0) {
+				t.Fatal("The recovered workload should not need a second pass")
+			}
+			key := workload.Key(wl)
+			manager.secondPassQueue.RLock()
+			previous := manager.secondPassQueue.prequeued[key]
+			manager.secondPassQueue.RUnlock()
+			stepDone := make(chan struct{})
+			go func() {
+				fakeClock.Step(initialBackoff)
+				close(stepDone)
+			}()
+			select {
+			case <-readDone:
+			case <-ctx.Done():
+				t.Fatal("Timed out waiting for the delayed workload read")
+			}
+
+			var latest kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &latest); err != nil {
+				t.Fatalf("Getting workload: %v", err)
+			}
+			latest.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: "b"}}
+			if err := cl.Status().Update(ctx, &latest); err != nil {
+				t.Fatalf("Recording the second node failure: %v", err)
+			}
+			queued := make(chan bool, 1)
+			go func() {
+				queued <- manager.QueueSecondPassIfNeeded(ctx, &latest, 0)
+			}()
+			// The newer request updates prequeued before its timer blocks on FakeClock's callback lock.
+			if err := wait.PollUntilContextCancel(ctx, time.Millisecond, true, func(context.Context) (bool, error) {
+				select {
+				case accepted := <-queued:
+					if !accepted {
+						return false, errors.New("the newer node failure was rejected")
+					}
+				default:
+				}
+				manager.secondPassQueue.RLock()
+				current := manager.secondPassQueue.prequeued[key]
+				manager.secondPassQueue.RUnlock()
+				return current != previous, nil
+			}); err != nil {
+				t.Fatalf("Waiting for the newer request: %v", err)
+			}
+			resumeRead()
+			select {
+			case <-stepDone:
+			case <-ctx.Done():
+				t.Fatal("Timed out waiting for the original callback")
+			}
+			select {
+			case accepted := <-queued:
+				if !accepted {
+					t.Fatal("Expected the newer request to be accepted")
+				}
+			case <-ctx.Done():
+				t.Fatal("Timed out waiting for the newer timer")
+			}
+			if ready := manager.secondPassQueue.takeAllReady(); len(ready) != 0 {
+				t.Fatalf("An obsolete callback queued %d workloads", len(ready))
+			}
+			if got := fakeClock.Waiters(); got != 1 {
+				t.Fatalf("Pending timers = %d, want only the newer request's timer", got)
+			}
+
+			fakeClock.Step(initialBackoff)
+			ready := manager.secondPassQueue.takeAllReady()
+			if len(ready) != 1 {
+				t.Fatalf("Ready workloads = %d, want one for the newer node failure", len(ready))
+			}
+			if diff := gocmp.Diff(latest.Status.UnhealthyNodes, ready[0].Obj.Status.UnhealthyNodes); diff != "" {
+				t.Errorf("Unexpected unhealthy nodes (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSecondPassQueueLatestRequest(t *testing.T) {
+	cases := map[string]struct {
+		queueFirst   bool
+		deleteFirst  bool
+		recreate     bool
+		firstHealthy bool
+	}{
+		"supersedes a pending request":       {},
+		"supersedes a ready request":         {queueFirst: true},
+		"does not reuse a deleted request":   {deleteFirst: true},
+		"supersedes a recreated workload":    {recreate: true},
+		"ignores an obsolete healthy result": {firstHealthy: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			q := newSecondPassQueue()
+			first := makeSecondPassNodeReplacementWorkload(time.Now())
+			first.UID = "first"
+			key := workload.Key(first)
+			firstPending := q.prequeue(first)
+			if tc.queueFirst && !q.queue(workload.NewInfo(log, first), firstPending) {
+				t.Fatal("Expected the first request to become ready")
+			}
+			if tc.deleteFirst {
+				q.deleteByKey(key)
+			}
+			latest := first.DeepCopy()
+			if tc.recreate {
+				latest.UID = "second"
+			}
+			pending := q.prequeue(latest)
+			if pending.prequeueIndex <= firstPending.prequeueIndex {
+				t.Fatal("Expected a strictly newer request index")
+			}
+			if tc.firstHealthy {
+				first.Status.UnhealthyNodes = nil
+			}
+			if q.queue(workload.NewInfo(log, first), firstPending) {
+				t.Error("An obsolete callback queued a workload")
+			}
+			if q.deletePending(key, firstPending) {
+				t.Error("An obsolete callback deleted the newer request")
+			}
+			if !q.isPending(key, pending) {
+				t.Fatal("The newer request was lost")
+			}
+			if ready := q.takeAllReady(); len(ready) != 0 {
+				t.Fatalf("Ready workloads = %d, want none before the newer callback", len(ready))
+			}
+			if !q.queue(workload.NewInfo(log, latest), pending) {
+				t.Fatal("The newer callback did not queue its workload")
+			}
+			if q.isPending(key, pending) {
+				t.Error("The newer request remained pending after being queued")
+			}
+			if q.deletePending(key, firstPending) {
+				t.Error("An obsolete callback removed a ready workload")
+			}
+			ready := q.takeAllReady()
+			if len(ready) != 1 {
+				t.Fatalf("Ready workloads = %d, want one", len(ready))
+			}
+			if diff := gocmp.Diff(latest, ready[0].Obj); diff != "" {
+				t.Errorf("Unexpected queued workload (-want,+got):\n%s", diff)
+			}
+		})
+	}
 }
 
 func TestQueueSecondPassReadErrorRetried(t *testing.T) {
@@ -4021,7 +4252,10 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		if got := len(manager.getClusterQueue("cq").workloads.inflight); got != 0 {
 			t.Errorf("inflight entries left after requeue of an inadmissible workload: %d", got)
 		}
-		if !manager.secondPassQueue.prequeued.Has("earth/a") {
+		manager.secondPassQueue.RLock()
+		_, prequeued := manager.secondPassQueue.prequeued["earth/a"]
+		manager.secondPassQueue.RUnlock()
+		if !prequeued {
 			t.Error("second pass request dropped by the requeue")
 		}
 	})

@@ -33,18 +33,24 @@ const (
 	maxBackoff     = 30 * time.Second
 )
 
+type secondPassPending struct {
+	uid           types.UID
+	prequeueIndex uint64
+}
+
 type secondPassQueue struct {
 	sync.RWMutex
 
-	prequeued map[workload.Reference]types.UID
-	queued    map[workload.Reference]*workload.Info
+	prequeued         map[workload.Reference]secondPassPending
+	lastPrequeueIndex uint64
+	queued            map[workload.Reference]*workload.Info
 
 	backoff wait.Backoff
 }
 
 func newSecondPassQueue() *secondPassQueue {
 	return &secondPassQueue{
-		prequeued: make(map[workload.Reference]types.UID),
+		prequeued: make(map[workload.Reference]secondPassPending),
 		queued:    make(map[workload.Reference]*workload.Info),
 		backoff:   wait.NewBackoff(initialBackoff, maxBackoff, backoffFactor, 0),
 	}
@@ -64,28 +70,37 @@ func (q *secondPassQueue) takeAllReady() []workload.Info {
 	return result
 }
 
-func (q *secondPassQueue) prequeueIfAbsent(obj *kueue.Workload) bool {
+func (q *secondPassQueue) prequeue(obj *kueue.Workload) secondPassPending {
 	q.Lock()
 	defer q.Unlock()
 
 	key := workload.Key(obj)
-	if uid, found := q.prequeued[key]; found && uid == obj.UID {
-		return false
-	}
-	if queued, found := q.queued[key]; found && queued.Obj.UID != obj.UID {
-		delete(q.queued, key)
-	}
-	q.prequeued[key] = obj.UID
-	return true
+	q.lastPrequeueIndex++
+	pending := secondPassPending{uid: obj.UID, prequeueIndex: q.lastPrequeueIndex}
+	q.prequeued[key] = pending
+	delete(q.queued, key)
+	return pending
 }
 
-func (q *secondPassQueue) queue(w *workload.Info) bool {
+func (q *secondPassQueue) isPending(key workload.Reference, pending secondPassPending) bool {
+	q.RLock()
+	defer q.RUnlock()
+
+	current, found := q.prequeued[key]
+	return found && current == pending
+}
+
+// queue consumes pending only if its UID and index still match the current request
+// and w has the same UID. Superseded callbacks leave both queues unchanged.
+// A matching request is removed even if the refreshed workload no longer needs a
+// second pass. It returns true only when the workload is added to the ready queue.
+func (q *secondPassQueue) queue(w *workload.Info, pending secondPassPending) bool {
 	q.Lock()
 	defer q.Unlock()
 
 	key := workload.Key(w.Obj)
-	uid, prequeued := q.prequeued[key]
-	matchesPrequeued := prequeued && uid == w.Obj.UID
+	current, prequeued := q.prequeued[key]
+	matchesPrequeued := prequeued && current == pending && pending.uid == w.Obj.UID
 	enqueued := matchesPrequeued && workload.NeedsSecondPass(w.Obj)
 	if enqueued {
 		q.queued[key] = w
@@ -94,6 +109,17 @@ func (q *secondPassQueue) queue(w *workload.Info) bool {
 		delete(q.prequeued, key)
 	}
 	return enqueued
+}
+
+func (q *secondPassQueue) deletePending(key workload.Reference, pending secondPassPending) bool {
+	q.Lock()
+	defer q.Unlock()
+
+	if current, found := q.prequeued[key]; !found || current != pending {
+		return false
+	}
+	delete(q.prequeued, key)
+	return true
 }
 
 func (q *secondPassQueue) deleteByKey(key workload.Reference) {
@@ -111,7 +137,7 @@ func (q *secondPassQueue) deleteByKeyIfUID(key workload.Reference, uid types.UID
 	if queued, found := q.queued[key]; found && queued.Obj.UID == uid {
 		delete(q.queued, key)
 	}
-	if prequeuedUID, found := q.prequeued[key]; found && prequeuedUID == uid {
+	if pending, found := q.prequeued[key]; found && pending.uid == uid {
 		delete(q.prequeued, key)
 	}
 }
