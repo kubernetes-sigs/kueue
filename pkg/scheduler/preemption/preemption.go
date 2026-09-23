@@ -77,7 +77,7 @@ type Preemptor struct {
 }
 
 // PreemptionStrategy represents a singular set of ordered potential preemption candidates.
-// One strategy maps to a signle, isolated attempt at finding a possible preemption result.
+// One strategy maps to a single, isolated attempt at finding a possible preemption result.
 type PreemptionStrategy struct {
 	// candidates is a dynamic iterator over preemption candidates
 	// in order of decreasig preemption appeal.
