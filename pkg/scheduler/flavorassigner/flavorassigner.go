@@ -705,7 +705,7 @@ type indexedPodSet struct {
 func (a *FlavorAssigner) AssignFlavors(
 	ctx context.Context,
 	log logr.Logger,
-	counts ...int32,
+	counts []int32,
 ) Assignment {
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {

@@ -1564,7 +1564,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		snap,
 		s.preemptor,
 		flvAssigner,
-		flvAssigner.AssignFlavors(ctx, log),
+		flvAssigner.AssignFlavors(ctx, log, nil),
 	)
 
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
@@ -1578,7 +1578,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 				snap,
 				s.preemptor,
 				flvAssigner,
-				flvAssigner.AssignFlavors(ctx, log, nextCounts...),
+				flvAssigner.AssignFlavors(ctx, log, nextCounts),
 			); fits {
 				bestPA = &partialAssignment{assignment: assignment, preemptionTargets: targets}
 				return true
