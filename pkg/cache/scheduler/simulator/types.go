@@ -47,6 +47,11 @@ type NodeExclusionStats struct {
 	// Temporary non-granular reason for SchedulerLibraryIntegration, equivalent to the total number of not matching nodes.
 	// TODO(#13283): Long term the granular information should be taken in a structured form from the `scheduler-library`.
 	SchedulerLibraryNoFit int
+
+	// DRANoFit counts nodes that cannot satisfy the Pod's ResourceClaims. The device
+	// check is layered on top of the simulator rather than being one of its filters,
+	// so folding it into SchedulerLibraryNoFit would misreport it.
+	DRANoFit int
 }
 
 // PodRequirements stores pod-driven scheduling filters and

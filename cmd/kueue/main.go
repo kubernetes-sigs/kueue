@@ -361,6 +361,9 @@ func main() {
 		}
 		cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(simulatorFactory))
 	}
+	if draBackedResources != nil {
+		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))
+	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
 	// setup inadmissible workload requeuer

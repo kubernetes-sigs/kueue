@@ -112,6 +112,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	podSet.Template.Spec = *wl.PodSpec(podSetIndex)
 	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
 	singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpec(podSetIndex))
+	draDelegation := delegateDRABackedExtendedResources(wl.PodSpec(podSetIndex), cq.DRABackedResources(), singlePodRequests)
 	var podSetUpdates []*kueue.PodSetUpdate
 	for _, ac := range wl.Obj.Status.AdmissionChecks {
 		if ac.State == kueue.CheckStateReady {
@@ -125,6 +126,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	return &schdcache.TASPodSetRequests{
 		Count:              podCount,
 		SinglePodRequests:  singlePodRequests,
+		DRADelegation:      draDelegation,
 		PodSet:             podSet,
 		PodSetUpdates:      podSetUpdates,
 		Flavor:             *tasFlvr,

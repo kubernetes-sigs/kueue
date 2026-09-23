@@ -556,10 +556,12 @@ type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
 	PodSetUpdates     []*kueue.PodSetUpdate
 	SinglePodRequests resources.Requests
-	Count             int32
-	Flavor            kueue.ResourceFlavorReference
-	Implied           bool
-	PodSetGroupName   *string
+	// DRADelegation is nil when the PodSet requests no DRA-backed extended resource.
+	DRADelegation   *DRADelegation
+	Count           int32
+	Flavor          kueue.ResourceFlavorReference
+	Implied         bool
+	PodSetGroupName *string
 	// PreviousAssignment holds the topology assignment from a workload slice
 	// that this workload is replacing.
 	PreviousAssignment *kueue.TopologyAssignment
@@ -645,8 +647,8 @@ type tasExclusionStats struct {
 }
 
 type topologyAssignmentPodRequirements struct {
+	podRequests
 	podRequirements           simulator.PodRequirements
-	requests                  resources.Requests
 	leader                    *leaderRequirements
 	assumedUsage              *assumedUsage
 	requiredReplacementDomain utiltas.TopologyDomainID
@@ -655,8 +657,8 @@ type topologyAssignmentPodRequirements struct {
 
 // leaderRequirements is what TAS needs to place the leader Pod of a PodSet group.
 type leaderRequirements struct {
-	// requests covers one leader Pod, its Pod count included.
-	requests resources.Requests
+	// podRequests covers one leader Pod, its Pod count included.
+	podRequests
 	// podRequirements are the leader's own node filters, applied on top of the
 	// workers' when choosing its domain. Nil when TASLeaderPodSetFeasibility is off.
 	podRequirements *simulator.PodRequirements
@@ -705,7 +707,8 @@ func newTASExclusionStats() *tasExclusionStats {
 }
 
 func (s *tasExclusionStats) hasExclusions() bool {
-	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 || len(s.Resources) > 0
+	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 ||
+		len(s.Resources) > 0 || s.SchedulerLibraryNoFit > 0 || s.DRANoFit > 0
 }
 
 func (s *tasExclusionStats) formatReasons() string {
@@ -721,6 +724,9 @@ func (s *tasExclusionStats) formatReasons() string {
 	}
 	if s.SchedulerLibraryNoFit > 0 {
 		reasons = append(reasons, fmt.Sprintf("schedulerLibraryNoFit: %d", s.SchedulerLibraryNoFit))
+	}
+	if s.DRANoFit > 0 {
+		reasons = append(reasons, fmt.Sprintf("draNoFit: %d", s.DRANoFit))
 	}
 	for _, taint := range slices.Sorted(maps.Keys(s.Taints)) {
 		reasons = append(reasons, fmt.Sprintf("taint %q: %d", taint, s.Taints[taint]))
@@ -745,6 +751,7 @@ func (s *tasExclusionStats) add(other *tasExclusionStats) {
 	s.Affinity += other.Affinity
 	s.TopologyDomain += other.TopologyDomain
 	s.SchedulerLibraryNoFit += other.SchedulerLibraryNoFit
+	s.DRANoFit += other.DRANoFit
 	for k, v := range other.Taints {
 		if s.Taints == nil {
 			s.Taints = make(map[string]int)
@@ -1199,13 +1206,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		count: workersTasPodSetRequests.Count,
 		stats: &tasExclusionStats{},
 	}
-	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
-	requirements.requests.Add(resources.OnePodRequest)
+	requirements.podRequests = newPodRequests(workersTasPodSetRequests)
 
 	if leaderTasPodSetRequests != nil {
-		leaderRequests := leaderTasPodSetRequests.SinglePodRequests.Clone()
-		leaderRequests.Add(resources.OnePodRequest)
-		requirements.leader = &leaderRequirements{requests: leaderRequests}
+		requirements.leader = &leaderRequirements{podRequests: newPodRequests(*leaderTasPodSetRequests)}
 		// PodSet grouping validation requires the leader PodSet to have one replica.
 		state.leaderCount = 1
 	}
@@ -1269,7 +1273,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
-	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet)
+	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet, workloadNamespace(wl))
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -1292,7 +1296,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if reason != "" {
 			return nil, nil, reason
 		}
-		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet)
+		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet, workloadNamespace(wl))
 		if reason != "" {
 			return nil, nil, reason
 		}
@@ -2248,10 +2252,19 @@ func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string)
 	return info, ""
 }
 
+// workloadNamespace returns the namespace the PodSet's claims live in, empty when
+// there is no Workload to take it from.
+func workloadNamespace(wl *workload.Info) string {
+	if wl == nil {
+		return ""
+	}
+	return wl.Obj.Namespace
+}
+
 // buildPodRequirements turns a PodSet into the node filters TAS applies to it, in the
 // field form the default simulator reads and in the Pod template the scheduler library
 // reads. A non-empty second return value is the reason the PodSet cannot be placed.
-func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
+func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet, namespace string) (simulator.PodRequirements, string) {
 	var podRequirements simulator.PodRequirements
 	podRequirements.Tolerations = utiltolerations.Merge(info.Tolerations, s.tolerations)
 
@@ -2291,6 +2304,9 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	podRequirements.PodTemplate = podSet.Template.DeepCopy()
 	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
 	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
+	// A PodSet template carries no namespace, and the simulator resolves the
+	// Workload's namespaced ResourceClaims through it.
+	podRequirements.PodTemplate.Namespace = namespace
 	return podRequirements, ""
 }
 
@@ -2392,7 +2408,7 @@ func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
 			continue
 		}
 		remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
-		if requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
+		if requirements.leader.forLeaf(leaf).CountIn(remainingCapacity.Get()) > 0 {
 			// podCount stays zero: the domain gains a place for the leader, not room
 			// for workers.
 			s.domainStateOf(&leaf.domain).leaderCount = 1
@@ -2475,7 +2491,7 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
 	var limitingRes corev1.ResourceName
 	leafDomainState := s.domainStateOf(&leaf.domain)
-	leafDomainState.podCount, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity.Get())
+	leafDomainState.podCount, limitingRes = requirements.forLeaf(leaf).CountInWithLimitingResource(remainingCapacity.Get())
 
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.
@@ -2488,12 +2504,12 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 
 	leafDomainState.leaderCount = 0
 	if state.leaderFeasibleFor(leaf) &&
-		requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
+		requirements.leader.forLeaf(leaf).CountIn(remainingCapacity.Get()) > 0 {
 		leafDomainState.leaderCount = 1
-		remainingCapacity.Sub(requirements.leader.requests)
+		remainingCapacity.Sub(requirements.leader.forLeaf(leaf))
 	}
 
-	leafDomainState.podCountWithLeader = requirements.requests.CountIn(remainingCapacity.Get())
+	leafDomainState.podCountWithLeader = requirements.forLeaf(leaf).CountIn(remainingCapacity.Get())
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {
