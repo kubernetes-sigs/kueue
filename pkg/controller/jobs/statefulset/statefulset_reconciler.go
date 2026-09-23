@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -77,6 +78,8 @@ type Reconciler struct {
 	logName                      string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
+	labelKeysToCopy              sets.Set[string]
+	annotationsToCopy            sets.Set[string]
 	roleTracker                  *roletracker.RoleTracker
 	customLabels                 *metrics.CustomLabels
 }
@@ -425,7 +428,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		podSet.TopologyRequest = topologyRequest
 	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil, nil)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, r.labelKeysToCopy, r.annotationsToCopy)
 
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string, 1)
@@ -470,6 +473,8 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		logName:                      "statefulset-reconciler",
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		labelKeysToCopy:              options.LabelKeysToCopy,
+		annotationsToCopy:            options.AnnotationsToCopy,
 		roleTracker:                  options.RoleTracker,
 		customLabels:                 options.CustomLabels,
 	}, nil
