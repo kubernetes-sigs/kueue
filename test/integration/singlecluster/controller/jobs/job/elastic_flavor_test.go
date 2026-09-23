@@ -109,28 +109,19 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("warning about fallback before scale-up only when the capacity probe failed")
+		rootWorkloadKey := client.ObjectKey{Namespace: ns.Name, Name: rootWorkloadName}
 		if wantScaleUpAdmitted {
 			gomega.Consistently(func(g gomega.Gomega) {
-				events := &eventsv1.EventList{}
-				g.Expect(k8sClient.List(ctx, events, client.InNamespace(ns.Name))).Should(gomega.Succeed())
-				var warnings []eventsv1.Event
-				for _, event := range events.Items {
-					if event.Regarding.Name == rootWorkloadName && event.Reason == "ZeroCountFlavorFallback" {
-						warnings = append(warnings, event)
-					}
-				}
-				g.Expect(warnings).Should(gomega.BeEmpty())
+				events, err := util.EventsForObject(ctx, k8sClient, rootWorkloadKey)
+				g.Expect(err).ShouldNot(gomega.HaveOccurred())
+				g.Expect(events).ShouldNot(gomega.ContainElement(gomega.HaveField("Reason", "ZeroCountFlavorFallback")))
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		} else {
 			checkFallbackWarning := func(g gomega.Gomega) {
-				events := &eventsv1.EventList{}
-				g.Expect(k8sClient.List(ctx, events, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				events, err := util.EventsForObject(ctx, k8sClient, rootWorkloadKey)
+				g.Expect(err).ShouldNot(gomega.HaveOccurred())
 				var warnings []eventsv1.Event
-				for _, event := range events.Items {
-					if event.Regarding.Name == rootWorkloadName && event.Reason == "ZeroCountFlavorFallback" {
-						warnings = append(warnings, event)
-					}
-				}
+				g.Expect(events).Should(gomega.ContainElement(gomega.HaveField("Reason", "ZeroCountFlavorFallback"), &warnings))
 				g.Expect(warnings).Should(gomega.HaveLen(1))
 				g.Expect(warnings[0].Type).Should(gomega.Equal(corev1.EventTypeWarning))
 				g.Expect(warnings[0].Note).Should(gomega.And(
