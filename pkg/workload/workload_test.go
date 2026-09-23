@@ -744,6 +744,32 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"transformUsesExcludedResourceAsInput": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				Request("acme.io/vgpu-count", "2").
+				Request("acme.io/cores-per-vgpu", "20").
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"acme.io/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "acme.io/vgpu-count",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "acme.io/cores-per-vgpu",
+					Outputs: corev1.ResourceList{
+						"quota.acme.io/total-vgpu-cores": resource.MustParse("1"),
+					},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: kueue.DefaultPodSetName,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"quota.acme.io/total-vgpu-cores": 40,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformResources": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
