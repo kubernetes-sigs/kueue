@@ -1492,7 +1492,10 @@ Without this feature, a second failed node triggers Workload eviction. Since Kue
 the Alpha `TASReplaceMultipleFailedNodes` feature gate (disabled by default) enables the
 per-Workload `kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold` annotation.
 Its value `N` is in `[1, 8]`, matching the API limit on `.status.unhealthyNodes`;
-absent or invalid values default to `1`.
+an absent value defaults to `1`. With the gate enabled, the Workload webhook rejects
+invalid values on creation or annotation changes. Unchanged invalid values on existing
+Workloads remain accepted and default to `1`, so recovery and cleanup are not blocked.
+The threshold does not impose an additional validation limit on `.status.unhealthyNodes`.
 
 With the gate enabled, Kueue keeps up to `N` unhealthy nodes queued for replacement and
 suppresses `TASFailedNodeReplacementFailFast` while within that threshold. A further distinct

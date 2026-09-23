@@ -76,7 +76,8 @@ const (
 
 	// UnhealthyNodesConcurrentEvictionThresholdAnnotation sets the maximum number
 	// of unhealthy nodes retained for replacement without triggering workload eviction.
-	// Valid values are 1-8; absent or invalid values default to 1.
+	// Valid values are 1-8; absent values default to 1. Invalid values are rejected
+	// on creation or annotation changes. Existing invalid values default to 1.
 	// Ignored unless TASReplaceMultipleFailedNodes is enabled.
 	UnhealthyNodesConcurrentEvictionThresholdAnnotation = "kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold"
 
