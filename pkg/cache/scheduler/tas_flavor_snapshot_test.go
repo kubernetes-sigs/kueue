@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -34,13 +35,15 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/component-base/featuregate"
+	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -69,7 +72,7 @@ func newFreeCapacityTestSnapshot(capacities map[tas.TopologyDomainID]leafCapacit
 	leaves := make(leafDomainByID, len(capacities))
 	leafCapacities := make([]leafCapacity, 0, len(capacities))
 	for id, capacity := range capacities {
-		leaves[id] = &leafDomain{domain: domain{id: id}, leafIdx: len(leafCapacities)}
+		leaves[id] = &leafDomain{id: id, leafIdx: len(leafCapacities)}
 		leafCapacities = append(leafCapacities, capacity)
 	}
 	return &TASFlavorSnapshot{
@@ -176,7 +179,7 @@ func TestApplyTASUsageSkipsDomainTheSnapshotDoesNotHold(t *testing.T) {
 		Ready().
 		Obj()
 	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{rackNode}, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	snapshot.updateTASUsage(tas.DomainID([]string{"gone"}), oneCPU, add, 1)
@@ -201,7 +204,7 @@ func TestFreeCapacityPerDomainReportsUsageDomains(t *testing.T) {
 		rackNode.Clone().Name("n1").Obj(),
 		rackNode.Clone().Name("n2").Obj(),
 	}, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot(),
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator(),
 		withResourceFormatter(resources.NewResourceFormatter()))
 	snapshot.updateTASUsage(tas.DomainID([]string{"r1"}),
 		resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}), add, 1)
@@ -580,7 +583,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, tree, newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, tree, newDefaultSimulator())
 
 			got := s.mergeTopologyAssignments(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, *got); diff != "" {
@@ -651,7 +654,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree(levels, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
@@ -927,7 +930,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 
 			sorted := s.sortedDomainsWithLeader(addDomainsWithState(s, tc.domains), tc.unconstrained, nil)
 
@@ -1144,7 +1147,7 @@ func TestSortedDomains(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(levels, nil, 0), newDefaultSimulator())
 
 			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.unconstrained, nil)
 
@@ -1208,7 +1211,7 @@ func TestCompareDomainLevelValues(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(tc.levels, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "test"}, newTopologyTree(tc.levels, nil, 0), newDefaultSimulator())
 			got := s.compareDomainLevelValues(tc.a, tc.b)
 			if (got < 0 && tc.want >= 0) || (got > 0 && tc.want <= 0) || (got == 0 && tc.want != 0) {
 				t.Errorf("compareDomainLevelValues() = %d, want sign matching %d", got, tc.want)
@@ -1528,7 +1531,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				}).
 				Ready().
 				Obj()
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), newDefaultSimulatorSnapshot())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), newDefaultSimulator())
 			domainID := snapshot.nodeToDomain[nodeObj.Name]
 
 			if snapshot.leaves[domainID] == nil {
@@ -1605,7 +1608,7 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			nodes := []*corev1.Node{rackNode.Clone().Name("n1").Obj(), rackNode.Clone().Name("n2").Obj()}
 			tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
 			flavorUsage := workload.TASFlavorUsage{{
 				Values: []string{"b1", "r1"},
@@ -1700,7 +1703,7 @@ func TestFindAssignmentsWithDomainRecordedUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 			if tc.priorRackUsage > 0 {
 				snapshot.updateTASUsage(tas.DomainID([]string{"b1", "r1"}),
 					oneCPU.ScaledUp(int64(tc.priorRackUsage)), add, tc.priorRackUsage)
@@ -1730,7 +1733,7 @@ func TestUsageDomainIgnoresNodeNameCollision(t *testing.T) {
 	nodeNamedR1 := rackNode.Clone().Name("r1").Label(corev1.LabelHostname, "r1").Label(rackLabel, "r2").Obj()
 
 	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{nodeA, nodeB, nodeNamedR1}, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 	leaves := slices.Collect(snapshot.leavesOf(snapshot.usageDomain("r1")))
 	if len(leaves) != 2 {
 		t.Fatalf("usageDomain(\"r1\") holds %d leaves, want rack r1's 2 leaves", len(leaves))
@@ -1744,7 +1747,7 @@ func TestUsageDomainIgnoresNodeNameCollision(t *testing.T) {
 	// Control: with hostname declared as the lowest level, usage domains are
 	// the leaves themselves and the leaf lookup must keep working.
 	declaredTree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, []*corev1.Node{nodeA, nodeB}, 0)
-	declaredSnapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, declaredTree, newDefaultSimulatorSnapshot())
+	declaredSnapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, declaredTree, newDefaultSimulator())
 	declaredLeaves := slices.Collect(declaredSnapshot.leavesOf(declaredSnapshot.usageDomain("node-a")))
 	if len(declaredLeaves) != 1 || declaredLeaves[0].node.Name != "node-a" {
 		t.Errorf("usageDomain(\"node-a\") holds %d leaves, want the node-a leaf", len(declaredLeaves))
@@ -1797,7 +1800,7 @@ func TestSimulateEmptyKeepsInCycleUsage(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// An elastic Workload already placed both of the rack's CPUs in this cycle.
@@ -1850,7 +1853,7 @@ func TestPreferredNodeAffinityIsRespectedWithInjectedHostnameLevel(t *testing.T)
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
 	podSet := &kueue.PodSet{
 		Name:            "ps",
@@ -1917,7 +1920,7 @@ func TestBalancedPlacementWithInjectedHostnameLevel(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	tasRequests := TASPodSetRequests{
@@ -1965,7 +1968,7 @@ func TestAssumedDomainUsageIsNotChargedToNodeOfTheSameName(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// What an elastic Workload's previous assignment on rack r1 records.
@@ -2013,7 +2016,7 @@ func TestTwoPodSetsShareTheDomainBudget(t *testing.T) {
 	}
 
 	tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
-	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// An admitted Workload holds one of the rack's two CPUs, and no node carries
@@ -2098,7 +2101,7 @@ func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
 				rackNode.Clone().Name("n2").Label(rackLabel, "r2").Obj(),
 			}
 			tree := newTopologyTree([]string{rackLabel}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulatorSnapshot())
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
 			snapshot.updateTASUsage("r1", oneCPU.ScaledUp(int64(tc.rackUsage)), add, tc.rackUsage)
 
 			podSet := func(name kueue.PodSetReference, singlePodRequests resources.Requests, count int32) TASPodSetRequests {
@@ -2144,7 +2147,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	dev := corev1.ResourceName("example.com/device")
 	ctx, log := utiltesting.ContextWithLog(t)
 
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	rackNode := node.MakeNode("").
 		Label(blockLabel, "b1").
 		Label(rackLabel, "r1").
@@ -2173,7 +2176,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	}}
 
 	// Control: with no usage recorded, both devices are free.
-	empty, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	empty, err := fc.snapshot(ctx, log, newDefaultSimulator(), nil)
 	if err != nil {
 		t.Fatalf("snapshot() error = %v", err)
 	}
@@ -2183,7 +2186,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 
 	fc.addUsage(log, "wl1", singleDevice)
 	fc.addUsage(log, "wl2", singleDevice)
-	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulator(), nil)
 	if err != nil {
 		t.Fatalf("snapshot() error = %v", err)
 	}
@@ -2225,7 +2228,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 				Ready().
 				Obj())
 		}
-		return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), newDefaultSimulatorSnapshot())
+		return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), newDefaultSimulator())
 	}
 	// One domain with capacity 1 cannot satisfy count 10.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
@@ -2301,17 +2304,17 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	})
 }
 
-// nodeDerefSimulatorSnapshot reads the node off every candidate the way the WAS
+// nodeDerefSchedulerSimulator reads the node off every candidate the way the WAS
 // simulator does, so a leaf with no node of its own fails loudly here.
-type nodeDerefSimulatorSnapshot struct {
-	simulator.SimulatorSnapshot
+type nodeDerefSchedulerSimulator struct {
+	simulator.SchedulerSimulator
 	// scoreEach is multiplied by the call number, so a second pass that is not undone
 	// leaves a different score behind rather than rewriting the same one.
 	scoreEach int64
 	calls     int64
 }
 
-func (s *nodeDerefSimulatorSnapshot) FindFeasibleNodes(
+func (s *nodeDerefSchedulerSimulator) FindFeasibleNodes(
 	_ context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	_ *simulator.PodRequirements,
@@ -2353,7 +2356,7 @@ func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
 	}
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-		&nodeDerefSimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot()})
+		&nodeDerefSchedulerSimulator{SchedulerSimulator: newDefaultSimulator()})
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	podSet := func(name string, count int32, spec corev1.PodSpec) TASPodSetRequests {
@@ -2420,7 +2423,7 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	// not undone leaves a score the workers' pass never produced.
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-		&nodeDerefSimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot(), scoreEach: 7})
+		&nodeDerefSchedulerSimulator{SchedulerSimulator: newDefaultSimulator(), scoreEach: 7})
 	snapshot.FindTopologyAssignmentsForFlavor(ctx, FlavorTASRequests{
 		podSet("workers", 2), podSet("leader", 1),
 	})
@@ -2432,13 +2435,13 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	}
 }
 
-// templateOnlySimulatorSnapshot filters nodes using only the Pod template, the way
+// templateOnlySchedulerSimulator filters nodes using only the Pod template, the way
 // the scheduler-library does, ignoring the separately compiled selector.
-type templateOnlySimulatorSnapshot struct {
-	simulator.SimulatorSnapshot
+type templateOnlySchedulerSimulator struct {
+	simulator.SchedulerSimulator
 }
 
-func (s *templateOnlySimulatorSnapshot) FindFeasibleNodes(
+func (s *templateOnlySchedulerSimulator) FindFeasibleNodes(
 	_ context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -2488,7 +2491,7 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 	}
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 	snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-		&templateOnlySimulatorSnapshot{SimulatorSnapshot: newDefaultSimulatorSnapshot()})
+		&templateOnlySchedulerSimulator{SchedulerSimulator: newDefaultSimulator()})
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	// Only the leader is steered to pool "a" by an AdmissionCheck, not by its own
@@ -2533,57 +2536,257 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 	}
 }
 
-func TestBuildPodRequirementsMergesTolerations(t *testing.T) {
+func mustNewNodeSelector(t *testing.T, nodeSelector *corev1.NodeSelector) *nodeaffinity.NodeSelector {
+	t.Helper()
+	selector, err := nodeaffinity.NewNodeSelector(nodeSelector)
+	if err != nil {
+		t.Fatalf("NewNodeSelector() = %v, want no error", err)
+	}
+	return selector
+}
+
+func mustNewPreferredSchedulingTerms(t *testing.T, terms []corev1.PreferredSchedulingTerm) *nodeaffinity.PreferredSchedulingTerms {
+	t.Helper()
+	preferredSchedulingTerms, err := nodeaffinity.NewPreferredSchedulingTerms(terms)
+	if err != nil {
+		t.Fatalf("NewPreferredSchedulingTerms() = %v, want no error", err)
+	}
+	return preferredSchedulingTerms
+}
+
+func TestBuildPodRequirements(t *testing.T) {
 	tolerateGPU := corev1.Toleration{Key: "example.com/gpu", Operator: corev1.TolerationOpExists}
 	tolerateDrain := corev1.Toleration{Key: "example.com/drain", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+	basePodSet := utiltestingapi.MakePodSet("main", 1)
+
 	cases := map[string]struct {
-		flavorTolerations   []corev1.Toleration
-		templateTolerations []corev1.Toleration
-		podSetUpdates       []*kueue.PodSetUpdate
-		want                []corev1.Toleration
+		featureGates map[featuregate.Feature]bool
+		// levels are the levels the Topology declares. A leaf is a node when the lowest
+		// level is the hostname, declared or injected by TASNodeFeasibilityForAllLevels.
+		levels            []string
+		flavorTolerations []corev1.Toleration
+		// info is the PodSet merged with its PodSetUpdates, as podSetInfo() yields it.
+		// Only the fields buildPodRequirements reads are set.
+		info   podset.PodSetInfo
+		podSet *kueue.PodSet
+
+		wantPodRequirements simulator.PodRequirements
+		// wantReasonPrefix is the part of the reason that Kueue words. The rest is
+		// the validation error of apimachinery, which changes with the dependency.
+		wantReasonPrefix string
 	}{
 		"flavor toleration joins the template's": {
-			flavorTolerations:   []corev1.Toleration{tolerateGPU},
-			templateTolerations: []corev1.Toleration{tolerateDrain},
-			want:                []corev1.Toleration{tolerateDrain, tolerateGPU},
+			flavorTolerations: []corev1.Toleration{tolerateGPU},
+			info:              podset.PodSetInfo{Tolerations: []corev1.Toleration{tolerateDrain}},
+			podSet:            basePodSet.Clone().Toleration(tolerateDrain).Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Tolerations: []corev1.Toleration{tolerateDrain, tolerateGPU},
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().Toleration(tolerateDrain).Toleration(tolerateGPU).Obj().Template,
+			},
 		},
 		"toleration on both the template and the flavor appears once": {
-			flavorTolerations:   []corev1.Toleration{tolerateGPU},
-			templateTolerations: []corev1.Toleration{tolerateGPU},
-			want:                []corev1.Toleration{tolerateGPU},
+			flavorTolerations: []corev1.Toleration{tolerateGPU},
+			info:              podset.PodSetInfo{Tolerations: []corev1.Toleration{tolerateGPU}},
+			podSet:            basePodSet.Clone().Toleration(tolerateGPU).Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Tolerations: []corev1.Toleration{tolerateGPU},
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().Toleration(tolerateGPU).Obj().Template,
+			},
 		},
 		"toleration from an admission check and the flavor appears once": {
 			flavorTolerations: []corev1.Toleration{tolerateGPU},
-			podSetUpdates:     []*kueue.PodSetUpdate{{Name: "main", Tolerations: []corev1.Toleration{tolerateGPU}}},
-			want:              []corev1.Toleration{tolerateGPU},
+			info:              podset.PodSetInfo{Tolerations: []corev1.Toleration{tolerateGPU}},
+			podSet:            basePodSet.Clone().Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Tolerations: []corev1.Toleration{tolerateGPU},
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().Toleration(tolerateGPU).Obj().Template,
+			},
 		},
 		"no flavor tolerations": {
-			templateTolerations: []corev1.Toleration{tolerateDrain},
-			want:                []corev1.Toleration{tolerateDrain},
+			info:   podset.PodSetInfo{Tolerations: []corev1.Toleration{tolerateDrain}},
+			podSet: basePodSet.Clone().Toleration(tolerateDrain).Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Tolerations: []corev1.Toleration{tolerateDrain},
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().Toleration(tolerateDrain).Obj().Template,
+			},
+		},
+		"nodeSelector is compiled into the selector and kept on the template": {
+			levels: []string{corev1.LabelHostname},
+			info:   podset.PodSetInfo{NodeSelector: map[string]string{"pool": "a"}},
+			podSet: basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector:    labels.SelectorFromSet(labels.Set{"pool": "a"}),
+				PodTemplate: &basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj().Template,
+			},
+		},
+		"nodeSelector from an admission check joins the template's": {
+			levels: []string{corev1.LabelHostname},
+			info:   podset.PodSetInfo{NodeSelector: map[string]string{"pool": "a", "zone": "z1"}},
+			podSet: basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector:    labels.SelectorFromSet(labels.Set{"pool": "a", "zone": "z1"}),
+				PodTemplate: &basePodSet.Clone().NodeSelector(map[string]string{"pool": "a", "zone": "z1"}).Obj().Template,
+			},
+		},
+		"nodeSelector is not compiled into the selector when a leaf spans several nodes": {
+			featureGates: map[featuregate.Feature]bool{features.TASNodeFeasibilityForAllLevels: false},
+			levels:       []string{utiltesting.DefaultRackTopologyLevel},
+			info:         podset.PodSetInfo{NodeSelector: map[string]string{"pool": "a"}},
+			podSet:       basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().NodeSelector(map[string]string{"pool": "a"}).Obj().Template,
+			},
+		},
+		"invalid nodeSelector": {
+			levels:           []string{corev1.LabelHostname},
+			info:             podset.PodSetInfo{NodeSelector: map[string]string{"pool": "not a label value"}},
+			podSet:           basePodSet.Clone().NodeSelector(map[string]string{"pool": "not a label value"}).Obj(),
+			wantReasonPrefix: "invalid node selectors: ",
+		},
+		"required node affinity is compiled into the affinity selector": {
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}},
+			}}},
+			podSet: basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector: labels.Everything(),
+				AffinitySelector: mustNewNodeSelector(t, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}}),
+				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+			},
+		},
+		"required node affinity without preferred terms when TASRespectNodeAffinityPreferred is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}},
+			}}},
+			podSet: basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector: labels.Everything(),
+				AffinitySelector: mustNewNodeSelector(t, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}},
+				}}),
+				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+			},
+		},
+		"affinity without node affinity is not compiled": {
+			info:   podset.PodSetInfo{Affinity: &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{}}},
+			podSet: basePodSet.Clone().PodSpec(corev1.PodSpec{Affinity: &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{}}}).Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().PodSpec(corev1.PodSpec{Affinity: &corev1.Affinity{PodAntiAffinity: &corev1.PodAntiAffinity{}}}).Obj().Template,
+			},
+		},
+		"invalid required node affinity": {
+			// An In requirement needs at least one value.
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn},
+					}},
+				}},
+			}}},
+			podSet:           basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn).Obj(),
+			wantReasonPrefix: "invalid affinity node selectors: ",
+		},
+		"preferred node affinity is compiled when TASRespectNodeAffinityPreferred is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}}},
+				},
+			}}},
+			podSet: basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector: labels.Everything(),
+				PreferredSchedulingTerms: mustNewPreferredSchedulingTerms(t, []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}}},
+				}),
+				PodTemplate: &basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+			},
+		},
+		"preferred node affinity is ignored when TASRespectNodeAffinityPreferred is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: false},
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
+					}}},
+				},
+			}}},
+			podSet: basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
+			wantPodRequirements: simulator.PodRequirements{
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+			},
+		},
+		"invalid preferred node affinity": {
+			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
+			// An In requirement needs at least one value.
+			info: podset.PodSetInfo{Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
+					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+						{Key: "pool", Operator: corev1.NodeSelectorOpIn},
+					}}},
+				},
+			}}},
+			podSet:           basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn).Obj(),
+			wantReasonPrefix: "invalid preferred node affinity terms: ",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			_, log := utiltesting.ContextWithLog(t)
 			flavor := flavorInformation{TopologyName: "dummy", Tolerations: tc.flavorTolerations}
-			snapshot := newTASFlavorSnapshot(log, flavor, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
-			podSet := &kueue.PodSet{
-				Name:     "main",
-				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Tolerations: tc.templateTolerations}},
+			snapshot := newTASFlavorSnapshot(log, flavor, newTopologyTree(tc.levels, nil, 0), newDefaultSimulator())
+			// The Pod template is a copy, so the merged constraints must not reach the PodSet.
+			wantPodSet := tc.podSet.DeepCopy()
+
+			gotPodRequirements, gotReason := snapshot.buildPodRequirements(tc.info, tc.podSet, "")
+
+			if diff := cmp.Diff(wantPodSet, tc.podSet); diff != "" {
+				t.Errorf("buildPodRequirements() modified the PodSet (-want,+got):\n%s", diff)
 			}
-			info, reason := podSetInfo(TASPodSetRequests{PodSet: podSet, PodSetUpdates: tc.podSetUpdates})
-			if reason != "" {
-				t.Fatalf("podSetInfo() = %q, want no reason", reason)
+			if tc.wantReasonPrefix != "" {
+				if !strings.HasPrefix(gotReason, tc.wantReasonPrefix) {
+					t.Errorf("buildPodRequirements() = %q, want a reason starting with %q", gotReason, tc.wantReasonPrefix)
+				}
+				// The callers drop the PodRequirements that come with a reason.
+				return
 			}
-			got, reason := snapshot.buildPodRequirements(info, podSet)
-			if reason != "" {
-				t.Fatalf("buildPodRequirements() = %q, want no reason", reason)
+			if gotReason != "" {
+				t.Errorf("buildPodRequirements() = %q, want no reason", gotReason)
 			}
-			if diff := cmp.Diff(tc.want, got.Tolerations); diff != "" {
-				t.Errorf("unexpected tolerations (-want,+got):\n%s", diff)
-			}
-			if diff := cmp.Diff(got.Tolerations, got.PodTemplate.Spec.Tolerations); diff != "" {
-				t.Errorf("template tolerations differ from the field form (-field,+template):\n%s", diff)
+			if diff := cmp.Diff(tc.wantPodRequirements, gotPodRequirements,
+				// nodeaffinity keeps the compiled terms in unexported fields of unexported
+				// types, which cmp.AllowUnexported cannot name.
+				cmp.Exporter(func(t reflect.Type) bool {
+					return t.PkgPath() == reflect.TypeFor[nodeaffinity.NodeSelector]().PkgPath()
+				})); diff != "" {
+				t.Errorf("unexpected PodRequirements (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -2710,7 +2913,7 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 				}
 				tree := newTopologyTree([]string{blockLabel, rackLabel, corev1.LabelHostname}, nodes, 0)
 				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree,
-					newDefaultSimulatorSnapshot())
+					newDefaultSimulator())
 
 				const groupName = "group"
 				oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
@@ -2734,7 +2937,7 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						PodSetGroupName:   new(groupName),
 					},
 				}
-				wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+				wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 
 				want := map[kueue.PodSetReference][]string{"workers": tc.wantWorkers, "leader": tc.wantLeader}
 				// The cache only answers from the second cycle, and the flavor assigner
@@ -2760,5 +2963,63 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A counter stays invisible to the operator unless hasExclusions admits it, add carries
+// it across the per-PodSet merge, and formatReasons prints it. Each has to agree, or the
+// Workload's message drops the one reason that explains it.
+func TestExclusionStatsReachTheMessage(t *testing.T) {
+	testCases := map[string]struct {
+		stats            tasExclusionStats
+		wantHas          bool
+		wantInReasons    string
+		wantNotInReasons string
+	}{
+		"draNoFit alone is enough to report exclusions": {
+			stats:         tasExclusionStats{NodeExclusionStats: simulator.NodeExclusionStats{DRANoFit: 3}},
+			wantHas:       true,
+			wantInReasons: "draNoFit: 3",
+		},
+		"draNoFit is named separately from schedulerLibraryNoFit": {
+			stats: tasExclusionStats{NodeExclusionStats: simulator.NodeExclusionStats{
+				DRANoFit:              2,
+				SchedulerLibraryNoFit: 5,
+			}},
+			wantHas:       true,
+			wantInReasons: "draNoFit: 2",
+		},
+		"schedulerLibraryNoFit alone is enough to report exclusions": {
+			stats:         tasExclusionStats{NodeExclusionStats: simulator.NodeExclusionStats{SchedulerLibraryNoFit: 4}},
+			wantHas:       true,
+			wantInReasons: "schedulerLibraryNoFit: 4",
+		},
+		"no exclusions when nothing was counted": {
+			stats:            tasExclusionStats{},
+			wantHas:          false,
+			wantNotInReasons: "draNoFit",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.stats.hasExclusions(); got != tc.wantHas {
+				t.Errorf("hasExclusions() = %v, want %v", got, tc.wantHas)
+			}
+			reasons := tc.stats.formatReasons()
+			if tc.wantInReasons != "" && !strings.Contains(reasons, tc.wantInReasons) {
+				t.Errorf("formatReasons() = %q, want it to contain %q", reasons, tc.wantInReasons)
+			}
+			if tc.wantNotInReasons != "" && strings.Contains(reasons, tc.wantNotInReasons) {
+				t.Errorf("formatReasons() = %q, want it not to contain %q", reasons, tc.wantNotInReasons)
+			}
+
+			// add must carry the field across the per-PodSet merge.
+			var dst tasExclusionStats
+			dst.add(&tc.stats)
+			if dst.DRANoFit != tc.stats.DRANoFit {
+				t.Errorf("add() carried DRANoFit = %d, want %d", dst.DRANoFit, tc.stats.DRANoFit)
+			}
+		})
 	}
 }

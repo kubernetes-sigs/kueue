@@ -128,10 +128,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"defaulting ControllerManager": {
 			original: &Configuration{
-				ControllerManager: ControllerManager{
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: new(true),
-					},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect: new(true),
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -139,28 +137,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: new(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(DefaultWebhookPort),
-						CertDir: DefaultWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(DefaultWebhookPort),
+					CertDir: DefaultWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: DefaultMetricsBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: DefaultMetricsBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(true),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  DefaultLeaderElectionID,
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(true),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  DefaultLeaderElectionID,
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -174,28 +170,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"should not default ControllerManager": {
 			original: &Configuration{
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(overwriteWebhookPort),
-						CertDir: overwriteWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(overwriteWebhookPort),
+					CertDir: overwriteWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: overwriteMetricBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: overwriteMetricBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(true),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  overwriteLeaderElectionID,
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: overwriteHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(true),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  overwriteLeaderElectionID,
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -204,28 +198,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: new(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(overwriteWebhookPort),
-						CertDir: overwriteWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(overwriteWebhookPort),
+					CertDir: overwriteWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: overwriteMetricBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: overwriteMetricBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(true),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  overwriteLeaderElectionID,
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: overwriteHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(true),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  overwriteLeaderElectionID,
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -239,10 +231,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"should not set LeaderElectionID": {
 			original: &Configuration{
-				ControllerManager: ControllerManager{
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: new(false),
-					},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect: new(false),
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -250,28 +240,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: new(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(DefaultWebhookPort),
-						CertDir: DefaultWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(DefaultWebhookPort),
+					CertDir: DefaultWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: DefaultMetricsBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: DefaultMetricsBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(false),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(false),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),

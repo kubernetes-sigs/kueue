@@ -1,0 +1,18 @@
+# permissions for end users to view provisioningrequestconfigs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: provisioningrequestconfig-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/role: "provisioningrequestconfig-viewer"
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - provisioningrequestconfigs
+  verbs:
+  - get
+  - list
+  - watch

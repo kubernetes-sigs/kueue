@@ -392,7 +392,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := r.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: tc.dqo.Name},
+				Name: tc.dqo.Name,
 			})
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("Reconcile error = %v, wantErr %v", err, tc.wantErr)

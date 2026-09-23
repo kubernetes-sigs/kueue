@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -223,9 +222,7 @@ func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workq
 		for _, ac := range cq.Spec.AdmissionChecksStrategy.AdmissionChecks {
 			if cqs := h.cache.ClusterQueuesUsingAdmissionCheck(ac.Name); len(cqs) == 0 {
 				req := reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Name: string(ac.Name),
-					},
+					Name: string(ac.Name),
 				}
 				q.Add(req)
 			}

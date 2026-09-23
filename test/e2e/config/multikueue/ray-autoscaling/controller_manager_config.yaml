@@ -8,6 +8,7 @@ leaderElection:
 integrations:
   frameworks:
   - "ray.io/raycluster"
+  - "ray.io/rayjob"
 featureGates:
   ElasticJobsViaWorkloadSlices: true
   MultiKueueRayInTreeAutoscaling: true

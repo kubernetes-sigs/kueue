@@ -24,6 +24,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1164,12 +1165,10 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
 
-	makeWl := func() *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl", "ns").
-			Queue("lq").
-			Active(true).
-			Request(corev1.ResourceCPU, "4")
-	}
+	baseWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request(corev1.ResourceCPU, "4")
 	// A reserved Workload's requests are read back from the admission rather than
 	// from the PodSets, so the assignment carries them to keep the fixtures
 	// realistic for the transitions under test.
@@ -1178,26 +1177,36 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
 			Obj()
 	}
-	pending := makeWl().Obj()
-	quotaReserved := makeWl().
+	pending := baseWl.Clone().Obj()
+	quotaReserved := baseWl.Clone().
 		ReserveQuotaAt(makeAdmission(), now).
 		Obj()
-	admitted := makeWl().
+	admitted := baseWl.Clone().
 		ReserveQuotaAt(makeAdmission(), now).
 		AdmittedAt(true, now).
 		Obj()
-	deactivatedAdmitted := makeWl().
+	deactivatedAdmitted := baseWl.Clone().
 		Active(false).
 		ReserveQuotaAt(makeAdmission(), now).
 		AdmittedAt(true, now).
 		Obj()
+	deactivatedReserved := baseWl.Clone().
+		Active(false).
+		ReserveQuotaAt(makeAdmission(), now).
+		Obj()
+	finishedReserved := baseWl.Clone().
+		ReserveQuotaAt(makeAdmission(), now).
+		FinishedAt(now).
+		Obj()
 
 	cases := map[string]struct {
-		oldWl *kueue.Workload
-		newWl *kueue.Workload
-		// wantFolded is whether the penalty must end up in the consumed
-		// history; wantPending is whether its record must remain pending.
-		// A dropped record (deactivation) is neither folded nor pending.
+		oldWl              *kueue.Workload
+		newWl              *kueue.Workload
+		atQuotaReservation bool
+		// Settlement is scoped to ClusterQueues that admit on usage, at both anchors.
+		plainClusterQueue bool
+		// wantFolded says whether the penalty moves into the consumed history;
+		// wantPending says whether its record remains. A dropped record is neither.
 		wantFolded  bool
 		wantPending bool
 	}{
@@ -1228,9 +1237,54 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			newWl:       deactivatedAdmitted,
 			wantPending: true,
 		},
+		"at the quota-reservation anchor, Pending to QuotaReserved settles the entry penalty": {
+			atQuotaReservation: true,
+			oldWl:              pending,
+			newWl:              quotaReserved,
+			wantFolded:         true,
+		},
+		"at the quota-reservation anchor, Pending to Admitted settles it in the same event": {
+			atQuotaReservation: true,
+			oldWl:              pending,
+			newWl:              admitted,
+			wantFolded:         true,
+		},
+		"at the quota-reservation anchor, QuotaReserved to Admitted does not settle it again": {
+			atQuotaReservation: true,
+			oldWl:              quotaReserved,
+			newWl:              admitted,
+			wantPending:        true,
+		},
+		"at the quota-reservation anchor, deactivation in the same event does not settle and keeps the record": {
+			atQuotaReservation: true,
+			oldWl:              pending,
+			newWl:              deactivatedAdmitted,
+			wantPending:        true,
+		},
+		"at the quota-reservation anchor, reactivation in place settles the kept record": {
+			// The anchor is the edge into holding quota while active, so the
+			// Workload not charged when it was deactivated is charged here.
+			atQuotaReservation: true,
+			oldWl:              deactivatedReserved,
+			newWl:              quotaReserved,
+			wantFolded:         true,
+		},
+		"at the quota-reservation anchor, finishing in the same event drops the record instead of settling": {
+			atQuotaReservation: true,
+			oldWl:              pending,
+			newWl:              finishedReserved,
+		},
+		"a ClusterQueue that does not admit on usage settles nothing at either anchor": {
+			atQuotaReservation: true,
+			plainClusterQueue:  true,
+			oldWl:              pending,
+			newWl:              quotaReserved,
+			wantPending:        true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
 			afsConfig := &configapi.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: time.Second},
@@ -1242,10 +1296,11 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithAdmissionFairSharing(afsConfig))
 
 			ctx, log := utiltesting.ContextWithLog(t)
-			cq := utiltestingapi.MakeClusterQueue("cq").
-				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
-				Active(metav1.ConditionTrue).
-				Obj()
+			cqWrapper := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue)
+			if !tc.plainClusterQueue {
+				cqWrapper.AdmissionMode(kueue.UsageBasedAdmissionFairSharing)
+			}
+			cq := cqWrapper.Obj()
 			setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
 			lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
 			setupLocalQueue(ctx, t, cl, qManager, lq, false)
@@ -1273,6 +1328,121 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			cpu := entry.Resources[corev1.ResourceCPU]
 			if folded := !cpu.IsZero(); folded != tc.wantFolded {
 				t.Errorf("penalty folded into consumed usage = %t, want %t (consumed: %v)", folded, tc.wantFolded, entry.Resources)
+			}
+		})
+	}
+}
+
+// The sampled usage is read outside the scheduler-cache lock while the scheduler
+// keeps mutating the cache, which is why writes to it take the LocalQueue lock.
+// This only fails under -race.
+func TestAfsAccountedUsageReadRace(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, true)
+	now := time.Now().Truncate(time.Second)
+	_, reconciler, ctx, log := setupAfsPenaltyTest(t, now)
+
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+	cacheLq, err := reconciler.cache.GetCacheLocalQueue("cq", lqKey)
+	if err != nil {
+		t.Fatalf("the local queue is not in the scheduler cache: %v", err)
+	}
+	reserved := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		SimpleReserveQuota("cq", "rf", now).
+		Obj()
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		<-start
+		for range 10000 {
+			reconciler.cache.AddOrUpdateWorkload(ctx, log, reserved)
+			_ = reconciler.cache.DeleteWorkload(log, workload.Key(reserved))
+		}
+	})
+	wg.Go(func() {
+		<-start
+		for range 10000 {
+			afsAccountedUsage(reconciler.cache, "cq", cacheLq)
+		}
+	})
+	close(start)
+	wg.Wait()
+}
+
+// The anchor prices reservations rather than Workloads: a Workload that loses
+// its reservation before admission and reserves again settles a second entry
+// penalty, where the admitted anchor charges it once per admission.
+func TestUpdateSettlesAfsEntryPenaltyPerReservation(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+
+	makeWl := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Queue("lq").
+			Active(true).
+			Request(corev1.ResourceCPU, "4")
+	}
+	admission := utiltestingapi.MakeAdmission("cq").
+		PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
+		Obj()
+	pending := makeWl().Obj()
+	quotaReserved := makeWl().ReserveQuotaAt(admission, now).Obj()
+
+	cases := map[string]struct {
+		atQuotaReservation bool
+		// The fake clock never advances, so every settlement decays with elapsed
+		// zero and the consumed history holds exactly the settled penalties: half
+		// of the 4 CPU request each, from usageSamplingInterval == usageHalfLifeTime.
+		wantAfterFirstMilli  int64
+		wantAfterSecondMilli int64
+	}{
+		"the admitted anchor settles neither reservation": {},
+		"the quota-reservation anchor settles both": {
+			atQuotaReservation:   true,
+			wantAfterFirstMilli:  2_000,
+			wantAfterSecondMilli: 4_000,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
+			qManager, reconciler, ctx, log := setupAfsPenaltyTest(t, now)
+
+			reserve := func() {
+				// The penalty the scheduler pushes when it assumes the Workload.
+				penalty := afs.CalculateEntryPenalty(
+					workload.NewInfo(log, quotaReserved).SumTotalRequests(reconciler.resourceFormatter),
+					reconciler.admissionFSConfig)
+				qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(quotaReserved)), penalty, now)
+				reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+					ObjectOld: pending.DeepCopy(),
+					ObjectNew: quotaReserved.DeepCopy(),
+				})
+			}
+			consumedMilli := func() int64 {
+				entry, _ := qManager.AfsUsageLedger.Get(lqKey)
+				cpu := entry.Resources[corev1.ResourceCPU]
+				return cpu.MilliValue()
+			}
+
+			reserve()
+			if got := consumedMilli(); got != tc.wantAfterFirstMilli {
+				t.Errorf("after the first reservation: want %dm consumed, got %dm", tc.wantAfterFirstMilli, got)
+			}
+
+			// Preemption before admission, an AdmissionCheck returning Retry, or a
+			// stopped ClusterQueue all take the reservation back while the Workload
+			// stays active and eligible to reserve again.
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: quotaReserved.DeepCopy(),
+				ObjectNew: pending.DeepCopy(),
+			})
+			reserve()
+			if got := consumedMilli(); got != tc.wantAfterSecondMilli {
+				t.Errorf("after the second reservation: want %dm consumed, got %dm", tc.wantAfterSecondMilli, got)
 			}
 		})
 	}
@@ -2172,11 +2342,9 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			additionalObjects: []client.Object{
 				&batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "ownername",
-						Namespace: "ns",
-						UID:       "owneruid",
-					},
+					Name:      "ownername",
+					Namespace: "ns",
+					UID:       "owneruid",
 				},
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2522,9 +2690,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				objs := []client.Object{testWl}
 				if testWl.Namespace != "" {
 					objs = append(objs, &corev1.Namespace{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: testWl.Namespace,
-						},
+						Name: testWl.Namespace,
 					})
 				}
 				objs = append(objs, tc.additionalObjects...)
@@ -2542,11 +2708,9 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				// provide their own additionalObjects to control ownership).
 				if ref := metav1.GetControllerOf(testWl); ref != nil && !tc.featureGates[features.FinishOrphanedWorkloads] {
 					objs = append(objs, &batchv1.Job{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      ref.Name,
-							Namespace: testWl.Namespace,
-							UID:       ref.UID,
-						},
+						Name:      ref.Name,
+						Namespace: testWl.Namespace,
+						UID:       ref.UID,
 					})
 				}
 
@@ -3128,10 +3292,79 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 	}
 }
 
+// The usage the consumed history decays towards must be read at the accounting
+// anchor. Settling at quota reservation while sampling admitted usage would decay
+// a check-gated Workload's cost away while it still holds quota.
+func TestUpdateAfsConsumedUsageReadsAnchoredUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		atQuotaReservation bool
+		// Both reads are scoped the same way, so the settlement here samples
+		// admitted usage for a ClusterQueue that does not admit on usage.
+		plainClusterQueue bool
+		wantCPUMilli      int64
+	}{
+		"the admitted anchor does not count a Workload that only reserved quota": {
+			wantCPUMilli: 0,
+		},
+		"the quota-reservation anchor counts it": {
+			atQuotaReservation: true,
+			wantCPUMilli:       2_000,
+		},
+		"the quota-reservation anchor does not count it for a ClusterQueue that does not admit on usage": {
+			atQuotaReservation: true,
+			plainClusterQueue:  true,
+			wantCPUMilli:       0,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
+			qManager, reconciler, ctx, log := setupAfsPenaltyTestFor(t, now, !tc.plainClusterQueue)
+
+			reserved := utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "4").
+				SimpleReserveQuota("cq", "rf", now).
+				Obj()
+			if !reconciler.cache.AddOrUpdateWorkload(ctx, log, reserved) {
+				t.Fatal("couldn't add the quota-reserving workload to the scheduler cache")
+			}
+
+			// One half-life of decay gives live usage weight 0.5. A fresh entry
+			// weights it zero, which would make the two anchors indistinguishable.
+			lqKey := utilqueue.KeyFromWorkload(reserved)
+			qManager.AfsUsageLedger.SetForTest(lqKey, corev1.ResourceList{}, now.Add(-5*time.Minute))
+
+			// No penalty is recorded, so the settlement folds nothing and the
+			// resulting entry is the decayed usage alone.
+			reconciler.updateAfsConsumedUsage(log, reserved)
+
+			gotEntry, found := qManager.AfsUsageLedger.Get(lqKey)
+			if !found {
+				t.Fatal("expected an AfsUsageLedger entry after settlement")
+			}
+			gotCPU := gotEntry.Resources[corev1.ResourceCPU]
+			if gotCPU.MilliValue() != tc.wantCPUMilli {
+				t.Errorf("unexpected consumed CPU: want %dm, got %dm", tc.wantCPUMilli, gotCPU.MilliValue())
+			}
+		})
+	}
+}
+
 // setupAfsPenaltyTest builds the shared fixture for the AFS penalty-lifecycle
-// tests: an active ClusterQueue "cq" with LocalQueue ns/lq registered in both
-// caches, and a reconciler with AFS enabled and a fake clock at now.
+// tests: an active ClusterQueue "cq" admitting on usage, with LocalQueue ns/lq
+// registered in both caches, and a reconciler with AFS enabled and a fake clock
+// at now.
 func setupAfsPenaltyTest(t *testing.T, now time.Time) (*qcache.Manager, *WorkloadReconciler, context.Context, logr.Logger) {
+	t.Helper()
+	return setupAfsPenaltyTestFor(t, now, true)
+}
+
+// setupAfsPenaltyTestFor builds the same fixture with a ClusterQueue that either
+// admits on usage or does not, to cover both sides of the anchor's scoping.
+func setupAfsPenaltyTestFor(t *testing.T, now time.Time, admitsOnUsage bool) (*qcache.Manager, *WorkloadReconciler, context.Context, logr.Logger) {
 	t.Helper()
 	afsConfig := &configapi.AdmissionFairSharing{
 		UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
@@ -3149,7 +3382,11 @@ func setupAfsPenaltyTest(t *testing.T, now time.Time) (*qcache.Manager, *Workloa
 	reconciler.clock = fakeClock
 
 	ctx, log := utiltesting.ContextWithLog(t)
-	cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+	cqWrapper := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue)
+	if admitsOnUsage {
+		cqWrapper.AdmissionMode(kueue.UsageBasedAdmissionFairSharing)
+	}
+	cq := cqWrapper.Obj()
 	setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
 	setupLocalQueue(ctx, t, cl, qManager, lq, false)

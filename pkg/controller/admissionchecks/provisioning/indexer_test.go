@@ -63,10 +63,8 @@ func TestIndexProvisioningRequests(t *testing.T) {
 		"no owner": {
 			requests: []*autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name",
-					},
+					Namespace: "default",
+					Name:      "name",
 				},
 			},
 			filter: client.MatchingFields{RequestsOwnedByWorkloadKey: "wl"},
@@ -74,19 +72,15 @@ func TestIndexProvisioningRequests(t *testing.T) {
 		"single owner, single match": {
 			requests: []*autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name",
-					},
+					Namespace: "default",
+					Name:      "name",
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name2",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
+					Namespace: "default",
+					Name:      "name2",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "wl",
 						},
 					},
 				},
@@ -97,33 +91,27 @@ func TestIndexProvisioningRequests(t *testing.T) {
 		"multiple owners, multiple matches": {
 			requests: []*autoscaling.ProvisioningRequest{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name",
-					},
+					Namespace: "default",
+					Name:      "name",
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name2",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl",
-							},
+					Namespace: "default",
+					Name:      "name2",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "wl",
 						},
 					},
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name3",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								Name: "wl_2",
-							},
-							{
-								Name: "wl",
-							},
+					Namespace: "default",
+					Name:      "name3",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Name: "wl_2",
+						},
+						{
+							Name: "wl",
 						},
 					},
 				},
@@ -168,10 +156,8 @@ func TestIndexWorkload(t *testing.T) {
 		"no checks": {
 			workloads: []*kueue.Workload{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name",
-					},
+					Namespace: "default",
+					Name:      "name",
 				},
 			},
 			filter: client.MatchingFields{WorkloadsWithAdmissionCheckKey: "check"},
@@ -179,16 +165,12 @@ func TestIndexWorkload(t *testing.T) {
 		"single check, single match": {
 			workloads: []*kueue.Workload{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name",
-					},
+					Namespace: "default",
+					Name:      "name",
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name2",
-					},
+					Namespace: "default",
+					Name:      "name2",
 					Status: kueue.WorkloadStatus{
 						AdmissionChecks: []kueue.AdmissionCheckState{
 							{
@@ -204,16 +186,12 @@ func TestIndexWorkload(t *testing.T) {
 		"multiple checks, multiple matches": {
 			workloads: []*kueue.Workload{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name",
-					},
+					Namespace: "default",
+					Name:      "name",
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name2",
-					},
+					Namespace: "default",
+					Name:      "name2",
 					Status: kueue.WorkloadStatus{
 						AdmissionChecks: []kueue.AdmissionCheckState{
 							{
@@ -223,10 +201,8 @@ func TestIndexWorkload(t *testing.T) {
 					},
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name3",
-					},
+					Namespace: "default",
+					Name:      "name3",
 					Status: kueue.WorkloadStatus{
 						AdmissionChecks: []kueue.AdmissionCheckState{
 							{

@@ -85,11 +85,64 @@ func TestLocalQueueFilter(t *testing.T) {
 				},
 			},
 		},
+		"should filter active local queues": {
+			options: &LocalQueueOptions{
+				Active: []bool{true},
+			},
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq1", "").Active(metav1.ConditionTrue).Obj(),
+					*utiltestingapi.MakeLocalQueue("lq2", "").Active(metav1.ConditionFalse).Obj(),
+					*utiltestingapi.MakeLocalQueue("lq3", "").Obj(),
+				},
+			},
+			out: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq1", "").Active(metav1.ConditionTrue).Obj(),
+				},
+			},
+		},
+		"should filter inactive local queues": {
+			options: &LocalQueueOptions{
+				Active: []bool{false},
+			},
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq1", "").Active(metav1.ConditionTrue).Obj(),
+					*utiltestingapi.MakeLocalQueue("lq2", "").Active(metav1.ConditionFalse).Obj(),
+					*utiltestingapi.MakeLocalQueue("lq3", "").Obj(),
+				},
+			},
+			out: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq2", "").Active(metav1.ConditionFalse).Obj(),
+					*utiltestingapi.MakeLocalQueue("lq3", "").Obj(),
+				},
+			},
+		},
+		"should filter by cluster queue and active status": {
+			options: &LocalQueueOptions{
+				ClusterQueueFilter: "cq1",
+				Active:             []bool{true},
+			},
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq1", "").ClusterQueue("cq1").Active(metav1.ConditionTrue).Obj(),
+					*utiltestingapi.MakeLocalQueue("lq2", "").ClusterQueue("cq1").Active(metav1.ConditionFalse).Obj(),
+					*utiltestingapi.MakeLocalQueue("lq3", "").ClusterQueue("cq2").Active(metav1.ConditionTrue).Obj(),
+				},
+			},
+			out: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq1", "").ClusterQueue("cq1").Active(metav1.ConditionTrue).Obj(),
+				},
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			tc.options.filterList(tc.in)
-			if diff := cmp.Diff(tc.out, tc.in); diff != "" {
+			if diff := cmp.Diff(tc.out, tc.in, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
 		})
@@ -124,8 +177,8 @@ func TestLocalQueueCmd(t *testing.T) {
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
 		},
 		"should print local queue list with clusterqueue filter": {
@@ -144,8 +197,8 @@ lq1    cq1            1                   1                    60m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
 		},
 		"should print local queue list with label selector filter": {
@@ -166,8 +219,8 @@ lq1    cq1            1                   1                    60m
 					Label("key", "value2").
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
 		},
 		"should print local queue list with label selector filter (short flag)": {
@@ -187,9 +240,57 @@ lq1    cq1            1                   1                    60m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            1                   1                    60m
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    false    60m
 `,
+		},
+		"should print local queue list with active filter": {
+			args: []string{"--active", "true"},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).
+					ClusterQueue("cq1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(1).
+					Active(metav1.ConditionTrue).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).
+					ClusterQueue("cq2").
+					PendingWorkloads(2).
+					AdmittedWorkloads(2).
+					Active(metav1.ConditionFalse).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            1                   1                    true     60m
+`,
+		},
+		"should print local queue list with inactive filter": {
+			args: []string{"--active", "false"},
+			objs: []runtime.Object{
+				utiltestingapi.MakeLocalQueue("lq1", metav1.NamespaceDefault).
+					ClusterQueue("cq1").
+					PendingWorkloads(1).
+					AdmittedWorkloads(1).
+					Active(metav1.ConditionTrue).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+				utiltestingapi.MakeLocalQueue("lq2", metav1.NamespaceDefault).
+					ClusterQueue("cq2").
+					PendingWorkloads(2).
+					AdmittedWorkloads(2).
+					Active(metav1.ConditionFalse).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			wantOut: `NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq2    cq2            2                   2                    false    120m
+`,
+		},
+		"should return error when multiple active flags are provided": {
+			args:    []string{"--active", "true", "--active", "false"},
+			wantErr: errMultipleActiveFlags,
 		},
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
@@ -202,11 +303,11 @@ lq1    cq1            1                   1                    60m
 			args: []string{"-o", "yaml"},
 			listPages: []runtime.Object{
 				&kueue.LocalQueueList{
-					ListMeta: metav1.ListMeta{Continue: "page2"},
-					Items:    []kueue.LocalQueue{{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: metav1.NamespaceDefault}}},
+					Continue: "page2",
+					Items:    []kueue.LocalQueue{{Name: "a", Namespace: metav1.NamespaceDefault}},
 				},
 				&kueue.LocalQueueList{
-					Items: []kueue.LocalQueue{{ObjectMeta: metav1.ObjectMeta{Name: "b", Namespace: metav1.NamespaceDefault}}},
+					Items: []kueue.LocalQueue{{Name: "b", Namespace: metav1.NamespaceDefault}},
 				},
 			},
 			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2

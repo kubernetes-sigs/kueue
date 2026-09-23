@@ -247,9 +247,7 @@ func TestMultiKueueClusterConversion_RoundTrip(t *testing.T) {
 	}{
 		"complete MultiKueueCluster with KubeConfig and status": {
 			v1beta1Obj: &MultiKueueCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-multikueuecluster",
-				},
+				Name: "test-multikueuecluster",
 				Spec: MultiKueueClusterSpec{
 					KubeConfig: KubeConfig{
 						Location:     "test-location",
@@ -269,9 +267,7 @@ func TestMultiKueueClusterConversion_RoundTrip(t *testing.T) {
 		},
 		"minimal MultiKueueCluster": {
 			v1beta1Obj: &MultiKueueCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "minimal-mkc",
-				},
+				Name: "minimal-mkc",
 			},
 		},
 	}
@@ -304,9 +300,7 @@ func TestMultiKueueClusterConversion_RoundTrip_Reverse(t *testing.T) {
 	}{
 		"complete MultiKueueCluster with ClusterProfile and status": {
 			v1beta2Obj: &v1beta2.MultiKueueCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-multikueuecluster",
-				},
+				Name: "test-multikueuecluster",
 				Spec: v1beta2.MultiKueueClusterSpec{
 					ClusterSource: v1beta2.ClusterSource{
 						ClusterProfileRef: &v1beta2.ClusterProfileReference{
@@ -327,9 +321,7 @@ func TestMultiKueueClusterConversion_RoundTrip_Reverse(t *testing.T) {
 		},
 		"complete MultiKueueCluster with KubeConfig and status": {
 			v1beta2Obj: &v1beta2.MultiKueueCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-multikueuecluster",
-				},
+				Name: "test-multikueuecluster",
 				Spec: v1beta2.MultiKueueClusterSpec{
 					ClusterSource: v1beta2.ClusterSource{
 						KubeConfig: &v1beta2.KubeConfig{
@@ -351,9 +343,7 @@ func TestMultiKueueClusterConversion_RoundTrip_Reverse(t *testing.T) {
 		},
 		"minimal MultiKueueCluster": {
 			v1beta2Obj: &v1beta2.MultiKueueCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "minimal-mkc",
-				},
+				Name: "minimal-mkc",
 			},
 		},
 	}

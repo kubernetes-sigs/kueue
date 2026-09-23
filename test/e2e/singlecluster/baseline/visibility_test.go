@@ -194,30 +194,24 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Verify their positions and priorities", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-a-high-prio"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-a-high-prio"),
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
 						LocalQueueName:         kueue.LocalQueueName(localQueueA.Name),
 					},
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-b-mid-prio"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-b-mid-prio"),
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
 						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-b-low-prio"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-b-low-prio"),
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
@@ -292,10 +286,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Verify their positions and priorities in LocalQueueA", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-a-high-prio"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-a-high-prio"),
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
@@ -312,20 +304,16 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Verify their positions and priorities in LocalQueueB", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-b-mid-prio"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-b-mid-prio"),
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
 						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-b-low-prio"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-b-low-prio"),
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
@@ -379,10 +367,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					info, err := kueueClientset.VisibilityV1beta2().LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueName, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.BeComparableTo([]visibility.PendingWorkload{{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("job-a"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("job-a"),
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
@@ -396,10 +382,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 					info, err := kueueClientset.VisibilityV1beta2().LocalQueues(nsB.Name).GetPendingWorkloadsSummary(ctx, localQueueName, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.BeComparableTo([]visibility.PendingWorkload{{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsB.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("job-b"),
-						},
+						Namespace:              nsB.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("job-b"),
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
@@ -426,10 +410,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Verify their positions and priorities in LocalQueueA", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsA.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-a-high-prio"),
-						},
+						Namespace:              nsA.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-a-high-prio"),
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 0,
@@ -446,20 +428,16 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Verify their positions and priorities in LocalQueueB", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsB.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-b-mid-prio"),
-						},
+						Namespace:              nsB.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-b-mid-prio"),
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
 						PositionInClusterQueue: 1,
 						LocalQueueName:         kueue.LocalQueueName(localQueueB.Name),
 					},
 					{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace:       nsB.Name,
-							OwnerReferences: defaultOwnerReferenceForJob("lq-b-low-prio"),
-						},
+						Namespace:              nsB.Name,
+						OwnerReferences:        defaultOwnerReferenceForJob("lq-b-low-prio"),
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
 						PositionInClusterQueue: 2,
@@ -507,10 +485,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 				ginkgo.By("Verifying the user only sees their own Namespace's pending workload in LocalQueueA", func() {
 					wantPendingWorkloads := []visibility.PendingWorkload{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Namespace:       nsA.Name,
-								OwnerReferences: defaultOwnerReferenceForJob("lq-a-low-prio"),
-							},
+							Namespace:              nsA.Name,
+							OwnerReferences:        defaultOwnerReferenceForJob("lq-a-low-prio"),
 							Priority:               lowPriorityClass.Value,
 							PositionInLocalQueue:   0,
 							PositionInClusterQueue: 1,
@@ -542,8 +518,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 
 		ginkgo.BeforeEach(func() {
 			clusterRoleBinding = &rbacv1.ClusterRoleBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: "read-pending-workloads-" + nsA.Name},
-				RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "kueue-batch-admin-role"},
+				Name:    "read-pending-workloads-" + nsA.Name,
+				RoleRef: rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "kueue-batch-admin-role"},
 				Subjects: []rbacv1.Subject{
 					{Name: "default", APIGroup: "", Namespace: kueueNS, Kind: rbacv1.ServiceAccountKind},
 				},

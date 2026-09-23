@@ -92,10 +92,9 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 			if err != nil || active == nil {
 				return nil
 			}
-			return []reconcile.Request{{NamespacedName: types.NamespacedName{
+			return []reconcile.Request{{
 				Namespace: active.Namespace,
-				Name:      active.Name,
-			}}}
+				Name:      active.Name}}
 		},
 	)
 	return ControllerName, builder.TypedControllerManagedBy[reconcile.Request](mgr).
@@ -399,8 +398,7 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 	if err != nil || active == nil {
 		return
 	}
-	q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+	q.AddAfter(reconcile.Request{
 		Namespace: active.Namespace,
-		Name:      active.Name,
-	}}, constants.UpdatesBatchPeriod)
+		Name:      active.Name}, constants.UpdatesBatchPeriod)
 }

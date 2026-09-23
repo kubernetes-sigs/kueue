@@ -519,10 +519,23 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 	return false
 }
 
+// isPodReadyOrSucceeded reports whether the pod is currently ready, or has already
+// completed successfully. A Succeeded pod has its PodReady condition set to False by
+// the kubelet, so checking readiness alone would treat a finished pod as unhealthy.
+// Serving groups are excluded: a Succeeded serving pod has terminated and won't serve
+// again, and counting it as ready would suppress the recoveryTimeout eviction that
+// unblocks a same-name (StatefulSet) replacement - see shouldFinalizeNow.
+func (p *Pod) isPodReadyOrSucceeded(pod *corev1.Pod) bool {
+	if features.Enabled(features.PodIntegrationCountSucceededPodsAsReady) && !p.isServing() && pod.Status.Phase == corev1.PodSucceeded {
+		return true
+	}
+	return hasPodReadyTrue(pod.Status.Conditions)
+}
+
 // PodsReady instructs whether job derived pods are all ready now.
 func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
-		return hasPodReadyTrue(p.pod.Status.Conditions)
+		return p.isPodReadyOrSucceeded(&p.pod)
 	}
 
 	tc, err := p.groupTotalCount()
@@ -535,7 +548,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	}
 
 	for i := range p.list.Items {
-		if !hasPodReadyTrue(p.list.Items[i].Status.Conditions) {
+		if !p.isPodReadyOrSucceeded(&p.list.Items[i]) {
 			return false
 		}
 	}

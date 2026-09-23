@@ -49,17 +49,13 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 		},
 			ginkgo.Entry("All defaults",
 				kueue.AdmissionCheck{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.AdmissionCheckSpec{
 						ControllerName: "ac-controller",
 					},
 				},
 				kueue.AdmissionCheck{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.AdmissionCheckSpec{
 						ControllerName: "ac-controller",
 					},
@@ -165,9 +161,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			),
 			ginkgo.Entry("Should allow to create AdmissionCheck with no parameters",
 				kueue.AdmissionCheck{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.AdmissionCheckSpec{
 						ControllerName: "controller-name",
 					},
@@ -176,9 +170,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 			),
 			ginkgo.Entry("Should allow to create AdmissionCheck with valid spec",
 				kueue.AdmissionCheck{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.AdmissionCheckSpec{
 						ControllerName: "controller-name",
 						Parameters: &kueue.AdmissionCheckParametersReference{

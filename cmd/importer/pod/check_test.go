@@ -26,7 +26,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -265,7 +264,7 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 			priorityClasses: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "p-class"}, Value: 100},
+				{Name: "p-class", Value: 100},
 			},
 		},
 		"pod references an unknown priority class": {

@@ -61,6 +61,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().CapacityProviders().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("dynamicquotaorchestrators"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().DynamicQuotaOrchestrators().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("preemptionconfigs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1alpha1().PreemptionConfigs().Informer()}, nil
 
 		// Group=kueue.x-k8s.io, Version=v1beta1
 	case v1beta1.SchemeGroupVersion.WithResource("admissionchecks"):

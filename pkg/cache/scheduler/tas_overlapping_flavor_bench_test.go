@@ -65,7 +65,7 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 		for _, v := range []int{2, 3} {
 			b.Run(fmt.Sprintf("held=%d/flavors=%d/v%d", tc.held, tc.flavors, v), func(b *testing.B) {
 				nodes := buildBenchNodes(benchTopology{nodes: tc.held, nodesPerRack: 16, racksPerBlock: 16})
-				tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 				for i := range nodes {
 					tasCache.SyncNode(&nodes[i])
 				}

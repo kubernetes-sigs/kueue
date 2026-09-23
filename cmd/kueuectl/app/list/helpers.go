@@ -37,6 +37,7 @@ const (
 
 var (
 	errInvalidListRequestLimit = errors.New("invalid list request limit")
+	errMultipleActiveFlags     = errors.New("only one active flag can be provided")
 )
 
 func listRequestLimit() (int64, error) {

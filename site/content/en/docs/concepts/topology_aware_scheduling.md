@@ -527,9 +527,10 @@ holds at most `maxShareAllowingPlacement` of what is already placed, so a value
 of `V` opens `ceil(1 / V)` domains before any is reused. `Required` (the default)
 makes the workload wait rather than crowd a domain; `Preferred` only ranks
 crowded domains last. Multi-Pod replicas must share one
-`kueue.x-k8s.io/podset-group-name` so a replica counts once, and spreading is
-evaluated per namespace at admission time - admitted workloads are never
-rebalanced.
+`kueue.x-k8s.io/podset-group-name` so a replica counts once. Note that
+`ValidatePodSetGroupingTopology` requires exactly two PodSets in a shared group
+and requires at least one PodSet with `Count == 1`. Spreading is evaluated per
+namespace at admission time - admitted workloads are never rebalanced.
 
 ## Drawbacks
 

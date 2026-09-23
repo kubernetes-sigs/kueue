@@ -395,6 +395,20 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"invalid partial admission annotation is ignored": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(JobMinParallelismAnnotation, "2147483648").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
 		"with required topology annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
@@ -5231,9 +5245,7 @@ func TestCleanLabels(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			print(tc.labels)
 			pt := &corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: tc.labels,
-				},
+				Labels: tc.labels,
 			}
 			cleanLabels(pt)
 			if diff := cmp.Diff(tc.wantLabels, pt.Labels); diff != "" {

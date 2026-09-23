@@ -76,7 +76,9 @@ func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 		if err := w.IntegrationManager.ApplyDefaultLocalQueue(ctx, w.Client, job.Object(), w.Queues.DefaultLocalQueueExist, w.ManagedJobsNamespaceSelector); err != nil {
 			return err
 		}
-		w.IntegrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object())
+		if err := w.IntegrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object(), w.ManagedJobsNamespaceSelector); err != nil {
+			return err
+		}
 		if err := w.IntegrationManager.ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector); err != nil {
 			return err
 		}

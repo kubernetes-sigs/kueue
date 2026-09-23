@@ -131,10 +131,8 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, o
 	for _, childJob := range childJobs.Items {
 		log.V(5).Info("Queueing reconcile for child job", "job", klog.KObj(&childJob))
 		q.Add(reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      childJob.Name,
-				Namespace: w.Namespace,
-			},
+			Name:      childJob.Name,
+			Namespace: w.Namespace,
 		})
 	}
 }
@@ -462,12 +460,15 @@ func (j *Job) podsCount() int32 {
 }
 
 func (j *Job) minPodsCount() *int32 {
-	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
-		if iVal, err := strconv.Atoi(strVal); err == nil {
-			return new(int32(iVal))
-		}
+	strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]
+	if !found {
+		return nil
 	}
-	return nil
+	minCount, err := strconv.ParseInt(strVal, 10, 32)
+	if err != nil {
+		return nil
+	}
+	return new(int32(minCount))
 }
 
 func (j *Job) syncCompletionWithParallelism() bool {

@@ -1358,9 +1358,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 
 func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "clusterprofiles.multicluster.x-k8s.io",
-		},
+		Name: "clusterprofiles.multicluster.x-k8s.io",
 	}
 
 	testCases := map[string]struct {
@@ -1446,9 +1444,7 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 			kubeConfig: &rest.Config{
 				Host:        "https://127.0.0.1:6443",
 				BearerToken: "fake-token",
-				TLSClientConfig: rest.TLSClientConfig{
-					Insecure: true,
-				},
+				Insecure:    true,
 			},
 		},
 	}
@@ -1499,22 +1495,20 @@ namespace: kueue-system
 	}{
 		"strips managedFields and preserves object data": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "default",
-					Labels:    map[string]string{"app": "test"},
-					Annotations: map[string]string{
-						"note": "keep-me",
+				Name:      "test-pod",
+				Namespace: "default",
+				Labels:    map[string]string{"app": "test"},
+				Annotations: map[string]string{
+					"note": "keep-me",
+				},
+				ManagedFields: []metav1.ManagedFieldsEntry{
+					{
+						Manager:   "kubectl",
+						Operation: metav1.ManagedFieldsOperationApply,
 					},
-					ManagedFields: []metav1.ManagedFieldsEntry{
-						{
-							Manager:   "kubectl",
-							Operation: metav1.ManagedFieldsOperationApply,
-						},
-						{
-							Manager:   "kube-controller-manager",
-							Operation: metav1.ManagedFieldsOperationUpdate,
-						},
+					{
+						Manager:   "kube-controller-manager",
+						Operation: metav1.ManagedFieldsOperationUpdate,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1522,12 +1516,10 @@ namespace: kueue-system
 				},
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "test-pod",
-					Namespace:   "default",
-					Labels:      map[string]string{"app": "test"},
-					Annotations: map[string]string{"note": "keep-me"},
-				},
+				Name:        "test-pod",
+				Namespace:   "default",
+				Labels:      map[string]string{"app": "test"},
+				Annotations: map[string]string{"note": "keep-me"},
 				Spec: corev1.PodSpec{
 					NodeName: "node-1",
 				},
@@ -1535,14 +1527,10 @@ namespace: kueue-system
 		},
 		"no-op when managedFields already nil": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 		},
 	}
