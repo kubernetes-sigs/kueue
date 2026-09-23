@@ -1165,12 +1165,10 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
 
-	makeWl := func() *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl", "ns").
-			Queue("lq").
-			Active(true).
-			Request(corev1.ResourceCPU, "4")
-	}
+	baseWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request(corev1.ResourceCPU, "4")
 	// A reserved Workload's requests are read back from the admission rather than
 	// from the PodSets, so the assignment carries them to keep the fixtures
 	// realistic for the transitions under test.
@@ -1179,24 +1177,24 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
 			Obj()
 	}
-	pending := makeWl().Obj()
-	quotaReserved := makeWl().
+	pending := baseWl.Clone().Obj()
+	quotaReserved := baseWl.Clone().
 		ReserveQuotaAt(makeAdmission(), now).
 		Obj()
-	admitted := makeWl().
+	admitted := baseWl.Clone().
 		ReserveQuotaAt(makeAdmission(), now).
 		AdmittedAt(true, now).
 		Obj()
-	deactivatedAdmitted := makeWl().
+	deactivatedAdmitted := baseWl.Clone().
 		Active(false).
 		ReserveQuotaAt(makeAdmission(), now).
 		AdmittedAt(true, now).
 		Obj()
-	deactivatedReserved := makeWl().
+	deactivatedReserved := baseWl.Clone().
 		Active(false).
 		ReserveQuotaAt(makeAdmission(), now).
 		Obj()
-	finishedReserved := makeWl().
+	finishedReserved := baseWl.Clone().
 		ReserveQuotaAt(makeAdmission(), now).
 		FinishedAt(now).
 		Obj()

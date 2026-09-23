@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +34,9 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -47,7 +51,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
-			jobframework.WithEnabledFrameworks([]string{"statefulset"}),
+			jobframework.WithEnabledFrameworks([]string{"statefulset", "pod"}),
 		))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-")
 
@@ -442,6 +446,66 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(kueue.WorkloadAnnotation))
 		}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should complete eviction for an empty PodGroup with a live StatefulSet owner", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
+
+		ginkgo.By("Creating a StatefulSet whose Workload has no member Pods")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wlKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name),
+			Namespace: ns.Name,
+		}
+		wl := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Evicting the Workload due to PodsReadyTimeout")
+		var wantRequeueState *kueue.RequeueState
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				workload.UpdateRequeueState(wl, 60, 60, util.RealClock)
+				return workloadevict.SetEvictedCondition(
+					wl,
+					util.RealClock.Now(),
+					kueue.WorkloadEvictedByPodsReadyTimeout,
+					"Exceeded the PodsReady timeout",
+				), nil
+			})).Should(gomega.Succeed())
+			wantRequeueState = wl.Status.RequeueState.DeepCopy()
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(wantRequeueState).ShouldNot(gomega.BeNil())
+
+		ginkgo.By("Verifying eviction completion releases quota without orphan-finishing the Workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Admission).Should(gomega.BeNil())
+			g.Expect(apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadAdmitted)).Should(gomega.BeTrue())
+			g.Expect(apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued)).Should(gomega.BeTrue())
+			g.Expect(wl.Status.RequeueState).Should(gomega.Equal(wantRequeueState))
+			g.Expect(wl.Finalizers).Should(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+			g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)).Should(gomega.BeFalse())
+			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(quotaReserved).ShouldNot(gomega.BeNil())
+			g.Expect(quotaReserved.Status).Should(gomega.Equal(metav1.ConditionFalse))
+			util.MustHaveOwnerReference(g, wl.OwnerReferences, createdSTS, k8sClient.Scheme())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 })
 
