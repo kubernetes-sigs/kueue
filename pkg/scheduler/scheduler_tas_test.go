@@ -47,6 +47,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -10145,6 +10146,195 @@ func TestScheduleForTASCohorts(t *testing.T) {
 		queues: queues,
 		now:    now,
 	}, cases)
+}
+
+func TestScheduleForTASSecondPassRefresh(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	eventCmpOpts := cmp.Options{
+		cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message"),
+		cmpopts.EquateEmpty(),
+	}
+	ns := utiltesting.MakeNamespace("default")
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("topology")
+	rf := utiltestingapi.MakeResourceFlavor("rf").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+			Resource(corev1.ResourceCPU, "2").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+	node := testingnode.MakeNode("x1").
+		Label("tas-node", "true").
+		Label(corev1.LabelHostname, "x1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		NotReady().
+		Obj()
+	wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node.Name}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), now).
+		AdmittedAt(true, now).
+		UnhealthyNodes(node.Name).
+		Obj()
+	cases := map[string]struct {
+		nodeRecovered bool
+		wantRetry     bool
+	}{
+		"recovered workload stops retrying without a manager restart": {
+			nodeRecovered: true,
+		},
+		"unhealthy workload keeps retrying": {
+			wantRetry: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacementFailFast, false)
+			ctx, log := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(ns.DeepCopy(), topology.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), node.DeepCopy(), wl.DeepCopy()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
+			if err := tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				t.Fatalf("Setting up TAS indexes: %v", err)
+			}
+			cl := clientBuilder.Build()
+			fakeClock := testingclock.NewFakeClock(now)
+			cqCache := schdcache.New(cl)
+			preemptionExpectations := preemptexpectations.New()
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock), qcache.WithPreemptionExpectations(preemptionExpectations))
+			cqCache.TASCache().SyncNode(node.DeepCopy())
+			cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+			cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+			if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Adding ClusterQueue to cache: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Adding ClusterQueue to manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+				t.Fatalf("Adding LocalQueue to manager: %v", err)
+			}
+			if !cqCache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy()) {
+				t.Fatal("Failed to add the admitted workload to the cache")
+			}
+			if !qManager.QueueSecondPassIfNeeded(ctx, wl.DeepCopy(), 0) {
+				t.Fatal("Expected the unhealthy workload to be queued for a second pass")
+			}
+
+			recorder := &utiltesting.EventRecorder{}
+			scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptionExpectations))
+			var wg sync.WaitGroup
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+			schedCtx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			defer cancel()
+			go qManager.CleanUpOnContext(schedCtx)
+
+			fakeClock.Step(time.Second)
+			scheduler.schedule(schedCtx)
+			wg.Wait()
+			wantFailure := []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(ns.Name, wl.Name, "SecondPassFailed", corev1.EventTypeWarning).Obj(),
+			}
+			if diff := cmp.Diff(wantFailure, recorder.RecordedEvents, eventCmpOpts...); diff != "" {
+				t.Fatalf("Expected the first second pass to fail (-want,+got):\n%s", diff)
+			}
+			if !fakeClock.HasWaiters() {
+				t.Fatal("Expected the scheduler to retry the failed second pass after backoff")
+			}
+			recorder.RecordedEvents = nil
+
+			var latest kueue.Workload
+			wlKey := client.ObjectKeyFromObject(wl)
+			if err := cl.Get(ctx, wlKey, &latest); err != nil {
+				t.Fatalf("Getting workload: %v", err)
+			}
+			if tc.nodeRecovered {
+				var recoveredNode corev1.Node
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(node), &recoveredNode); err != nil {
+					t.Fatalf("Getting unhealthy node: %v", err)
+				}
+				recoveredNode.Status.Conditions[0].Status = corev1.ConditionTrue
+				if err := cl.Status().Update(ctx, &recoveredNode); err != nil {
+					t.Fatalf("Updating recovered node: %v", err)
+				}
+				cqCache.TASCache().SyncNode(&recoveredNode)
+				latest.Status.UnhealthyNodes = nil
+				if err := cl.Status().Update(ctx, &latest); err != nil {
+					t.Fatalf("Updating recovered workload: %v", err)
+				}
+				if !cqCache.AddOrUpdateWorkload(ctx, log, latest.DeepCopy()) {
+					t.Fatal("Failed to update the recovered workload in the cache")
+				}
+				// The controller's iteration-zero update does not cancel the scheduler's retry.
+				if qManager.QueueSecondPassIfNeeded(ctx, latest.DeepCopy(), 0) {
+					t.Fatal("The recovered workload should not need another second pass")
+				}
+			}
+
+			// Keep the next scheduling cycle runnable even when the recovered second pass is dropped.
+			pending := utiltestingapi.MakeWorkload("pending", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			if err := cl.Create(ctx, pending); err != nil {
+				t.Fatalf("Creating pending workload: %v", err)
+			}
+			if err := qManager.AddOrUpdateWorkload(ctx, log, pending); err != nil {
+				t.Fatalf("Queueing pending workload: %v", err)
+			}
+			fakeClock.Step(2 * time.Second)
+			scheduler.schedule(schedCtx)
+			wg.Wait()
+			if err := schedCtx.Err(); err != nil {
+				t.Fatalf("Scheduling did not complete before the timeout: %v", err)
+			}
+
+			gotEvents := slices.Pick(recorder.RecordedEvents, func(e *utiltesting.EventRecord) bool {
+				return e.Key == wlKey
+			})
+			var wantEvents []utiltesting.EventRecord
+			if tc.wantRetry {
+				wantEvents = wantFailure
+			}
+			if diff := cmp.Diff(wantEvents, gotEvents, eventCmpOpts...); diff != "" {
+				t.Errorf("Unexpected second-pass events after backoff (-want,+got):\n%s", diff)
+			}
+			if got := fakeClock.HasWaiters(); got != tc.wantRetry {
+				t.Errorf("Second-pass retry pending = %t, want %t", got, tc.wantRetry)
+			}
+			var got kueue.Workload
+			if err := cl.Get(ctx, wlKey, &got); err != nil {
+				t.Fatalf("Getting workload after second pass: %v", err)
+			}
+			if diff := cmp.Diff(latest.Status, got.Status); diff != "" {
+				t.Errorf("Second pass changed workload status (-want,+got):\n%s", diff)
+			}
+		})
+	}
 }
 
 func TestScheduleForTASWhenWorkloadModifiedConcurrently(t *testing.T) {
