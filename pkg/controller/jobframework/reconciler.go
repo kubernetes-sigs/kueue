@@ -326,6 +326,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	object := job.Object()
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
+	if job.GVK().Group == "ray.io" {
+		ctx = equality.WithRayWorkload(ctx)
+	}
 
 	defer func() {
 		err = r.ignoreUnretryableError(log, err)
@@ -1561,12 +1564,15 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 2)
+	opts := make([]equality.ComparePodSetsOption, 0, 3)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
+	}
+	if features.Enabled(features.AllowRayPodSetTopologyMutation) && (job.GVK().Group == "ray.io" || equality.IsRayWorkload(ctx)) {
+		opts = append(opts, equality.WithIgnoreTopologyIndexLabels())
 	}
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {

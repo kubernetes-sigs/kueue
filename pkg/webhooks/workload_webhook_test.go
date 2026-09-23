@@ -27,6 +27,7 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -1518,6 +1519,143 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}(),
 			after:   quotaReservedWithoutAdmission(now),
 			wantErr: nil,
+		},
+		"Ray workload: allow adding pod index label, subgroup index label, and subgroup count on admitted workload when AllowRayPodSetTopologyMutation enabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodIndexLabel(new("index-label")).
+					SubGroupIndexLabel(new("subgroup-label")).
+					SubGroupCount(new(int32(2))).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"Ray workload: reject adding pod index label on admitted workload when AllowRayPodSetTopologyMutation disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: false},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodIndexLabel(new("index-label")).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Child("0"), nil, apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"Non-Ray workload: reject adding pod index label on admitted workload even when AllowRayPodSetTopologyMutation enabled": {
+			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodIndexLabel(new("index-label")).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Child("0"), nil, apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"Ray workload: allow adding TopologyRequest with only SubGroupCount when previously nil on admitted workload": {
+			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					SubGroupCount(new(int32(1))).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"Ray workload: reject mutating actual topology constraints on admitted workload": {
+			featureGates: map[featuregate.Feature]bool{features.AllowRayPodSetTopologyMutation: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				ControllerReference(schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}, "raycluster-sample", "uid").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).
+					RequiredTopologyRequest(corev1.LabelTopologyZone).
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "workers"}).
+						Obj(), now,
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Child("0"), nil, apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
 		},
 	}
 	for name, tc := range testCases {

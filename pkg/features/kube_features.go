@@ -748,6 +748,13 @@ const (
 	// group reports PodsReady=False as soon as any member finishes, which can evict a
 	// healthy group once waitForPodsReady.recoveryTimeout elapses.
 	PodIntegrationCountSucceededPodsAsReady featuregate.Feature = "PodIntegrationCountSucceededPodsAsReady"
+
+	// owner: @spencer-p
+	//
+	// AllowRayPodSetTopologyMutation allows relaxed comparison in ComparePodSets and
+	// mutation in validateImmutablePodSet for Ray TopologyRequest index and subgroup fields
+	// to support workload migration to rank-based ordering.
+	AllowRayPodSetTopologyMutation featuregate.Feature = "AllowRayPodSetTopologyMutation"
 )
 
 func init() {
@@ -1152,6 +1159,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PodIntegrationCountSucceededPodsAsReady: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	AllowRayPodSetTopologyMutation: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Deprecated},
 	},
 }
 

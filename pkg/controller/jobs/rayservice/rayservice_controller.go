@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -164,6 +165,7 @@ func (j *RayService) PodLabelSelector() string {
 }
 
 func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+	ctx = equality.WithRayWorkload(ctx)
 	// Always build PodSets from RayService spec first
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {

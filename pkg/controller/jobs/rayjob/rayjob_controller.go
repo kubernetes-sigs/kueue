@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 )
 
 var (
@@ -132,6 +133,7 @@ func (j *RayJob) PodLabelSelector() string {
 }
 
 func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+	ctx = equality.WithRayWorkload(ctx)
 	// Always build PodSets from RayJob spec first
 	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
