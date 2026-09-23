@@ -39,6 +39,16 @@ resources:
 - workload_viewer_role.yaml
 - cohort_editor_role.yaml
 - cohort_viewer_role.yaml
+- admissioncheck_editor_role.yaml
+- admissioncheck_viewer_role.yaml
+- multikueuecluster_editor_role.yaml
+- multikueuecluster_viewer_role.yaml
+- multikueueconfig_editor_role.yaml
+- multikueueconfig_viewer_role.yaml
+- provisioningrequestconfig_editor_role.yaml
+- provisioningrequestconfig_viewer_role.yaml
+- workloadpriorityclass_editor_role.yaml
+- workloadpriorityclass_viewer_role.yaml
 
 # ClusterRoles for Kueue integrations
 - job_editor_role.yaml
