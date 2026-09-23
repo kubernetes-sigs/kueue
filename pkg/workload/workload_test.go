@@ -1434,6 +1434,21 @@ func TestNewInfo(t *testing.T) {
 	}
 }
 
+func TestNewInfoUsesContainerAggregateWhenPodLevelRequestIsTooSmall(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
+	wl := utiltestingapi.MakeWorkload("test-wl", "default").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+			Request(corev1.ResourceCPU, "8").
+			PodLevelRequest(corev1.ResourceCPU, "0").
+			Obj()).
+		Obj()
+
+	info := NewInfo(log, wl)
+	if got := info.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 16000 {
+		t.Errorf("TotalRequests CPU = %dm, want 16000m", got)
+	}
+}
+
 func TestUpdateWithRebuild(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
