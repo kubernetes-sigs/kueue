@@ -101,8 +101,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 		for _, opts := range attemptPossibleOpts {
 			allowBorrowing := opts.borrowing
 
-			candidates := func(yieldCandidate func(*Target) bool) {
-
+			candidateIter := func(yieldCandidate func(*Target) bool) {
 				candidatesGenerator.Reset()
 				for candidateWl, reason := candidatesGenerator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = candidatesGenerator.Next(allowBorrowing) {
 					candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
@@ -113,7 +112,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 				}
 			}
 
-			if !yieldStrategy(PreemptionStrategy{candidates, allowBorrowing, preemptionCtx}) {
+			if !yieldStrategy(PreemptionStrategy{candidateIter, allowBorrowing, preemptionCtx}) {
 				return
 			}
 		}
