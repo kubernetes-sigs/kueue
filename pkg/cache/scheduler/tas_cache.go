@@ -41,8 +41,8 @@ type tasCache struct {
 	flavorCache       map[kueue.ResourceFlavorReference]*TASFlavorCache
 	resourceFormatter *resources.ResourceFormatter
 
-	nonTasUsageCache    *nonTasUsageCache
-	nodesCache          *nodesCache
+	nonTasUsageCache *nonTasUsageCache
+	nodesCache       *nodesCache
 	simulatorFactory simulator.Factory
 }
 
@@ -58,7 +58,7 @@ func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resou
 			nodeUsage: make(map[string]resources.Requests),
 			lock:      sync.RWMutex{},
 		},
-		nodesCache:          newNodesCache(),
+		nodesCache:       newNodesCache(),
 		simulatorFactory: simulatorFactory,
 	}
 }
