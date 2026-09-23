@@ -1498,7 +1498,7 @@ couple of nodes failed. We introduce the `TASReplaceMultipleFailedNodes` feature
 default off) which, when enabled, allows a workload to keep being admitted while its failed
 nodes are replaced incrementally instead of evicting. How many nodes may be unhealthy at once
 before falling back to eviction is controlled per-Workload by the
-`kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold` annotation (an integer `N` in the
+`kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold` annotation (an integer `N` in the
 range `[1, 8]`, default `1`). Values outside this range are invalid and fall back to the
 default. The upper bound matches the API limit on `Status.UnhealthyNodes`:
 
