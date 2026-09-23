@@ -108,8 +108,8 @@ func fairPreemptionStrategy(
 			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, wrapperYield)
 		}
 
-		if logV := log.V(6); cont && logV.Enabled() {
-			logV.Info("All fair sharing candidates exhausted",
+		if cont && log.V(6).Enabled() {
+			log.V(6).Info("All fair sharing candidates exhausted",
 				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 				"targets", logging.GetObjectReferences(yieldedCandidates))
 		}

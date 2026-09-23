@@ -326,7 +326,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 				evaluated++
 				return tc.passOnEvaluation != 0 && evaluated == tc.passOnEvaluation
 			}
-			// Mirrors tryStrategies: collect the yielded targets and stop as
+			// Mirrors getTargets loop: collect the yielded targets and stop as
 			// soon as the incoming workload fits.
 			var targets []*Target
 			fits := false
@@ -339,11 +339,10 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			})
 
 			if tc.wantAllRejected {
-				if !cont {
-					t.Errorf("expected iterateWithFirstFsStrategy to propose continuing as no fit found")
-				}
 				if fits {
 					t.Errorf("expected the always-failing strategy to not fit")
+				} else if !cont {
+					t.Errorf("expected iterateWithFirstFsStrategy to propose continuing when no fit found")
 				}
 				if len(targets) != 0 {
 					t.Errorf("expected no targets, got %d", len(targets))

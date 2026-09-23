@@ -1013,7 +1013,7 @@ func updateAssignmentForTAS(
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
 	assignment *flavorassigner.Assignment,
-	targets ...*preemption.Target,
+	targets []*preemption.Target,
 ) {
 	log := log.FromContext(ctx)
 
@@ -1558,13 +1558,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
+	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
 	assignment, targets, fits := schedule(
 		ctx,
 		wl,
 		snap,
 		s.preemptor,
 		flvAssigner,
-		flvAssigner.AssignFlavors(ctx, log, nil),
+		initialAssignment,
 	)
 
 	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
@@ -1572,13 +1573,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		// the counts Reduce returns.
 		var bestPA *partialAssignment
 		fitsFn := func(nextCounts []int32) bool {
+			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
 			if assignment, targets, fits := schedule(
 				ctx,
 				wl,
 				snap,
 				s.preemptor,
 				flvAssigner,
-				flvAssigner.AssignFlavors(ctx, log, nextCounts),
+				initialAssignment,
 			); fits {
 				bestPA = &partialAssignment{assignment: assignment, preemptionTargets: targets}
 				return true
@@ -1595,7 +1597,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	if fits {
-		targets = append(targets, slicePreemptTargets...)
+		targets = append(slicePreemptTargets, targets...)
 	}
 
 	return assignment, targets
@@ -1608,10 +1610,10 @@ func schedule(
 	preemptor *preemption.Preemptor,
 	flavorAssigner *flavorassigner.FlavorAssigner,
 	initialAssignment flavorassigner.Assignment,
-) (flavorassigner.Assignment, []*preemption.Target, bool) {
+) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
 	log := log.FromContext(ctx)
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
-	assignment := initialAssignment
+	assignment = initialAssignment
 
 	if assignment.RepresentativeMode() != flavorassigner.NoFit {
 		flavorAssigner.AssignTopology(ctx, log, &assignment)
@@ -1623,13 +1625,13 @@ func schedule(
 		strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wl, snapshot, assignment)
 		faPreemptionTargets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
-			updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, faPreemptionTargets...)
+			updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, faPreemptionTargets)
 			resolveNoFit(&assignment, cq)
 			return assignment, faPreemptionTargets, true
 		}
 	}
 
-	updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment)
+	updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, nil)
 	resolveNoFit(&assignment, cq)
 	return assignment, nil, arm == flavorassigner.Fit
 }
