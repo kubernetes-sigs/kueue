@@ -140,7 +140,7 @@ func assertLedgers(t *testing.T, cache *Cache, when string, want resources.Amoun
 	if !found {
 		t.Fatalf("%s: the LocalQueue is not in the cache", when)
 	}
-	check("LocalQueue reserved", lq.totalReserved[ledgerFR])
+	check("LocalQueue reserved", lq.reservedUsage[ledgerFR])
 	check("LocalQueue admitted usage", lq.admittedUsage[ledgerFR])
 
 	if cq.HasParent() {
