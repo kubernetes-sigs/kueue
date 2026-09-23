@@ -59,12 +59,13 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
 
 	tests := map[string]struct {
-		cohorts        []*kueue.Cohort
-		clusterQueues  []*kueue.ClusterQueue
-		config         kueuealpha.PreemptionConfig
-		admitted       []kueue.Workload
-		preemptorWl    *kueue.Workload
-		preemptorCq    kueue.ClusterQueueReference
+		cohorts       []*kueue.Cohort
+		clusterQueues []*kueue.ClusterQueue
+		config        kueuealpha.PreemptionConfig
+		admitted      []kueue.Workload
+		preemptorWl   *kueue.Workload
+		preemptorCq   kueue.ClusterQueueReference
+		// Default testing value: Always
 		trigger        kueuealpha.PreemptionConfigActivationTrigger
 		client         client.Reader
 		wantCandidates []string
@@ -105,7 +106,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorCq:    "a",
 			wantCandidates: []string{},
 		},
-		"returns error for invalid labels selector": {
+		"returns error for selector with invalid labels while matching preemptor's workload": {
 			clusterQueues: baseCqs,
 			config: kueuealpha.PreemptionConfig{
 				Spec: kueuealpha.PreemptionConfigSpec{
@@ -253,6 +254,11 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
 							PreemptorSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{"active": "true"},
+							},
+							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+								{
+									Scope: kueuealpha.WithinCohortTree,
+								},
 							},
 						},
 					},

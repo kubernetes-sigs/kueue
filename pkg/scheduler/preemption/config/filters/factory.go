@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters & RejectAll boolean (if preemptor doesn't pass).
+// NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters & RejectAll boolean.
 // It returns (CandidateFilters{}, true) if the selector fails to compile and all the candidates should be rejected.
 func NewCandidateFilters(
 	log logr.Logger,
@@ -32,6 +32,6 @@ func NewCandidateFilters(
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
 ) (CandidateFilters, bool) {
-	// Temporary returns filter which accepts all values. It will be update in foloow up PRs.
+	// Temporary returns filter which accepts all values. It will be updated in follow-up PRs.
 	return CandidateFilters{}, false
 }

@@ -34,8 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// PreemptionEvaluator selects the preemption candidates of a PreemptionConfig, for one
-// trigger at a time.
+// PreemptionEvaluator selects the preemption candidates according to the configuration.
 type PreemptionEvaluator struct {
 	ctx    context.Context
 	log    logr.Logger
