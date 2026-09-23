@@ -1948,8 +1948,8 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				ZeroCountFlavorFallback: "Assigned flavor one for resources [cpu] in ClusterQueue test-clusterqueue with zero-count PodSets [workers]. " +
-					"No considered flavor could satisfy existing pod requests plus one pod per zero-count PodSet: " +
+				ZeroCountFlavorFallback: "Assigned flavor one to zero-count PodSets [workers] for resources [cpu] in ClusterQueue test-clusterqueue. " +
+					"No considered flavor could satisfy one pod per PodSet: " +
 					"insufficient quota for cpu in flavor one, previously considered podsets requests (2) + current podset request (4) > maximum capacity (4). " +
 					"Review capacity and flavor constraints before scaling up.",
 				PodSets: []PodSetAssignment{
@@ -2103,8 +2103,8 @@ func TestAssignFlavors(t *testing.T) {
 				).Obj(),
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				ZeroCountFlavorFallback: "Assigned flavor one for resources [cpu example.com/gpu] in ClusterQueue test-clusterqueue with zero-count PodSets [workers]. " +
-					"No considered flavor could satisfy existing pod requests plus one pod per zero-count PodSet: " +
+				ZeroCountFlavorFallback: "Assigned flavor one to zero-count PodSets [workers] for resources [cpu example.com/gpu] in ClusterQueue test-clusterqueue. " +
+					"No considered flavor could satisfy one pod per PodSet: " +
 					"insufficient quota for example.com/gpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0), " +
 					"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0). " +
 					"Review capacity and flavor constraints before scaling up.",
@@ -2145,8 +2145,8 @@ func TestAssignFlavors(t *testing.T) {
 				).Obj(),
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				ZeroCountFlavorFallback: "Assigned flavor two for resources [cpu example.com/gpu] in ClusterQueue test-clusterqueue with zero-count PodSets [workers]. " +
-					"No considered flavor could satisfy existing pod requests plus one pod per zero-count PodSet: " +
+				ZeroCountFlavorFallback: "Assigned flavor two to zero-count PodSets [workers] for resources [cpu example.com/gpu] in ClusterQueue test-clusterqueue. " +
+					"No considered flavor could satisfy one pod per PodSet: " +
 					"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (4) > maximum capacity (1), " +
 					"insufficient quota for example.com/gpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0), " +
 					"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0). " +
@@ -2351,8 +2351,8 @@ func TestAssignFlavors(t *testing.T) {
 				).Obj(),
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				ZeroCountFlavorFallback: "Assigned flavor one for resources [example.com/gpu] in ClusterQueue test-clusterqueue with zero-count PodSets [main]. " +
-					"No considered flavor could satisfy existing pod requests plus one pod per zero-count PodSet: " +
+				ZeroCountFlavorFallback: "Assigned flavor one to zero-count PodSets [main] for resources [example.com/gpu] in ClusterQueue test-clusterqueue. " +
+					"No considered flavor could satisfy one pod per PodSet: " +
 					"insufficient quota for example.com/gpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0), " +
 					"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0). " +
 					"Review capacity and flavor constraints before scaling up.",

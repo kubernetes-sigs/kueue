@@ -1122,10 +1122,10 @@ func (a *FlavorAssigner) zeroCountFallbackMessage(podSets []indexedPodSet, flavo
 			podSetNames = append(podSetNames, ps.podSet.Name)
 		}
 	}
-	return fmt.Sprintf("Assigned flavor %s for resources %v in ClusterQueue %s with zero-count PodSets %v. "+
-		"No considered flavor could satisfy existing pod requests plus one pod per zero-count PodSet: %s. "+
+	return fmt.Sprintf("Assigned flavor %s to zero-count PodSets %v for resources %v in ClusterQueue %s. "+
+		"No considered flavor could satisfy one pod per PodSet: %s. "+
 		"Review capacity and flavor constraints before scaling up.",
-		flavors[resName].Name, slices.Sorted(maps.Keys(flavors)), a.cq.Name, podSetNames, probeReason)
+		flavors[resName].Name, podSetNames, slices.Sorted(maps.Keys(flavors)), a.cq.Name, probeReason)
 }
 
 // findFlavorForPodSets finds the flavor which can satisfy all the PodSet requests

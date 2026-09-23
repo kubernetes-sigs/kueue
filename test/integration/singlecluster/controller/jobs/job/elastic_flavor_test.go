@@ -134,8 +134,7 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 				g.Expect(warnings).Should(gomega.HaveLen(1))
 				g.Expect(warnings[0].Type).Should(gomega.Equal(corev1.EventTypeWarning))
 				g.Expect(warnings[0].Note).Should(gomega.And(
-					gomega.ContainSubstring("Assigned flavor cpu for resources"),
-					gomega.ContainSubstring("with zero-count PodSets [main]"),
+					gomega.ContainSubstring("Assigned flavor cpu to zero-count PodSets [main]"),
 					gomega.ContainSubstring("ClusterQueue elastic-flavor"),
 					gomega.ContainSubstring("insufficient quota for example.com/gpu in flavor cpu"),
 					gomega.ContainSubstring("insufficient quota for example.com/gpu in flavor gpu"),
