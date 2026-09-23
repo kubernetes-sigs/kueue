@@ -1611,7 +1611,7 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 	// Read live usage before taking the entry lock: the scheduler snapshot reads
 	// AfsUsageLedger while holding the scheduler-cache lock, so the Update
 	// closure must not call back into the cache.
-	newUsage := cacheLq.GetAdmittedUsage()
+	newUsage := cacheLq.AdmittedUsage()
 
 	var settled corev1.ResourceList
 	updated := r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
