@@ -51,13 +51,6 @@ type PreemptionStrategy struct {
 	pCtx *preemptionCtx
 }
 
-func Materialize(strategies iter.Seq[PreemptionStrategy]) (result [][]*Target) {
-	for strategy := range strategies {
-		result = append(result, slices.Collect(strategy.candidates))
-	}
-	return
-}
-
 type PreemptionStrategiesFactory func(ctx context.Context, assignment *flavorassigner.Assignment) iter.Seq[PreemptionStrategy]
 
 func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
