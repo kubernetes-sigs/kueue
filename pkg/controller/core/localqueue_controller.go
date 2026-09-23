@@ -26,7 +26,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -353,12 +352,10 @@ func (r *LocalQueueReconciler) initializeAfsIfNeeded(lq *kueue.LocalQueue) (hadC
 		}
 	}
 
-	// Seed only from persisted state, never from live admitted usage: a live
-	// snapshot can include a concurrently-admitted Workload that its still-pending
-	// entry penalty already prices, double-counting it (#12783). An empty seed is
-	// correct for a fresh LocalQueue: entry penalties cover its early admissions.
-	// LastUpdate=now keeps the first sampling tick at ~zero elapsed, so it folds
-	// no live usage and the seed stays independent of in-flight admissions.
+	// Seed from persisted history only. Live usage can overlap with pending entry
+	// penalties during startup and double-count the same Workload (#12783).
+	// Start the decay clock at now so the first sample does not fold live usage
+	// into the seed.
 	// If settlement created the entry first (post-restart admission), the persisted
 	// history is merged into it exactly once per process, tracked by StatusAccounted.
 	// The merge can slightly over-count: a second settlement before this reconcile
@@ -415,7 +412,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	}
 
 	oldUsage := entry.Resources
-	newUsage := cacheLq.GetAdmittedUsage()
+	newUsage := afsAccountedUsage(r.cache, lq.Spec.ClusterQueue, cacheLq)
 	// A concurrent settlement can stamp an entry's LastUpdate later than now.
 	// A negative elapsed would drive the decay alpha outside [0, 1] and inflate
 	// consumed usage, so every elapsed derived from a stored LastUpdate is
@@ -552,10 +549,8 @@ func (h *qWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q wo
 		return
 	}
 	req := reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      string(w.Spec.QueueName),
-			Namespace: w.Namespace,
-		},
+		Name:      string(w.Spec.QueueName),
+		Namespace: w.Namespace,
 	}
 	q.AddAfter(req, constants.UpdatesBatchPeriod)
 }

@@ -241,6 +241,12 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
+// PodsReadyTracking reports whether the cache maintains each ClusterQueue's
+// admitted-but-not-ready set.
+func (c *Cache) PodsReadyTracking() bool {
+	return c.podsReadyTracking
+}
+
 func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	if !c.podsReadyTracking {
 		return true
@@ -479,7 +485,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
-			totalReserved:      make(resources.FlavorResourceQuantities),
+			reservedUsage:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 			labels:             q.GetLabels(),
 			customLabels:       c.customLabels,
@@ -1073,7 +1079,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}
 
 	return &LocalQueueUsageStats{
-		ReservedResources:  c.filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
+		ReservedResources:  c.filterLocalQueueUsage(qImpl.reservedUsage, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  c.filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,

@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 
 		ginkgo.By("Creating a ClusterQueue")
 		cq = &kueue.ClusterQueue{
-			ObjectMeta: metav1.ObjectMeta{Name: cqName},
+			Name: cqName,
 		}
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})

@@ -1165,13 +1165,13 @@ func TestStatus(t *testing.T) {
 
 	queues := []kueue.LocalQueue{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Name: "foo",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "fooCq",
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
+			Name: "bar",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "barCq",
 			},
@@ -1179,32 +1179,24 @@ func TestStatus(t *testing.T) {
 	}
 	workloads := []kueue.Workload{
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "a",
-				CreationTimestamp: metav1.NewTime(now.Add(time.Hour)),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "foo"},
+			Name:              "a",
+			CreationTimestamp: metav1.NewTime(now.Add(time.Hour)),
+			Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "b",
-				CreationTimestamp: metav1.NewTime(now),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "bar"},
+			Name:              "b",
+			CreationTimestamp: metav1.NewTime(now),
+			Spec:              kueue.WorkloadSpec{QueueName: "bar"},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "c",
-				CreationTimestamp: metav1.NewTime(now),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "foo"},
+			Name:              "c",
+			CreationTimestamp: metav1.NewTime(now),
+			Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "d",
-				CreationTimestamp: metav1.NewTime(now),
-			},
-			Spec: kueue.WorkloadSpec{QueueName: "foo"},
+			Name:              "d",
+			CreationTimestamp: metav1.NewTime(now),
+			Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 		},
 	}
 
@@ -1238,7 +1230,7 @@ func TestStatus(t *testing.T) {
 			wantErr:    nil,
 		},
 		"fake": {
-			queue:      &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
+			queue:      &kueue.LocalQueue{Name: "fake"},
 			wantStatus: 0,
 			wantErr:    ErrLocalQueueDoesNotExistOrInactive,
 		},
@@ -2029,22 +2021,20 @@ func TestHeadsAsync(t *testing.T) {
 		utiltestingapi.MakeClusterQueue("barCq").Obj(),
 	}
 	wl := kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "a",
-			CreationTimestamp: metav1.NewTime(now),
-		},
-		Spec: kueue.WorkloadSpec{QueueName: "foo"},
+		Name:              "a",
+		CreationTimestamp: metav1.NewTime(now),
+		Spec:              kueue.WorkloadSpec{QueueName: "foo"},
 	}
 	var newWl kueue.Workload
 	queues := []kueue.LocalQueue{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Name: "foo",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "fooCq",
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
+			Name: "bar",
 			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "barCq",
 			},
@@ -2072,10 +2062,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2093,10 +2081,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2116,10 +2102,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2140,10 +2124,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2164,10 +2146,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &wl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2194,10 +2174,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &newWl,
-						ClusterQueue: "fooCq",
-					},
+					Obj:          &newWl,
+					ClusterQueue: "fooCq",
 				},
 			},
 		},
@@ -2228,10 +2206,8 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []Head{
 				{
-					Info: workload.Info{
-						Obj:          &newWl,
-						ClusterQueue: "barCq",
-					},
+					Obj:          &newWl,
+					ClusterQueue: "barCq",
 				},
 			},
 		},
@@ -2396,10 +2372,8 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 			wantPendingWorkloadsInfo: []*workload.Info{
 				{
 					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "a",
-							Namespace: "",
-						},
+						Name:      "a",
+						Namespace: "",
 						Spec: kueue.WorkloadSpec{
 							QueueName: "foo",
 						},
@@ -2407,10 +2381,8 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 				},
 				{
 					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "b",
-							Namespace: "",
-						},
+						Name:      "b",
+						Namespace: "",
 						Spec: kueue.WorkloadSpec{
 							QueueName: "foo",
 						},
@@ -3773,6 +3745,63 @@ func TestDeleteLocalQueueReleasesInflight(t *testing.T) {
 	}
 	if manager.getClusterQueue("cq").workloads.active.GetByKey("earth/a") == nil {
 		t.Fatal("Workload was not re-added to the heap; the LocalQueue deletion left a stale inflight claim")
+	}
+}
+
+// TestPopFromSkipsInactiveClusterQueue verifies that a mid-cycle pop and its
+// HasQueuedWorkloads probe honor the ClusterQueue status. The snapshot's set of
+// inactive ClusterQueues is frozen at the start of the cycle, so without this
+// check the scheduler could admit into a ClusterQueue that became inactive while
+// the cycle was running.
+func TestPopFromSkipsInactiveClusterQueue(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	// fakeStatusChecker reports only names containing "active-" as active.
+	for _, cqName := range []kueue.ClusterQueueReference{"stopped-cq", "active-cq"} {
+		t.Run(string(cqName), func(t *testing.T) {
+			cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
+			lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue(string(cqName)).Obj()
+			wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(wl, lq, cq), &fakeStatusChecker{})
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+
+			wantPopped := cqName == "active-cq"
+			if got := manager.HasQueuedWorkloads(cqName); got != wantPopped {
+				t.Errorf("HasQueuedWorkloads returned %t, want %t", got, wantPopped)
+			}
+			popped := manager.PopFrom(cqName)
+			if (popped != nil) != wantPopped {
+				t.Errorf("PopFrom returned %v, want popped=%v", popped, wantPopped)
+			}
+		})
+	}
+}
+
+// TestPopFromDoesNotAdvancePopCycle verifies that PopFrom takes the mid-cycle
+// pop path. Popping through the regular path would declare the running attempt
+// over and consume its pending "requeue the inadmissible workloads" signal.
+func TestPopFromDoesNotAdvancePopCycle(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(wl, lq, cq), nil)
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+
+	if popped := manager.PopFrom("cq"); popped == nil || workload.Key(popped.Obj) != "earth/a" {
+		t.Fatalf("PopFrom returned %v, want earth/a", popped)
+	}
+	if got := manager.getClusterQueue("cq").popCycle; got != 0 {
+		t.Errorf("PopFrom advanced popCycle to %d, want 0", got)
 	}
 }
 

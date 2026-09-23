@@ -11,6 +11,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: AdmissionFairSharingAnchorAtQuotaReservation
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: AdmissionGatedBy
   versionedSpecs:
   - default: false
@@ -101,6 +107,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: EnforceProvisioningPodTemplateContents
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: FailureRecoveryPolicy
   versionedSpecs:
   - default: false
@@ -120,6 +132,12 @@
     preRelease: Beta
     version: "0.17"
 - name: FairSharingReevaluatePreemptionCandidates
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
+- name: FairSharingRefill
   versionedSpecs:
   - default: false
     lockToDefault: false

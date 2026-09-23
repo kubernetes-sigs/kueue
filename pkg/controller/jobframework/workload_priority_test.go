@@ -133,7 +133,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		"leaves a quota-reserved workload alone when the owner falls back to a pod priority class": {
 			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
 			podPriorityClass: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+				{Name: "podpc", Value: 50},
 			},
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("reserved", "ns").
@@ -203,7 +203,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		"still moves a workload without a reservation onto a pod priority class": {
 			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
 			podPriorityClass: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+				{Name: "podpc", Value: 50},
 			},
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("free", "ns").
@@ -219,7 +219,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		"writes the unreserved half of a batch and skips the reserved half": {
 			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
 			podPriorityClass: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+				{Name: "podpc", Value: 50},
 			},
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("reserved", "ns").

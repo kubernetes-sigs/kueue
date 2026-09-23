@@ -630,35 +630,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
-		if workload.HasQuotaReservation(wl) {
-			if !job.IsActive() {
-				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-					// The requeued condition status set to true only on EvictedByPreemption
-					setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
-					// A pod-owned Workload dies with its pod; requeuing it would
-					// recompute an assignment nothing can consume (placement drift).
-					if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
-						setRequeued = false
-					}
-					updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
-					reason := workload.UnadmittedWorkloadReasonWithFallback(
-						kueue.WorkloadQuotaReservedReasonPendingEvaluation,
-						kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
-					)
-					if workload.UnsetQuotaReservationWithCondition(
-						wl,
-						reason,
-						evCond.Message,
-						r.clock.Now(),
-					) {
-						updated = true
-					}
-					return updated, nil
-				})
-				if err != nil {
-					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
-				}
+		if !job.IsActive() {
+			log.V(6).Info("The job is no longer active, clear the workloads admission")
+			if err := r.clearAdmissionAfterEviction(ctx, wl); err != nil {
+				return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
 			}
 		}
 		requeueAfter, err := r.handleWorkloadAfterDeactivatedPolicy(ctx, job, wl)
@@ -779,10 +754,25 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 	if err != nil {
 		return err
 	}
+	_, isComposable := job.(ComposableJob)
 	for i := range workloads {
 		wl := &workloads[i]
 		if jobFound && wl.DeletionTimestamp.IsZero() {
 			continue
+		}
+		if isComposable && !jobFound && wl.DeletionTimestamp.IsZero() && !workloadfinish.IsFinished(wl) {
+			// An empty composable job only means that its member Pods are gone. A
+			// live owner managed by Kueue can still recreate those Pods.
+			hasLiveOwner, err := r.hasLiveManagedOwner(ctx, wl)
+			if err != nil {
+				return err
+			}
+			if hasLiveOwner {
+				if err := r.clearAdmissionAfterEviction(ctx, wl); err != nil {
+					return fmt.Errorf("clearing admission for empty composable job: %w", err)
+				}
+				continue
+			}
 		}
 		err := workload.FinalizeOrphanedWorkload(ctx, r.client, r.clock, wl, controllerutil.HasControllerReference(wl))
 		if client.IgnoreNotFound(err) != nil {
@@ -790,6 +780,64 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 		}
 	}
 	return nil
+}
+
+func (r *JobReconciler) hasLiveManagedOwner(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !wl.DeletionTimestamp.IsZero() {
+		return false, nil
+	}
+
+	for i := range wl.OwnerReferences {
+		owner := &wl.OwnerReferences[i]
+		if owner.Kind == "Pod" && owner.APIVersion == corev1.SchemeGroupVersion.String() {
+			continue
+		}
+		ownerObject := r.integrationManager.GetEmptyOwnerObject(owner)
+		if ownerObject == nil {
+			continue
+		}
+		if err := r.client.Get(ctx, client.ObjectKey{Namespace: wl.Namespace, Name: owner.Name}, ownerObject); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return false, err
+		}
+		if ownerObject.GetUID() == owner.UID && ownerObject.GetDeletionTimestamp() == nil {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, wl *kueue.Workload) error {
+	return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
+		if evCond == nil || evCond.Status != metav1.ConditionTrue || !workload.HasQuotaReservation(wl) {
+			return false, nil
+		}
+		// The requeued condition status is true only for preemption or node failures.
+		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
+		// A pod-owned Workload dies with its pod; requeuing it would
+		// recompute an assignment nothing can consume (placement drift).
+		if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+			setRequeued = false
+		}
+		updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+		)
+		if workload.UnsetQuotaReservationWithCondition(
+			wl,
+			reason,
+			evCond.Message,
+			r.clock.Now(),
+		) {
+			updated = true
+		}
+		return updated, nil
+	})
 }
 
 func (r *JobReconciler) handleQueueNameChange(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
@@ -964,10 +1012,8 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: owner.APIVersion,
-					Kind:       owner.Kind,
-				},
+				APIVersion: owner.APIVersion,
+				Kind:       owner.Kind,
 			}
 		}
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {

@@ -1218,7 +1218,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.Mu
 
 	// if the condition is up-to-date
 	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive)
-	if cmpConditionState(oldCondition, &newCondition) {
+	if isConditionEqual(oldCondition, &newCondition) && oldCondition.ObservedGeneration == newCondition.ObservedGeneration {
 		return nil
 	}
 
@@ -1364,18 +1364,16 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
-				Name: e.Object.GetName(),
-			}})
+			q.Add(reconcile.Request{
+				Name: e.Object.GetName()})
 		},
 	}
 
 	fsWatcherHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			// batch the events
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-				Name: e.Object.GetName(),
-			}}, 100*time.Millisecond)
+			q.AddAfter(reconcile.Request{
+				Name: e.Object.GetName()}, 100*time.Millisecond)
 		},
 	}
 
@@ -1523,9 +1521,7 @@ func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q work
 
 	for _, user := range users.Items {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: user.Name,
-			},
+			Name: user.Name,
 		}
 		q.Add(req)
 	}
@@ -1568,9 +1564,7 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 
 	for _, mkc := range mkcList.Items {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: mkc.Name,
-			},
+			Name: mkc.Name,
 		}
 		q.Add(req)
 	}

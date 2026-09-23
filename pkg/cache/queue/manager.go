@@ -996,6 +996,43 @@ func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
 	return &head
 }
 
+// PopFrom checks out the head of the given ClusterQueue for the scheduling
+// cycle already in progress (fair sharing refill). Like a Head, the caller must
+// end the checkout before the cycle ends.
+func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
+	m.Lock()
+	defer m.Unlock()
+	cq := m.activeCQByName(cqName)
+	if cq == nil {
+		return nil
+	}
+	return m.takePopped(cq, cq.PopMidCycle())
+}
+
+// HasQueuedWorkloads reports whether the ClusterQueue can still hand the running
+// cycle another workload. Unlike the pending counts, it ignores workloads that
+// are already checked out or waiting as inadmissible.
+func (m *Manager) HasQueuedWorkloads(cqName kueue.ClusterQueueReference) bool {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.activeCQByName(cqName)
+	return cq != nil && cq.hasQueuedWorkloads()
+}
+
+// activeCQByName finds a ClusterQueue that may still contribute workloads to a
+// scheduling cycle. Must be called with the lock held.
+func (m *Manager) activeCQByName(cqName kueue.ClusterQueueReference) *ClusterQueue {
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return nil
+	}
+	// Cache might be nil in tests, if cache is nil, we'll skip the check.
+	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
+		return nil
+	}
+	return cq
+}
+
 // ForgetInflight ends a scheduler checkout by walking away: the scheduler took
 // this workload but found nothing to do with it, so the checkout ends without
 // the workload being requeued or deleted. This happens when a popped workload

@@ -21,3 +21,5 @@ package v1alpha1
 type CapacityProviderExpansion interface{}
 
 type DynamicQuotaOrchestratorExpansion interface{}
+
+type PreemptionConfigExpansion interface{}

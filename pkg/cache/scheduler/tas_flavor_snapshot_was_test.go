@@ -23,7 +23,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -100,7 +99,7 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	snapshot, _ := wasSnapshotWithVictim(t, client.ObjectKey{Namespace: "default", Name: "victim"})
 	requests := wantsTheSamePort()
-	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 
 	if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
 		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
@@ -119,7 +118,7 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
 	snapshot, simSnapshot := wasSnapshotWithVictim(t, victim)
 	requests := wantsTheSamePort()
-	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	fits := func() bool {
 		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil
 	}
@@ -185,7 +184,7 @@ func TestLeaderFeasibilityFollowsSimulateEmpty(t *testing.T) {
 
 	// A Workload is what keys matchingLeavesCache, so without one the leader's answers
 	// are never cached and this would not notice an entry serving the wrong question.
-	wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "wl", UID: "wl-uid"}})
+	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	// Asked twice each way, because the cache only answers from the second cycle.
 	for _, cycle := range []string{"first", "second"} {
 		if snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil {
