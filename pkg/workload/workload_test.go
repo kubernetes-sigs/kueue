@@ -814,6 +814,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("quota.acme.io/total-vgpu-cores"): 40,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.acme.io/total-vgpu-cores"): 40,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1293,6 +1296,10 @@ func TestNewInfo(t *testing.T) {
 						"example.com/gpu": 5,
 						"gpu":             1,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 5,
+						"gpu":             1,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1325,6 +1332,10 @@ func TestNewInfo(t *testing.T) {
 						"vendor.example/gpu": 1,
 						"gpu":                2,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"vendor.example/gpu": 1,
+						"gpu":                2,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1349,6 +1360,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 2,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 2,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1371,6 +1385,10 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 1,
 						"gpu":             1,
 					}),
@@ -1400,6 +1418,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"gpu": 8,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"gpu": 8,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1425,6 +1446,10 @@ func TestNewInfo(t *testing.T) {
 						"example.com/gpu": 1,
 						"gpu":             8,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             8,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1447,6 +1472,9 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 2,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 2,
 					}),
 					Count: 1,
@@ -1477,6 +1505,10 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 1,
 						"gpu":             1,
 					}),
