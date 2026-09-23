@@ -1427,6 +1427,27 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		// Regression test for #14255: pod-level request smaller than the
+		// aggregate container request must not reduce reserved quota.
+		"pod-level request smaller than container aggregate uses container aggregate": {
+			workload: *utiltestingapi.MakeWorkload("test-wl", "default").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					Request(corev1.ResourceCPU, "8").
+					PodLevelRequest(corev1.ResourceCPU, "0").
+					Obj()).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 16000,
+						}),
+						Count: 2,
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
