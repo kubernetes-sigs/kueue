@@ -212,8 +212,8 @@ type TASFlavorSnapshot struct {
 	// snapshot() calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
-	// simulatorSnapshot stores enough data to run a WAS scheduling simulation.
-	simulatorSnapshot simulator.SimulatorSnapshot
+	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
+	schedulerSimulator simulator.SchedulerSimulator
 
 	resourceFormatter *resources.ResourceFormatter
 }
@@ -289,7 +289,7 @@ func newTASFlavorSnapshot(
 	log logr.Logger,
 	flavor flavorInformation,
 	tree *topologyTree,
-	simulatorSnapshot simulator.SimulatorSnapshot,
+	schedulerSimulator simulator.SchedulerSimulator,
 	opts ...tasFlavorSnapshotOption,
 ) *TASFlavorSnapshot {
 	options := &tasFlavorSnapshotOptions{}
@@ -309,7 +309,7 @@ func newTASFlavorSnapshot(
 		leafCapacities:       make([]leafCapacity, len(tree.leaves)),
 		leafCandidates:       make([]leafCandidate, len(tree.leaves)),
 		tolerations:          slices.Clone(flavor.Tolerations),
-		simulatorSnapshot:    simulatorSnapshot,
+		schedulerSimulator:    schedulerSimulator,
 		resourceFormatter:    options.resourceFormatter,
 	}
 	for _, leaf := range tree.leaves {
@@ -2177,7 +2177,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
-		feasibleLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
+		feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
 		if err != nil {
 			return err
 		}
@@ -2320,7 +2320,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		scores[i] = leaf.GetAffinityScore()
 	}
 	leaderStats := newTASExclusionStats()
-	leaderLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx,
+	leaderLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
 		simulator.AsCandidates(slices.Values(allLeaves)),
 		requirements.leader.podRequirements,
 		&leaderStats.NodeExclusionStats)
@@ -2419,7 +2419,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 
 	leafStats := newTASExclusionStats()
 	var err error
-	feasibleLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
+	feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
 	if err != nil {
 		return nil, nil, err
 	}
