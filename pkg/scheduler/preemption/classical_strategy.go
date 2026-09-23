@@ -24,7 +24,13 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+type candidateIterator interface {
+	Reset()
+	Next(borrow bool) (candidate *workload.Info, evictReason string)
+}
 
 func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
 	log := log.FromContext(ctx)
@@ -73,21 +79,23 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
 		for _, opts := range attemptPossibleOpts {
 			allowBorrowing := opts.borrowing
-
 			candidateIter := func(yieldCandidate func(*Target) bool) {
-				candidatesGenerator.Reset()
-				for candidateWl, reason := candidatesGenerator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = candidatesGenerator.Next(allowBorrowing) {
-					candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
-					preemptionCtx.snapshot.RemoveWorkload(candidateWl)
-					if !yieldCandidate(candidate) {
-						return
-					}
-				}
+				iterateOverCandidates(ctx, preemptionCtx, candidatesGenerator, allowBorrowing, yieldCandidate)
 			}
-
 			if !yieldStrategy(PreemptionStrategy{candidateIter, allowBorrowing, preemptionCtx}) {
 				return
 			}
+		}
+	}
+}
+
+func iterateOverCandidates(ctx context.Context, preemptionCtx *preemptionCtx, iterator candidateIterator, allowBorrowing bool, yield func(*Target) bool) {
+	iterator.Reset()
+	for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
+		candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
+		preemptionCtx.snapshot.RemoveWorkload(candidateWl)
+		if !yield(candidate) {
+			return
 		}
 	}
 }
