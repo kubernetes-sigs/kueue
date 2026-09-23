@@ -129,10 +129,8 @@ func TestValidateCreate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cli := utiltesting.NewClientBuilder(rayv1.AddToScheme).Build()
 			webhook := &RayServiceWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
-				client:                     cli,
 			}
 			warns, err := webhook.ValidateCreate(t.Context(), tc.service)
 			if (err != nil) != tc.wantErr {
@@ -279,7 +277,7 @@ func TestValidateUpdate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			cli := utiltesting.NewClientBuilder(rayv1.AddToScheme).Build()
+			cli := utiltesting.NewClientBuilder().Build()
 			cqCache := schdcache.New(cli)
 			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 			if tc.defaultLqExist {
@@ -291,7 +289,6 @@ func TestValidateUpdate(t *testing.T) {
 			webhook := &RayServiceWebhook{
 				queues: queueManager,
 				cache:  cqCache,
-				client: cli,
 			}
 			warnings, err := webhook.ValidateUpdate(ctx, tc.oldService, tc.newService)
 			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
