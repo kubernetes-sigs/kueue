@@ -39,7 +39,7 @@ func WithIgnoreTolerations() ComparePodSetsOption {
 
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact
 // the workload scheduling (priority, nodeSelectors(when suspended), tolerations and maybe more)
-func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) bool {
+func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) bool {
 	opts := &ComparePodSetsOptions{}
 	for _, opt := range options {
 		opt(opts)
@@ -86,7 +86,7 @@ func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 		return false
 	}
 
-	return comparePodTemplate(&a.Template.Spec, &b.Template.Spec, options...)
+	return ComparePodTemplate(&a.Template.Spec, &b.Template.Spec, options...)
 }
 
 func ComparePodSetSlices(a, b []kueue.PodSet, options ...ComparePodSetsOption) bool {
