@@ -4455,78 +4455,72 @@ func TestShouldSkipClusterNomination(t *testing.T) {
 }
 
 func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
+	baseWorkload := utiltestingapi.MakeWorkload("wl", "ns")
 	cases := map[string]struct {
-		annotationValue string
-		annotationSet   bool
-		want            int
-		wantErr         bool
+		wl      *kueue.Workload
+		want    int
+		wantErr error
 	}{
+		"nil workload defaults to 1": {
+			want: kueue.DefaultUnhealthyNodesEvictionThreshold,
+		},
 		"absent annotation defaults to 1": {
-			annotationSet: false,
-			want:          1,
+			wl:   baseWorkload.Clone().Obj(),
+			want: kueue.DefaultUnhealthyNodesEvictionThreshold,
 		},
 		"explicit threshold of 1": {
-			annotationSet:   true,
-			annotationValue: "1",
-			want:            1,
+			wl:   baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "1").Obj(),
+			want: 1,
 		},
 		"explicit threshold greater than 1": {
-			annotationSet:   true,
-			annotationValue: "3",
-			want:            3,
+			wl:   baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "3").Obj(),
+			want: 3,
 		},
 		"maximum threshold is valid": {
-			annotationSet:   true,
-			annotationValue: "8",
-			want:            MaxUnhealthyNodesEvictionThreshold,
+			wl:   baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "8").Obj(),
+			want: kueue.MaxUnhealthyNodesEvictionThreshold,
 		},
 		"zero falls back to default": {
-			annotationSet:   true,
-			annotationValue: "0",
-			want:            1,
-			wantErr:         true,
+			wl:      baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "0").Obj(),
+			want:    kueue.DefaultUnhealthyNodesEvictionThreshold,
+			wantErr: errors.New(`invalid kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold annotation value "0": must be between 1 and 8`),
 		},
 		"negative falls back to default": {
-			annotationSet:   true,
-			annotationValue: "-2",
-			want:            1,
-			wantErr:         true,
+			wl:      baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "-2").Obj(),
+			want:    kueue.DefaultUnhealthyNodesEvictionThreshold,
+			wantErr: errors.New(`invalid kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold annotation value "-2": must be between 1 and 8`),
 		},
 		"above maximum falls back to default": {
-			annotationSet:   true,
-			annotationValue: "9",
-			want:            1,
-			wantErr:         true,
+			wl:      baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "9").Obj(),
+			want:    kueue.DefaultUnhealthyNodesEvictionThreshold,
+			wantErr: errors.New(`invalid kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold annotation value "9": must be between 1 and 8`),
 		},
 		"non-numeric falls back to default": {
-			annotationSet:   true,
-			annotationValue: "many",
-			want:            1,
-			wantErr:         true,
+			wl:      baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "many").Obj(),
+			want:    kueue.DefaultUnhealthyNodesEvictionThreshold,
+			wantErr: errors.New(`invalid kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold annotation value "many": strconv.Atoi: parsing "many": invalid syntax`),
+		},
+		"empty annotation falls back to default": {
+			wl:      baseWorkload.Clone().Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "").Obj(),
+			want:    kueue.DefaultUnhealthyNodesEvictionThreshold,
+			wantErr: errors.New(`invalid kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold annotation value "": strconv.Atoi: parsing "": invalid syntax`),
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			wlWrapper := utiltestingapi.MakeWorkload("wl", "ns")
-			if tc.annotationSet {
-				wlWrapper = wlWrapper.Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, tc.annotationValue)
-			}
-			wl := wlWrapper.Obj()
-			got, err := UnhealthyNodesEvictionThreshold(wl)
+			got, err := UnhealthyNodesEvictionThreshold(tc.wl)
 			if got != tc.want {
 				t.Errorf("UnhealthyNodesEvictionThreshold() = %d, want %d", got, tc.want)
 			}
-			if gotErr := err != nil; gotErr != tc.wantErr {
-				t.Errorf("UnhealthyNodesEvictionThreshold() error = %v, wantErr %t", err, tc.wantErr)
+			if (err == nil) != (tc.wantErr == nil) {
+				t.Fatalf("unexpected error: got %v, want %v", err, tc.wantErr)
+			}
+			if err != nil {
+				if diff := cmp.Diff(tc.wantErr.Error(), err.Error()); diff != "" {
+					t.Errorf("unexpected error (-want,+got):\n%s", diff)
+				}
 			}
 		})
-	}
-	got, err := UnhealthyNodesEvictionThreshold(nil)
-	if got != DefaultUnhealthyNodesEvictionThreshold {
-		t.Errorf("UnhealthyNodesEvictionThreshold(nil) = %d, want %d", got, DefaultUnhealthyNodesEvictionThreshold)
-	}
-	if err != nil {
-		t.Errorf("UnhealthyNodesEvictionThreshold(nil) error = %v, want nil", err)
 	}
 }
 

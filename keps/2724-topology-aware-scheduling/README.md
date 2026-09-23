@@ -1488,57 +1488,25 @@ to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `
 
 ##### Replacing multiple failed nodes
 
-The Node failures original design chose single-node replacement deliberately, since replacing multiple nodes at
-once complicates the assignment algorithm. The `UnhealthyNodes` status field was nonetheless
-modeled as a *list* (rather than a single node) to leave room for this generalization.
+Without this feature, a second failed node triggers Workload eviction. Since Kueue v0.20,
+the Alpha `TASReplaceMultipleFailedNodes` feature gate (disabled by default) enables the
+per-Workload `kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold` annotation.
+Its value `N` is in `[1, 8]`, matching the API limit on `.status.unhealthyNodes`;
+absent or invalid values default to `1`.
 
-For large, long-running gang-scheduled TAS workloads on unreliable hardware (e.g. GPU fleets),
-eviction is expensive: the whole workload is torn down and re-admitted, even though only a
-couple of nodes failed. We introduce the `TASReplaceMultipleFailedNodes` feature gate (Alpha,
-default off) which, when enabled, allows a workload to keep being admitted while its failed
-nodes are replaced incrementally instead of evicting. How many nodes may be unhealthy at once
-before falling back to eviction is controlled per-Workload by the
-`kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold` annotation (an integer `N` in the
-range `[1, 8]`, default `1`). Values outside this range are invalid and fall back to the
-default. The upper bound matches the API limit on `Status.UnhealthyNodes`:
+With the gate enabled, Kueue keeps up to `N` unhealthy nodes queued for replacement and
+suppresses `TASFailedNodeReplacementFailFast` while within that threshold. A further distinct
+node failure exceeding `N` triggers eviction. Other eviction mechanisms still apply.
 
-- The node-failure controller evicts only once the Workload already has `N` unhealthy nodes and
-  a further distinct node fails; below that it appends the new node to `Status.UnhealthyNodes`
-  and the workload stays admitted.
-- The scheduler fail-fast eviction is suppressed while the number of unhealthy nodes is at or
-  below `N` (overriding `TASFailedNodeReplacementFailFast`); above `N` it is allowed to evict.
-- Replacement is processed **head-of-queue, one node per scheduling cycle**. The planner
-  replaces `UnhealthyNodes[0]` and ignores the remaining queued unhealthy nodes during the
-  stale-assignment check, so a tail entry whose node is already missing from the snapshot does
-  not block head replacement. On a successful head replacement only the replaced head is dropped
-  from `UnhealthyNodes`; the remaining entries are retried on subsequent cycles (this matters
-  because a deleted tail node generates no further node events, so the tail must be carried
-  forward explicitly rather than re-discovered).
+In Alpha, Kueue attempts one failed-node replacement per Workload per scheduling cycle,
+in FIFO order. Successful replacement removes only that node from `.status.unhealthyNodes`.
+An unreplaceable head blocks later entries, including those in other PodSets with available
+replacement capacity; they wait until the head can be replaced or the Workload is evicted.
 
-Strict head-of-queue processing can cause head-of-line blocking, including across PodSets. If
-the first unhealthy node cannot be replaced in its PodSet's required topology domain, later
-unhealthy nodes are not attempted even when they have valid replacement capacity. They remain
-queued until the head becomes replaceable or the Workload is otherwise evicted. Scanning past
-an unreplaceable head may be considered as a future enhancement.
-
-The replacement algorithm is greedy and does not atomically recompute the entire PodSet. For a
-required topology request, healthy members of the current assignment pin replacement to their
-existing required domain. If that domain has no spare capacity, replacement remains pending even
-when moving the entire PodSet to another domain would fit. Conversely, queued failures can be
-replaced one by one when suitable capacity exists in the required domain. A future enhancement
-may consider whole-PodSet replanning, but Alpha users should not rely on it.
-
-The default threshold of `1` lets the Workload tolerate one unhealthy node while a replacement
-is in flight and evicts it on the second distinct failure. While the gate is enabled, scheduler
-fail-fast eviction is also suppressed for that first unhealthy node, so replacement is retried
-until a fit is found. With a higher threshold the same behavior extends to additional unhealthy
-nodes, and the `UnhealthyNodes` list drains as nodes are replaced.
-
-This makes the eviction-vs-incremental tradeoff — which is genuinely workload-dependent
-(best-effort/elastic workloads prefer "keep replacing"; strict gang workloads may prefer "evict
-fast, re-admit cleanly") — a per-Workload policy with a conservative default, while preserving
-eviction as a bounded guaranteed-progress fallback. The annotation-based surface is intentionally
-minimal for Alpha; a richer (e.g. per-ClusterQueue) configuration can be revisited for Beta.
+Placement is greedy and may miss feasible solutions for `required` topology requests.
+For example, healthy Pods can pin replacements to a rack without spare capacity even when
+moving the entire PodSet to another rack would fit. Joint replacement planning and skipping
+an unreplaceable head may be revisited for Beta or GA based on user feedback.
 
 ##### Workloads owned by a single Pod
 

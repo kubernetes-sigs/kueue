@@ -122,20 +122,6 @@ func assignedPodCount(ta *kueue.TopologyAssignment) int32 {
 	return total
 }
 
-func expectAdmittedWorkloadWithUnhealthyNodes(wl *kueue.Workload, nodeNames ...string) {
-	expected := make([]kueue.UnhealthyNode, len(nodeNames))
-	for i, name := range nodeNames {
-		expected[i].Name = name
-	}
-	gomega.Eventually(func(g gomega.Gomega) {
-		updatedWl := &kueue.Workload{}
-		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
-		g.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeTrue())
-		g.Expect(apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
-		g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.Equal(expected))
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
-}
-
 // countUngatedPods returns how many of the given pods have no scheduling gates left.
 func countUngatedPods(pods []corev1.Pod) int {
 	ungated := 0
@@ -3737,7 +3723,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					})
 				})
 				ginkgo.By("verify one failed node remains tolerated", func() {
-					expectAdmittedWorkloadWithUnhealthyNodes(wl1, node1Name)
+					util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl1, node1Name)
 				})
 
 				ginkgo.By("failing the second assigned node", func() {
@@ -3811,9 +3797,9 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 					ginkgo.By("queuing both failed nodes in order", func() {
 						failNode("x3")
-						expectAdmittedWorkloadWithUnhealthyNodes(wl, "x3")
+						util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "x3")
 						failNode("x1")
-						expectAdmittedWorkloadWithUnhealthyNodes(wl, "x3", "x1")
+						util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "x3", "x1")
 					})
 
 					ginkgo.By("adding two replacement nodes in the required block", func() {
@@ -3896,7 +3882,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Status:             corev1.ConditionFalse,
 							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
 						})
-						expectAdmittedWorkloadWithUnhealthyNodes(wl, "x3")
+						util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "x3")
 					})
 
 					ginkgo.By("verifying greedy replacement remains pinned to block b1", func() {
@@ -3981,7 +3967,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, true)
 				})
 				ginkgo.By("verify the first failed node is queued", func() {
-					expectAdmittedWorkloadWithUnhealthyNodes(wl1, node1Name)
+					util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl1, node1Name)
 				})
 
 				ginkgo.By("deleting the second assigned node", func() {
@@ -3990,7 +3976,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeToDelete, false)
 				})
 				ginkgo.By("verify both failed nodes are queued in failure order", func() {
-					expectAdmittedWorkloadWithUnhealthyNodes(wl1, node1Name, node2Name)
+					util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl1, node1Name, node2Name)
 				})
 
 				ginkgo.By("making replacement nodes available", func() {

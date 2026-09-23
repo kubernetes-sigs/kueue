@@ -80,6 +80,13 @@ const (
 	// Ignored unless TASReplaceMultipleFailedNodes is enabled.
 	UnhealthyNodesConcurrentEvictionThresholdAnnotation = "kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold"
 
+	// DefaultUnhealthyNodesEvictionThreshold is used when
+	// UnhealthyNodesConcurrentEvictionThresholdAnnotation is absent or invalid.
+	DefaultUnhealthyNodesEvictionThreshold = 1
+
+	// MaxUnhealthyNodesEvictionThreshold matches the limit on Workload.Status.UnhealthyNodes.
+	MaxUnhealthyNodesEvictionThreshold = 8
+
 	// WorkloadAnnotation is an annotation set on the Job's PodTemplate to
 	// indicate the name of the admitted Workload corresponding to the Job. The
 	// annotation is set when starting the Job, and removed on stopping the Job.
