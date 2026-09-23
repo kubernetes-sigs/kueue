@@ -899,6 +899,12 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func TestValidateCreateRayClusterSpec(t *testing.T) {
+	validHeadGroupSpec := rayv1.HeadGroupSpec{
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head"}}},
+		},
+	}
+
 	testCases := map[string]struct {
 		object         client.Object
 		rayClusterSpec *rayv1.RayClusterSpec
@@ -907,14 +913,21 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		"valid spec": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec: validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "workers"},
 				},
 			},
 			wantErrors: nil,
+		},
+		"head pod has no containers": {
+			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "workers"}},
+			},
+			wantErrors: field.ErrorList{
+				field.Required(field.NewPath("spec", "headGroupSpec", "template", "spec", "containers"), "must have at least one container"),
+			},
 		},
 		"autoscaling enabled without workload slicing": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").
@@ -922,9 +935,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec:           validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "workers"},
 				},
@@ -946,9 +957,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec:           validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "workers"},
 				},
@@ -958,9 +967,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		"too many worker groups": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec: validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "workers1"},
 					{GroupName: "workers2"},
@@ -981,9 +988,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		"worker group named 'head'": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec: validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "head"},
 				},
@@ -998,9 +1003,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec:           validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "head"},
 					{GroupName: "workers2"},
