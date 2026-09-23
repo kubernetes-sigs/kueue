@@ -34,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -963,10 +964,8 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: owner.APIVersion,
-					Kind:       owner.Kind,
-				},
+				APIVersion: owner.APIVersion,
+				Kind:       owner.Kind,
 			}
 		}
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
@@ -1059,6 +1058,17 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		if workloadslicing.Enabled(object) && workloadslicing.ScaledUp(wl) {
 			log.V(3).Info("WorkloadSlice: skip in-sync check in ensurePrebuiltWorkload")
 			return wl, nil
+		}
+
+		if features.Enabled(features.MultiKueueRayInTreeAutoscaling) && workloadslicing.Enabled(object) {
+			resizePending, err := hasPendingElasticResize(ctx, r.client, job, wl)
+			if err != nil {
+				return nil, err
+			}
+			if resizePending {
+				log.V(3).Info("WorkloadSlice: skip in-sync check during resize handover")
+				return wl, nil
+			}
 		}
 
 		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
@@ -1384,14 +1394,20 @@ func priorityStateEqual(wl *kueue.Workload, ref *kueue.PriorityClassRef, priorit
 
 func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob) (match *kueue.Workload, toDelete []*kueue.Workload, err error) {
 	object := job.Object()
+	gvk := job.GVK()
 
 	workloads := &kueue.WorkloadList{}
-	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()), OwnerReferenceIndexFieldMatcher(job.GVK(), object.GetName())); err != nil {
+	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()), OwnerReferenceIndexFieldMatcher(gvk, object.GetName())); err != nil {
 		return nil, nil, err
 	}
 
+	log := ctrl.LoggerFrom(ctx)
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
+		if owner := metav1.GetControllerOfNoCopy(w); !ownerMatchesJob(owner, gvk, object.GetName()) {
+			log.V(2).Info("Skipping workload not controlled by the job", "workload", klog.KObj(w))
+			continue
+		}
 		isEquivalent, err := EquivalentToWorkload(ctx, c, job, w)
 		if err != nil {
 			return nil, nil, err
@@ -1404,6 +1420,14 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	}
 
 	return match, toDelete, nil
+}
+
+// ownerMatchesJob reports whether owner identifies the job by Kind, APIVersion and name.
+func ownerMatchesJob(owner *metav1.OwnerReference, gvk schema.GroupVersionKind, name string) bool {
+	return owner != nil &&
+		owner.Kind == gvk.Kind &&
+		owner.APIVersion == gvk.GroupVersion().String() &&
+		owner.Name == name
 }
 
 func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *kueue.Workload, object client.Object) error {
@@ -1424,6 +1448,30 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 		}
 	}
 	return nil
+}
+
+// hasPendingElasticResize reports whether the elastic job's pod sets have the
+// same keys as its pinned workload slice but at least one count differs.
+// For worker-side autoscaling (e.g. the Ray autoscaler resizing the worker copy
+// directly), the workload is owned by the manager cluster, so the resize is only
+// complete once the manager updates the worker's workload slice to match. Until
+// then the count mismatch on a MultiKueue-dispatched copy (identified by the
+// origin label) is expected, not out-of-sync. A change that alters the pod set
+// structure (different keys) is not a resize and still fails the in-sync check.
+func hasPendingElasticResize(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+	if job.Object().GetLabels()[kueue.MultiKueueOriginLabel] == "" {
+		return false, nil
+	}
+	jobPodSets, err := JobPodSets(ctx, job, c)
+	if err != nil {
+		return false, err
+	}
+	jobCounts := workload.ExtractPodSetCounts(jobPodSets)
+	wlCounts := workload.ExtractPodSetCountsFromWorkload(wl)
+	if !jobCounts.HasSamePodSetKeys(wlCounts) {
+		return false, nil
+	}
+	return !jobCounts.EqualTo(wlCounts), nil
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
@@ -1488,13 +1536,13 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	return runningPodSets
 }
 
-// EquivalentToWorkload checks if the job corresponds to the workload
+// EquivalentToWorkload checks if the job corresponds to the workload.
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
 	// A Workload without a controller owner reference cannot belong to this job.
 	// The owner index that selects candidates matches any owner reference, not only
 	// controller ones, so wl may reach here with no controller owner.
-	if owner == nil || owner.Name != job.Object().GetName() {
+	if owner == nil || !ownerMatchesJob(owner, job.GVK(), job.Object().GetName()) {
 		return false, nil
 	}
 
@@ -1757,8 +1805,9 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			}
 			admitted += prevAdmittedCount
 			if podSets[i].Count > prevAdmittedCount {
-				minCount := prevAdmittedCount + 1
-				podSets[i].MinCount = &minCount
+				// The baseline: what this PodSet already has. A scale-up has to
+				// grow at least one PodSet, not every one, which the scheduler enforces instead.
+				podSets[i].MinCount = new(prevAdmittedCount)
 			}
 		}
 		if extra != "" {

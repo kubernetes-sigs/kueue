@@ -33,16 +33,16 @@ func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCoun
 	remainingLeaderCount := leaderCount
 	idx := 0
 	if leaderCount > 0 {
-		sortedWithLeader = s.sortedDomainsWithLeader(domains, false)
+		sortedWithLeader = s.sortedDomainsWithLeader(domains, false, nil)
 		for ; remainingLeaderCount > 0 && idx < len(sortedWithLeader) && s.domainStateOf(sortedWithLeader[idx]).leaderCount > 0; idx++ {
 			selectedDomainsCount++
 			lastDomainWithLeader = sortedWithLeader[idx]
 			remainingLeaderCount -= s.domainStateOf(sortedWithLeader[idx]).leaderCount
 			remainingSliceCount -= s.domainStateOf(sortedWithLeader[idx]).sliceCountWithLeader
 		}
-		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false)
+		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false, nil)
 	} else {
-		sortedWithoutLeader = s.sortedDomains(domains, false)
+		sortedWithoutLeader = s.sortedDomains(domains, false, nil)
 	}
 
 	if remainingLeaderCount > 0 {
@@ -84,7 +84,9 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 
 	orderedDomains := slices.Clone(domains)
 	if prioritizeByEntropy {
-		slices.SortFunc(orderedDomains, s.compareDomainCapacityAndEntropy)
+		slices.SortFunc(orderedDomains, func(a, b *domain) int {
+			return s.compareDomainCapacityAndEntropy(a, b, leaderCount > 0)
+		})
 	} else {
 		slices.SortFunc(orderedDomains, compareDomainLevelValues)
 	}
@@ -156,7 +158,11 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 	if sliceCount < int32(len(resultDomains))*threshold {
 		return nil, "TAS Balanced Placement: Not enough slices to meet the threshold"
 	}
-	resultDomains = s.sortedDomainsWithLeader(resultDomains, false)
+	if leaderCount > 0 {
+		resultDomains = s.sortedDomainsWithLeader(resultDomains, false, nil)
+	} else {
+		resultDomains = s.sortedDomains(resultDomains, false, nil)
+	}
 	extraSlicesLeft := sliceCount - int32(len(resultDomains))*threshold
 	leadersLeft := leaderCount
 	var extraSlicesToTake int32
@@ -176,8 +182,10 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 		}
 		domainState.podCount = (threshold + extraSlicesToTake) * sliceSize
 		domainState.sliceCount = (threshold + extraSlicesToTake)
-		domainState.sliceCountWithLeader = domainState.sliceCount
-		domainState.podCountWithLeader = domainState.podCount - domainState.leaderCount
+		if leaderCount > 0 {
+			domainState.sliceCountWithLeader = domainState.sliceCount
+			domainState.podCountWithLeader = domainState.podCount - domainState.leaderCount
+		}
 		extraSlicesLeft -= extraSlicesToTake
 	}
 	if extraSlicesLeft > 0 || leadersLeft > 0 {
@@ -211,11 +219,16 @@ func (s *TASFlavorSnapshot) calculateDomainsEntropy(domains []*domain) float64 {
 	return entropy
 }
 
-func (s *TASFlavorSnapshot) compareDomainCapacityAndEntropy(a, b *domain) int {
-	if r := s.domainStateOf(b).leaderCount - s.domainStateOf(a).leaderCount; r != 0 {
-		return int(r)
+func (s *TASFlavorSnapshot) compareDomainCapacityAndEntropy(a, b *domain, leaderRequired bool) int {
+	aState, bState := s.domainStateOf(a), s.domainStateOf(b)
+	aCapacity, bCapacity := aState.sliceCount, bState.sliceCount
+	if leaderRequired {
+		if r := bState.leaderCount - aState.leaderCount; r != 0 {
+			return int(r)
+		}
+		aCapacity, bCapacity = aState.sliceCountWithLeader, bState.sliceCountWithLeader
 	}
-	if r := s.domainStateOf(b).sliceCountWithLeader - s.domainStateOf(a).sliceCountWithLeader; r != 0 {
+	if r := bCapacity - aCapacity; r != 0 {
 		return int(r)
 	}
 	aEntropy := s.calculateDomainsEntropy(a.children)
@@ -267,7 +280,7 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, params *topologyA
 		if threshold >= bestThreshold {
 			s.pruneDomainsBelowThreshold(candidateDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx, params.leaderCount > 0)
 			fitsAfterPruning, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, candidateDomains, sliceCount, params.leaderCount)
-			if !fitsAfterPruning && thresholdWithLeaderReservation < threshold {
+			if !fitsAfterPruning && params.leaderCount > 0 && thresholdWithLeaderReservation < threshold {
 				// Retry with a lower threshold that reserves leader capacity.
 				if thresholdWithLeaderReservation <= 0 || thresholdWithLeaderReservation < bestThreshold {
 					continue

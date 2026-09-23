@@ -145,6 +145,16 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	}
 }
 
+// ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
+// use it after changing what the scheduling simulator reports.
+func (s *Snapshot) ForgetSimulatedFeasibility() {
+	for _, cq := range s.ClusterQueues() {
+		for _, tasSnapshot := range cq.TASFlavors {
+			tasSnapshot.forgetMatchingLeaves()
+		}
+	}
+}
+
 func (s *Snapshot) Log(log logr.Logger) {
 	for name, cq := range s.ClusterQueues() {
 		cohortName := "<none>"
@@ -220,7 +230,11 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
-		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
+		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(
+			ctx,
+			c.tasCache.nodesCache.getAllNodes(),
+			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -304,6 +318,18 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
 	return &snap, nil
+}
+
+func (c *Cache) assumedWorkloads() []*kueue.Workload {
+	var assumedWorkloads []*kueue.Workload
+	for _, cq := range c.hm.ClusterQueues() {
+		for _, wInfo := range cq.Workloads {
+			if wInfo.Obj != nil {
+				assumedWorkloads = append(assumedWorkloads, wInfo.Obj)
+			}
+		}
+	}
+	return assumedWorkloads
 }
 
 func (c *Cache) snapshotTopologyDomainUsages(

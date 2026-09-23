@@ -43,11 +43,9 @@ type PodWrapper struct {
 // MakePod creates a wrapper for a pod with a single container.
 func MakePod(name, ns string) *PodWrapper {
 	return &PodWrapper{corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
@@ -365,6 +363,12 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
 	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, new(true), new(true))
+	return p
+}
+
+// OwnerReferenceWithUID adds an ownerReference with a custom UID.
+func (p *PodWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *PodWrapper {
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, uid, new(true), new(true))
 	return p
 }
 

@@ -29,6 +29,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -4110,7 +4111,9 @@ func TestPreemption(t *testing.T) {
 				cl := utiltesting.NewClientBuilder().
 					WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 					WithStatusSubresource(&kueue.Workload{}).
-					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
+					WithInterceptorFuncs(interceptor.Funcs{
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					}).
 					Build()
 
 				cqCache := schdcache.New(cl)
@@ -4334,7 +4337,24 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 									}
 								}
 							}
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							if subResourceName == "status" && !patched {
+								patched = true
+								for _, wl := range tc.workloads {
+									// Simulate concurrent modification by another controller
+									wlCopy := wl.DeepCopy()
+									if wlCopy.Labels == nil {
+										wlCopy.Labels = make(map[string]string, 1)
+									}
+									wlCopy.Labels["test.kueue.x-k8s.io/timestamp"] = time.Now().String()
+									if err := c.Update(ctx, wlCopy); err != nil {
+										return err
+									}
+								}
+							}
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -4437,7 +4457,14 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 				if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
 					return errors.New("simulate API server error while preempting workload")
 				}
-				return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+				return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+			},
+			SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+				patchCount++
+				if subResourceName == "status" {
+					return errors.New("simulate API server error while preempting workload")
+				}
+				return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 			},
 		}).
 		Build()
@@ -4556,7 +4583,11 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							patchCount++
-							return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+							return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+						},
+						SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+							patchCount++
+							return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
 						},
 					}).
 					Build()
@@ -4822,15 +4853,15 @@ func TestPreemptionMessage(t *testing.T) {
 			want:      "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
-			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid"}},
+			preemptor: &kueue.Workload{UID: "uid"},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: UNKNOWN) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
-			preemptor: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			preemptor: &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			want:      "Preempted to accommodate a workload (UID: uid, JobUID: juid) due to UNKNOWN; preemptor path: UNKNOWN; preemptee path: UNKNOWN",
 		},
 		{
-			preemptor:     &kueue.Workload{ObjectMeta: metav1.ObjectMeta{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}}},
+			preemptor:     &kueue.Workload{UID: "uid", Labels: map[string]string{controllerconstants.JobUIDLabel: "juid"}},
 			reason:        kueue.InClusterQueueReason,
 			preemptorPath: "/a",
 			preempteePath: "/b",
@@ -4873,10 +4904,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with priority and positive boost",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(200))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(200))},
 			},
 			wantEffective: 250,
 			wantBase:      200,
@@ -4886,10 +4915,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with priority and negative boost",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 70,
 			wantBase:      100,
@@ -4899,10 +4926,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with invalid boost annotation falls back to zero",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 100,
 			wantBase:      100,
@@ -4912,10 +4937,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "workload with effective priority above int32 max",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(math.MaxInt32))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(math.MaxInt32))},
 			},
 			wantEffective: int64(math.MaxInt32) + 1,
 			wantBase:      math.MaxInt32,
@@ -4925,10 +4948,8 @@ func TestPriorityInfo(t *testing.T) {
 		{
 			name: "feature disabled: boost annotation ignored",
 			wl: &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
-				},
-				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
+				Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
+				Spec:        kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 100,
 			wantBase:      100,

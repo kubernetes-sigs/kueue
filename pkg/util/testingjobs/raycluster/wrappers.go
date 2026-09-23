@@ -103,11 +103,9 @@ type ClusterWrapper struct{ rayv1.RayCluster }
 // MakeCluster creates a wrapper for rayCluster
 func MakeCluster(name, ns string) *ClusterWrapper {
 	return &ClusterWrapper{rayv1.RayCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayClusterSpec{
 			RayVersion: utiltesting.TestRayVersion(),
 			HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -254,6 +252,15 @@ func (j *ClusterWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOpti
 
 func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
 	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
+	return j
+}
+
+// FirstWorkerGroupReplicas pins replicas, minReplicas and maxReplicas of the first worker group.
+func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *ClusterWrapper {
+	wgs := &j.Spec.WorkerGroupSpecs[0]
+	wgs.Replicas = new(replicas)
+	wgs.MinReplicas = new(minReplicas)
+	wgs.MaxReplicas = new(maxReplicas)
 	return j
 }
 

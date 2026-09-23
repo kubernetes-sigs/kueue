@@ -232,9 +232,7 @@ func TestValidateClusterQueue(t *testing.T) {
 		{
 			name: "resources in a flavor in different order",
 			clusterQueue: &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cluster-queue",
-				},
+				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
 					ResourceGroups: []kueue.ResourceGroup{
 						{
@@ -295,9 +293,7 @@ func TestValidateClusterQueue(t *testing.T) {
 		{
 			name: "valid preemption with borrowWithinCohort",
 			clusterQueue: &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cluster-queue",
-				},
+				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
 					Preemption: &kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -312,9 +308,7 @@ func TestValidateClusterQueue(t *testing.T) {
 		{
 			name: "existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field",
 			clusterQueue: &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "cluster-queue",
-				},
+				Name: "cluster-queue",
 				Spec: kueue.ClusterQueueSpec{
 					Preemption: &kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyNever,

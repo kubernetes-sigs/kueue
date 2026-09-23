@@ -21,7 +21,10 @@ import (
 	"fmt"
 	"os"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
+
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 var (
@@ -31,14 +34,25 @@ var (
 type Match struct {
 	PriorityClassName string            `json:"priorityClassName"`
 	Labels            map[string]string `json:"labels"`
+	// Resources, if set, matches the Pods requesting a non-zero amount of all
+	// the listed resources. An empty list matches any Pod.
+	Resources []corev1.ResourceName `json:"resources"`
 }
 
-func (mm *Match) Match(priorityClassName string, labels map[string]string) bool {
+// Match checks the rule against a Pod's priority class name, labels and total
+// resource requests. podRequests is provided by the caller so that it is
+// computed only once per Pod instead of once per rule.
+func (mm *Match) Match(priorityClassName string, labels map[string]string, podRequests resources.Requests) bool {
 	if mm.PriorityClassName != "" && priorityClassName != mm.PriorityClassName {
 		return false
 	}
 	for l, lv := range mm.Labels {
 		if labels[l] != lv {
+			return false
+		}
+	}
+	for _, r := range mm.Resources {
+		if podRequests.ResourceValue(r) <= 0 {
 			return false
 		}
 	}
@@ -53,9 +67,10 @@ type Rule struct {
 
 type Rules []Rule
 
-func (mr Rules) QueueFor(priorityClassName string, labels map[string]string) (string, bool, bool) {
+func (mr Rules) QueueFor(p *corev1.Pod) (string, bool, bool) {
+	podRequests := resources.NewRequestsFromPodSpec(&p.Spec)
 	for i := range mr {
-		if mr[i].Match.Match(priorityClassName, labels) {
+		if mr[i].Match.Match(p.Spec.PriorityClassName, p.Labels, podRequests) {
 			return mr[i].ToLocalQueue, mr[i].Skip, true
 		}
 	}

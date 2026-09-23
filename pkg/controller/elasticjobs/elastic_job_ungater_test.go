@@ -1118,7 +1118,7 @@ func TestReconcile(t *testing.T) {
 
 			if len(tc.workloads) == 0 {
 				_, err := ungater.Reconcile(ctx, reconcile.Request{
-					NamespacedName: types.NamespacedName{Name: "missing", Namespace: "ns"},
+					Name: "missing", Namespace: "ns",
 				})
 				if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
@@ -1324,7 +1324,9 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 				WithLists(&corev1.PodList{Items: tc.pods}).
 				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
 				WithStatusSubresource(&kueue.Workload{}).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 
 			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)

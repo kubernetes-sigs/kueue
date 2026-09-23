@@ -40,6 +40,7 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/component-base/featuregate"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -1337,9 +1338,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 
 func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "clusterprofiles.multicluster.x-k8s.io",
-		},
+		Name: "clusterprofiles.multicluster.x-k8s.io",
 	}
 
 	testCases := map[string]struct {
@@ -1425,9 +1424,7 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 			kubeConfig: &rest.Config{
 				Host:        "https://127.0.0.1:6443",
 				BearerToken: "fake-token",
-				TLSClientConfig: rest.TLSClientConfig{
-					Insecure: true,
-				},
+				Insecure:    true,
 			},
 		},
 	}
@@ -1478,22 +1475,20 @@ namespace: kueue-system
 	}{
 		"strips managedFields and preserves object data": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "default",
-					Labels:    map[string]string{"app": "test"},
-					Annotations: map[string]string{
-						"note": "keep-me",
+				Name:      "test-pod",
+				Namespace: "default",
+				Labels:    map[string]string{"app": "test"},
+				Annotations: map[string]string{
+					"note": "keep-me",
+				},
+				ManagedFields: []metav1.ManagedFieldsEntry{
+					{
+						Manager:   "kubectl",
+						Operation: metav1.ManagedFieldsOperationApply,
 					},
-					ManagedFields: []metav1.ManagedFieldsEntry{
-						{
-							Manager:   "kubectl",
-							Operation: metav1.ManagedFieldsOperationApply,
-						},
-						{
-							Manager:   "kube-controller-manager",
-							Operation: metav1.ManagedFieldsOperationUpdate,
-						},
+					{
+						Manager:   "kube-controller-manager",
+						Operation: metav1.ManagedFieldsOperationUpdate,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1501,12 +1496,10 @@ namespace: kueue-system
 				},
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "test-pod",
-					Namespace:   "default",
-					Labels:      map[string]string{"app": "test"},
-					Annotations: map[string]string{"note": "keep-me"},
-				},
+				Name:        "test-pod",
+				Namespace:   "default",
+				Labels:      map[string]string{"app": "test"},
+				Annotations: map[string]string{"note": "keep-me"},
 				Spec: corev1.PodSpec{
 					NodeName: "node-1",
 				},
@@ -1514,14 +1507,10 @@ namespace: kueue-system
 		},
 		"no-op when managedFields already nil": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 		},
 	}
@@ -1538,6 +1527,67 @@ namespace: kueue-system
 			}
 			if diff := cmp.Diff(tc.wantPod, got); diff != "" {
 				t.Errorf("Unexpected pod after transform (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSetLeaderElectionConfig(t *testing.T) {
+	testCases := map[string]struct {
+		qps       float32
+		burst     int32
+		wantQPS   float32
+		wantBurst int
+	}{
+		"configured qps and burst are kept in a dedicated bucket": {
+			qps:       20,
+			burst:     30,
+			wantQPS:   20,
+			wantBurst: 30,
+		},
+		"negative qps disables client-side throttling for the lease client too": {
+			qps:     -1,
+			burst:   30,
+			wantQPS: -1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// Mirror cmd/kueue/main.go: one explicit RateLimiter shared by every controller client.
+			sharedLimiter := flowcontrol.NewTokenBucketRateLimiter(tc.qps, int(tc.burst))
+			kubeConfig := &rest.Config{
+				Host:        "https://kueue.test",
+				RateLimiter: sharedLimiter,
+			}
+			cfg := &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   new(tc.qps),
+					Burst: new(tc.burst),
+				},
+			}
+			options := ctrl.Options{LeaderElection: true}
+
+			SetLeaderElectionConfig(&options, kubeConfig, cfg)
+
+			got := options.LeaderElectionConfig
+			if got == nil {
+				t.Fatal("LeaderElectionConfig is nil; the lease client would share the manager rest config")
+			}
+			if got == kubeConfig {
+				t.Error("LeaderElectionConfig is the manager rest config, want a copy")
+			}
+			if got.RateLimiter != nil {
+				t.Errorf("LeaderElectionConfig.RateLimiter = %v, want nil so the lease client builds its own limiter", got.RateLimiter)
+			}
+			if got.QPS != tc.wantQPS || got.Burst != tc.wantBurst {
+				t.Errorf("LeaderElectionConfig QPS/Burst = %v/%v, want %v/%v", got.QPS, got.Burst, tc.wantQPS, tc.wantBurst)
+			}
+			if got.Host != kubeConfig.Host {
+				t.Errorf("LeaderElectionConfig.Host = %q, want %q", got.Host, kubeConfig.Host)
+			}
+			if kubeConfig.RateLimiter != sharedLimiter {
+				t.Errorf("manager rest config was modified: %+v", kubeConfig)
 			}
 		})
 	}

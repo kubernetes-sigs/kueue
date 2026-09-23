@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -104,12 +103,15 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&kueuealpha.DynamicQuotaOrchestrator{},
 			handler.EnqueueRequestsFromMapFunc(r.mapOtherDistributingDQOs),
-			builder.WithPredicates(dqoSpecOrDeletionChangedPredicate),
+			builder.WithPredicates(otherDQOUpdatePredicate),
 		).
 		Complete(r)
 }
 
-var dqoSpecOrDeletionChangedPredicate = predicate.Funcs{
+// otherDQOUpdatePredicate filters updates that can affect other orchestrators.
+// Transitions into or out of Distributed=False change whether other orchestrators
+// can take over retained effective quotas.
+var otherDQOUpdatePredicate = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		if e.ObjectOld == nil || e.ObjectNew == nil {
 			return false
@@ -117,7 +119,12 @@ var dqoSpecOrDeletionChangedPredicate = predicate.Funcs{
 		if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
 			return true
 		}
-		return e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero()
+		if e.ObjectOld.GetDeletionTimestamp().IsZero() != e.ObjectNew.GetDeletionTimestamp().IsZero() {
+			return true
+		}
+		oldDQO, oldOK := e.ObjectOld.(*kueuealpha.DynamicQuotaOrchestrator)
+		newDQO, newOK := e.ObjectNew.(*kueuealpha.DynamicQuotaOrchestrator)
+		return oldOK && newOK && isDistributedFalse(oldDQO) != isDistributedFalse(newDQO)
 	},
 }
 
@@ -137,7 +144,7 @@ func (r *Reconciler) mapCapacityProviderToDQOs(ctx context.Context, obj client.O
 	requests := make([]ctrl.Request, 0, len(orchestratorList.Items))
 	for _, orchestrator := range orchestratorList.Items {
 		requests = append(requests, ctrl.Request{
-			NamespacedName: types.NamespacedName{Name: orchestrator.Name},
+			Name: orchestrator.Name,
 		})
 	}
 	return requests
@@ -153,7 +160,7 @@ func (r *Reconciler) mapDistributingDQOs(ctx context.Context, _ client.Object) [
 	requests := make([]ctrl.Request, 0, len(distributingDQOs))
 	for _, orchestrator := range distributingDQOs {
 		requests = append(requests, ctrl.Request{
-			NamespacedName: types.NamespacedName{Name: orchestrator.Name},
+			Name: orchestrator.Name,
 		})
 	}
 	return requests
@@ -179,7 +186,7 @@ func (r *Reconciler) mapOtherDistributingDQOs(ctx context.Context, obj client.Ob
 			continue
 		}
 		requests = append(requests, ctrl.Request{
-			NamespacedName: types.NamespacedName{Name: item.Name},
+			Name: item.Name,
 		})
 	}
 	return requests

@@ -193,6 +193,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.TASValidateWorkloadSliceSize) {
 		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
+	if features.Enabled(features.TASRejectFalseUnconstrainedTopology) &&
+		ps.TopologyRequest != nil && ps.TopologyRequest.Unconstrained != nil && !*ps.TopologyRequest.Unconstrained {
+		allErrs = append(allErrs, field.Invalid(path.Child("topologyRequest", "unconstrained"), false, "must be true"))
+	}
 
 	return allErrs
 }
@@ -312,7 +316,7 @@ func validateAdmission(obj, oldObj *kueue.Workload, path *field.Path) field.Erro
 		if count := ptr.Deref(ps.Count, 0); count > 0 {
 			for k, v := range ps.ResourceUsage {
 				if (resources.ResourceValue(k, v) % int64(count)) != 0 {
-					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", ps.Count)))
+					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", count)))
 				}
 			}
 		}

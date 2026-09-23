@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -520,16 +521,14 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
-		if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
+		wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+		if dra.NeedsDRAReconcile(wInfo, m.draBackedResources) {
 			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
 			// stable pointer since the range variable is reused each iteration.
 			draWorkloads = append(draWorkloads, w.DeepCopy())
 			continue
 		}
 
-		workload.AdjustResources(ctx, m.client, &w)
-		wInfo := workload.NewInfo(log, &w, m.workloadInfoOptions...)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -690,16 +689,16 @@ func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
 	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
 		return nil
 	}
-	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	if !workload.IsAdmissible(w) {
 		return errWorkloadIsInadmissible
 	}
@@ -717,7 +716,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
-	wInfo := workload.NewInfo(log, w, allOptions...)
+	wInfo := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), m.client, w, allOptions...)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
@@ -756,35 +755,51 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	m.Lock()
 	defer m.Unlock()
 
-	// This call decides where the workload goes, so the claim taken by Pop does
-	// not survive it. Releasing it up front also covers the returns below that
-	// never reach the ClusterQueue: a claim left behind makes PushOrUpdate a
-	// no-op, keeping the workload out of the queues even once it could be added
-	// again. Read before info.Update, which resets info.ClusterQueue.
-	m.forgetInflight(info.ClusterQueue, workload.Key(info.Obj))
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(info.Obj)
+
+	// The scheduler is giving this workload back. End its checkout first,
+	// unconditionally, so every branch below starts from the same state: the
+	// queue will accept this workload again. End it while we still remember
+	// which queue it was borrowed from; info.Update below forgets that.
+	m.forgetInflight(info.ClusterQueue, wlKey)
 
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only possible error is NotFound.
-	// We should not requeue a workload that is not admissible.
-	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			// The client is cached, so NotFound is the only expected error.
+			log.Error(err, "Failed to get the workload to requeue", "workload", klog.KObj(info.Obj))
+		}
+		return false
+	}
+	// An inadmissible workload may still have a pending second-pass request.
+	if !workload.IsAdmissible(&w) {
 		return false
 	}
 
 	qKey := queue.KeyFromWorkload(&w)
+	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
+		// The workload changed LocalQueue while it was checked out. No reconcile
+		// follows this requeue, so its unadmitted record has to be rebuilt under
+		// the new queue here.
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			m.updateUnadmittedWorkloadWithoutLock(log, &w)
+		}
+	}
 
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
-	log := ctrl.LoggerFrom(ctx)
-	workload.AdjustResources(ctx, m.client, &w)
-	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
-		info.Update(log, &w, workload.WithPreserveTotalRequests())
-	} else {
-		info.Update(log, &w, m.workloadInfoOptions...)
+	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
+	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
+		options = append(options, workload.WithPreserveTotalRequests())
 	}
+	info.Update(log, &w, options...)
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -804,12 +819,14 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 // forgetInflight releases the claim that Pop took on a workload in the given
 // ClusterQueue. Must be called with the lock held.
 func (m *Manager) forgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
-	cq := m.hm.ClusterQueue(cqName)
-	if cq == nil {
-		return
+	if cq := m.hm.ClusterQueue(cqName); cq != nil {
+		cq.forgetInflight(key)
+		reportCQPendingWorkloads(m, cq)
 	}
-	cq.forgetInflight(key)
-	reportCQPendingWorkloads(m, cq)
+	// Releasing an inflight claim also changes the LocalQueue pending count.
+	if q := m.localQueues[m.workloadAssignedQueues[key]]; q != nil {
+		reportLQPendingWorkloads(m, q)
+	}
 }
 
 // Delete the workload from queue or cluster queue.
@@ -953,19 +970,77 @@ func (m *Manager) heads() []Head {
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		wl := cq.Pop()
-		reportCQPendingWorkloads(m, cq)
-		if wl == nil {
-			continue
+		if h := m.takePopped(cq, cq.Pop()); h != nil {
+			heads = append(heads, *h)
 		}
-		heads = append(heads, newHead(*wl, cq))
-		wlKey := workload.Key(wl.Obj)
-		qKey := m.workloadAssignedQueues[wlKey]
-		q := m.localQueues[qKey]
+	}
+	return heads
+}
+
+// takePopped completes a checkout. Popping only takes the workload off the
+// ClusterQueue's heap; its LocalQueue keeps a copy, and that copy is what seeds
+// a heap when a ClusterQueue is added or a LocalQueue is repointed at another
+// one. Those heaps know nothing about this checkout, so drop the LocalQueue's
+// copy here, then hand the workload to the scheduler as a Head.
+func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
+	reportCQPendingWorkloads(m, cq)
+	if wl == nil {
+		return nil
+	}
+	head := newHead(*wl, cq)
+	wlKey := workload.Key(wl.Obj)
+	if q := m.localQueues[m.workloadAssignedQueues[wlKey]]; q != nil {
 		delete(q.items, wlKey)
 		reportLQPendingWorkloads(m, q)
 	}
-	return heads
+	return &head
+}
+
+// PopFrom checks out the head of the given ClusterQueue for the scheduling
+// cycle already in progress (fair sharing refill). Like a Head, the caller must
+// end the checkout before the cycle ends.
+func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
+	m.Lock()
+	defer m.Unlock()
+	cq := m.activeCQByName(cqName)
+	if cq == nil {
+		return nil
+	}
+	return m.takePopped(cq, cq.PopMidCycle())
+}
+
+// HasQueuedWorkloads reports whether the ClusterQueue can still hand the running
+// cycle another workload. Unlike the pending counts, it ignores workloads that
+// are already checked out or waiting as inadmissible.
+func (m *Manager) HasQueuedWorkloads(cqName kueue.ClusterQueueReference) bool {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.activeCQByName(cqName)
+	return cq != nil && cq.hasQueuedWorkloads()
+}
+
+// activeCQByName finds a ClusterQueue that may still contribute workloads to a
+// scheduling cycle. Must be called with the lock held.
+func (m *Manager) activeCQByName(cqName kueue.ClusterQueueReference) *ClusterQueue {
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return nil
+	}
+	// Cache might be nil in tests, if cache is nil, we'll skip the check.
+	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
+		return nil
+	}
+	return cq
+}
+
+// ForgetInflight ends a scheduler checkout by walking away: the scheduler took
+// this workload but found nothing to do with it, so the checkout ends without
+// the workload being requeued or deleted. This happens when a popped workload
+// turns out to be already accounted in the scheduler cache.
+func (m *Manager) ForgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
+	m.Lock()
+	defer m.Unlock()
+	m.forgetInflight(cqName, key)
 }
 
 func (m *Manager) Broadcast() {
@@ -1007,13 +1082,6 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 	return "", false
 }
 
-// DeleteSecondPass deletes the pending workload from the second pass queue.
-func (m *Manager) DeleteSecondPass(wlKey workload.Reference) {
-	m.Lock()
-	defer m.Unlock()
-	m.DeleteSecondPassWithoutLock(wlKey)
-}
-
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
 // pass queue. The caller must hold the manager lock.
 func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
@@ -1021,7 +1089,7 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 }
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
-// delay.
+// delay. The pass re-reads the live Workload when the delay elapses.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
@@ -1032,8 +1100,10 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
+		nsName := client.ObjectKeyFromObject(w)
+		// Callers pass the controller or scheduler lifetime, which also owns delayed reads.
 		m.clock.AfterFunc(delay, func() {
-			m.queueSecondPass(ctx, w, iteration)
+			m.queueSecondPass(ctx, nsName, iteration)
 		})
 		return true
 	} else if iteration > 0 {
@@ -1046,29 +1116,45 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	return false
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
-	log := ctrl.LoggerFrom(ctx)
-	if features.Enabled(features.TASReplaceMultipleFailedNodes) && workload.HasTopologyAssignmentWithUnhealthyNode(w) {
-		var latest kueue.Workload
-		if err := m.client.Get(ctx, client.ObjectKeyFromObject(w), &latest); err == nil {
-			w = &latest
-		} else if apierrors.IsNotFound(err) {
-			m.DeleteSecondPass(workload.Key(w))
-			return
-		} else {
-			log.Error(err, "Failed to refresh workload before the second pass", "workload", workload.Key(w))
-		}
-	}
-
+// queueSecondPass re-reads the live Workload by key and queues it for a second pass if it still needs one.
+func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, iteration int) {
 	m.Lock()
 	defer m.Unlock()
 
-	wInfo := workload.NewInfo(log, w, m.workloadInfoOptions...)
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.NewReference(nsName.Namespace, nsName.Name)
+	var w kueue.Workload
+	// Re-read the live object; the request-time snapshot may be healed or deleted.
+	if err := m.client.Get(ctx, nsName, &w); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.V(3).Info("Workload not found when queuing for second pass; dropping the request", "workload", wlKey)
+			m.secondPassQueue.deleteByKey(wlKey)
+			return
+		}
+		if ctx.Err() != nil {
+			m.secondPassQueue.deleteByKey(wlKey)
+			return
+		}
+		// Keep ownership of the pass: a transient read error retries after backoff.
+		log.Error(err, "Failed to re-read workload for second pass; will retry", "workload", wlKey)
+		m.retrySecondPassRead(ctx, nsName, iteration+1)
+		return
+	}
+	wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
-		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
+		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
 		m.Broadcast()
 	}
+}
+
+// retrySecondPassRead re-arms a delayed second pass after a transient re-read failure.
+func (m *Manager) retrySecondPassRead(ctx context.Context, nsName client.ObjectKey, iteration int) {
+	delay := m.secondPassQueue.nextDelay(iteration)
+	// Clock callbacks may not support registering a timer from inside a callback.
+	go m.clock.AfterFunc(delay, func() {
+		m.queueSecondPass(ctx, nsName, iteration)
+	})
 }
 
 func (m *Manager) resyncClusterQueueGaugeMetricsLocked(cq *ClusterQueue) {

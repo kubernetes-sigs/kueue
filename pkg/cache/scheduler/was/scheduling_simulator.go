@@ -22,8 +22,12 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -55,8 +59,32 @@ type wasSimulator struct {
 }
 
 type wasSimulatorSnapshot struct {
-	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
+	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
+	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
+	// is the only set PreemptWorkload can release.
 	podsByWorkload podsByWorkload
+	// emptyCluster holds the same nodes with no Pods, for callers asking what would
+	// fit if nothing were running.
+	emptyCluster lazyCluster
+}
+
+// lazyCluster builds its cluster on first use, so cycles that never ask do not
+// pay for it.
+type lazyCluster struct {
+	// build produces the cluster. It runs at most once.
+	build func(context.Context) (*schedLibSnapshot.ClusterSnapshot, error)
+	once  sync.Once
+	// value and err hold what build returned, and are only read after once has run.
+	value *schedLibSnapshot.ClusterSnapshot
+	err   error
+}
+
+func (l *lazyCluster) get(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+	l.once.Do(func() {
+		l.value, l.err = l.build(ctx)
+	})
+	return l.value, l.err
 }
 
 var _ simulator.SimulatorSnapshot = (*wasSimulatorSnapshot)(nil)
@@ -65,7 +93,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
-				SchedulerName: "default-scheduler",
+				SchedulerName: corev1.DefaultSchedulerName,
 				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
 					QueueSort: schedulerconfig.PluginSet{
@@ -108,8 +136,13 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (*wasSimu
 		// cannot be shared across snapshots, and the enabled plugins read the snapshot
 		// rather than the informers, so it is not needed once the framework is built.
 		buildCtx, cancelBuild := context.WithCancel(ctx)
-		defer cancelBuild()
 		informerFactory := informers.NewSharedInformerFactory(client, 0)
+		// Without the wait the goroutines outlive the call and keep logging through
+		// the caller's context. Shutdown blocks, so it must follow cancelBuild.
+		defer func() {
+			cancelBuild()
+			informerFactory.Shutdown()
+		}()
 
 		// Register node and pod informers with the factory; sync errors are caught by AsError() below.
 		_ = informerFactory.Core().V1().Nodes().Informer()
@@ -146,16 +179,54 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulato
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
-	allPods, podsByWorkload := s.pods.snapshot()
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node, options ...simulator.SnapshotOption) (simulator.SimulatorSnapshot, error) {
+	tracker := s.pods.copy()
+
+	for _, wl := range simulator.AssumedWorkloads(options...) {
+		vPods := VirtualPodsForWorkload(wl)
+		if len(vPods) == 0 {
+			continue
+		}
+
+		wlKey := client.ObjectKeyFromObject(wl)
+		tracker.clearWorkload(wlKey)
+
+		for _, vPod := range vPods {
+			tracker.savePod(client.ObjectKeyFromObject(vPod), vPod)
+		}
+	}
+
+	allPods := tracker.pods.toSlice()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
 	}
-	return &wasSimulatorSnapshot{
+	snapshot := &wasSimulatorSnapshot{
 		wasSnapshot:    clusterSnap,
-		podsByWorkload: podsByWorkload,
-	}, nil
+		podsByWorkload: tracker.workloadPods,
+	}
+	snapshot.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+		return s.newSnapshot(ctx, podsNotManagedByKueue(allPods, tracker.workloadPods), nodes)
+	}
+
+	return snapshot, nil
+}
+
+// podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption
+// cannot remove them, so they keep occupying their node even when the caller assumes
+// every Workload is gone.
+func podsNotManagedByKueue(allPods []*corev1.Pod, byWorkload podsByWorkload) []*corev1.Pod {
+	managed := sets.New[client.ObjectKey]()
+	for _, pods := range byWorkload {
+		managed.Insert(slices.Collect(maps.Keys(pods))...)
+	}
+	var kept []*corev1.Pod
+	for _, pod := range allPods {
+		if !managed.Has(client.ObjectKeyFromObject(pod)) {
+			kept = append(kept, pod)
+		}
+	}
+	return kept
 }
 
 func (s *wasSimulator) TrackPod(ctx context.Context, pod *corev1.Pod) {
@@ -199,11 +270,20 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
-	placement, err := s.wasSnapshot.MakePlacement(candidateNodeNames)
+	// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
+	dummyPod.Spec.SchedulerName = corev1.DefaultSchedulerName
+	cluster := s.wasSnapshot
+	if requirements.SimulateEmpty {
+		var err error
+		if cluster, err = s.emptyCluster.get(ctx); err != nil {
+			return nil, err
+		}
+	}
+	placement, err := cluster.MakePlacement(candidateNodeNames)
 	if err != nil {
 		return nil, err
 	}
-	feasibleNodeNames, _, err := s.wasSnapshot.CanSchedulePod(ctx, dummyPod, placement)
+	feasibleNodeNames, _, err := cluster.CanSchedulePod(ctx, dummyPod, placement)
 	if err != nil {
 		return nil, err
 	}

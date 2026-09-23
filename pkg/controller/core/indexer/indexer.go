@@ -205,11 +205,11 @@ func IndexPodWorkloadSliceName(obj client.Object) []string {
 	if !ok {
 		return nil
 	}
-	// Prefer workload slice name annotation for elastic workloads
+	// Prefer workload slice name annotation for elastic workloads.
 	if value, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
 		return []string{value}
 	}
-	// Fall back to workload annotation for non-elastic workloads
+	// Fall back to workload annotation for non-elastic workloads.
 	if value, found := pod.Annotations[kueue.WorkloadAnnotation]; found {
 		return []string{value}
 	}
@@ -323,8 +323,24 @@ func IndexCohortParent(obj client.Object) []string {
 	return []string{string(cohort.Spec.ParentName)}
 }
 
+type Option func(*options)
+
+type options struct {
+	podWorkloadSliceNameIndex bool
+}
+
+func WithPodWorkloadSliceNameIndex() Option {
+	return func(o *options) {
+		o.podWorkloadSliceNameIndex = true
+	}
+}
+
 // Setup sets the index with the given fields for core apis.
-func Setup(ctx context.Context, indexer client.FieldIndexer) error {
+func Setup(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
 		return fmt.Errorf("setting index on queue for Workload: %w", err)
 	}
@@ -352,9 +368,7 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)
 	}
-	// Add pod indexes for elastic-jobs and TAS. Uses workload slice name annotation to support
-	// JobSet and other workloads where pods are not immediate children of the job.
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
+	if o.podWorkloadSliceNameIndex || features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
 		}

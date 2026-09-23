@@ -25,7 +25,6 @@ import (
 	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -61,7 +60,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding"},
+			Name: "metrics-reader-rolebinding",
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      "ServiceAccount",
@@ -85,12 +84,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		curlPod.Spec.Volumes = []corev1.Volume{
 			{
 				Name: "metrics-certs",
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: certSecretName,
-						Items: []corev1.KeyToPath{
-							{Key: "ca.crt", Path: "ca.crt"},
-						},
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: certSecretName,
+					Items: []corev1.KeyToPath{
+						{Key: "ca.crt", Path: "ca.crt"},
 					},
 				},
 			},

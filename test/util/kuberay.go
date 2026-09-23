@@ -20,11 +20,17 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	kuberayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+const rayActorNamespace = "kueue-e2e"
 
 // GetRayClusterHeadPod returns the only head Pod associated with the RayCluster.
 func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey) (*corev1.Pod, error) {
@@ -42,6 +48,95 @@ func GetRayClusterHeadPod(ctx context.Context, c client.Client, rayClusterKey cl
 		return nil, fmt.Errorf("expected exactly one head Pod for RayCluster %s, got %d", rayClusterKey, len(pods.Items))
 	}
 	return &pods.Items[0], nil
+}
+
+// ExecuteCommandInRayClusterHead waits for the RayCluster head to become ready,
+// then executes the command in its head Pod.
+func ExecuteCommandInRayClusterHead(
+	ctx context.Context,
+	c client.Client,
+	cfg *rest.Config,
+	restClient *rest.RESTClient,
+	rayClusterKey client.ObjectKey,
+	command []string,
+) {
+	ginkgo.GinkgoHelper()
+	var headPod *corev1.Pod
+	gomega.Eventually(func(g gomega.Gomega) {
+		rayCluster := &rayv1.RayCluster{}
+		g.Expect(c.Get(ctx, rayClusterKey, rayCluster)).To(gomega.Succeed())
+		g.Expect(apimeta.IsStatusConditionTrue(rayCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
+
+		pod, err := GetRayClusterHeadPod(ctx, c, rayClusterKey)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+		headPod = pod
+	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+
+	gomega.Eventually(func(g gomega.Gomega) {
+		_, stderr, err := KExecute(
+			ctx,
+			cfg,
+			restClient,
+			headPod.Namespace,
+			headPod.Name,
+			headPod.Spec.Containers[0].Name,
+			command,
+		)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+// CreateDetachedRayActor creates a detached actor that requests the specified
+// custom resource from the RayCluster.
+func CreateDetachedRayActor(
+	ctx context.Context,
+	c client.Client,
+	cfg *rest.Config,
+	restClient *rest.RESTClient,
+	rayClusterKey client.ObjectKey,
+	actorName string,
+	resourceName string,
+) {
+	ginkgo.GinkgoHelper()
+	script := fmt.Sprintf(`import ray
+
+ray.init(namespace=%q)
+
+@ray.remote(num_cpus=0, resources={%q: 1})
+class Actor:
+    pass
+
+try:
+    ray.get_actor(%q)
+except ValueError:
+    Actor.options(name=%q, lifetime="detached").remote()
+`, rayActorNamespace, resourceName, actorName, actorName)
+	ExecuteCommandInRayClusterHead(ctx, c, cfg, restClient, rayClusterKey, []string{"python", "-c", script})
+}
+
+// TerminateDetachedRayActor terminates the named detached actor if it exists in
+// the RayCluster.
+func TerminateDetachedRayActor(
+	ctx context.Context,
+	c client.Client,
+	cfg *rest.Config,
+	restClient *rest.RESTClient,
+	rayClusterKey client.ObjectKey,
+	actorName string,
+) {
+	ginkgo.GinkgoHelper()
+	script := fmt.Sprintf(`import ray
+
+ray.init(namespace=%q)
+try:
+    actor = ray.get_actor(%q)
+except ValueError:
+    pass
+else:
+    ray.kill(actor)
+`, rayActorNamespace, actorName)
+	ExecuteCommandInRayClusterHead(ctx, c, cfg, restClient, rayClusterKey, []string{"python", "-c", script})
 }
 
 // GetRayClusterWorkerPods returns the worker Pods associated with the RayCluster

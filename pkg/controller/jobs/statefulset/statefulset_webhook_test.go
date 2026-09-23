@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
@@ -362,6 +363,27 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
+		"unconstrained topology false with required topology": {
+			sts: testingstatefulset.MakeStatefulSet("test-sts", "default").
+				Queue("queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodTemplateAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "false").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.template.metadata.annotations",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "spec.template.metadata.annotations[" + kueue.PodSetUnconstrainedTopologyAnnotation + "]",
+				},
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -395,11 +417,9 @@ func TestValidateUpdate(t *testing.T) {
 	}{
 		"no changes": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:        "queue1",
-						podconstants.GroupNameLabel: "group1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:        "queue1",
+					podconstants.GroupNameLabel: "group1",
 				},
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: new(int32(3)),
@@ -413,11 +433,9 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:        "queue1",
-						podconstants.GroupNameLabel: "group1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:        "queue1",
+					podconstants.GroupNameLabel: "group1",
 				},
 				Spec: appsv1.StatefulSetSpec{
 					Replicas: new(int32(3)),
@@ -502,39 +520,31 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"change in priority class label when suspended": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 			},
 		},
 		"set in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
@@ -549,22 +559,18 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"change in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
@@ -574,21 +580,17 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"delete in priority class label when replicas ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 				Status: appsv1.StatefulSetStatus{
 					ReadyReplicas: int32(1),
@@ -603,55 +605,43 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"set in priority class label when replicas not ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 			},
 			wantErr: field.ErrorList{}.ToAggregate(),
 		},
 		"change in priority class label when replicas not ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority2",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority2",
 				},
 			},
 			wantErr: field.ErrorList{}.ToAggregate(),
 		},
 		"delete in priority class label when replicas not ready": {
 			oldObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel:                 "queue1",
-						constants.WorkloadPriorityClassLabel: "priority1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel:                 "queue1",
+					constants.WorkloadPriorityClassLabel: "priority1",
 				},
 			},
 			newObj: &appsv1.StatefulSet{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "queue1",
-					},
+				Labels: map[string]string{
+					constants.QueueLabel: "queue1",
 				},
 			},
 			wantErr: field.ErrorList{

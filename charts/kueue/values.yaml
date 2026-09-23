@@ -139,6 +139,7 @@ managerConfig:
         Pod: 5
         Workload.kueue.x-k8s.io: 10
         LocalQueue.kueue.x-k8s.io: 5
+        Cohort.kueue.x-k8s.io: 1
         ClusterQueue.kueue.x-k8s.io: 5
         ResourceFlavor.kueue.x-k8s.io: 1
     clientConnection:
@@ -146,8 +147,9 @@ managerConfig:
       burst: 500
     #pprofBindAddress: :8083
     #waitForPodsReady:
-    #  timeout: 5m
-    #  recoveryTimeout: 3m
+    #  timeout: 30m
+    #  recoveryTimeout: 5m
+    #  unscheduledTimeout: 5m
     #  blockAdmission: false
     #  requeuingStrategy:
     #    timestamp: Eviction
@@ -242,6 +244,23 @@ mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
 kueueViz:
+  ingress:
+    # -- Enable a single path-routed ingress serving the KueueViz dashboard and its
+    # backend on one host. While enabled, the per-component `backend.ingress` and
+    # `frontend.ingress` objects are not rendered.
+    enabled: false
+    # -- Path-routed ingress annotations. Do not set
+    # `nginx.ingress.kubernetes.io/rewrite-target` here: rewriting the path
+    # breaks routing of the backend prefixes.
+    annotations: {}
+    # -- Path-routed ingress class name
+    ingressClassName:
+    # -- Host serving both the dashboard and the backend
+    host: "kueueviz.local"
+    # -- If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set.
+    tlsEnabled: ~
+    # -- Path-routed ingress tls secret name
+    tlsSecretName: ""
   backend:
     # -- KueueViz backend nodeSelector
     nodeSelector: {}

@@ -440,7 +440,6 @@ files:
     removeComments: true
     excludes:
       - kustomization.yaml
-      - frontend-configmap.yaml
     continueOnError: true
     operations:
       - type: UPDATE
@@ -451,6 +450,10 @@ files:
         key: .spec.rules[0].host
         value: '"{{ .Values.kueueViz.frontend.ingress.host | default \"frontend.kueueviz.local\" }}"'
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: UPDATE
+        key: .spec.rules[0].host
+        value: '"{{ .Values.kueueViz.ingress.host | default \"kueueviz.local\" }}"'
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-ingress")'
       - type: UPDATE
         key: .spec.template.spec.containers[0].image
         value: '"{{ .Values.kueueViz.backend.image.repository }}:{{ .Values.kueueViz.backend.image.tag | default .Chart.AppVersion }}"'
@@ -506,6 +509,10 @@ files:
       - type: DELETE
         key: .spec.template.spec.containers.[].securityContext
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
+      - type: UPDATE
+        key: .data
+        value: '{"env.js": "window.env = {\n  VITE_WEBSOCKET_URL: \"{{ $backendUrl }}\",\n  REACT_APP_WEBSOCKET_URL: \"{{ $backendUrl }}\"\n};\n"}'
+        onFileCondition: '.kind == "ConfigMap"'
     postOperations:
       - type: INSERT_TEXT
         key: .spec
@@ -523,6 +530,14 @@ files:
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-frontend-ingress")'
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- if .Values.kueueViz.ingress.ingressClassName }}
+          ingressClassName: {{ .Values.kueueViz.ingress.ingressClassName }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-ingress")'
       - type: INSERT_TEXT
         key: .spec.template.metadata
         value: |
@@ -591,6 +606,24 @@ files:
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
+        key: .spec
+        value: |
+          {{- $tlsEnabled := .Values.kueueViz.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- if $hasTls }}
+          tls:
+            - hosts:
+                - '{{ .Values.kueueViz.ingress.host | default "kueueviz.local" }}'
+              {{- with $tlsSecretName }}
+              secretName: '{{ . }}'
+              {{- end }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-ingress")'
+      - type: INSERT_TEXT
         key: .metadata
         value: |
           {{- with .Values.kueueViz.backend.ingress.annotations }}
@@ -608,6 +641,15 @@ files:
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          {{- with .Values.kueueViz.ingress.annotations }}
+          annotations:
+            {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-ingress")'
       - type: INSERT_TEXT
         key: .spec.template.spec.containers.[].name
         value: |
@@ -697,6 +739,22 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
+          {{- /* Path routing serves the dashboard and the backend from one origin, so the
+                 frontend is given no URL and falls back to the origin the page came from. */}}
+          {{- $backendUrl := "" }}
+          {{- if not .Values.kueueViz.ingress.enabled }}
+          {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- $scheme := ternary "wss" "ws" $hasTls }}
+          {{- $backendUrl = printf "%s://%s" $scheme (.Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local") }}
+          {{- end }}
+        onFileCondition: '.kind == "ConfigMap"'
+      - type: INSERT_TEXT
+        position: START
+        value: |
           {{- if .Values.enableKueueViz }}
         onFileCondition: '.kind != "Ingress"'
       - type: INSERT_TEXT
@@ -707,7 +765,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.backend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         position: END
@@ -717,13 +775,26 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled }}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.frontend.ingress.enabled (not .Values.kueueViz.ingress.enabled) }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
       - type: INSERT_TEXT
         position: END
         value: |
           {{- end }}
         onFileCondition: '.kind == "Ingress" and .metadata.name | contains("frontend")'
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- /* Backend prefixes the browser calls: WebSockets, the resource API
+                 and the auth probe. /healthz is only used by the kubelet probes,
+                 so it stays off the public path. */}}
+          {{- if and .Values.enableKueueViz .Values.kueueViz.ingress.enabled }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-ingress")'
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+        onFileCondition: '.kind == "Ingress" and .metadata.name | contains("kueueviz-ingress")'
   - path: ./config/components/internalcert/*.yaml
     outputDir: ./charts/kueue/templates/internalcert
     removeComments: true
@@ -815,7 +886,6 @@ files:
     outputDir: ./charts/kueue/templates/certmanager
     removeComments: true
     excludes:
-      - certificate.yaml
       - kustomization.yaml
       - kustomizeconfig.yaml
       - common_name_transformer.yaml
@@ -849,6 +919,20 @@ files:
           labels:
           {{- include "kueue.labels" . | nindent 4 }}
         indentation: 2
+      - type: INSERT_TEXT
+        key: .spec
+        value: |
+          dnsNames:
+          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc'
+          - '{{ include "kueue.fullname" . }}-webhook-service.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}'
+        indentation: 2
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("serving-cert")'
+      - type: INSERT_TEXT
+        key: .spec.secretName
+        value: |
+          issuerRef:{{ include "kueue.certManager.issuerRef" . | trim | nindent 4 }}
+        indentation: 0
+        onFileCondition: '.kind == "Certificate" and .metadata.name | contains("serving-cert")'
       - type: INSERT_TEXT
         key: .spec
         value: |

@@ -86,6 +86,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -1466,6 +1467,13 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 //     non-nil if the function succeeds; otherwise, the test fails before returning.
 func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload) (newWorkload *kueue.Workload) {
 	ginkgo.GinkgoHelper()
+	return ExpectNewWorkloadSliceWithTimeout(ctx, k8sClient, oldWorkload, Timeout)
+}
+
+// ExpectNewWorkloadSliceWithTimeout is like ExpectNewWorkloadSlice, but allows
+// callers to specify how long to wait for the replacement Workload.
+func ExpectNewWorkloadSliceWithTimeout(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload, timeout time.Duration) (newWorkload *kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		// Reset newWorkload each iteration to ensure the returned value is from
 		// the current poll, not a stale pointer from a previous retry attempt.
@@ -1480,7 +1488,7 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 			}
 		}
 		g.Expect(newWorkload).ShouldNot(gomega.BeNil())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
+	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
 	return newWorkload
 }
 
@@ -1493,6 +1501,27 @@ func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 		}
 	}
 	return active
+}
+
+// FindConcurrentAdmissionVariants returns the subset of workloads that are Concurrent Admission variants.
+func FindConcurrentAdmissionVariants(workloads []kueue.Workload) []kueue.Workload {
+	var variants []kueue.Workload
+	for i := range workloads {
+		if concurrentadmission.IsVariant(&workloads[i]) {
+			variants = append(variants, workloads[i])
+		}
+	}
+	return variants
+}
+
+// FindConcurrentAdmissionParent returns the first non-variant workload, or nil, assuming a ClusterQueue with Concurrent Admission enabled.
+func FindConcurrentAdmissionParent(workloads []kueue.Workload) *kueue.Workload {
+	for i := range workloads {
+		if !concurrentadmission.IsVariant(&workloads[i]) {
+			return &workloads[i]
+		}
+	}
+	return nil
 }
 
 // DeleteWorkloadSliceAndAwaitDeletion deletes the named workload slice and waits

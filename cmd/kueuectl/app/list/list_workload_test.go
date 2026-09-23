@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -70,7 +69,7 @@ func TestWorkloadCmd(t *testing.T) {
 		listPages            []runtime.Object
 		wantOut              string
 		wantOutErr           string
-		wantErr              error
+		wantErr              string
 	}{
 		"should print workload list with namespace filter": {
 			ns: "ns1",
@@ -714,11 +713,9 @@ wl1    job, pod   job-a, pod-b, pod-c   lq1          cq1            PENDING     
 			},
 			job: []runtime.Object{
 				&batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "job-test",
-						Namespace: "default",
-						UID:       types.UID("job-test-uid"),
-					},
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid"),
 				},
 			},
 			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -844,11 +841,9 @@ wl2    pod        pod-test-1   lq2          cq2            PENDING              
 			},
 			job: []runtime.Object{
 				&rayv1.RayJob{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "job-test",
-						Namespace: "default",
-						UID:       types.UID("job-test-uid-1"),
-					},
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid-1"),
 				},
 			},
 			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -912,11 +907,9 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 			},
 			job: []runtime.Object{
 				&rayv1.RayJob{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "job-test",
-						Namespace: "default",
-						UID:       types.UID("job-test-uid-1"),
-					},
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid-1"),
 				},
 			},
 			wantOut: `NAME   JOB TYPE        JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -926,20 +919,16 @@ wl1    rayjob.ray.io   job-test   lq1          cq1            PENDING           
 		"should print workload list with position in queue": {
 			pendingWorkloads: []visibility.PendingWorkload{
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "wl1",
-						Namespace: metav1.NamespaceDefault,
-					},
+					Name:                   "wl1",
+					Namespace:              metav1.NamespaceDefault,
 					Priority:               10,
 					LocalQueueName:         "lq1",
 					PositionInClusterQueue: 11,
 					PositionInLocalQueue:   12,
 				},
 				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "wl2",
-						Namespace: metav1.NamespaceDefault,
-					},
+					Name:                   "wl2",
+					Namespace:              metav1.NamespaceDefault,
 					Priority:               20,
 					LocalQueueName:         "lq2",
 					PositionInClusterQueue: 21,
@@ -971,11 +960,11 @@ wl2               j2         lq2          cq2            PENDING   22           
 			args: []string{"-o", "yaml"},
 			listPages: []runtime.Object{
 				&kueue.WorkloadList{
-					ListMeta: metav1.ListMeta{Continue: "page2"},
-					Items:    []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Namespace: metav1.NamespaceDefault}}},
+					Continue: "page2",
+					Items:    []kueue.Workload{{Name: "wl1", Namespace: metav1.NamespaceDefault}},
 				},
 				&kueue.WorkloadList{
-					Items: []kueue.Workload{{ObjectMeta: metav1.ObjectMeta{Name: "wl2", Namespace: metav1.NamespaceDefault}}},
+					Items: []kueue.Workload{{Name: "wl2", Namespace: metav1.NamespaceDefault}},
 				},
 			},
 			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2
@@ -995,6 +984,42 @@ items:
 kind: WorkloadList
 metadata: {}
 `,
+		},
+		"should fail with invalid status value": {
+			args:    []string{"--status", "unknown"},
+			wantErr: `invalid status value (unknown). Must be "all", "pending", "quotareserved", "admitted" or "finished"`,
+		},
+		"should print not found error and no workloads with missing resource filter target": {
+			args: []string{"--for", "job.batch/missing-job"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label(constants.JobUIDLabel, "job-test-uid").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.JobList{},
+			},
+			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
 		},
 		"should print not found error": {
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
@@ -1074,7 +1099,11 @@ metadata: {}
 			cmd.SetArgs(tc.args)
 
 			gotErr := cmd.Execute()
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+			var gotErrStr string
+			if gotErr != nil {
+				gotErrStr = gotErr.Error()
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 

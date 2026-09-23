@@ -18,6 +18,7 @@ package dqo
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -390,7 +392,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := r.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: tc.dqo.Name},
+				Name: tc.dqo.Name,
 			})
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("Reconcile error = %v, wantErr %v", err, tc.wantErr)
@@ -430,6 +432,176 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				if diff := cmp.Diff(wantCohort.Status.EffectiveQuotas, gotCohort.Status.EffectiveQuotas, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected EffectiveQuotas for Cohort %s (-want +got):\n%s", wantCohort.Name, diff)
 				}
+			}
+		})
+	}
+}
+
+func TestOtherDQOUpdatePredicate(t *testing.T) {
+	now := metav1.Now()
+	later := metav1.NewTime(now.Add(time.Minute))
+
+	trueDistributed := utiltestingalpha.MakeDynamicQuotaOrchestrator("a").
+		DiscoveryProvider("cp-1", nil).
+		SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-x").
+		Generation(2).
+		EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+			Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("f1").Resource(corev1.ResourceCPU, "100").Obj()).
+			Obj()).
+		Condition(metav1.Condition{
+			Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+			Message:            "Quotas successfully distributed",
+			LastTransitionTime: now,
+		})
+
+	cases := map[string]struct {
+		old  client.Object
+		new  client.Object
+		want bool
+	}{
+		"generation change": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				Generation(3).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-y").
+				Obj(),
+			want: true,
+		},
+		"deletion timestamp set": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				DeletionTimestamp(now.Time).
+				Obj(),
+			want: true,
+		},
+		"distributed true to false": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: later,
+				}).
+				Obj(),
+			want: true,
+		},
+		"distributed false to true": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new:  trueDistributed.Obj(),
+			want: true,
+		},
+		"absent distributed to false": {
+			old: trueDistributed.Clone().
+				Conditions().
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			want: true,
+		},
+		"false reason change only": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonMisconfigured,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			want: false,
+		},
+		"false message change only": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "old",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "new",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			want: false,
+		},
+		"false timestamp change only": {
+			old: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: now,
+				}).
+				Obj(),
+			new: trueDistributed.Clone().
+				Conditions(metav1.Condition{
+					Type:               kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message:            "Capacity discovery not ready",
+					LastTransitionTime: later,
+				}).
+				Obj(),
+			want: false,
+		},
+		"true with effective capacity rewrite": {
+			old: trueDistributed.Obj(),
+			new: trueDistributed.Clone().
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("f1").Resource(corev1.ResourceCPU, "150").Obj()).
+					Obj()).
+				Obj(),
+			want: false,
+		},
+		"nil objects": {
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := otherDQOUpdatePredicate.Update(event.UpdateEvent{
+				ObjectOld: tc.old,
+				ObjectNew: tc.new,
+			})
+			if got != tc.want {
+				t.Errorf("Update() = %v, want %v", got, tc.want)
 			}
 		})
 	}
