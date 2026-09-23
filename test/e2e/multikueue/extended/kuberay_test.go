@@ -24,7 +24,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -97,10 +96,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the RayJob is completed", func() {
 				wl := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      wlLookupKey.Name,
-						Namespace: wlLookupKey.Namespace,
-					},
+					Name:      wlLookupKey.Name,
+					Namespace: wlLookupKey.Namespace,
 				}
 				util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
 				util.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
@@ -218,10 +215,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 
 			// Create ConfigMap with a simple Ray Serve application
 			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice-hello",
-					Namespace: managerNs.Name,
-				},
+				Name:      "rayservice-hello",
+				Namespace: managerNs.Name,
 				Data: map[string]string{
 					"hello_serve.py": `from ray import serve
 
@@ -248,16 +243,12 @@ app = HelloWorld.bind()`,
 			volumes := []corev1.Volume{
 				{
 					Name: "code-sample",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "rayservice-hello",
-							},
-							Items: []corev1.KeyToPath{
-								{
-									Key:  "hello_serve.py",
-									Path: "hello_serve.py",
-								},
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						Name: "rayservice-hello",
+						Items: []corev1.KeyToPath{
+							{
+								Key:  "hello_serve.py",
+								Path: "hello_serve.py",
 							},
 						},
 					},

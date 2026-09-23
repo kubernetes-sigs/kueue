@@ -228,10 +228,8 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 
 		// Create ConfigMap with Python script
 		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayjob-autoscaling",
-				Namespace: ns.Name,
-			},
+			Name:      "rayjob-autoscaling",
+			Namespace: ns.Name,
 			Data: map[string]string{
 				"sample_code.py": `import ray
 import os
@@ -258,12 +256,8 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		volumes := []corev1.Volume{
 			{
 				Name: "script-volume",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "rayjob-autoscaling",
-						},
-					},
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					Name: "rayjob-autoscaling",
 				},
 			},
 		}
@@ -418,10 +412,8 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 
 		// Create ConfigMap with Python script that triggers multiple scale-up phases
 		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayjob-multi-scaleup",
-				Namespace: ns.Name,
-			},
+			Name:      "rayjob-multi-scaleup",
+			Namespace: ns.Name,
 			Data: map[string]string{
 				"sample_code.py": `import ray
 import os
@@ -459,12 +451,8 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		volumes := []corev1.Volume{
 			{
 				Name: "script-volume",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "rayjob-multi-scaleup",
-						},
-					},
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					Name: "rayjob-multi-scaleup",
 				},
 			},
 		}
@@ -791,10 +779,8 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		// Create ConfigMap with a simple Ray Serve application
 		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayservice-hello",
-				Namespace: ns.Name,
-			},
+			Name:      "rayservice-hello",
+			Namespace: ns.Name,
 			Data: map[string]string{
 				"hello_serve.py": `from ray import serve
 
@@ -822,16 +808,12 @@ app = HelloWorld.bind()`,
 		volumes := []corev1.Volume{
 			{
 				Name: "code-sample",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "rayservice-hello",
-						},
-						Items: []corev1.KeyToPath{
-							{
-								Key:  "hello_serve.py",
-								Path: "hello_serve.py",
-							},
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					Name: "rayservice-hello",
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "hello_serve.py",
+							Path: "hello_serve.py",
 						},
 					},
 				},
@@ -907,7 +889,7 @@ app = HelloWorld.bind()`,
 		// Deploy an in-cluster Redis backing the RayCluster's GCS fault tolerance.
 		redisLabels := map[string]string{"app": "redis-gcs-ft"}
 		redisDeployment := &appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns.Name},
+			Name: "redis", Namespace: ns.Name,
 			Spec: appsv1.DeploymentSpec{
 				Selector: &metav1.LabelSelector{MatchLabels: redisLabels},
 				Template: corev1.PodTemplateSpec{
@@ -924,7 +906,7 @@ app = HelloWorld.bind()`,
 			},
 		}
 		redisService := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{Name: "redis", Namespace: ns.Name},
+			Name: "redis", Namespace: ns.Name,
 			Spec: corev1.ServiceSpec{
 				Selector: redisLabels,
 				Ports:    []corev1.ServicePort{{Port: 6379}},
@@ -1016,10 +998,8 @@ app = HelloWorld.bind()`,
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
 		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayservice-autoscale",
-				Namespace: ns.Name,
-			},
+			Name:      "rayservice-autoscale",
+			Namespace: ns.Name,
 			Data: map[string]string{
 				"hello_serve.py": `import asyncio
 from ray import serve
@@ -1057,16 +1037,12 @@ app = HelloWorld.bind()`,
 		volumes := []corev1.Volume{
 			{
 				Name: "code-sample",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "rayservice-autoscale",
-						},
-						Items: []corev1.KeyToPath{
-							{
-								Key:  "hello_serve.py",
-								Path: "hello_serve.py",
-							},
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					Name: "rayservice-autoscale",
+					Items: []corev1.KeyToPath{
+						{
+							Key:  "hello_serve.py",
+							Path: "hello_serve.py",
 						},
 					},
 				},

@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -703,12 +702,10 @@ func TestDefault(t *testing.T) {
 						ManagedBy: new(v2beta1.KubeflowJobController),
 					},
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -730,12 +727,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_WithQueueLabel",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -757,7 +752,7 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_WithoutQueueLabel",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 			},
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: nil,
@@ -765,34 +760,28 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_InvalidQueueName",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
-					Namespace: "default",
-				},
+				Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_QueueNotFound",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "non-existent-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "non-existent-queue",
 				},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_AdmissionCheckNotFound",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -810,12 +799,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_MultiKueueFeatureDisabled",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -842,12 +829,10 @@ func TestDefault(t *testing.T) {
 						ManagedBy: new("example.com/foo"),
 					},
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -869,12 +854,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").

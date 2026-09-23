@@ -39,6 +39,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 // TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing verifies the
@@ -71,7 +72,7 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 			wl := wlBuilder.Obj()
 			const gpu corev1.ResourceName = "example.com/gpu"
 			lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", gpu, "1").Obj()
-			dc := utiltesting.MakeDeviceClass("gpu.example.com").ExtendedResourceName(string(gpu)).Obj()
+			dc := testingdra.MakeDeviceClass("gpu.example.com").ExtendedResourceName(string(gpu)).Obj()
 			reads := 0
 			cl := utiltesting.NewClientBuilder().WithObjects(lr, dc).
 				WithStatusSubresource(wl).

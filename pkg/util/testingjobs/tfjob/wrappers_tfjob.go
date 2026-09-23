@@ -20,7 +20,6 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -33,11 +32,9 @@ type TFJobWrapper struct{ kftraining.TFJob }
 // MakeTFJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeTFJob(name, ns string) *TFJobWrapper {
 	return &TFJobWrapper{kftraining.TFJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: kftraining.TFJobSpec{
 			RunPolicy: kftraining.RunPolicy{
 				Suspend: new(true),

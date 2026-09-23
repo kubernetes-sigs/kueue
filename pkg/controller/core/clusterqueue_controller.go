@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -497,9 +496,8 @@ func (h *nonCQObjectHandler) Delete(context.Context, event.TypedDeleteEvent[iter
 }
 func (h *nonCQObjectHandler) Generic(_ context.Context, e event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	for cq := range e.Object {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-			Name: string(cq),
-		}}, constants.UpdatesBatchPeriod)
+		q.AddAfter(reconcile.Request{
+			Name: string(cq)}, constants.UpdatesBatchPeriod)
 	}
 }
 

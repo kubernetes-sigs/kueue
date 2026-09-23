@@ -158,9 +158,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			}
 
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name: tc.check.Name,
-				},
+				Name: tc.check.Name,
 			}
 			_, gotReconcileError := reconciler.Reconcile(ctx, req)
 			if gotReconcileError != nil {

@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -174,8 +175,13 @@ func (j *RayService) PodLabelSelector() string {
 }
 
 func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
+	if err != nil || !workloadslicing.Enabled(j.Object()) {
+		return podSets, err
+	}
+
 	var children rayv1.RayClusterList
-	err := c.List(ctx, &children,
+	err = c.List(ctx, &children,
 		client.InNamespace(j.GetNamespace()),
 		childRayClusterLabels(j.GetName()),
 	)
@@ -184,7 +190,7 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 	}
 
 	if len(children.Items) == 0 {
-		return raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
+		return raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, j.Status.ActiveServiceStatus.RayClusterName)
 	}
 
 	// Stable PodSet names and summed counts let workload slicing reserve quota for
@@ -215,7 +221,7 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 			order = append(order, name)
 		}
 	}
-	podSets := make([]kueue.PodSet, 0, len(order))
+	podSets = make([]kueue.PodSet, 0, len(order))
 	for _, n := range order {
 		podSets = append(podSets, *podSetMap[n])
 	}

@@ -45,7 +45,7 @@ func newDefaultSimulatorSnapshot() simulator.SimulatorSnapshot {
 
 type defaultSimulatorSnapshot struct{}
 
-func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node, _ ...simulator.SnapshotOption) (simulator.SimulatorSnapshot, error) {
 	return &defaultSimulatorSnapshot{}, nil
 }
 

@@ -73,66 +73,160 @@ type keyUIDs struct {
 }
 
 func TestPodsReady(t *testing.T) {
-	readyCond := corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}
-	readyPod := func(name string) corev1.Pod {
-		return *testingpod.MakePod(name, "test-ns").StatusConditions(readyCond).Obj()
-	}
-	pendingPod := func(name string) corev1.Pod {
-		return *testingpod.MakePod(name, "test-ns").Obj()
-	}
-	makePodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
-		driver := testingpod.MakePod("driver", "test-ns").
-			GroupNameLabel("test-group").
-			GroupTotalCount(totalCount)
-		return &Pod{
-			pod:     *driver.Obj(),
-			isGroup: true,
-			list:    corev1.PodList{Items: pods},
-		}
-	}
+	basePodWrapper := testingpod.MakePod("test-pod", "test-ns").Queue("test-queue")
+	readyPodWrapper := basePodWrapper.Clone().
+		StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue})
+	// The kubelet flips PodReady to False once a pod completes, so a Succeeded pod
+	// carries the same conditions as a pod that is not ready.
+	succeededPodWrapper := basePodWrapper.Clone().
+		StatusPhase(corev1.PodSucceeded).
+		StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse})
+	groupDriverWrapper := basePodWrapper.Clone().Name("driver").GroupNameLabel("test-group")
 
 	testCases := map[string]struct {
-		pod  *Pod
-		want bool
+		pod                           *corev1.Pod
+		groupPods                     []corev1.Pod
+		countSucceededPodsAsReadyGate bool
+		want                          bool
 	}{
 		"single pod is ready": {
-			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").StatusConditions(readyCond).Obj()),
+			pod:  readyPodWrapper.Clone().Obj(),
 			want: true,
 		},
 		"single pod is not ready": {
-			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").Obj()),
+			pod:  basePodWrapper.Clone().Obj(),
 			want: false,
 		},
 		"pod group with all pods ready": {
-			pod:  makePodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: true,
 		},
 		"pod group with fewer pods than expected": {
-			pod:  makePodGroup("3", readyPod("driver")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+			},
 			want: false,
 		},
 		"pod group with all pods present but not all ready": {
-			pod:  makePodGroup("3", readyPod("driver"), pendingPod("worker-1"), pendingPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: false,
 		},
+		"single pod succeeded": {
+			pod:                           succeededPodWrapper.Clone().Obj(),
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
+		"single pod succeeded, gate disabled": {
+			pod:  succeededPodWrapper.Clone().Obj(),
+			want: false,
+		},
+		"pod group with some pods succeeded and the rest ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
+		"pod group with some pods succeeded and the rest ready, gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			want: false,
+		},
+		"pod group with all pods succeeded": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
+		"pod group with all pods succeeded, gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			want: false,
+		},
+		"pod group with some pods succeeded and one pending": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			countSucceededPodsAsReadyGate: true,
+			want:                          false,
+		},
+		"serving pod group with some pods succeeded and the rest ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			countSucceededPodsAsReadyGate: true,
+			want:                          false,
+		},
+		"serving pod group with all pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			countSucceededPodsAsReadyGate: true,
+			want:                          true,
+		},
 		"pod group without total count annotation": {
-			pod: &Pod{
-				pod:     *testingpod.MakePod("driver", "test-ns").GroupNameLabel("test-group").Obj(),
-				isGroup: true,
-				list:    corev1.PodList{Items: []corev1.Pod{readyPod("driver"), readyPod("worker-1")}},
+			pod: groupDriverWrapper.Clone().Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 			},
 			want: false,
 		},
 		"pod group with malformed total count annotation": {
-			pod:  makePodGroup("invalid", readyPod("driver"), readyPod("worker-1")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("invalid").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+			},
 			want: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PodIntegrationCountSucceededPodsAsReady, tc.countSucceededPodsAsReadyGate)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.pod.PodsReady(ctx, nil)
+			pod := FromObject(tc.pod)
+			if len(tc.groupPods) != 0 {
+				pod.isGroup = true
+				pod.list = corev1.PodList{Items: tc.groupPods}
+			}
+			got := pod.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -277,9 +371,8 @@ func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
 	}
 	deploymentOwner := ownedBy(deploymentGVK, "test-deployment", "deployment-uid")
 	replicaSet := func(name, uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
-		return &appsv1.ReplicaSet{ObjectMeta: metav1.ObjectMeta{
-			Name: name, Namespace: "ns", UID: types.UID(uid), OwnerReferences: owners,
-		}}
+		return &appsv1.ReplicaSet{
+			Name: name, Namespace: "ns", UID: types.UID(uid), OwnerReferences: owners}
 	}
 	podOwnedBy := func(podName, rsName, rsUID string) *testingpod.PodWrapper {
 		return testingpod.MakePod(podName, "ns").
@@ -7900,20 +7993,18 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(30)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-with-expired-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(30)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
-							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+							Name:   "succeeded",
+							Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
-							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+							Name:   "failed",
+							Status: corev1.PodStatus{Phase: corev1.PodFailed},
 						},
 					},
 				},
@@ -7924,28 +8015,24 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(30)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-with-expired-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(30)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
-							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+							Name:   "succeeded",
+							Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
-							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+							Name:   "failed",
+							Status: corev1.PodStatus{Phase: corev1.PodFailed},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7958,12 +8045,10 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7976,12 +8061,10 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7994,16 +8077,14 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "running-pod"},
-							Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:   "running-pod",
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -8016,20 +8097,16 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod-1",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod-1",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod-2",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-5 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(300)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod-2",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-5 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(300)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},

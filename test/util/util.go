@@ -1467,6 +1467,13 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 //     non-nil if the function succeeds; otherwise, the test fails before returning.
 func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload) (newWorkload *kueue.Workload) {
 	ginkgo.GinkgoHelper()
+	return ExpectNewWorkloadSliceWithTimeout(ctx, k8sClient, oldWorkload, Timeout)
+}
+
+// ExpectNewWorkloadSliceWithTimeout is like ExpectNewWorkloadSlice, but allows
+// callers to specify how long to wait for the replacement Workload.
+func ExpectNewWorkloadSliceWithTimeout(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload, timeout time.Duration) (newWorkload *kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		// Reset newWorkload each iteration to ensure the returned value is from
 		// the current poll, not a stale pointer from a previous retry attempt.
@@ -1481,7 +1488,7 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 			}
 		}
 		g.Expect(newWorkload).ShouldNot(gomega.BeNil())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
+	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
 	return newWorkload
 }
 

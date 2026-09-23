@@ -32,7 +32,7 @@ import (
 
 func newSlice(name, driver, pool string) *resourcev1.ResourceSlice {
 	return &resourcev1.ResourceSlice{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Name: name,
 		Spec: resourcev1.ResourceSliceSpec{
 			Driver: driver,
 			Pool: resourcev1.ResourcePool{
