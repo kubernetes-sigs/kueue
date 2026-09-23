@@ -1,3 +1,19 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package preemption
 
 import (
@@ -5,6 +21,7 @@ import (
 	"iter"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 )
@@ -31,11 +48,11 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
 	// 1. Hierarchy candidates. Candidates over which the incoming workload has a
-	// 	  hierarchical advantage (it is closer to the quota used by the candidate).
+	//    hierarchical advantage (it is closer to the quota used by the candidate).
 	//    We can preempt such candidates regardless of their priority.
 	// 2. Priority candidates. Candidates over which there is no hiearchical advantage
 	//    but the possibility to preempt is determined based on priorities.
-	// 	  We respect the BorrowWithinCohort configuration only for these candidates.
+	//    We respect the BorrowWithinCohort configuration only for these candidates.
 	// 3. Same queue candidates.
 	// We can only preempt a priority candidate with priority > MaxPriorityThreshold
 	// if the target CQ is not borrowing (by the definition of the MaxPriorityThreshold).
