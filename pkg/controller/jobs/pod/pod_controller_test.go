@@ -8837,7 +8837,7 @@ func TestStop(t *testing.T) {
 func TestReorderPodSets(t *testing.T) {
 	tests := map[string]struct {
 		podSets   []kueue.PodSet
-		reference []kueue.PodSet
+		reference []kueue.PodSetReference
 		want      []kueue.PodSet
 	}{
 		"reorders to match workload": {
@@ -8845,9 +8845,9 @@ func TestReorderPodSets(t *testing.T) {
 				{Name: "worker"},
 				{Name: "leader"},
 			},
-			reference: []kueue.PodSet{
-				{Name: "leader"},
-				{Name: "worker"},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
 			},
 			want: []kueue.PodSet{
 				{Name: "leader"},
@@ -8860,9 +8860,9 @@ func TestReorderPodSets(t *testing.T) {
 				{Name: "extra"},
 				{Name: "leader"},
 			},
-			reference: []kueue.PodSet{
-				{Name: "leader"},
-				{Name: "worker"},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
 			},
 			want: []kueue.PodSet{
 				{Name: "leader"},
@@ -8875,9 +8875,9 @@ func TestReorderPodSets(t *testing.T) {
 				{Name: "leader"},
 				{Name: "worker"},
 			},
-			reference: []kueue.PodSet{
-				{Name: "leader"},
-				{Name: "worker"},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
 			},
 			want: []kueue.PodSet{
 				{Name: "leader"},
