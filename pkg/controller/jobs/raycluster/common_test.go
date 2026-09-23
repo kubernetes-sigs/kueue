@@ -930,7 +930,13 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
+				field.Invalid(
+					field.NewPath("spec", "enableInTreeAutoscaling"),
+					new(true),
+					fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+				),
 			},
 		},
 		"autoscaling enabled with workload slicing": {
@@ -1009,7 +1015,13 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
+				field.Invalid(
+					field.NewPath("spec", "enableInTreeAutoscaling"),
+					new(true),
+					fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+				),
 				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), 11, jobframework.MaxPodSets),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
@@ -1021,7 +1033,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			gotErrors := ValidateCreate(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
 
-			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("Unexpected errors (-want +got):\n%s", diff)
 			}
 

@@ -266,7 +266,9 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 			field.Invalid(
 				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
 				rayClusterSpec.EnableInTreeAutoscaling,
-				"a kueue managed job should only use autoscaling when workload slicing is enabled",
+				fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
+					"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+					workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 			),
 		)
 	}
