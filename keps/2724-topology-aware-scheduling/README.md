@@ -1488,11 +1488,7 @@ to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `
 
 ##### Replacing multiple failed nodes
 
-The mechanism described above replaces a single failed node. As soon as a *second* distinct
-node fails while a replacement is still in flight, the workload is evicted — both by the
-node-failure controller (the `evictWorkloadIfNeeded` "multiple node failures" path) and, when
-`TASFailedNodeReplacementFailFast` is enabled, by the scheduler's fail-fast eviction. The
-original design chose single-node replacement deliberately, since replacing multiple nodes at
+The Node failures original design chose single-node replacement deliberately, since replacing multiple nodes at
 once complicates the assignment algorithm. The `UnhealthyNodes` status field was nonetheless
 modeled as a *list* (rather than a single node) to leave room for this generalization.
 
