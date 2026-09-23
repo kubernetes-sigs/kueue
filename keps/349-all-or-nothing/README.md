@@ -25,6 +25,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
+    - [Story 3](#story-3)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -152,6 +153,13 @@ configuration.
 
 As a Kueue administrator I want to ensure that a Workload will be evicted after
 configured timeout if a pod fails during its execution and the replacement Pod can't be scheduled.
+
+#### Story 3
+
+As a Kueue user running Pod-group workloads (including `StatefulSet` and `LeaderWorkerSet`),
+I want to specify a minimum number of ready pods required for the workload to satisfy `PodsReady`
+(for both the initial startup `timeout` and `recoveryTimeout`), so that the workload is considered
+ready and is not evicted on pod failure as long as at least the minimum number of pods remain ready.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -314,6 +322,22 @@ We introduce a new workload condition, called `PodsReady`, to indicate
 if the workload's startup requirements are satisfied. More precisely, for a batch/v1 Job we add
 the condition when `job.status.ready + len(job.status.uncountedTerimnatedPods.succeeded) + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
+
+For Pod groups (and integrations built on Pod groups, such as `StatefulSet` and `LeaderWorkerSet`),
+all pods in the group (`kueue.x-k8s.io/pod-group-total-count`) are required to be ready
+by default for the `PodsReady` condition to be satisfied. When the `WaitForPodsReadyMinPods` feature gate
+is enabled, users can specify the `kueue.x-k8s.io/pod-group-pods-ready-min-count` annotation with an integer
+value in `[1, pod-group-total-count]` (on the Pod group pods, or on the `StatefulSet` / `LeaderWorkerSet`
+which propagates it to its pods). When set, the `PodsReady` condition is satisfied (for both the initial
+startup `timeout` and `recoveryTimeout`) whenever the number of ready pods in the group is
+at least `pod-group-pods-ready-min-count`. If the annotation is absent or invalid, the required threshold
+falls back to `pod-group-total-count`.
+
+Succeeded pods count towards the threshold only for non-serving Pod groups, and only when the
+`PodIntegrationCountSucceededPodsAsReady` feature gate is enabled. `StatefulSet` and `LeaderWorkerSet`
+pods are always marked as serving, so their succeeded pods never count as ready - a terminated serving
+pod will not serve again, and counting it would suppress the `recoveryTimeout` eviction that unblocks
+its replacement.
 
 Note that we count `job.status.uncountedTerminatedPods` - this is meant to prevent flickering of the `PodsReady` condition when pods are transitioning to the `Succeeded` state.
 This applies only for batch/v1 Job, since Kueue doesn't count active pods for other Job types, and delegate it to third-party Job types operators.
@@ -514,6 +538,7 @@ Major milestones might include:
 -->
 
 - 2026-01-13: `recoveryTimeout` defaults to `timeout` when not specified, setting to `0` disables it
+- 2026-09-23: Introduce `kueue.x-k8s.io/pod-group-pods-ready-min-count` annotation behind `WaitForPodsReadyMinPods` feature gate for Pod-group workloads
 
 ## Drawbacks
 
