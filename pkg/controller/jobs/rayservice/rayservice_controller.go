@@ -188,7 +188,6 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 	if err != nil {
 		return nil, err
 	}
-
 	if len(children.Items) == 0 {
 		return raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, j.Status.ActiveServiceStatus.RayClusterName)
 	}

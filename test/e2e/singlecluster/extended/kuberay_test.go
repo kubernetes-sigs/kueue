@@ -1211,10 +1211,8 @@ app = HelloWorld.bind()`,
 		}
 
 		configMap := &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayservice-upgrade-gate",
-				Namespace: ns.Name,
-			},
+			Name:      "rayservice-upgrade-gate",
+			Namespace: ns.Name,
 			Data: map[string]string{
 				"hello_serve.py": `from ray import serve
 
@@ -1241,11 +1239,9 @@ app = HelloWorld.bind()`,
 		volumes := []corev1.Volume{
 			{
 				Name: "code-sample",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{Name: configMap.Name},
-						Items:                []corev1.KeyToPath{{Key: "hello_serve.py", Path: "hello_serve.py"}},
-					},
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					Name:  configMap.Name,
+					Items: []corev1.KeyToPath{{Key: "hello_serve.py", Path: "hello_serve.py"}},
 				},
 			},
 		}

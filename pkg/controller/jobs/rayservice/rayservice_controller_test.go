@@ -40,13 +40,11 @@ import (
 
 func childRayCluster(name, rayServiceName, namespace, groupName string, replicas int32, enableAutoscaling ...bool) rayv1.RayCluster {
 	cluster := rayv1.RayCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels: map[string]string{
-				rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
-				rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
-			},
+		Name:      name,
+		Namespace: namespace,
+		Labels: map[string]string{
+			rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
+			rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
 		},
 		Spec: rayv1.RayClusterSpec{
 			HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -66,7 +64,7 @@ func childRayCluster(name, rayServiceName, namespace, groupName string, replicas
 		},
 	}
 	if len(enableAutoscaling) > 0 {
-		cluster.Spec.EnableInTreeAutoscaling = ptr.To(enableAutoscaling[0])
+		cluster.Spec.EnableInTreeAutoscaling = new(enableAutoscaling[0])
 	}
 	return cluster
 }
@@ -318,12 +316,10 @@ func TestPodSets(t *testing.T) {
 		},
 		"steady state: single child, PodSets reflect the child's live spec": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -362,16 +358,14 @@ func TestPodSets(t *testing.T) {
 		},
 		"workload slicing with autoscaling disabled uses the RayService spec": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(false),
+						EnableInTreeAutoscaling: new(false),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -391,7 +385,7 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			children: []rayv1.RayCluster{{
-				ObjectMeta: metav1.ObjectMeta{Name: "rayservice-cluster", Namespace: "ns"},
+				Name: "rayservice-cluster", Namespace: "ns",
 				Spec: rayv1.RayClusterSpec{
 					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{
 						GroupName: "group1",
@@ -414,12 +408,10 @@ func TestPodSets(t *testing.T) {
 		},
 		"zero-downtime upgrade: two children, counts are summed": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -459,16 +451,14 @@ func TestPodSets(t *testing.T) {
 		},
 		"bootstrap: no children yet, build from the RayService template": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: ptr.To(true),
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -530,12 +520,10 @@ func TestPodSetsRejectsDifferentResourceRequestsDuringUpgrade(t *testing.T) {
 	})
 
 	rayService := (*RayService)(&rayv1.RayService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "rayservice",
-			Namespace: "ns",
-			Annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-			},
+		Name:      "rayservice",
+		Namespace: "ns",
+		Annotations: map[string]string{
+			workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 		},
 	})
 	active := childRayCluster("rayservice-active", "rayservice", "ns", "group1", 1)
@@ -597,7 +585,7 @@ func TestSuspendDoesNotSuspendRayClusterTemplate(t *testing.T) {
 	rayService := (*RayService)(&rayv1.RayService{
 		Spec: rayv1.RayServiceSpec{
 			RayClusterSpec: rayv1.RayClusterSpec{
-				Suspend: ptr.To(false),
+				Suspend: new(false),
 			},
 		},
 	})
