@@ -339,6 +339,14 @@ type preemptionAttemptOpts struct {
 	borrowing bool
 }
 
+// getTargets iterates over preemption strategies, each providing an ordered
+// list of preemption candidates.
+// It uses the context provided by the strategy, from which the yielded
+// candidates are already removed, to determine if the workload fits after
+// preempting the candidates so far.
+// Once the Workload fits, the heuristic tries to add Workloads back, in the
+// reverse order in which they were removed, while the incoming Workload still
+// fits.
 func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	log := log.FromContext(ctx)
 	for strategy := range strategies {

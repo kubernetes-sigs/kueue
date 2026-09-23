@@ -32,6 +32,11 @@ type candidateIterator interface {
 	Next(borrow bool) (candidate *workload.Info, evictReason string)
 }
 
+// classicalPreemptionStrategy implements a heuristic to find a minimal set of Workloads
+// to preempt.
+// The heuristic first removes candidates, in the input order, while their
+// ClusterQueues are still borrowing resources and while the incoming Workload
+// doesn't fit in the quota.
 func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, preemptionCtx *preemptionCtx) iter.Seq[PreemptionStrategy] {
 	log := log.FromContext(ctx)
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
