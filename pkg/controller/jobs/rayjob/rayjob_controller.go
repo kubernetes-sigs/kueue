@@ -18,7 +18,6 @@ package rayjob
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -44,11 +43,6 @@ import (
 
 var (
 	gvk = rayv1.GroupVersion.WithKind("RayJob")
-
-	// errSubmitterMissingHeadContainer is returned when submissionMode=K8sJobMode
-	// without a submitterPodTemplate, but the head Pod template does not include
-	// the Ray container whose image the default submitter Pod reuses.
-	errSubmitterMissingHeadContainer = errors.New("cannot build the default submitter pod template: head pod template must include the Ray container")
 )
 
 const (
@@ -185,10 +179,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		submitterPod, err := getSubmitterTemplate(j)
-		if err != nil {
-			return err
-		}
+		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[expectedLen-1]
 		if err := podset.Merge(log, &submitterPod.ObjectMeta, &submitterPod.Spec, info); err != nil {
 			return err
@@ -217,11 +208,7 @@ func (j *RayJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.Po
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		submitterPod, err := getSubmitterTemplate(j)
-		if err != nil {
-			ctrl.LoggerFrom(ctx).V(2).Info("Skipping submitter pod set info restore", "error", err)
-			return changed
-		}
+		submitterPod := getSubmitterTemplate(j)
 		info := podSetsInfo[len(podSetsInfo)-1]
 		changed = podset.RestorePodSpec(&submitterPod.ObjectMeta, &submitterPod.Spec, info) || changed
 	}
@@ -276,14 +263,9 @@ func defaultSubmitterResources() corev1.ResourceRequirements {
 }
 
 // getSubmitterTemplate returns the PodTemplteSpec of the submitter Job used for RayJob when submissionMode=K8sJobMode
-func getSubmitterTemplate(rayJob *RayJob) (*corev1.PodTemplateSpec, error) {
+func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 	if rayJob.Spec.SubmitterPodTemplate != nil {
-		return rayJob.Spec.SubmitterPodTemplate, nil
-	}
-
-	headContainers := rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers
-	if len(headContainers) <= rayutils.RayContainerIndex {
-		return nil, errSubmitterMissingHeadContainer
+		return rayJob.Spec.SubmitterPodTemplate
 	}
 
 	// The default submitter Job pod template is copied from
@@ -294,13 +276,13 @@ func getSubmitterTemplate(rayJob *RayJob) (*corev1.PodTemplateSpec, error) {
 				{
 					Name: rayutils.SubmitterContainerName,
 					// Use the image of the Ray head to be defensive against version mismatch issues
-					Image:     headContainers[rayutils.RayContainerIndex].Image,
+					Image:     rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Image,
 					Resources: defaultSubmitterResources(),
 				},
 			},
 			RestartPolicy: corev1.RestartPolicyNever,
 		},
-	}, nil
+	}
 }
 
 // addSubmitterPodSet creates the submitter job PodSet for RayJob and appends it to podSets
@@ -309,15 +291,10 @@ func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, err
 		return podSets, nil
 	}
 
-	submitterPodTemplate, err := getSubmitterTemplate(j)
-	if err != nil {
-		return nil, err
-	}
-
 	submitterJobPodSet := kueue.PodSet{
 		Name:     submitterJobPodSetName,
 		Count:    1,
-		Template: *submitterPodTemplate,
+		Template: *getSubmitterTemplate(j),
 	}
 
 	// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
