@@ -843,6 +843,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"quota.acme.io/total-vgpu-cores": 40,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"quota.acme.io/total-vgpu-cores": 40,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1600,6 +1603,9 @@ func TestNewInfo(t *testing.T) {
 						Name: kueue.DefaultPodSetName,
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 16000,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 8000,
 						}),
 						Count: 2,
 					},
