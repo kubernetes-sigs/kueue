@@ -4030,11 +4030,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Creating the two cohorts without a cycle")
 			cohortA := utiltestingapi.MakeCohort("").GeneratedName("cohort-a-").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
-						Resource(corev1.ResourceCPU, "2").
-						Obj(),
-				).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cohortA)
 			ginkgo.DeferCleanup(func() {
@@ -4043,11 +4039,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			cohortB := utiltestingapi.MakeCohort("").GeneratedName("cohort-b-").
 				Parent(kueue.CohortReference(cohortA.Name)).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
-						Resource(corev1.ResourceCPU, "2").
-						Obj(),
-				).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).
 				Obj()
 			util.MustCreate(ctx, k8sClient, cohortB)
 			ginkgo.DeferCleanup(func() {
@@ -4065,11 +4057,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj())
 
 			ginkgo.By("Verifying the ClusterQueue is initially active")
-			gomega.Eventually(func(g gomega.Gomega) {
-				readCq := &kueue.ClusterQueue{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cycleCq), readCq)).To(gomega.Succeed())
-				g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.ClusterQueueActive, kueue.ClusterQueueActiveReasonReady))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cycleCq)
+
+			ginkgo.By("Submitting a workload before the cycle exists")
+			admittedWl := utiltestingapi.MakeWorkload("admitted-wl", ns.Name).
+				Queue(kueue.LocalQueueName(cycleCq.Name)).
+				Request(corev1.ResourceCPU, "500m").
+				Obj()
+			util.MustCreate(ctx, k8sClient, admittedWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl)
 
 			ginkgo.By("Creating a cycle by setting cohort-a parent to cohort-b")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -4103,13 +4099,26 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, wl1)
 			util.MustCreate(ctx, k8sClient, wl2)
 
-			ginkgo.By("Verifying workloads are not admitted while the cycle exists")
+			ginkgo.By("Verifying the admitted workload keeps running and new workloads are not admitted while the cycle exists")
 			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admittedWl), admittedWl)).Should(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(admittedWl)).To(gomega.BeTrue(), "admitted workload should not be interrupted by the cycle")
+				g.Expect(meta.IsStatusConditionTrue(admittedWl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse(), "admitted workload should keep running during the cycle")
 				for _, wl := range []*kueue.Workload{wl1, wl2} {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse(), "workload should not be admitted while CQ is inactive due to cycle")
 					g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse(), "workload should not be evicted, just unadmitted")
 				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Deleting a pending workload while the cycle exists")
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, wl1)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
+
+			ginkgo.By("Verifying the remaining workload stays pending while the cycle exists")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).Should(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(wl2)).To(gomega.BeFalse(), "workload should not be admitted while CQ is inactive due to cycle")
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Removing the cycle by clearing cohort-a parent")
@@ -4127,8 +4136,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.ClusterQueueActive, kueue.ClusterQueueActiveReasonReady))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Verifying previously submitted workloads are now admitted")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cycleCq.Name, wl1, wl2)
+			ginkgo.By("Verifying the admitted workload continues running and the remaining workload is admitted after recovery")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cycleCq.Name, wl2)
 
 			ginkgo.By("Verifying a new workload can be admitted after cycle is resolved")
 			wlNew := utiltestingapi.MakeWorkload("wl-new", ns.Name).
