@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -35,9 +37,11 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -89,6 +93,14 @@ func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload
 	return nil, ValidateWorkload(wl, nil).ToAggregate()
 }
 
+func isRayWorkload(wl *kueue.Workload) bool {
+	if wl == nil {
+		return false
+	}
+	owner := metav1.GetControllerOf(wl)
+	return owner != nil && strings.HasPrefix(owner.APIVersion, "ray.io")
+}
+
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
@@ -98,7 +110,10 @@ func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueu
 		// worth a trace is the one that was already like this and goes through.
 		log.V(3).Info("Workload already reserves quota with no admission recorded, letting the update through so it can converge")
 	}
-	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
+	if isRayWorkload(newWL) || isRayWorkload(oldWL) {
+		ctx = equality.WithRayWorkload(ctx)
+	}
+	return nil, ValidateWorkloadUpdateWithContext(ctx, newWL, oldWL).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
@@ -369,13 +384,21 @@ func validateReclaimablePods(obj, oldObj *kueue.Workload, basePath *field.Path) 
 }
 
 func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
+	ctx := context.Background()
+	if isRayWorkload(newObj) || isRayWorkload(oldObj) {
+		ctx = equality.WithRayWorkload(ctx)
+	}
+	return ValidateWorkloadUpdateWithContext(ctx, newObj, oldObj)
+}
+
+func ValidateWorkloadUpdateWithContext(ctx context.Context, newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	statusPath := field.NewPath("status")
 	allErrs = append(allErrs, ValidateWorkload(newObj, oldObj)...)
 
 	if workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allErrs = append(allErrs, validateImmutablePodSets(ctx, newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
@@ -473,22 +496,35 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 }
 
 // validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
-func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+func validateImmutablePodSet(ctx context.Context, new, old kueue.PodSet, path *field.Path) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
 		new.Count = old.Count
+	}
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) && equality.IsRayWorkload(ctx) {
+		if new.TopologyRequest != nil && old.TopologyRequest != nil {
+			oldTR := old.TopologyRequest.DeepCopy()
+			oldTR.PodIndexLabel = new.TopologyRequest.PodIndexLabel
+			oldTR.SubGroupIndexLabel = new.TopologyRequest.SubGroupIndexLabel
+			oldTR.SubGroupCount = new.TopologyRequest.SubGroupCount
+			old.TopologyRequest = oldTR
+		} else if old.TopologyRequest == nil && new.TopologyRequest != nil && !utiltas.HasTopologyConstraint(new.TopologyRequest) {
+			old.TopologyRequest = new.TopologyRequest.DeepCopy()
+		} else if new.TopologyRequest == nil && old.TopologyRequest != nil && !utiltas.HasTopologyConstraint(old.TopologyRequest) {
+			old.TopologyRequest = nil
+		}
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
 // validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
-func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+func validateImmutablePodSets(ctx context.Context, new, old []kueue.PodSet, path *field.Path) field.ErrorList {
 	if len(new) != len(old) {
 		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
 	}
 	allErrs := make(field.ErrorList, 0, len(new))
 	for i := range new {
-		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+		if errs := validateImmutablePodSet(ctx, new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
 			allErrs = append(allErrs, errs...)
 		}
 	}

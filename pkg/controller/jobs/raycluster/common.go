@@ -143,7 +143,23 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			Count:    effectiveWorkerCount(wgs),
 		}
 		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).Build()
+			builder := jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).
+				SubGroupCount(wgs.Replicas)
+			if wgs.NumOfHosts > 1 {
+				// For multi-host replicas, kuberay sets both a host index and
+				// replica index label, where the replica index denotes a
+				// subgroup that should schedule together (e.g. on a single TPU
+				// slice).
+				builder.PodIndexLabel(new(rayutils.RayHostIndexKey))
+				if ptr.Deref(wgs.Replicas, 1) > 1 {
+					builder.SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey))
+				}
+			} else if ptr.Deref(wgs.Replicas, 1) > 1 {
+				// In the more common single-host case, kuberay only sets a
+				// replica index.
+				builder.PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey))
+			}
+			topologyRequest, err := builder.Build()
 			if err != nil {
 				return nil, err
 			}
@@ -304,6 +320,9 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 							"oldCount", podSet.Count,
 							"newCount", count)
 						podSet.Count = count
+						if podSet.TopologyRequest != nil && podSet.TopologyRequest.SubGroupCount != nil && wgs.Replicas != nil {
+							podSet.TopologyRequest.SubGroupCount = wgs.Replicas
+						}
 					}
 				}
 			}

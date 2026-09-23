@@ -17,6 +17,8 @@ limitations under the License.
 package equality
 
 import (
+	"context"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/utils/ptr"
@@ -26,9 +28,29 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
+type contextKey string
+
+const isRayWorkloadContextKey contextKey = "kueue.x-k8s.io/is-ray-workload"
+
+// WithRayWorkload decorates the context to indicate that the operation is
+// executing on behalf of a Ray workload (RayCluster, RayJob, or RayService).
+func WithRayWorkload(ctx context.Context) context.Context {
+	return context.WithValue(ctx, isRayWorkloadContextKey, true)
+}
+
+// IsRayWorkload returns true if the context is decorated as a Ray workload.
+func IsRayWorkload(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(isRayWorkloadContextKey).(bool)
+	return v
+}
+
 type ComparePodSetsOptions struct {
-	ignoreTolerations     bool
-	ignoreTopologyRequest bool
+	ignoreTolerations         bool
+	ignoreTopologyRequest     bool
+	ignoreTopologyIndexLabels bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -42,6 +64,12 @@ func WithIgnoreTolerations() ComparePodSetsOption {
 func WithIgnoreTopologyRequest() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreTopologyRequest = true
+	}
+}
+
+func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreTopologyIndexLabels = true
 	}
 }
 
@@ -99,6 +127,26 @@ func normalizedTopologyRequest(r *kueue.PodSetTopologyRequest) *kueue.PodSetTopo
 	return result
 }
 
+func compareTopologyRequest(a, b *kueue.PodSetTopologyRequest, opts *ComparePodSetsOptions) bool {
+	normA := normalizedTopologyRequest(a)
+	normB := normalizedTopologyRequest(b)
+	if equality.Semantic.DeepEqual(normA, normB) {
+		return true
+	}
+	if opts.ignoreTopologyIndexLabels && normA != nil && normB != nil {
+		normACopy := normA.DeepCopy()
+		normBCopy := normB.DeepCopy()
+		normACopy.PodIndexLabel = nil
+		normBCopy.PodIndexLabel = nil
+		normACopy.SubGroupIndexLabel = nil
+		normBCopy.SubGroupIndexLabel = nil
+		normACopy.SubGroupCount = nil
+		normBCopy.SubGroupCount = nil
+		return equality.Semantic.DeepEqual(normACopy, normBCopy)
+	}
+	return false
+}
+
 func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 	opts := &ComparePodSetsOptions{}
 	for _, opt := range options {
@@ -112,7 +160,7 @@ func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 	}
 	if !opts.ignoreTopologyRequest &&
 		(utiltas.HasTopologyConstraint(a.TopologyRequest) || utiltas.HasTopologyConstraint(b.TopologyRequest)) &&
-		!equality.Semantic.DeepEqual(normalizedTopologyRequest(a.TopologyRequest), normalizedTopologyRequest(b.TopologyRequest)) {
+		!compareTopologyRequest(a.TopologyRequest, b.TopologyRequest, opts) {
 		return false
 	}
 

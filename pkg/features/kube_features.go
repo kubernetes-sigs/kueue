@@ -756,6 +756,14 @@ const (
 	// group reports PodsReady=False as soon as any member finishes, which can evict a
 	// healthy group once waitForPodsReady.recoveryTimeout elapses.
 	PodIntegrationCountSucceededPodsAsReady featuregate.Feature = "PodIntegrationCountSucceededPodsAsReady"
+
+	// owner: @spencer-p
+	//
+	// Enables strict comparison in ComparePodSets and rejects mutation in
+	// validateImmutablePodSet for Ray TopologyRequest index and subgroup fields.
+	// When disabled (the default), relaxed comparison and mutation are allowed to
+	// prevent eviction during workload migration to rank-based ordering.
+	KubeRayEvictOnInconsistentTopologyRequest featuregate.Feature = "KubeRayEvictOnInconsistentTopologyRequest"
 )
 
 func init() {
@@ -1165,6 +1173,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PodIntegrationCountSucceededPodsAsReady: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	KubeRayEvictOnInconsistentTopologyRequest: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha}, // Beta in 0.21
 	},
 }
 

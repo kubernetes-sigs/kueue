@@ -1609,12 +1609,15 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 2)
+	opts := make([]equality.ComparePodSetsOption, 0, 3)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
+	}
+	if optJob, ok := job.(JobWithCustomEquivalenceOptions); ok {
+		opts = append(opts, optJob.CustomEquivalenceOptions(ctx, c, wl)...)
 	}
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {

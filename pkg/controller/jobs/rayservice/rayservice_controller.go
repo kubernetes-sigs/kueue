@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -124,6 +125,14 @@ var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
+
+func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
