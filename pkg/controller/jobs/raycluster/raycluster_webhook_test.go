@@ -158,6 +158,17 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
+		"invalid managed - head pod has no containers": {
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(
+					field.NewPath("spec", "headGroupSpec", "template", "spec", "containers"),
+					"must have at least one container",
+				),
+			}.ToAggregate(),
+		},
 		"invalid MultiKueue elastic autoscaling when feature gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
@@ -225,6 +236,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -263,6 +275,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -304,6 +317,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetSliceSizeAnnotation:             "2",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -355,6 +369,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -383,6 +398,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -483,6 +499,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -524,6 +541,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -565,6 +583,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(

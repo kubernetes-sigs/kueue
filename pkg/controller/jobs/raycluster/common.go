@@ -360,6 +360,10 @@ func RestorePodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpe
 func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 
+	if len(rayClusterSpec.HeadGroupSpec.Template.Spec.Containers) == 0 {
+		allErrors = append(allErrors, field.Required(rayClusterSpecPath.Child("headGroupSpec", "template", "spec", "containers"), "must have at least one container"))
+	}
+
 	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(object) {
 		allErrors = append(
