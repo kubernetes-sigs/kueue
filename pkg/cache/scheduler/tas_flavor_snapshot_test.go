@@ -593,6 +593,69 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	}
 }
 
+func TestMergeTopologyAssignmentsWithMissingNodes(t *testing.T) {
+	tree := newTopologyTree([]string{"rack", corev1.LabelHostname}, []*corev1.Node{
+		node.MakeNode("node-a").Label("rack", "rack-2").Label(corev1.LabelHostname, "node-a").Obj(),
+		node.MakeNode("node-c").Label("rack", "rack-1").Label(corev1.LabelHostname, "node-c").Obj(),
+	}, 0)
+	nodeA := tas.TopologyDomainAssignment{Values: []string{"node-a"}, Count: 1}
+	nodeB := tas.TopologyDomainAssignment{Values: []string{"node-b"}, Count: 1}
+	nodeC := tas.TopologyDomainAssignment{Values: []string{"node-c"}, Count: 1}
+	nodeD := tas.TopologyDomainAssignment{Values: []string{"node-d"}, Count: 1}
+	cases := map[string]struct {
+		domains []tas.TopologyDomainAssignment
+		want    []tas.TopologyDomainAssignment
+	}{
+		"known nodes retain topology ordering rather than hostname ordering": {
+			domains: []tas.TopologyDomainAssignment{nodeA, nodeC},
+			want:    []tas.TopologyDomainAssignment{nodeC, nodeA},
+		},
+		"missing node at the start": {
+			domains: []tas.TopologyDomainAssignment{nodeB, nodeA, nodeC},
+			want:    []tas.TopologyDomainAssignment{nodeB, nodeC, nodeA},
+		},
+		"missing node between known nodes": {
+			domains: []tas.TopologyDomainAssignment{nodeA, nodeB, nodeC},
+			want:    []tas.TopologyDomainAssignment{nodeB, nodeC, nodeA},
+		},
+		"missing node at the end": {
+			domains: []tas.TopologyDomainAssignment{nodeC, nodeA, nodeB},
+			want:    []tas.TopologyDomainAssignment{nodeB, nodeC, nodeA},
+		},
+		"all nodes missing use hostname ordering": {
+			domains: []tas.TopologyDomainAssignment{nodeD, nodeB},
+			want:    []tas.TopologyDomainAssignment{nodeB, nodeD},
+		},
+		"duplicate known nodes merge despite a missing node": {
+			domains: []tas.TopologyDomainAssignment{nodeA, nodeB, nodeC, nodeA},
+			want: []tas.TopologyDomainAssignment{
+				nodeB, nodeC, {Values: []string{"node-a"}, Count: 2},
+			},
+		},
+		"duplicate missing nodes merge despite known nodes": {
+			domains: []tas.TopologyDomainAssignment{nodeB, nodeA, nodeC, nodeB},
+			want: []tas.TopologyDomainAssignment{
+				{Values: []string{"node-b"}, Count: 2}, nodeC, nodeA,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, tree, newDefaultSimulatorSnapshot())
+			levels := []string{corev1.LabelHostname}
+			a := &tas.TopologyAssignment{Levels: levels, Domains: tc.domains[:len(tc.domains)/2]}
+			b := &tas.TopologyAssignment{Levels: levels, Domains: tc.domains[len(tc.domains)/2:]}
+
+			got := s.mergeTopologyAssignments(a, b)
+			want := &tas.TopologyAssignment{Levels: levels, Domains: tc.want}
+			if diff := cmp.Diff(want, got); diff != "" {
+				t.Errorf("unexpected topology assignment (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestHasLevel(t *testing.T) {
 	levels := []string{"level-1", "level-2"}
 

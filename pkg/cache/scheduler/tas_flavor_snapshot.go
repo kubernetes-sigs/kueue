@@ -2711,13 +2711,14 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 	sortedDomains = append(sortedDomains, a.Domains...)
 	sortedDomains = append(sortedDomains, b.Domains...)
 	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
-		aDomain := s.domainForAssignmentValues(levels, a.Values)
-		bDomain := s.domainForAssignmentValues(levels, b.Values)
-		if aDomain == nil || bDomain == nil {
-			// Queued unhealthy nodes may already be absent from the snapshot.
-			return cmp.Compare(utiltas.DomainID(a.Values), utiltas.DomainID(b.Values))
+		aID, bID := utiltas.DomainID(a.Values), utiltas.DomainID(b.Values)
+		if aDomain := s.domainForAssignmentValues(levels, a.Values); aDomain != nil {
+			aID = utiltas.DomainID(aDomain.levelValues)
 		}
-		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
+		if bDomain := s.domainForAssignmentValues(levels, b.Values); bDomain != nil {
+			bID = utiltas.DomainID(bDomain.levelValues)
+		}
+		return cmp.Compare(aID, bID)
 	})
 	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
 	for _, domain := range sortedDomains {
