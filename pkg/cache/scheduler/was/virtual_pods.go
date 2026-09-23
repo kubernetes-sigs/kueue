@@ -28,10 +28,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -125,4 +128,82 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 	}
 
 	return virtualPods
+}
+
+// CandidatePodOptions holds the options for creating a candidate pod
+type CandidatePodOptions struct {
+	FlavorNodeLabels  map[string]string
+	FlavorTolerations []corev1.Toleration
+	PodSetUpdate      *kueue.PodSetUpdate
+}
+
+func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opts CandidatePodOptions) (*corev1.Pod, error) {
+	if wl == nil || ps == nil {
+		return nil, fmt.Errorf("workload and podset must be non-nil")
+	}
+
+	// get the nodeSelector from the podset
+	nodeSelector := maps.Clone(ps.Template.Spec.NodeSelector)
+
+	// merge the nodeSelector from the podset and the podset update, fail if conflict
+	if opts.PodSetUpdate != nil && len(opts.PodSetUpdate.NodeSelector) > 0 {
+		if err := utilmaps.HaveConflict(nodeSelector, opts.PodSetUpdate.NodeSelector); err != nil {
+			return nil, fmt.Errorf("nodeSelector conflict between PodSet and PodSetUpdate: %w", err)
+		}
+		if nodeSelector == nil {
+			nodeSelector = make(map[string]string, len(opts.PodSetUpdate.NodeSelector))
+		}
+		maps.Copy(nodeSelector, opts.PodSetUpdate.NodeSelector)
+	}
+
+	// merge resourceFlavor nodelabels, checking for conflicts
+	if len(opts.FlavorNodeLabels) > 0 {
+		if err := utilmaps.HaveConflict(nodeSelector, opts.FlavorNodeLabels); err != nil {
+			return nil, fmt.Errorf("nodeSelector conflict between PodSet and ResourceFlavor: %w", err)
+		}
+		if nodeSelector == nil {
+			nodeSelector = make(map[string]string, len(opts.FlavorNodeLabels))
+		}
+		maps.Copy(nodeSelector, opts.FlavorNodeLabels)
+	}
+
+	// merge tolerations from the podset, the assigned flavor, and any podSetUpdate
+
+	tolerations := utiltolerations.Merge(ps.Template.Spec.Tolerations, opts.FlavorTolerations)
+	if opts.PodSetUpdate != nil && len(opts.PodSetUpdate.Tolerations) > 0 {
+		tolerations = utiltolerations.Merge(tolerations, opts.PodSetUpdate.Tolerations)
+	}
+
+	// construct the candidate virtual pod
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        virtualPodName(wl.Name, string(ps.Name), replicaIdx),
+			Namespace:   wl.Namespace,
+			UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, ps.Name, replicaIdx)),
+			Labels:      maps.Clone(ps.Template.Labels),
+			Annotations: maps.Clone(ps.Template.Annotations),
+		},
+		Spec: *ps.Template.Spec.DeepCopy(),
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+		},
+	}
+
+	if pod.Labels == nil {
+		pod.Labels = make(map[string]string)
+	}
+
+	pod.Labels[constants.PodSetLabel] = string(ps.Name)
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+
+	pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
+
+	pod.Spec.NodeSelector = nodeSelector
+	pod.Spec.Tolerations = tolerations
+
+	return pod, nil
+
 }
