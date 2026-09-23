@@ -275,8 +275,12 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		jobUIDLabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
 	}
 
+	// initialLabelSelector is the job-uid query. The owner-reference fallback
+	// must run only while this selector is still in use. A substring check
+	// loops when the user's selector already contains that job-uid requirement.
+	initialLabelSelector := o.LabelSelector + jobUIDLabelSelector
 	opts := metav1.ListOptions{
-		LabelSelector: o.LabelSelector + jobUIDLabelSelector,
+		LabelSelector: initialLabelSelector,
 		FieldSelector: o.FieldSelector,
 		Limit:         o.Limit,
 	}
@@ -293,8 +297,11 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if o.forObject != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
+		if o.forObject != nil && !enableOwnerReferenceFilter &&
+			len(list.Items) == 0 && list.Continue == "" &&
+			opts.LabelSelector == initialLabelSelector && jobUIDLabelSelector != "" {
 			opts.LabelSelector = o.LabelSelector
+			opts.Continue = ""
 			enableOwnerReferenceFilter = true
 			continue
 		}
