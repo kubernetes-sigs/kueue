@@ -85,7 +85,7 @@ const (
 	// 1, which reproduces the default single-node-replacement behavior (evict on
 	// the second distinct node failure). Requires the
 	// TASReplaceMultipleFailedNodes feature gate to be enabled; ignored otherwise.
-	TASUnhealthyNodesEvictionThresholdAnnotation = "kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold"
+	UnhealthyNodesConcurrentEvictionThresholdAnnotation = "kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold"
 
 	// WorkloadAnnotation is an annotation set on the Job's PodTemplate to
 	// indicate the name of the admitted Workload corresponding to the Job. The
