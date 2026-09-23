@@ -19,9 +19,12 @@ package scheduler
 import (
 	"iter"
 
+	corev1 "k8s.io/api/core/v1"
+
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/dqo"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
@@ -32,6 +35,18 @@ type cohort struct {
 	hierarchy.Cohort[*clusterQueue, *cohort]
 
 	resourceNode resourceNode
+
+	// lendable is the capacity this Cohort can lend per resource. It derives
+	// only from SubtreeQuota and the tree shape, so updateCohortLendable
+	// rebuilds it in the same pass that rebuilds SubtreeQuota.
+	//
+	// It lives here rather than on resourceNode because only Cohorts ever have
+	// it read. dominantResourceShare returns early at a parentless node and
+	// otherwise asks the parent, which is always a Cohort, so a field on
+	// resourceNode would be written and never read for every ClusterQueue.
+	//
+	// Served directly rather than copied, so callers must not mutate it.
+	lendable map[corev1.ResourceName]resources.Amount
 
 	FairWeight float64
 
@@ -75,6 +90,11 @@ func (c *cohort) getRootUnsafe() *cohort {
 
 func (c *cohort) getResourceNode() resourceNode {
 	return c.resourceNode
+}
+
+// cachedLendable implements lendableCohort.
+func (c *cohort) cachedLendable() map[corev1.ResourceName]resources.Amount {
+	return c.lendable
 }
 
 func (c *cohort) parentHRN() hierarchicalResourceNode {

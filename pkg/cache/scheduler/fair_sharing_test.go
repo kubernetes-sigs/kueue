@@ -886,11 +886,11 @@ func TestDominantResourceShare(t *testing.T) {
 	}
 }
 
-// Lendable capacity is precomputed per Cohort when the snapshot is built, so
-// fair sharing does not recompute it once per preemption candidate. It depends
-// only on quota and the tree, so the stored value must equal a fresh
-// computation, and it must survive the usage changes preemption simulates.
-func TestSnapshotPrecomputesLendable(t *testing.T) {
+// Lendable capacity is maintained by the cache next to SubtreeQuota and carried
+// into the snapshot, so fair sharing does not recompute it once per preemption
+// candidate. The carried value must equal a fresh computation, and it must
+// survive the usage changes preemption simulates.
+func TestSnapshotCarriesLendable(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cache := New(utiltesting.NewFakeClient())
 	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
@@ -919,11 +919,11 @@ func TestSnapshotPrecomputesLendable(t *testing.T) {
 
 	for _, cohort := range snapshot.Cohorts() {
 		if cohort.lendable == nil {
-			t.Errorf("Cohort %s has no precomputed lendable", cohort.Name)
+			t.Errorf("Cohort %s did not carry lendable from the cache", cohort.Name)
 			continue
 		}
 		if diff := cmp.Diff(computeLendable(cohort), cohort.lendable, cmp.Comparer(resources.Equal)); diff != "" {
-			t.Errorf("Cohort %s precomputed lendable differs from a fresh computation (-fresh,+stored):\n%s", cohort.Name, diff)
+			t.Errorf("Cohort %s carried lendable differs from a fresh computation (-fresh,+carried):\n%s", cohort.Name, diff)
 		}
 	}
 

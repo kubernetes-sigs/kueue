@@ -184,10 +184,19 @@ func updateCohortTreeResources(cohort *cohort) error {
 }
 
 // updateCohortResourceNode traverses the Cohort tree to accumulate
-// SubtreeQuota and Usage. It should usually be called via
-// updateCohortTree, which starts at the root and includes
+// SubtreeQuota and Usage, then refreshes lendable capacity. It should usually be
+// called via updateCohortTree, which starts at the root and includes
 // a cycle check.
 func updateCohortResourceNode(cohort *cohort) {
+	updateCohortSubtreeResources(cohort)
+	// lendable reads the root's SubtreeQuota, so it can only be computed once the
+	// accumulation above has finished. Every caller currently passes a parentless
+	// Cohort, so walking to the root is a no-op, but doing it here means the
+	// invariant does not rest on that staying true.
+	updateCohortLendable(cohort.getRootUnsafe())
+}
+
+func updateCohortSubtreeResources(cohort *cohort) {
 	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
 	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
 
@@ -195,12 +204,26 @@ func updateCohortResourceNode(cohort *cohort) {
 		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
 	}
 	for _, child := range cohort.ChildCohorts() {
-		updateCohortResourceNode(child)
+		updateCohortSubtreeResources(child)
 		accumulateFromChild(cohort, child)
 	}
 	for _, child := range cohort.ChildCQs() {
 		updateClusterQueueResourceNode(child)
 		accumulateFromChild(cohort, child)
+	}
+}
+
+// updateCohortLendable rebuilds the lendable capacity of every Cohort in the
+// subtree. Keeping it in the same pass as SubtreeQuota is what lets
+// lendableCapacity serve the value without recomputing it per preemption
+// candidate: the two can never disagree, because nothing writes SubtreeQuota
+// outside updateCohortSubtreeResources and accumulateFromChild.
+//
+// ClusterQueues are skipped. Only a Cohort's lendable capacity is ever read.
+func updateCohortLendable(cohort *cohort) {
+	cohort.lendable = computeLendable(cohort)
+	for _, child := range cohort.ChildCohorts() {
+		updateCohortLendable(child)
 	}
 }
 

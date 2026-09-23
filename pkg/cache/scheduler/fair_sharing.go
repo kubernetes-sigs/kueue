@@ -182,17 +182,27 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	return drs
 }
 
+// lendableCohort is implemented by both Cohort types, which rebuild their
+// lendable capacity whenever SubtreeQuota is rebuilt. ClusterQueues do not
+// implement it, and do not need to: dominantResourceShare returns early at a
+// parentless node and otherwise reads the parent, which is always a Cohort.
+type lendableCohort interface {
+	cachedLendable() map[corev1.ResourceName]resources.Amount
+}
+
 // lendableCapacity aggregates capacity for resources across all
 // FlavorResources.
 //
 // The fair-sharing tournament calls this once per preemption candidate. The
 // result depends only on quota and the Cohort tree, never on usage, which is the
-// only thing the tournament mutates, so snapshot Cohorts serve it from a value
-// precomputed in Cache.Snapshot. Cache Cohorts fall through to computeLendable
-// every time, because their quota changes as objects are reconciled.
+// only thing the tournament mutates, so Cohorts serve it from the value
+// maintained by updateCohortLendable. Anything else, and a Cohort whose tree was
+// built without that pass, falls through to computeLendable.
 func lendableCapacity(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
-	if snapshotCohort, ok := node.(*CohortSnapshot); ok && snapshotCohort.lendable != nil {
-		return snapshotCohort.lendable
+	if cohort, ok := node.(lendableCohort); ok {
+		if lendable := cohort.cachedLendable(); lendable != nil {
+			return lendable
+		}
 	}
 	return computeLendable(node)
 }

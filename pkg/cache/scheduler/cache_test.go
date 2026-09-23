@@ -3927,11 +3927,26 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
 			tc.setup(t, cache)
 
+			// Fair sharing reads lendable without recomputing it, so it has to
+			// track SubtreeQuota through every mutation. DeleteCohort is the
+			// interesting one: when the deleted cohort survives because a child
+			// still references it, it reaches updateCohortResourceNode with a
+			// cohort that is not the root.
+			assertLendableInSync := func(when string) {
+				t.Helper()
+				for cohortName, cohort := range cache.hm.Cohorts() {
+					if diff := cmp.Diff(computeLendable(cohort), cohort.lendable, cmp.Comparer(resources.Equal)); diff != "" {
+						t.Errorf("%s deletion, %s lendable is stale (-fresh,+stored):\n%s", when, cohortName, diff)
+					}
+				}
+			}
+
 			for cohortName, wantSubtreeQuota := range tc.wantBefore {
 				if diff := cmp.Diff(wantSubtreeQuota, cache.hm.Cohort(cohortName).getResourceNode().SubtreeQuota); diff != "" {
 					t.Errorf("before deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
 				}
 			}
+			assertLendableInSync("before")
 
 			cache.DeleteCohort(tc.deleteName)
 
@@ -3940,6 +3955,7 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 					t.Errorf("after deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
 				}
 			}
+			assertLendableInSync("after")
 		})
 	}
 }

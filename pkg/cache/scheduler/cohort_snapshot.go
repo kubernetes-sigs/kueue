@@ -32,11 +32,11 @@ type CohortSnapshot struct {
 
 	FairWeight float64
 
-	// lendable holds computeLendable for this Cohort, precomputed in
-	// Cache.Snapshot once the tree is complete. Quota is fixed for a snapshot's
-	// lifetime, because every quota update replaces ResourceNode.SubtreeQuota
-	// with a new map rather than mutating it. Served directly, so callers must
-	// not mutate it.
+	// lendable is the capacity this Cohort can lend per resource, carried over
+	// from the cache Cohort at snapshot time rather than recomputed. Quota is
+	// fixed for a snapshot's lifetime, because every quota update replaces
+	// ResourceNode.SubtreeQuota with a new map rather than mutating it.
+	// Served directly rather than copied, so callers must not mutate it.
 	lendable map[corev1.ResourceName]resources.Amount
 }
 
@@ -88,6 +88,11 @@ func (c *CohortSnapshot) getResourceNode() resourceNode {
 
 func (c *CohortSnapshot) parentHRN() hierarchicalResourceNode {
 	return c.Parent()
+}
+
+// cachedLendable implements lendableCohort.
+func (c *CohortSnapshot) cachedLendable() map[corev1.ResourceName]resources.Amount {
+	return c.lendable
 }
 
 // Implements dominantResourceShareNode interface.
