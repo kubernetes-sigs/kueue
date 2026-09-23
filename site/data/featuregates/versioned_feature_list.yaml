@@ -599,6 +599,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: TASSchedulerLibraryDeepIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: TASTopologySpreading
   versionedSpecs:
   - default: false

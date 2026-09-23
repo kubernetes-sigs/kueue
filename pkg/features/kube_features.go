@@ -705,6 +705,12 @@ const (
 	// Reuse clientConnection (QPS and Burst) for MultiKueue worker clusters instead of creating a new client for each request.
 	MultiKueueReuseClientConnectionConfigForWorkers featuregate.Feature = "MultiKueueReuseClientConnectionConfigForWorkers"
 
+	// owner: @Singularity23x0
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13151
+	// Enables delegating TAS fit and preemptions simulations entirely to WAS Scheduler Library.
+	TASSchedulerLibraryDeepIntegration featuregate.Feature = "TASSchedulerLibraryDeepIntegration"
+
 	// owner: @reruno
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13746-tas-topology-spreading
 	//
@@ -771,6 +777,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	FlavorFungibilityPreserveScanProgress:           {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
+	TASSchedulerLibraryDeepIntegration:              {TopologyAwareScheduling, SchedulerLibraryIntegration},
 	TASTopologySpreading:                            {TopologyAwareScheduling},
 }
 
@@ -1125,6 +1132,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueReuseClientConnectionConfigForWorkers: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
+
+	TASSchedulerLibraryDeepIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	TASTopologySpreading: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
