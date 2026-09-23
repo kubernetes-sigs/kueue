@@ -87,22 +87,32 @@ func (p *PreemptionEvaluator) Candidates(
 				continue
 			}
 
-			for _, targetCq := range snapshot.ClusterQueues() {
-				if !matchesClusterQueue(&filter, targetCq) {
-					continue
-				}
-
-				for _, wlInfo := range targetCq.Workloads {
-					if !seen.Has(wlInfo.Obj.UID) && matchesWorkload(&filter, wlInfo) && classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) {
-						seen.Insert(wlInfo.Obj.UID)
-						candidates = append(candidates, wlInfo)
-					}
-				}
-			}
+			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, &seen, &candidates)
 		}
 	}
 
 	return candidates, nil
+}
+
+func (p *PreemptionEvaluator) addMatchingCandidates(
+	filter *filters.CandidateFilters,
+	snapshot *schdcache.Snapshot,
+	flavorsNeedPreemption sets.Set[resources.FlavorResource],
+	seen *sets.Set[types.UID],
+	candidates *[]*workload.Info,
+) {
+	for _, targetCq := range snapshot.ClusterQueues() {
+		if !matchesClusterQueue(filter, targetCq) {
+			continue
+		}
+
+		for _, wlInfo := range targetCq.Workloads {
+			if !seen.Has(wlInfo.Obj.UID) && matchesWorkload(filter, wlInfo) && classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) {
+				seen.Insert(wlInfo.Obj.UID)
+				*candidates = append(*candidates, wlInfo)
+			}
+		}
+	}
 }
 
 func matchesClusterQueue(filter *filters.CandidateFilters, cq *schdcache.ClusterQueueSnapshot) bool {
