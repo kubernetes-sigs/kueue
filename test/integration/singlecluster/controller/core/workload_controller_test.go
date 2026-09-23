@@ -450,10 +450,10 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 				g.Expect(apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadQuotaReserved)).NotTo(gomega.BeNil())
+				quotaReserved := apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				quotaReserved.LastTransitionTime = metav1.NewTime(time.Now().Add(-time.Minute))
+				g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			quotaReserved := apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			quotaReserved.LastTransitionTime = metav1.NewTime(time.Now().Add(-time.Minute))
-			gomega.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
