@@ -322,7 +322,6 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			// Set name as UID so that candidates sorting is predictable.
 			for i := range tc.admitted {
 				tc.admitted[i].UID = types.UID(tc.admitted[i].Name)
 			}
