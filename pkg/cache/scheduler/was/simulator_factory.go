@@ -29,7 +29,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -86,6 +93,45 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 			workloadPods: make(podsByWorkload),
 		},
 	}, nil
+}
+
+func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
+	return &schedulerconfig.KubeSchedulerConfiguration{
+		Profiles: []schedulerconfig.KubeSchedulerProfile{
+			{
+				SchedulerName: corev1.DefaultSchedulerName,
+				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
+				Plugins: &schedulerconfig.Plugins{
+					QueueSort: schedulerconfig.PluginSet{
+						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
+					},
+					Bind: schedulerconfig.PluginSet{
+						Enabled: []schedulerconfig.Plugin{{Name: defaultbinder.Name}},
+					},
+					Filter: schedulerconfig.PluginSet{
+						Enabled: []schedulerconfig.Plugin{
+							{Name: nodeunschedulable.Name},
+							{Name: tainttoleration.Name},
+							{Name: nodeaffinity.Name},
+							{Name: nodeports.Name},
+						},
+					},
+					PreFilter: schedulerconfig.PluginSet{
+						Enabled: []schedulerconfig.Plugin{
+							{Name: nodeaffinity.Name},
+							{Name: nodeports.Name},
+						},
+					},
+				},
+				PluginConfig: []schedulerconfig.PluginConfig{
+					{
+						Name: nodeaffinity.Name,
+						Args: &schedulerconfig.NodeAffinityArgs{},
+					},
+				},
+			},
+		},
+	}
 }
 
 func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasSimulatorFactory, error) {

@@ -25,13 +25,6 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
@@ -68,44 +61,6 @@ func (l *lazyCluster) get(ctx context.Context) (*schedLibSnapshot.ClusterSnapsho
 		l.value, l.err = l.build(ctx)
 	})
 	return l.value, l.err
-}
-
-func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
-	return &schedulerconfig.KubeSchedulerConfiguration{
-		Profiles: []schedulerconfig.KubeSchedulerProfile{
-			{
-				SchedulerName: corev1.DefaultSchedulerName,
-				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
-				Plugins: &schedulerconfig.Plugins{
-					QueueSort: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: queuesort.Name}},
-					},
-					Bind: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{{Name: defaultbinder.Name}},
-					},
-					Filter: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{
-							{Name: nodeunschedulable.Name},
-							{Name: tainttoleration.Name},
-							{Name: nodeaffinity.Name},
-						},
-					},
-					PreFilter: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{
-							{Name: nodeaffinity.Name},
-							{Name: nodeports.Name},
-						},
-					},
-				},
-				PluginConfig: []schedulerconfig.PluginConfig{
-					{
-						Name: nodeaffinity.Name,
-						Args: &schedulerconfig.NodeAffinityArgs{},
-					},
-				},
-			},
-		},
-	}
 }
 
 func (s *wasSimulator) FindFeasibleNodes(
