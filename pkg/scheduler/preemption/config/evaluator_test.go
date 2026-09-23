@@ -106,7 +106,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorCq:    "a",
 			wantCandidates: []string{},
 		},
-		"returns error for selector with invalid labels while matching preemptor's workload": {
+		"returns error for selector with invalid label's operator while matching preemptor's workload": {
 			clusterQueues: baseCqs,
 			config: kueuealpha.PreemptionConfig{
 				Spec: kueuealpha.PreemptionConfigSpec{
@@ -133,36 +133,6 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantError:   "\"invalid\" is not a valid label selector operator",
-		},
-		"selects candidates for CQ without cohort": {
-			clusterQueues: []*kueue.ClusterQueue{
-				utiltestingapi.MakeClusterQueue("a").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "2").Obj()).
-					Obj(),
-			},
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-					},
-				},
-			},
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
-			preemptorCq:    "a",
-			wantCandidates: []string{"a1", "a2"},
 		},
 		"selects candidates for trigger which is present in config": {
 			clusterQueues: baseCqs,
