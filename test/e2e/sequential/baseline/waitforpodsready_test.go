@@ -244,7 +244,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			if cfg.FeatureGates == nil {
 				cfg.FeatureGates = make(map[string]bool)
 			}
-			cfg.FeatureGates[string(features.WaitForPodsReadyMinThresholdPods)] = true
+			cfg.FeatureGates[string(features.WaitForPodsReadyMinReadyCount)] = true
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  new(true),

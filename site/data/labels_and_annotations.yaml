@@ -206,9 +206,9 @@
   description: |
     The annotation key indicates a label name used to retrieve the Pod's index within the group.
 
-- key: kueue.x-k8s.io/pod-group-pods-ready-min-threshold-count
+- key: kueue.x-k8s.io/pod-group-min-ready-count
   type: Annotation
-  example: '`kueue.x-k8s.io/pod-group-pods-ready-min-threshold-count: "2"`'
+  example: '`kueue.x-k8s.io/pod-group-min-ready-count: "2"`'
   used_on: |
     [Plain Pods](/docs/tasks/run/plain_pods/),
     [StatefulSet](/docs/tasks/run/statefulset/),
@@ -216,11 +216,17 @@
   description: |
     The annotation key indicates the minimum number of ready Pods in the
     group required for the Workload to satisfy the `PodsReady` condition when
-    `WaitForPodsReady` is enabled. Set it on the Pods of the group, or on the
-    `StatefulSet` / `LeaderWorkerSet`, which propagates it to their Pods.
-    All Pods of a group are expected to carry the same value.
+    `WaitForPodsReady` is enabled. Set it on the Pods of a plain Pod group, or
+    on the `StatefulSet` / `LeaderWorkerSet`, which propagates it to their Pods.
+    All Pods of a group are expected to carry the same value. The threshold is
+    evaluated as a total count across all Pods in the group without distinguishing
+    between PodSet roles (such as `leader` and `worker` in a `LeaderWorkerSet` or
+    distinct roles in a plain Pod group).
   note: |
-    This annotation is honored only when the `WaitForPodsReadyMinThresholdPods` feature gate is enabled.
+    This annotation is honored only when the `WaitForPodsReadyMinReadyCount` feature gate is enabled.
+    Setting a value lower than `kueue.x-k8s.io/pod-group-total-count` relaxes the all-or-nothing
+    safety mechanism of `WaitForPodsReady`, keeping `PodsReady=True` as long as at least this many
+    Pods in the group are ready.
 
 - key: kueue.x-k8s.io/pod-group-serving
   type: Annotation

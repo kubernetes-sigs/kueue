@@ -233,7 +233,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 	})
 
 	ginkgo.It("Should propagate and sync GroupPodsReadyMinCountAnnotation from LeaderWorkerSet to its Pods when updated", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinThresholdPods, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinReadyCount, true)
 
 		ginkgo.By("Creating a LeaderWorkerSet with GroupPodsReadyMinCountAnnotation=2")
 		lws := testinglws.MakeLeaderWorkerSet("test-lws-min-pods", ns.Name).

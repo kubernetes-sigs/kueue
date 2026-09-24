@@ -149,7 +149,7 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 			log.V(3).Info("Updating pod in group")
 			updated = true
 		}
-		if features.Enabled(features.WaitForPodsReadyMinThresholdPods) && r.syncPodsReadyMinCountAnnotation(sts, wlName, pod) {
+		if features.Enabled(features.WaitForPodsReadyMinReadyCount) && r.syncPodsReadyMinCountAnnotation(sts, wlName, pod) {
 			log.V(3).Info("Syncing pod group pods ready min count annotation")
 			updated = true
 		}

@@ -530,7 +530,9 @@ func (p *Pod) isPodReadyOrSucceeded(pod *corev1.Pod) bool {
 }
 
 // PodsReady reports whether the pod or pod group has reached the required number
-// of ready (or succeeded) pods.
+// of ready (or succeeded) pods. For pod groups (plain Pod groups, StatefulSet,
+// LeaderWorkerSet), the count is evaluated across all pods in the group without
+// distinguishing between PodSet roles (e.g., leader vs. worker).
 func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
 		return p.isPodReadyOrSucceeded(&p.pod)
@@ -542,7 +544,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 		return false
 	}
 	requiredCount := tc
-	if features.Enabled(features.WaitForPodsReadyMinThresholdPods) {
+	if features.Enabled(features.WaitForPodsReadyMinReadyCount) {
 		requiredCount = p.groupPodsReadyMinCount(tc)
 	}
 

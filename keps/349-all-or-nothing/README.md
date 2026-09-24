@@ -189,7 +189,7 @@ to prevent a Workload from running indefinitely.
 
 Another possible mitigation for this would to partially disable the timeout.
 
-Setting `kueue.x-k8s.io/pod-group-pods-ready-min-threshold-count` below
+Setting `kueue.x-k8s.io/pod-group-min-ready-count` below
 `kueue.x-k8s.io/pod-group-total-count` intentionally relaxes the all-or-nothing
 safety mechanism provided by `waitForPodsReady`:
 - Once the minimum threshold of ready pods is reached, the workload transitions to
@@ -200,14 +200,21 @@ safety mechanism provided by `waitForPodsReady`:
   while competing with newly admitted workloads for physical cluster capacity, which can
   re-introduce scheduling contention or partial-allocation deadlocks if workloads cannot
   actually make progress with only the minimum threshold of pods.
+- The threshold is evaluated as a flat count across all pods in the group (for plain Pod
+  groups as well as `StatefulSet` and `LeaderWorkerSet`), without distinguishing between
+  PodSet roles. In a `LeaderWorkerSet` (for example with `restartPolicy: None`) or a
+  multi-role plain Pod group, if the leader or another critical role pod becomes unready
+  while enough worker pods remain ready to satisfy `pod-group-pods-ready-min-threshold-count`,
+  Kueue keeps `PodsReady=True` and does not evict the workload.
 
 To mitigate this risk:
-- Users should only set `kueue.x-k8s.io/pod-group-pods-ready-min-threshold-count` when the
-  workload is genuinely capable of making progress or serving traffic with that minimum
-  number of pods.
+- Users should only set `kueue.x-k8s.io/pod-group-min-ready-count` when the
+  workload is genuinely capable of making progress or serving traffic with any subset of
+  pods of that size (or when the owning controller, such as `LeaderWorkerSet` with
+  `restartPolicy: RecreateGroupOnPodRestart`, tears down the entire group when a leader pod fails).
 - Administrators who require strict all-or-nothing guarantees can keep the
-  `WaitForPodsReadyMinThresholdPods` feature gate disabled, or restrict usage of the
-  `kueue.x-k8s.io/pod-group-pods-ready-min-threshold-count` annotation via a
+  `WaitForPodsReadyMinReadyCount` feature gate disabled, or restrict usage of the
+  `kueue.x-k8s.io/pod-group-min-ready-count` annotation via a
   [Validating Admission Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
 
 All of the above mitigation will be documented on Kueue website.
@@ -344,15 +351,15 @@ if the workload's startup requirements are satisfied. More precisely, for a batc
 the condition when `job.status.ready + len(job.status.uncountedTerimnatedPods.succeeded) + job.status.succeeded` is greater or equal
 than `job.spec.parallelism`.
 
-For Pod groups (and integrations built on Pod groups, such as `StatefulSet` and `LeaderWorkerSet`),
+For plain Pod groups and integrations built on Pod groups (`StatefulSet` and `LeaderWorkerSet`),
 all pods in the group (`kueue.x-k8s.io/pod-group-total-count`) are required to be ready
-by default for the `PodsReady` condition to be satisfied. When the `WaitForPodsReadyMinThresholdPods` feature gate
-is enabled, users can specify the `kueue.x-k8s.io/pod-group-pods-ready-min-threshold-count` annotation with an integer
+by default for the `PodsReady` condition to be satisfied. When the `WaitForPodsReadyMinReadyCount` feature gate
+is enabled, users can specify the `kueue.x-k8s.io/pod-group-min-ready-count` annotation with an integer
 value in `[1, pod-group-total-count]` (on the Pod group pods, or on the `StatefulSet` / `LeaderWorkerSet`
 which propagates it to its pods). When set, the `PodsReady` condition is satisfied (for both the initial
-startup `timeout` and `recoveryTimeout`) whenever the number of ready pods in the group is
-at least `pod-group-pods-ready-min-threshold-count`. If the annotation is absent or invalid, the required threshold
-falls back to `pod-group-total-count`.
+startup `timeout` and `recoveryTimeout`) whenever the total number of ready pods across the group (regardless
+of PodSet role, such as `leader` vs `worker`) is at least `pod-group-pods-ready-min-threshold-count`. If the
+annotation is absent or invalid, the required threshold falls back to `pod-group-total-count`.
 
 Succeeded pods count towards the threshold only for non-serving Pod groups, and only when the
 `PodIntegrationCountSucceededPodsAsReady` feature gate is enabled. `StatefulSet` and `LeaderWorkerSet`
@@ -559,7 +566,7 @@ Major milestones might include:
 -->
 
 - 2026-01-13: `recoveryTimeout` defaults to `timeout` when not specified, setting to `0` disables it
-- 2026-09-23: Introduce `kueue.x-k8s.io/pod-group-pods-ready-min-threshold-count` annotation behind `WaitForPodsReadyMinThresholdPods` feature gate for Pod-group workloads
+- 2026-09-23: Introduce `kueue.x-k8s.io/pod-group-min-ready-count` annotation behind `WaitForPodsReadyMinReadyCount` feature gate for Pod-group workloads
 
 ## Drawbacks
 
