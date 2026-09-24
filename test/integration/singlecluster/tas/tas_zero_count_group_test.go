@@ -20,7 +20,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -127,6 +129,64 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		ginkgo.Entry("non-elastic workload with preferred topology", false),
 		ginkgo.Entry("elastic workload with unconstrained topology", true),
 	)
+
+	ginkgo.It("should probe an all-zero group without requiring nodes for admission", func() {
+		ginkgo.By("removing all nodes while retaining flavor quotas")
+		for i := range nodes {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+		}
+		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").PodSets(
+			*utiltestingapi.MakePodSet("leader", 0).Request(corev1.ResourceCPU, "1").
+				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
+			*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "1").
+				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
+		).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		ginkgo.By("selecting quota capacity for one pod per member without charging quota or assigning topology")
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+		gomega.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(2))
+		for _, assignment := range wl.Status.Admission.PodSetAssignments {
+			gomega.Expect(assignment.Flavors[corev1.ResourceCPU]).To(gomega.Equal(kueue.ResourceFlavorReference("large")))
+			gomega.Expect(assignment.Count).To(gomega.HaveValue(gomega.Equal(int32(0))))
+			gomega.Expect(assignment.ResourceUsage).To(gomega.Equal(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}))
+			gomega.Expect(assignment.TopologyAssignment).To(gomega.BeNil())
+		}
+	})
+
+	ginkgo.It("should keep a mixed-count group pending when neither flavor can place the leader", func() {
+		ginkgo.By("providing enough quota while keeping node capacities at one and two CPUs")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+			for i := range cq.Spec.ResourceGroups[0].Flavors {
+				cq.Spec.ResourceGroups[0].Flavors[i].Resources[0].NominalQuota = resource.MustParse("4")
+			}
+			g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").PodSets(
+			*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "3").
+				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
+			*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "1").
+				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
+		).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		ginkgo.By("rejecting admission because the leader cannot fit on either node")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(cond).NotTo(gomega.BeNil())
+			g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+			g.Expect(cond.Message).To(gomega.ContainSubstring(`topology "zero-count-group" doesn't allow to fit any of 1 pod(s)`))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			g.Expect(wl.Status.Admission).To(gomega.BeNil())
+			g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
 
 	ginkgo.It("should readmit remaining pods without requiring capacity for completed grouped workers", func() {
 		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").PodSets(
