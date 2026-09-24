@@ -25,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -898,6 +900,14 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			defer restore()
 		}
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
+
+		if features.Enabled(features.SchedulerLibraryIntegration) {
+			candidatePods, err := assignment.CandidateVirtualPods(a.wl, a.cq)
+			if err != nil {
+				log.Error(err, "Failed to build candidate virtual pods for workload", "workload", a.wl.Obj.Name)
+			}
+			_ = candidatePods
+		}
 		if assignment.RepresentativeMode() == Fit {
 			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 			if failure := result.Failure(); failure != nil {
@@ -1530,4 +1540,54 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	}
 	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
 	return true
+}
+
+// CandidateVirtualPods builds candidate virtual pods for all PodSets in the assignment
+// using the assigned flavor's node labels, tolerations, and admission check updates.
+func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
+	var allPods []*corev1.Pod
+	for _, psAssignment := range a.PodSets {
+		if psAssignment.Status.IsError() || psAssignment.Count == 0 {
+			continue
+		}
+		podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psAssignment.Name)
+		if podSet == nil {
+			continue
+		}
+
+		tasFlavor, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
+		if err != nil {
+			continue
+		}
+		flavorSnapshot := cq.TASFlavors[*tasFlavor]
+		if flavorSnapshot == nil {
+			continue
+		}
+
+		// Gather ready PodSetUpdates from admission checks
+		var podSetUpdate *kueue.PodSetUpdate
+		for _, ac := range wl.Obj.Status.AdmissionChecks {
+			if ac.State == kueue.CheckStateReady {
+				for _, u := range ac.PodSetUpdates {
+					if u.Name == podSet.Name {
+						podSetUpdate = &u
+						break
+					}
+				}
+			}
+		}
+
+		opts := was.CandidatePodOptions{
+			FlavorNodeLabels:  flavorSnapshot.NodeLabels(),
+			FlavorTolerations: flavorSnapshot.Tolerations(),
+			PodSetUpdate:      podSetUpdate,
+		}
+
+		pods, err := was.CandidateVirtualPodsForPodSet(wl.Obj, podSet, opts)
+		if err != nil {
+			return nil, err
+		}
+		allPods = append(allPods, pods...)
+	}
+	return allPods, nil
 }
