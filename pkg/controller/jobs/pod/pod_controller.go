@@ -543,10 +543,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
 		return false
 	}
-	requiredCount := tc
-	if features.Enabled(features.WaitForPodsReadyMinReadyCount) {
-		requiredCount = p.groupPodsReadyMinCount(tc)
-	}
+	requiredCount := p.podsReadyThreshold(tc)
 
 	var readyCount int
 	for i := range p.list.Items {
@@ -762,14 +759,17 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
-// groupPodsReadyMinCount returns the strictest GroupPodsReadyMinCountAnnotation
-// threshold across the group, falling back to totalCount for any pod whose
-// annotation is missing, malformed, or outside [1, totalCount]. Reading the
-// whole group - rather than only the reconciled pod - keeps the result independent
-// of which pod triggered the reconcile while the annotation is being propagated,
-// and a missing or malformed annotation never marks an incomplete group as PodsReady.
-func (p *Pod) groupPodsReadyMinCount(totalCount int) int {
-	if len(p.list.Items) == 0 {
+// podsReadyThreshold returns how many pods in the group must satisfy
+// isPodReadyOrSucceeded for the group to be PodsReady. It is totalCount unless
+// the WaitForPodsReadyMinReadyCount feature gate is enabled, in which case it is
+// the strictest GroupPodsReadyMinCountAnnotation threshold across the group,
+// falling back to totalCount for any pod whose annotation is missing, malformed,
+// or outside [1, totalCount]. Reading the whole group - rather than only the
+// reconciled pod - keeps the result independent of which pod triggered the
+// reconcile while the annotation is being propagated, and a missing or malformed
+// annotation never marks an incomplete group as PodsReady.
+func (p *Pod) podsReadyThreshold(totalCount int) int {
+	if !features.Enabled(features.WaitForPodsReadyMinReadyCount) || len(p.list.Items) == 0 {
 		return totalCount
 	}
 	threshold := 1
