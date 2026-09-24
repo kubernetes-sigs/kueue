@@ -19,6 +19,7 @@ limitations under the License.
 package was
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -418,5 +419,40 @@ func TestBuildCandidatePodImmutability(t *testing.T) {
 	}
 	if len(ps.Template.Spec.Tolerations) != 1 {
 		t.Errorf("PodSet template tolerations len = %d, want 1", len(ps.Template.Spec.Tolerations))
+	}
+}
+
+func TestCandidateVirtualPodsForPodSet(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "test-ns").UID("wl-uid").Obj()
+	ps := &kueue.PodSet{
+		Name: "workers",
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+		},
+		Count: 3,
+	}
+	opts := CandidatePodOptions{
+		FlavorNodeLabels: map[string]string{"instance-type": "a2"},
+	}
+
+	pods, err := CandidateVirtualPodsForPodSet(wl, ps, opts)
+	if err != nil {
+		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
+	}
+
+	if len(pods) != 3 {
+		t.Fatalf("len(pods) = %d, want 3", len(pods))
+	}
+
+	for i, pod := range pods {
+		wantUID := types.UID(fmt.Sprintf("virtual-wl-uid-workers-%d", i))
+		if pod.UID != wantUID {
+			t.Errorf("pod[%d].UID = %q, want %q", i, pod.UID, wantUID)
+		}
+		if pod.Spec.NodeSelector["instance-type"] != "a2" {
+			t.Errorf("pod[%d] missing flavor nodeSelector", i)
+		}
 	}
 }

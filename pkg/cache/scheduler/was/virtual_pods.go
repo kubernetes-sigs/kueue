@@ -130,13 +130,16 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 	return virtualPods
 }
 
-// CandidatePodOptions holds the options for creating a candidate pod
+// CandidatePodOptions holds the options for creating a candidate pod.
 type CandidatePodOptions struct {
 	FlavorNodeLabels  map[string]string
 	FlavorTolerations []corev1.Toleration
 	PodSetUpdate      *kueue.PodSetUpdate
 }
 
+// BuildCandidatePod builds a candidate pod for the i-th pod of a PodSet.
+// It merges the PodSet template, the assigned Flavor's node labels and tolerations,
+// and any admission check updates.
 func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opts CandidatePodOptions) (*corev1.Pod, error) {
 	if wl == nil || ps == nil {
 		return nil, fmt.Errorf("workload and podset must be non-nil")
@@ -206,4 +209,22 @@ func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opt
 
 	return pod, nil
 
+}
+
+// CandidateVirtualPodsForPodSet returns candidate virtual pods for all pods
+// for the specified PodSet.
+func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, opts CandidatePodOptions) ([]*corev1.Pod, error) {
+	if wl == nil || ps == nil {
+		return nil, fmt.Errorf("workload and podset must be non-nil")
+	}
+
+	pods := make([]*corev1.Pod, 0, ps.Count)
+	for i := range int(ps.Count) {
+		pod, err := BuildCandidatePod(wl, ps, i, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build candidate pod %d/%d: %w", i, ps.Count, err)
+		}
+		pods = append(pods, pod)
+	}
+	return pods, nil
 }
