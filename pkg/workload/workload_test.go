@@ -4139,6 +4139,50 @@ func TestSchedulingHash(t *testing.T) {
 	})
 }
 
+func TestSchedulingHashZeroCountDRARequests(t *testing.T) {
+	cases := map[string]struct {
+		count     int32
+		reclaimed int32
+	}{
+		"zero replicas":            {},
+		"fully reclaimed replicas": {count: 1, reclaimed: 1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.KueueDRAIntegration:          true,
+				features.ReclaimablePods:              true,
+			})
+			wl := utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").PodSets(
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, int(tc.count)).ResourceClaimTemplate("gpu", "gpu-template").Obj(),
+			).Obj()
+			if tc.reclaimed > 0 {
+				wl.Status.ReclaimablePods = []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: tc.reclaimed}}
+			}
+			first := WithPreprocessedDRAResources(map[kueue.PodSetReference]corev1.ResourceList{
+				kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+			}, nil)
+			second := WithPreprocessedDRAResources(map[kueue.PodSetReference]corev1.ResourceList{
+				kueue.DefaultPodSetName: {"gpu": resource.MustParse("2")},
+			}, nil)
+			info := NewInfo(log, wl, first)
+			changed := NewInfo(log, wl, second)
+			if !resources.Equal(info.TotalRequests[0].Requests, changed.TotalRequests[0].Requests) {
+				t.Fatal("precondition failed: zero-count total requests should be equal")
+			}
+			if info.SchedulingHash == changed.SchedulingHash {
+				t.Error("different processed per-pod requests must produce different hashes at zero count")
+			}
+			info.Update(log, wl, second)
+			if info.SchedulingHash != changed.SchedulingHash {
+				t.Error("Update must refresh the hash when processed per-pod requests change at the same ResourceVersion")
+			}
+		})
+	}
+}
+
 func TestUpdateSchedulingHashReuse(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
@@ -4263,10 +4307,19 @@ func TestSameHashedRequests(t *testing.T) {
 		}
 	}
 
+	withPerPod := func(count int32, perPodCPU int64) PodSetResources {
+		ps := podSet(count, 1000*int64(count))
+		ps.PerPodRequests = resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: perPodCPU})
+		return ps
+	}
+
 	cases := map[string]struct {
 		prev, current []PodSetResources
 		want          bool
 	}{
+		"zero-count per-pod requests differ":                   {prev: []PodSetResources{withPerPod(0, 1000)}, current: []PodSetResources{withPerPod(0, 2000)}},
+		"positive-count per-pod copies do not affect the hash": {prev: []PodSetResources{withPerPod(1, 1000)}, current: []PodSetResources{withPerPod(1, 2000)}, want: true},
+
 		"identical":            {prev: []PodSetResources{podSet(1, 1000)}, current: []PodSetResources{podSet(1, 1000)}, want: true},
 		"both empty":           {want: true},
 		"different count":      {prev: []PodSetResources{podSet(1, 1000)}, current: []PodSetResources{podSet(2, 1000)}},

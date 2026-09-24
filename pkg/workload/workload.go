@@ -442,6 +442,9 @@ func sameHashedRequests(prev, current []PodSetResources) bool {
 		if prev[i].Count != current[i].Count || !resources.Equal(prev[i].Requests, current[i].Requests) {
 			return false
 		}
+		if current[i].Count == 0 && !resources.Equal(prev[i].PerPodRequests, current[i].PerPodRequests) {
+			return false
+		}
 	}
 	return true
 }
@@ -502,6 +505,11 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			"minCount":          ps.MinCount,
 			"topologyRequest":   ps.TopologyRequest,
 			"topologySpreading": ps.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation],
+		}
+		// At zero count, processed per-pod requests still affect flavor probing
+		// even though total requests are zero (for example, DRA resources).
+		if effectiveCount == 0 && i < len(totalRequests) {
+			podSetShape["perPodRequests"] = resources.ToMap(totalRequests[i].PerPodRequests)
 		}
 		// The name identifies a PodSet but does not affect how it is assigned.
 		// Two readers depend on this shape: the queue's equivalence classes, and
