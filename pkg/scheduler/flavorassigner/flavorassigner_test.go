@@ -5258,7 +5258,7 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Mi"),
 						},
-						Count: 71, // Assigned 1 pod.
+						Count: 3, // Assigned the full 3 pods.
 					},
 				},
 				replaceWorkloadSlice: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
@@ -5277,6 +5277,96 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 			want: resources.FlavorResourceQuantities{
 				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(2 * 1000),
 				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(2 * 1048576),
+			},
+		},
+		"WorkloadWithReplacementAndPartialAdmission": {
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "default", Mode: Preempt, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("6"),
+						},
+						Count: 6, // Partially assigned 6 of the 10 pods.
+					},
+				},
+				replaceWorkloadSlice: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+					Request(corev1.ResourceCPU, "1").
+					Obj()),
+			},
+			args: args{
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Obj()).
+					Request(corev1.ResourceCPU, "1").
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{ // Want the 4 pods added to the replaced 2.
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4 * 1000),
+			},
+		},
+		"WorkloadWithPodsQuota": {
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:  {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+							corev1.ResourcePods: {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:  resource.MustParse("2"),
+							corev1.ResourcePods: resource.MustParse("2"),
+						},
+						Count: 2,
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+					Request(corev1.ResourceCPU, "1").
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(2 * 1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(2),
+			},
+		},
+		"WorkloadWithQuotaReservationAndPodsQuota": {
+			// A workload taking a second pass gets its requests from its admission,
+			// which already counts Pods.
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:  {Name: "default", Mode: Preempt, TriedFlavorIdx: -1},
+							corev1.ResourcePods: {Name: "default", Mode: Preempt, TriedFlavorIdx: -1},
+						},
+						Count: 3,
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Obj()).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "3").
+							Assignment(corev1.ResourcePods, "default", "3").
+							Count(3).
+							Obj()).
+						Obj(), time.Now()).
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3 * 1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(3),
 			},
 		},
 		"WorkloadWithZeroQuantityResourceNotInClusterQueueSkipsResourceWithoutFlavor": {
