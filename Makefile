@@ -278,12 +278,16 @@ image-pushing-postsubmit:
 image-push: PUSH=--push
 image-push: image-build
 
+define _helm_chart_package_recipe
+DEST_CHART_DIR=$(DEST_CHART_DIR) \
+HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
+HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
+./hack/helm-chart-package.sh
+endef
+
 .PHONY: helm-chart-package
 helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
-	DEST_CHART_DIR=$(DEST_CHART_DIR) \
-	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
-	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
-	./hack/helm-chart-package.sh
+	$(_helm_chart_package_recipe)
 
 .PHONY: helm-chart-push
 helm-chart-push: HELM_CHART_PUSH=true
@@ -358,15 +362,19 @@ clean-artifacts:
 clean-release-artifacts:
 	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
+define _prepare_manifests_recipe
+cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
+cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
+cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
+cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
+cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
+endef
+
 .PHONY: prepare-manifests
 prepare-manifests: kustomize
-	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
-	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
-	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
-	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
-	cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
+	$(_prepare_manifests_recipe)
 
-# Keep first so serial builds fail before helm-chart-package and
+# Keep first so the build fails before helm-chart-package and
 # prepare-manifests rewrite tracked files.
 .PHONY: verify-git-tag
 verify-git-tag:
@@ -389,9 +397,14 @@ $(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
 CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 endef
 
+# helm-chart-package and prepare-manifests write to the working tree, so they run from the recipe
+# body, not as prerequisites, which Make builds in parallel. See the note above the verify-*
+# wrappers in `hack/make/verify.mk`.
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
+artifacts: verify-git-tag clean-artifacts kustomize helm yq ## Generate local artifacts.
+	$(_helm_chart_package_recipe)
+	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
 
 .PHONY: release-artifacts
