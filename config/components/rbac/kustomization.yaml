@@ -69,3 +69,5 @@ resources:
 - leaderworkerset_viewer_role.yaml
 - sparkapplication_editor_role.yaml
 - sparkapplication_viewer_role.yaml
+- appwrapper_editor_role.yaml
+- appwrapper_viewer_role.yaml
