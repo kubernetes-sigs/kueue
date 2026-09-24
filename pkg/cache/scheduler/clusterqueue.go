@@ -191,12 +191,7 @@ func (c *clusterQueue) updateClusterQueue(
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
 	c.AdmissionChecks = admissioncheck.NewAdmissionChecks(in)
-	c.PreemptionConfigName = nil
-	if features.Enabled(features.ConfigurablePreemptions) && in.Annotations != nil {
-		if val, ok := in.Annotations[kueuealpha.PreemptionConfigNameAnnotation]; ok {
-			c.PreemptionConfigName = ptr.To(val)
-		}
-	}
+	c.PreemptionConfigName = parsePreemptionConfigName(in)
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
 	} else {
@@ -224,6 +219,16 @@ func (c *clusterQueue) updateClusterQueue(
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
 	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas)
+	return nil
+}
+
+func parsePreemptionConfigName(in *kueue.ClusterQueue) *string {
+	if !features.Enabled(features.ConfigurablePreemptions) || in.Annotations == nil {
+		return nil
+	}
+	if val, ok := in.Annotations[kueuealpha.PreemptionConfigNameAnnotation]; ok {
+		return ptr.To(val)
+	}
 	return nil
 }
 
