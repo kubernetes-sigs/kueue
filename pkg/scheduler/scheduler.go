@@ -1122,7 +1122,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
 			revertPods := simulatePodRemoval(ctx, log, snapshot, targetWorkloads)
