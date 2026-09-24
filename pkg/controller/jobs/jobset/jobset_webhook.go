@@ -80,7 +80,9 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) erro
 	if err := jobframework.ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, w.client, obj, w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, obj)
+	if err := jobframework.ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, w.client, obj, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	if err := jobframework.ApplyDefaultForSuspend(ctx, jobSet, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}

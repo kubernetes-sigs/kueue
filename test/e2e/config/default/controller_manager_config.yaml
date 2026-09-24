@@ -39,6 +39,7 @@ integrations:
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
+  EnforceProvisioningPodTemplateContents: true
   ConcurrentAdmission: true
   MultiKueueManagerQuotaAutomation: true
   TASGroupedPodSetSlicing: true

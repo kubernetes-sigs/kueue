@@ -561,21 +561,28 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			draResources = ccResources
 		}
 
-		quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 		requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
 
-		var conditionsCleared bool
-		if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			conditionsCleared = true
-		}
+		var conditionsChanged bool
 		if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
-			conditionsCleared = true
+			if requeuedCond.Reason == kueue.WorkloadInadmissible {
+				if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+					return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+				}); err != nil {
+					return ctrl.Result{}, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
+				}
+			} else {
+				apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
+			}
+			conditionsChanged = true
+		}
+		if quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			conditionsChanged = true
 		}
 
-		if conditionsCleared {
-			log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
+		if conditionsChanged {
+			log.V(3).Info("Updated previous inadmissible conditions after successful DRA processing")
 		}
 
 		if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
@@ -1604,7 +1611,7 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 	// Read live usage before taking the entry lock: the scheduler snapshot reads
 	// AfsUsageLedger while holding the scheduler-cache lock, so the Update
 	// closure must not call back into the cache.
-	newUsage := cacheLq.GetAdmittedUsage()
+	newUsage := cacheLq.AdmittedUsage()
 
 	var settled corev1.ResourceList
 	updated := r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {

@@ -34,6 +34,8 @@ featureGates:
   enabled: true
 - name: ElasticJobsViaWorkloadSlicesWithTAS
   enabled: true
+- name: EnforceProvisioningPodTemplateContents
+  enabled: true
 - name: ConcurrentAdmission
   enabled: true
 - name: TASGroupedPodSetSlicing

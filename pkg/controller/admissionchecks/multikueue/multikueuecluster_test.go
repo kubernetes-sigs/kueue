@@ -32,6 +32,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -980,6 +981,34 @@ func TestConnectionStateTransitions(t *testing.T) {
 	cs.markConnected()
 	if !cs.isConnected() || cs.lostSince() != nil {
 		t.Fatalf("after reconnect want connected with nil disconnectedSince, got connected=%v since=%v", cs.isConnected(), cs.lostSince())
+	}
+}
+
+func TestUpdateStatusRefreshesObservedGeneration(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").Obj()
+	managerClient := getClientBuilder(ctx).WithObjects(cluster).WithStatusSubresource(cluster).Build()
+	reconciler := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, nil, nil, nil, nil, nil)
+
+	if err := reconciler.updateStatus(ctx, cluster, true, "Active", "Connected"); err != nil {
+		t.Fatalf("initial updateStatus: %v", err)
+	}
+	got := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(cluster), got); err != nil {
+		t.Fatalf("get cluster after initial status update: %v", err)
+	}
+	got.Generation = 2
+	if err := reconciler.updateStatus(ctx, got, true, "Active", "Connected"); err != nil {
+		t.Fatalf("updateStatus with stale observed generation: %v", err)
+	}
+	updated := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(got), updated); err != nil {
+		t.Fatalf("get cluster after generation update: %v", err)
+	}
+	if act := apimeta.FindStatusCondition(updated.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
+		act.ObservedGeneration != 2 {
+		t.Fatalf("want Active observed generation 2, got %+v", act)
 	}
 }
 

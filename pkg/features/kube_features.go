@@ -581,6 +581,15 @@ const (
 
 	// owner: @vladikkuzn
 	//
+	// When an existing PodTemplate at the deterministic name differs from the Kueue-derived
+	// spec, replace it (delete+create) so the ProvisioningRequest never adopts foreign/stale
+	// contents. A recreate that races the still-finalizing delete returns the error and is
+	// retried by the next reconcile with backoff. Disable to reuse the existing PodTemplate
+	// without content validation (previous dangerous behavior).
+	EnforceProvisioningPodTemplateContents featuregate.Feature = "EnforceProvisioningPodTemplateContents"
+
+	// owner: @vladikkuzn
+	//
 	// Rejects Workloads with negative container or pod-level resource requests/limits.
 	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
 
@@ -716,6 +725,15 @@ const (
 	// group reports PodsReady=False as soon as any member finishes, which can evict a
 	// healthy group once waitForPodsReady.recoveryTimeout elapses.
 	PodIntegrationCountSucceededPodsAsReady featuregate.Feature = "PodIntegrationCountSucceededPodsAsReady"
+
+	// owner: @rjgoyln
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15613
+	//
+	// Label the Workload of a Pod that Kueue manages through a Deployment with the
+	// Deployment UID rather than the Pod UID, so that all Workloads of one Deployment
+	// share a job-uid value. The Pod UID is kept when the gate is disabled, and for Pods
+	// that Kueue does not manage through a Deployment.
+	DeploymentJobUIDLabel featuregate.Feature = "DeploymentJobUIDLabel"
 )
 
 func init() {
@@ -1028,6 +1046,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	EnforceProvisioningPodTemplateContents: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	WorkloadValidateResourcesAreNonNegative: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -1085,6 +1107,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PodIntegrationCountSucceededPodsAsReady: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	DeploymentJobUIDLabel: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
