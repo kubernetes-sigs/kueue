@@ -92,7 +92,9 @@ dependencies:
       lock or checksum files and consumed from the same manifests in every
       environment. Development and CI install pinned tooling from
       hack/tools/go.mod; tests run against pinned envtest and kind
-      Kubernetes versions and operator versions resolved from go.mod;
+      Kubernetes versions and operator versions resolved from go.mod,
+      except the Prometheus Operator, which is pinned in
+      hack/testing/prometheus-operator/Dockerfile;
       release images are static binaries on a digest-pinned distroless
       base, promoted to registry.k8s.io with an SPDX SBOM and OpenVEX
       document. See ENVIRONMENT_DEPENDENCIES_POLICY.md for the full policy.
