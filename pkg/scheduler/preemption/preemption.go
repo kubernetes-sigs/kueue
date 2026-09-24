@@ -114,19 +114,7 @@ func New(
 	return p
 }
 
-type Target struct {
-	WorkloadInfo *workload.Info
-	Reason       string
-	WorkloadCq   *schdcache.ClusterQueueSnapshot
-}
-
-// ensures that Target implements ObjectRefProvider interface at compile time
-var _ logging.ObjectRefProvider = (*Target)(nil)
-
-// GetObject implements the ObjectRefProvider interface.
-func (t *Target) GetObject() client.Object {
-	return t.WorkloadInfo.Obj
-}
+type Target = preemptioncommon.Target
 
 // GetTargets returns the list of workloads that should be evicted in
 // order to make room for wl.
@@ -159,12 +147,29 @@ func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
 	if features.Enabled(features.ConfigurablePreemptions) {
 		// Resolved once per attempt: both algorithms evaluate several triggers, and the
 		// PreemptionConfig must not be re-read for each of them.
-		preemptionCtx.configurableEvaluator = newConfigurableEvaluator(p.client, preemptionCtx)
+		preemptionCtx.configurableEvaluator = configurable.NewEvaluatorForClusterQueue(
+			preemptionCtx.ctx,
+			preemptionCtx.log,
+			preemptionCtx.clock,
+			p.client,
+			preemptionCtx.preemptorCQ,
+		)
 	}
 	if p.enableFairSharing {
 		return p.fairPreemptions(preemptionCtx, p.fsStrategies)
 	}
 	return p.classicalPreemptions(preemptionCtx)
+}
+
+func (p *Preemptor) mergeConfigurableCandidates(preemptionCtx *preemptionCtx, allowBorrowing bool) (bool, []*Target) {
+	return preemptionCtx.configurableEvaluator.MergeCandidatesWithFitCheck(
+		preemptionCtx.snapshot,
+		&preemptionCtx.preemptor,
+		preemptionCtx.frsNeedPreemption,
+		p.candidatesOrdering(preemptionCtx),
+		func() bool { return workloadFits(preemptionCtx, allowBorrowing) },
+		func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
+	)
 }
 
 var HumanReadablePreemptionReasons = map[string]string{
@@ -344,7 +349,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 			}
 		}
 		if features.Enabled(features.ConfigurablePreemptions) {
-			fits, configurableTargets := mergeConfigurableCandidatesWithFitCheck(preemptionCtx, p.candidatesOrdering(preemptionCtx), attemptOpts.borrowing)
+			fits, configurableTargets := p.mergeConfigurableCandidates(preemptionCtx, attemptOpts.borrowing)
 			targets = append(targets, configurableTargets...)
 			if fits {
 				targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
@@ -560,7 +565,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	//
 	// The configurable candidates are only evaluated once the strategies failed, so
 	// their emptiness isn't known here; the presence of a rule is enough to keep going.
-	if len(candidates) == 0 && (!features.Enabled(features.ConfigurablePreemptions) || !hasConfigurableRules(preemptionCtx)) {
+	if len(candidates) == 0 && (!features.Enabled(features.ConfigurablePreemptions) || !preemptionCtx.configurableEvaluator.HasRules()) {
 		return nil
 	}
 	slices.SortFunc(candidates, p.candidatesOrdering(preemptionCtx))
@@ -612,7 +617,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		// configuration selects them explicitly, so they are only considered once the
 		// strategies failed to admit the workload.
 		var configurableTargets []*Target
-		fits, configurableTargets = mergeConfigurableCandidatesWithFitCheck(preemptionCtx, p.candidatesOrdering(preemptionCtx), true)
+		fits, configurableTargets = p.mergeConfigurableCandidates(preemptionCtx, true)
 		targets = append(targets, configurableTargets...)
 	}
 	if !fits {

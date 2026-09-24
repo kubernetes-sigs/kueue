@@ -37,6 +37,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -1054,9 +1055,9 @@ func TestMergeConfigurableCandidatesWithFitCheck(t *testing.T) {
 				},
 			}
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, preemptionCtx.clock, nil, preemptexpectations.New(), nil)
-			preemptionCtx.configurableEvaluator = newConfigurableEvaluator(cl, preemptionCtx)
+			preemptionCtx.configurableEvaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, preemptionCtx.clock, cl, preemptionCtx.preemptorCQ)
 
-			gotFits, gotTargets := mergeConfigurableCandidatesWithFitCheck(preemptionCtx, preemptor.candidatesOrdering(preemptionCtx), true)
+			gotFits, gotTargets := preemptor.mergeConfigurableCandidates(preemptionCtx, true)
 			if gotFits != tc.wantFits {
 				t.Errorf("mergeConfigurableCandidatesWithFitCheck() fits = %v, want %v", gotFits, tc.wantFits)
 			}

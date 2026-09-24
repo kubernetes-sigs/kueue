@@ -16,6 +16,29 @@ limitations under the License.
 
 package common
 
+import (
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/logging"
+	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+// Target represents a workload selected for preemption.
+type Target struct {
+	WorkloadInfo *workload.Info
+	Reason       string
+	WorkloadCq   *schdcache.ClusterQueueSnapshot
+}
+
+// ensures that Target implements ObjectRefProvider interface at compile time
+var _ logging.ObjectRefProvider = (*Target)(nil)
+
+// GetObject implements the ObjectRefProvider interface.
+func (t *Target) GetObject() client.Object {
+	return t.WorkloadInfo.Obj
+}
+
 // PreemptionPossibility represents the result
 // of a preemption simulation.
 type PreemptionPossibility int
