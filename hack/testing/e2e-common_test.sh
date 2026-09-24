@@ -346,6 +346,27 @@ if [[ "${pull_attempts}" != "1" ]]; then
   exit 1
 fi
 
+# A manifest lookup that 404s on the registry's own endpoint says nothing about the
+# tag, so the bare `unauthorized:` keeps its retries.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=2
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR='404 page not found'
+
+if ! e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v0.94.0"; then
+  echo "expected a token-endpoint 404 to leave the retries in place" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "2" ]]; then
+  echo "expected a token-endpoint 404 to be retried; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
 unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
 
 # A missing image is not a transient failure, so it aborts after a single attempt.
