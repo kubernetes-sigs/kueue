@@ -5029,7 +5029,7 @@ func TestReclaimablePods(t *testing.T) {
 		return (*Job)(j)
 	}
 	retryableFailureJob := indexedJob(1, 1, "0", "")
-	retryableFailureJob.Spec.BackoffLimitPerIndex = ptr.To(int32(1))
+	retryableFailureJob.Spec.BackoffLimitPerIndex = new(int32(1))
 	nonIndexedJob := func(parallelism, completions, succeeded int32) *Job {
 		j := utiltestingjob.MakeJob("job", "ns").
 			Parallelism(parallelism).
@@ -5039,8 +5039,8 @@ func TestReclaimablePods(t *testing.T) {
 		return (*Job)(j)
 	}
 	indexedJobWithParallelismAboveCompletions := indexedJob(1, 0, "0", "")
-	indexedJobWithParallelismAboveCompletions.Spec.Parallelism = ptr.To(int32(10))
-	indexedJobWithParallelismAboveCompletions.Spec.Completions = ptr.To(int32(5))
+	indexedJobWithParallelismAboveCompletions.Spec.Parallelism = new(int32(10))
+	indexedJobWithParallelismAboveCompletions.Spec.Completions = new(int32(5))
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod
