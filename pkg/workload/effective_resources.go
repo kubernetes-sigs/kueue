@@ -93,9 +93,11 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 }
 
 // applyAdjustmentsToPodSpec rewrites the given PodSpec into its effective
-// form: RuntimeClass overhead, then limits copied into missing requests
-// (mirroring API-server object defaulting), then the LimitRange defaults for
-// whatever is still unset (mirroring the LimitRanger admission plugin).
+// form: RuntimeClass overhead, limits copied into missing requests (mirroring
+// API-server object defaulting), the container LimitRange defaults (mirroring
+// the LimitRanger admission plugin), the pod-level defaults (mirroring the API
+// server, which defers them until after admission), and finally the pod-level
+// LimitRange defaults.
 func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 	if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found {
@@ -105,28 +107,32 @@ func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 
 	UseLimitsAsMissingRequestsInPod(podSpec)
 
-	if in.LimitRangeSummary == nil {
-		return
-	}
-	podLimits, foundPodLimits := in.LimitRangeSummary[corev1.LimitTypePod]
-	containerLimits, foundContainerLimits := in.LimitRangeSummary[corev1.LimitTypeContainer]
-	if foundContainerLimits {
-		for ci := range podSpec.InitContainers {
-			res := &podSpec.InitContainers[ci].Resources
-			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
-		}
-		for ci := range podSpec.Containers {
-			res := &podSpec.Containers[ci].Resources
-			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+	if in.LimitRangeSummary != nil {
+		if containerLimits, found := in.LimitRangeSummary[corev1.LimitTypeContainer]; found {
+			for ci := range podSpec.InitContainers {
+				res := &podSpec.InitContainers[ci].Resources
+				res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+				res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+			}
+			for ci := range podSpec.Containers {
+				res := &podSpec.Containers[ci].Resources
+				res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+				res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+			}
 		}
 	}
+
+	// The API server defers the pod-level defaulting until after admission, so
+	// the container defaults above are part of the aggregate it reads.
+	DefaultPodLevelRequests(podSpec)
+
 	// Pod-level resources (KEP-2837) are an optional pointer, only set when
 	// the PodLevelResources feature is enabled and used.
-	if podSpec.Resources != nil && foundPodLimits {
-		podSpec.Resources.Limits = resource.MergeResourceListKeepFirst(podSpec.Resources.Limits, podLimits.Default)
-		podSpec.Resources.Requests = resource.MergeResourceListKeepFirst(podSpec.Resources.Requests, podLimits.DefaultRequest)
+	if in.LimitRangeSummary != nil {
+		if podLimits, found := in.LimitRangeSummary[corev1.LimitTypePod]; found && podSpec.Resources != nil {
+			podSpec.Resources.Limits = resource.MergeResourceListKeepFirst(podSpec.Resources.Limits, podLimits.Default)
+			podSpec.Resources.Requests = resource.MergeResourceListKeepFirst(podSpec.Resources.Requests, podLimits.DefaultRequest)
+		}
 	}
 }
 
