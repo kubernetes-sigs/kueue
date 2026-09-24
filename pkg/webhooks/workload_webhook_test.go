@@ -378,7 +378,40 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("size"), nil, ""),
 			}.ToAggregate(),
 		},
+		"should reject podsetSliceRequiredTopologyConstraints sizes when the feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASExactTopologyDistribution: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 8).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Sizes: []int32{1, 3, 4}}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints"), ""),
+			}.ToAggregate(),
+		},
+		"should reject podsetSliceRequiredTopologyConstraints sizes that do not sum to the pod set count": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASExactTopologyDistribution: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 9).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Sizes: []int32{1, 3, 4}}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("sizes"), nil, ""),
+			}.ToAggregate(),
+		},
 		"should accept podsetSliceRequiredTopologyConstraints that use sizes instead of size": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASExactTopologyDistribution: true,
+			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ok", 8).
@@ -389,6 +422,9 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: nil,
 		},
 		"should reject podsetSliceRequiredTopologyConstraints that set both size and sizes": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASExactTopologyDistribution: true,
+			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 8).
@@ -401,6 +437,9 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"should reject a non-positive entry in podsetSliceRequiredTopologyConstraints sizes": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASExactTopologyDistribution: true,
+			},
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 8).

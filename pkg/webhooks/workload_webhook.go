@@ -187,6 +187,53 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
 
+	// Not gated on TASValidateWorkloadSliceSize: a Workload can be created
+	// directly, without going through job integration validation, so this is
+	// the only place the sizes feature gate and the chunk sums are enforced on
+	// that path.
+	allErrs = append(allErrs, validateTASSliceSizes(ps, path.Child("topologyRequest"))...)
+
+	return allErrs
+}
+
+// validateTASSliceSizes enforces the rules for uneven chunk sizes that the CRD
+// schema cannot express: the feature gate, and that a chunk list accounts for
+// every pod the layer above hands down.
+func validateTASSliceSizes(ps *kueue.PodSet, path *field.Path) field.ErrorList {
+	if ps.TopologyRequest == nil {
+		return nil
+	}
+	constraints := ps.TopologyRequest.PodsetSliceRequiredTopologyConstraints
+	constraintsPath := path.Child("podsetSliceRequiredTopologyConstraints")
+
+	var allErrs field.ErrorList
+	usesSizes := false
+	for i, c := range constraints {
+		if len(c.Sizes) == 0 {
+			continue
+		}
+		usesSizes = true
+
+		parent, parentDesc := ps.Count, fmt.Sprintf("pod set count %d", ps.Count)
+		if i > 0 {
+			parent = constraints[i-1].Size
+			parentDesc = fmt.Sprintf("parent layer size %d", parent)
+		}
+		// Summed as int64 so a long list cannot overflow.
+		var sum int64
+		for _, sz := range c.Sizes {
+			sum += int64(sz)
+		}
+		if sum != int64(parent) {
+			allErrs = append(allErrs, field.Invalid(constraintsPath.Index(i).Child("sizes"), c.Sizes,
+				fmt.Sprintf("must sum to the %s, got %d", parentDesc, sum)))
+		}
+	}
+
+	if usesSizes && !features.Enabled(features.TASExactTopologyDistribution) {
+		allErrs = append(allErrs, field.Forbidden(constraintsPath,
+			fmt.Sprintf("the %s feature gate must be enabled to use 'sizes'", features.TASExactTopologyDistribution)))
+	}
 	return allErrs
 }
 
@@ -527,9 +574,8 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 	for i := range tr.PodsetSliceRequiredTopologyConstraints {
 		c := &tr.PodsetSliceRequiredTopologyConstraints[i]
 		cPath := path.Child("podsetSliceRequiredTopologyConstraints").Index(i)
-		// Exactly one of size and sizes is set. A constraint carrying an exact
-		// distribution leaves size at zero, so it must not be held to the
-		// scalar rule.
+		// Exactly one of size and sizes is set. A layer listing chunk sizes
+		// leaves size at zero, so it must not be held to the scalar rule.
 		switch {
 		case len(c.Sizes) > 0 && c.Size > 0:
 			allErrs = append(allErrs, field.Invalid(cPath, c, "exactly one of size and sizes must be specified"))
