@@ -1,71 +1,65 @@
 ---
-title: "Configure Custom Preemption Policies"
+title: "Use Custom Preemption Configurations"
 date: 2026-09-22
 weight: 7
 description: >
-  Set up and verify declarative preemption rules for topology defragmentation and hero workloads using PreemptionConfig.
+  Set up and verify declarative preemption configurations for hero workloads and topology defragmentation using PreemptionConfig.
 ---
 
 {{< feature-state state="alpha" for_version="v0.20" >}}
 
-This guide demonstrates how to configure and verify [Configurable Preemption](/docs/concepts/preemption/configurable_preemption) policies in Kueue. You will learn how to:
-1. Enable the `ConfigurablePreemptions` feature gate.
-2. Configure a multi-rule `PreemptionConfig` that combines **Topology Defragmentation** and **Hero Workload** preemption.
-3. Attach the `PreemptionConfig` to a `ClusterQueue`.
-4. Verify and observe preemption conditions and events.
+This guide demonstrates how to configure and verify [Configurable Preemptions](/docs/concepts/preemption/configurable_preemption) in Kueue. You will learn how to:
+1. Enable the `ConfigurablePreemptions` and `PrioritizePreemptorWorkloads` feature gates.
+2. Configure a dedicated **Hero Workload Preemption** configuration for an access-restricted `ClusterQueue`.
+3. Configure a **Topology Defragmentation** configuration for general-purpose workloads.
+4. Verify and observe preemption outcomes via eviction stats and status conditions.
 
 ## Before you begin
 
 Make sure the following conditions are met:
 - A Kubernetes cluster running Kubernetes 1.30 or higher.
 - Kueue v0.20.0 or higher installed.
-- The `ConfigurablePreemptions` feature gate enabled in the Kueue controller manager configuration. (Note: `TopologyAwareScheduling` is Beta and enabled by default since v0.14).
+- The `ConfigurablePreemptions` feature gate enabled in the Kueue controller manager configuration. For hero workload scenarios, enabling `PrioritizePreemptorWorkloads` is also recommended. (Note: `TopologyAwareScheduling` is Beta and enabled by default since v0.14).
 
-To enable the feature gate in your `kueue-manager-config`:
+To enable the feature gates in your `kueue-manager-config`:
 
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 featureGates:
   ConfigurablePreemptions: true
+  PrioritizePreemptorWorkloads: true
 ```
 
 ---
 
-## Example: Multi-Rule Preemption Policy
+## Configuration Scenarios
 
-In this scenario, we configure a dedicated `ClusterQueue` for mission-critical, large-scale distributed training jobs. We want this queue to support two distinct preemption capabilities:
+Rather than combining multiple concerns into a single configuration, it is recommended to define distinct `PreemptionConfig` resources tailored to specific queue purposes and operational privileges:
 
-1. **Topology Defragmentation**: When a large job has sufficient quota but is blocked because no single physical topology domain (e.g., rack or block) has contiguous free nodes, allow it to preempt smaller workloads that are fragmenting the cluster.
-2. **Hero Workload Preemption**: When a high-priority job arrives and the cluster lacks quota, allow it to preempt lower-priority workloads across any queue in the cluster, while respecting protection labels on mission-critical queues.
+1. **Hero Workloads**: Assigned to an access-restricted `ClusterQueue` for emergency or highest-priority jobs, granting elevated preemption privileges across queues.
+2. **Topology Defragmentation**: Attached to general training `ClusterQueues`, allowing large distributed jobs with feasible quota to preempt smaller fragmenting workloads when contiguous topology domains are unavailable.
 
-### 1. Create the PreemptionConfig
+---
 
-Create a `PreemptionConfig` containing both rules:
+### Scenario 1: Hero Workload Preemption (Restricted Queue)
+
+In this scenario, a dedicated, access-restricted `ClusterQueue` is established for top-priority distributed workloads ("hero workloads"). When hero workloads lack quota, they are permitted to preempt lower-priority workloads across the entire cohort hierarchy, while respecting protection labels on mission-critical queues.
+
+#### 1. Define the PreemptionConfig
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1alpha1
 kind: PreemptionConfig
 metadata:
-  name: "defrag-and-hero-preemption-config"
+  name: "hero-workloads-preemption-config"
 spec:
   rules:
-  - name: "evict-smaller-jobs-for-large-topology"
-    activationPolicy:
-      trigger: "QuotaFeasibleAndInsufficientTopology"
-    candidateSelectors:
-    - scope: "AnyClusterQueue"
-      priority:
-        mode: "Base"
-        comparison: "LessThanOrEqual"
-      numericLabels:
-      - key: "example.com/node-count"
-        comparison: "LessThan"
-  - name: "hero-preempt-lower-priority-any-queue"
+  - name: "hero-preempt-lower-priority"
     activationPolicy:
       trigger: "InsufficientQuota"
     candidateSelectors:
-    - scope: "AnyClusterQueue"
+    - scope: "WithinCohortTree"
       priority:
         mode: "Base"
         comparison: "LessThan"
@@ -76,32 +70,84 @@ spec:
           values: ["mission-critical"]
 ```
 
-### How each rule works
+**How it works:**
+- **Trigger**: `InsufficientQuota` activates candidate search when the hero workload cannot be admitted due to insufficient quota.
+- **Scope**: `WithinCohortTree` restricts preemption search to the cohort tree. (Workloads cannot borrow quota outside their cohort hierarchy).
+- **Elevated Privileges**: Workloads in this queue can evict lower-priority workloads across queues even if those target workloads are running within their nominal quota (subject to overall cohort borrowing limits).
+- **Protection Guardrail**: `clusterQueueSelector` ensures that ClusterQueues labeled `example.com/protection-tier: mission-critical` are never selected for preemption.
 
-- **Rule 1 (`evict-smaller-jobs-for-large-topology`)**:
-  - **Trigger**: `QuotaFeasibleAndInsufficientTopology` activates when quota is feasible for the incoming job under at least one eligible flavor assignment after baseline preemption and any applicable `InsufficientQuota` rules, but no eligible flavor assignment satisfies its topology requirements ([Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling)).
-  - **Scope**: `AnyClusterQueue` searches across all queues for smaller fragmenting workloads.
-  - **Asymmetry Protection**: `numericLabels` with `comparison: LessThan` ensures that a larger workload (e.g., `example.com/node-count: 32`) can preempt smaller labeled workloads (e.g., `example.com/node-count: 4`), but a 4-node workload can never preempt a 32-node workload in return. By omitting `fallbackValue`, workloads lacking the label are treated as incomparable and protected from eviction.
-  - **Custom Label Propagation**: `example.com/node-count` is a custom user-defined label placed on jobs or workloads. Note that custom labels from batch Jobs are not automatically copied to the Kueue `Workload` resource unless listed in `integrations.labelKeysToCopy` in your [Kueue Configuration](/docs/reference/kueue-config.v1beta2).
+#### 2. Attach to the Restricted ClusterQueue
 
-- **Rule 2 (`hero-preempt-lower-priority-any-queue`)**:
-  - **Trigger**: `InsufficientQuota` evaluates candidates whenever quota is insufficient to admit the hero workload.
-  - **Scope**: `AnyClusterQueue` searches across all queues for lower-priority workloads.
-  - **Protection Guardrail**: `clusterQueueSelector` ensures the hero workload cannot evict workloads from queues labeled with `example.com/protection-tier: mission-critical`.
-
----
-
-### 2. Attach PreemptionConfig to the ClusterQueue
-
-Link the `PreemptionConfig` to your `ClusterQueue` using the `kueue.x-k8s.io/preemption-config-name` annotation:
+Attach the `PreemptionConfig` to your dedicated hero `ClusterQueue`:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
-  name: "distributed-training-cq"
+  name: "hero-jobs-cq"
   annotations:
-    kueue.x-k8s.io/preemption-config-name: "defrag-and-hero-preemption-config"
+    kueue.x-k8s.io/preemption-config-name: "hero-workloads-preemption-config"
+spec:
+  preemption:
+    reclaimWithinCohort: Never
+    withinClusterQueue: Never
+  # ... resource groups, flavors, and quotas ...
+```
+
+{{% alert title="Important: Disabling Classical Preemption on Protected Queues" color="warning" %}}
+In Alpha, candidates selected by `PreemptionConfig` are merged with candidates selected by `spec.preemption`. If you configure `spec.preemption.reclaimWithinCohort: LowerPriority`, classical preemption will evaluate cohort candidates **without** checking the `clusterQueueSelector` in your `PreemptionConfig`. To ensure that protection labels are strictly honored, set `reclaimWithinCohort: Never` and `withinClusterQueue: Never`.
+{{% /alert %}}
+
+---
+
+### Scenario 2: Topology Defragmentation (General Queue)
+
+In this scenario, large distributed jobs require contiguous physical topology (such as full host blocks or racks under [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling)). A large workload may have feasible quota, but cannot be scheduled because smaller workloads are fragmenting the physical topology.
+
+#### 1. Define the PreemptionConfig
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: PreemptionConfig
+metadata:
+  name: "topology-defrag-preemption-config"
+spec:
+  rules:
+  - name: "evict-smaller-jobs-for-topology"
+    activationPolicy:
+      trigger: "QuotaFeasibleAndInsufficientTopology"
+    candidateSelectors:
+    - scope: "WithinCohortTree"
+      priority:
+        mode: "Base"
+        comparison: "LessThanOrEqual"
+      numericLabels:
+      - key: "example.com/node-count"
+        comparison: "LessThan"
+      labelSelector:
+        matchExpressions:
+        - key: "example.com/workload-tier"
+          operator: "NotIn"
+          values: ["mission-critical"]
+```
+
+**How it works:**
+- **Trigger**: `QuotaFeasibleAndInsufficientTopology` activates only when quota is already feasible for the incoming job under at least one eligible flavor assignment (after baseline preemption and any applicable `InsufficientQuota` rules), but placement is blocked by physical topology constraints.
+  > [!NOTE]
+  > `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied.
+- **Scope**: `WithinCohortTree` evaluates candidates within the same cohort hierarchy.
+- **Asymmetric Defragmentation**: `numericLabels` with `comparison: LessThan` ensures that a larger workload (e.g., `example.com/node-count: 32`) can preempt smaller workloads (e.g., `example.com/node-count: 4`), but a 4-node workload cannot preempt a 32-node workload in return. Omitting `fallbackValue` ensures unlabeled workloads are treated as incomparable and protected from eviction.
+- **Protecting Mission-Critical Workloads**: Without explicit exclusion, defragmentation rules could evict smaller mission-critical workloads. The `labelSelector` prevents evicting workloads labeled `example.com/workload-tier: mission-critical`.
+
+#### 2. Attach to the ClusterQueue
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: "general-training-cq"
+  annotations:
+    kueue.x-k8s.io/preemption-config-name: "topology-defrag-preemption-config"
 spec:
   preemption:
     reclaimWithinCohort: LowerPriority
@@ -109,30 +155,59 @@ spec:
   # ... resource groups, flavors, and quotas ...
 ```
 
-{{% alert title="Strategy Merging in Alpha" color="info" %}}
-In Alpha, candidates selected by the referenced `PreemptionConfig` are merged with candidates selected by `spec.preemption`. To enforce *only* the rules in `PreemptionConfig`, set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`.
-{{% /alert %}}
+---
+
+## Common Pitfalls
+
+- **Classical Preemption Bypassing Custom Guardrails**: In Alpha, candidate sets from `spec.preemption` and `PreemptionConfig` are merged. If your custom rules protect specific workloads using `labelSelector` or `clusterQueueSelector`, classical preemption in `spec.preemption` will still evaluate and evict those workloads unless you set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`.
+- **Preemption Flapping from Symmetric Rules**: When defining rules across queues (with `WithinCohortTree` or `AnyClusterQueue`), ensure rules are strictly asymmetric (e.g., using `priority.comparison: LessThan` or `numericLabels.comparison: LessThan`) to avoid cascading preemptions where workloads repeatedly evict each other.
+- **Label Propagation**: Custom numeric labels or tier labels on Jobs are not copied to Kueue `Workload` resources unless added to `integrations.labelKeysToCopy` in your [Kueue Configuration](/docs/reference/kueue-config.v1beta2).
+- **Topology Defragmentation Requires Quota Feasibility**: A workload blocked by both quota exhaustion and topology fragmentation cannot activate `QuotaFeasibleAndInsufficientTopology` until its quota requirement is satisfied by baseline preemption or an `InsufficientQuota` rule.
 
 ---
 
 ## Verification & Observability
 
-### 1. Inspect Admitted Workloads and Conditions
+### 1. Inspect Workload Eviction Stats
 
-When a preemption occurs, check the status conditions and events on the preempted workload:
+When a preemption occurs, Kueue records detailed diagnostic information in `Workload.status.schedulingStats.evictions` on the preempted workload:
 
 ```bash
-kubectl describe workload <preempted-workload-name>
+kubectl get workload <preempted-workload-name> -o yaml
 ```
 
-Look for the `Evicted` and `Preempted` conditions in `Workload.status.conditions`. Their messages identify the `PreemptionConfig` rule that triggered the eviction:
+In the output, locate `status.schedulingStats.evictions`:
 
-```text
-Normal  Preempted   workload  Preempted by rule 'evict-smaller-jobs-for-large-topology' in PreemptionConfig 'defrag-and-hero-preemption-config'
+```yaml
+status:
+  schedulingStats:
+    evictions:
+    - count: 1
+      reason: ConfigurablePreemption
+      underlyingCause: "Preempted by default/hero-job-xyz because of preemption config hero-workloads-preemption-config rule hero-preempt-lower-priority/0"
 ```
 
-### 2. Check Metrics
+The `underlyingCause` string records the preemptor workload name, the active `PreemptionConfig`, the rule name, and the index of the matching candidate selector.
 
-Kueue reports preemption metrics broken down by reason and queue:
-- `kueue_preempted_workloads_total`: Count of preempted workloads.
+### 2. Inspect Status Conditions
+
+Kueue also sets conditions in `Workload.status.conditions` on the preempted workload:
+
+```yaml
+status:
+  conditions:
+  - type: Evicted
+    status: "True"
+    reason: Preempted
+    message: "Preempted by rule 'hero-preempt-lower-priority' in PreemptionConfig 'hero-workloads-preemption-config' to accommodate workload default/hero-job-xyz"
+  - type: Preempted
+    status: "True"
+    reason: ConfigurablePreemption
+    message: "Preempted by rule 'hero-preempt-lower-priority' in PreemptionConfig 'hero-workloads-preemption-config'"
+```
+
+### 3. Check Metrics
+
+Kueue exports Prometheus metrics broken down by queue and reason:
+- `kueue_preempted_workloads_total{reason="ConfigurablePreemption"}`: Counts workloads preempted by `PreemptionConfig` rules.
 - `kueue_admission_attempts_total{result="inadmissible"}`: Counts failed admission attempts. Inspect `Workload.status.conditions` to determine whether a workload was blocked by quota or topology.

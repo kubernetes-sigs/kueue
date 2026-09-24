@@ -1,5 +1,5 @@
 ---
-title: "Configurable Preemption"
+title: "Configurable Preemptions"
 date: 2026-09-22
 weight: 8
 aliases:
@@ -10,13 +10,17 @@ description: >
 
 {{< feature-state state="alpha" for_version="v0.20" >}}
 
-Configurable Preemption introduces a declarative mechanism to define when preemption should occur and which workloads are eligible for eviction. It complements Kueue's existing [Classic Preemption](/docs/concepts/preemption/#classic-preemption) and [Fair Sharing](/docs/concepts/preemption/#fair-sharing) algorithms by enabling policies for complex operational scenarios, such as:
+{{% alert title="Power-User Feature & Cascading Preemption Risk" color="warning" %}}
+Configurable Preemptions is an advanced capability intended for power users and cluster administrators. Custom preemption rules carry inherent operational risks: if rules are misconfigured or symmetric (e.g., jobs can mutually preempt one another), they can trigger cascading preemptions and continuous job disruptions across the cluster.
+{{% /alert %}}
+
+Configurable Preemptions introduces a declarative mechanism to define when preemption should occur and which workloads are eligible for eviction. It complements Kueue's existing [Classic Preemption](/docs/concepts/preemption/#classic-preemption) and [Fair Sharing](/docs/concepts/preemption/#fair-sharing) algorithms by enabling policies for complex operational scenarios, such as:
 
 - **Topology Defragmentation**: Allowing distributed workloads requiring specific physical topology domains (such as multi-node GPU or TPU training jobs under [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling)) to preempt smaller workloads that fragment the cluster, even when all workloads are within their nominal quotas.
-- **Mission-Critical "Hero" Workloads**: Allowing dedicated queues to preempt across cohorts without borrowing restrictions.
+- **Mission-Critical "Hero" Workloads**: Allowing dedicated, access-restricted queues with elevated preemption privileges to evict workloads across queues even when those workloads are within nominal quota (while remaining subject to configured cohort borrowing limits). When combined with the [`PrioritizePreemptorWorkloads`](/docs/concepts/cluster_queue/#preemption) feature gate (Alpha in v0.20), hero jobs can effectively lock quota and gain admission without extra cluster-wide modifications.
 - **Granular Priority & Label Rules**: Evaluating candidates using either priorities or custom labels.
 
-To use Configurable Preemption, enable the `ConfigurablePreemptions` [feature gate](/docs/installation/#change-the-feature-gates-configuration).
+To use Configurable Preemptions, enable the `ConfigurablePreemptions` [feature gate](/docs/installation/#change-the-feature-gates-configuration).
 
 ## Architecture & API Overview
 
@@ -66,26 +70,26 @@ The `activationPolicy.trigger` field determines when a preemption rule becomes a
 
 ## Candidate Selectors
 
-Each rule specifies `candidateSelectors` to filter eligible preemption victims. A candidate must satisfy all constraints specified within a selector:
+Each rule specifies `candidateSelectors` to filter eligible preemption victims. Candidates resulting from multiple selectors within a rule (or across rules) are summed into a single deduplicated set. A candidate must satisfy all constraints specified within a selector:
 
 ### 1. Relational Scope (`scope`)
 
-The `scope` defines the relational boundary between the preemptor and candidate workloads:
+**Required.** The `scope` defines the relational boundary between the preemptor and candidate workloads:
 
-- `WithinLocalQueue`: Candidate must belong to the exact same LocalQueue as the preemptor.
+- `WithinLocalQueue`: Candidate must belong to the exact same LocalQueue as the preemptor (matching name and namespace).
 - `WithinClusterQueue`: Candidate must belong to the exact same ClusterQueue as the preemptor.
 - `WithinParentCohort`: Candidate belongs to a ClusterQueue sharing the immediate parent Cohort, or the preemptor's own queue.
-- `WithinCohortTree`: Candidate belongs to any ClusterQueue within the same root Cohort hierarchy.
+- `WithinCohortTree`: Candidate belongs to any ClusterQueue within the same root Cohort hierarchy, or the preemptor's own queue.
 - `AnyClusterQueue`: No relationship constraint; candidates can be selected from any ClusterQueue in the cluster.
 
 ### 2. Priority Constraints (`priority`)
 
-Defines priority comparison criteria against the incoming preemptor workload:
+**Optional.** Defines priority comparison criteria against the incoming preemptor workload. If specified, both `mode` and `comparison` are required:
 
-- **`mode`**:
+- **`mode`** (Required):
   - `Base`: Compares raw priority values assigned in `Workload.spec.priority`.
-  - `Boosted`: Compares effective priority values adjusted by priority boosting (e.g., queue waiting time boosting).
-- **`comparison`**:
+  - `Boosted`: Compares effective priority values adjusted by priority boosting (see [Priority Boosting](/docs/concepts/workload/#priority-boost)).
+- **`comparison`** (Required):
   - `LessThan`: Candidate priority < Preemptor priority.
   - `LessThanOrEqual`: Candidate priority <= Preemptor priority.
   - `GreaterThan`: Candidate priority > Preemptor priority.
@@ -93,12 +97,12 @@ Defines priority comparison criteria against the incoming preemptor workload:
 
 ### 3. Custom Numeric Labels (`numericLabels`)
 
-Allows candidate filtering based on integer workload labels (e.g., number of GPUs/TPUs, slice index, or node count):
+**Optional.** A list of numeric label constraints allowing candidate filtering based on integer workload labels (e.g., number of GPUs/TPUs, slice index, or node count). Multiple numeric label constraints in a selector are joined using an AND rule (all constraints must be satisfied):
 
-- **`key`**: The workload label key containing an integer string.
+- **`key`** (Required): The workload label key containing strings that can be parsed to integers as values.
 - **`comparison`**: How the candidate's label value compares to the preemptor's label value (`LessThan`, `LessThanOrEqual`, `GreaterThan`, `GreaterThanOrEqual`).
 - **`fallbackValue`**: Integer value assumed if a workload does not have the label or the value cannot be parsed. If omitted, workloads lacking the label are treated as incomparable and excluded.
-- **`minValue` / `maxValue`**: Absolute boundaries for the candidate's label value.
+- **`minValue` / `maxValue`**: Absolute lower and upper boundaries for the candidate's label value.
 
 {{% alert title="Important" color="warning" %}}
 Custom labels from high-level jobs (e.g., Job, JobSet, RayCluster) are not automatically copied to the Kueue `Workload` resource unless their keys are listed in `integrations.labelKeysToCopy` in your [Kueue Configuration](/docs/reference/kueue-config.v1beta2). Ensure your custom numeric label keys are configured for copying.
@@ -106,8 +110,9 @@ Custom labels from high-level jobs (e.g., Job, JobSet, RayCluster) are not autom
 
 ### 4. Label Selectors (`labelSelector` & `clusterQueueSelector`)
 
-- **`labelSelector`**: Standard Kubernetes label selector filtering candidate `Workload` metadata.
-- **`clusterQueueSelector`**: Standard Kubernetes label selector filtering target `ClusterQueue` metadata.
+**Optional.** Standard Kubernetes label selectors:
+- **`labelSelector`**: Filters candidate `Workload` metadata.
+- **`clusterQueueSelector`**: Filters target `ClusterQueue` metadata.
 
 ---
 
@@ -140,29 +145,38 @@ In Alpha, `PreemptionConfig` works alongside `ClusterQueue.spec.preemption`. Can
 During preemption evaluation in the scheduler, candidates from both mechanisms are gathered and combined:
 
 1. **Dual Candidate Gathering**:
-   - **Classical / Fair Sharing candidates**: Evaluated according to `ClusterQueue.spec.preemption` rules (such as borrowing reclaim in the cohort and within-queue priority preemption).
-   - **Configurable Preemption candidates**: Evaluated according to the active rules in the referenced `PreemptionConfig`.
+   - **Classical / Fair Sharing candidates**: Evaluated according to `ClusterQueue.spec.preemption` rules. Under Fair Sharing, candidates are prioritized according to Dominant Resource Sharing (DRS).
+   - **Configurable Preemptions candidates**: Evaluated according to the active rules in the referenced `PreemptionConfig`.
 2. **Deduplication & Union**: The scheduler combines candidates from both sources into a single set, deduplicating workloads by UID.
 3. **Selective Control**:
    - To use **only** `PreemptionConfig` rules and silence classical preemption, explicitly set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`.
    - To use **only** classical preemption, simply omit the `kueue.x-k8s.io/preemption-config-name` annotation.
-4. **Deterministic Ordering**: Once merged, candidates are sorted using Kueue's standard ordering heuristics to satisfy preemptor requirements:
-   1. Workloads already marked for preemption (`isEvicted`).
-   2. Workloads from other ClusterQueues in the cohort before workloads in the preemptor's own queue.
-   3. (Admission Fair Sharing only) Workloads with lower LocalQueue fair sharing usage.
-   4. Workloads with lower priority.
-   5. Workloads admitted more recently (protecting long-running jobs).
-   6. Workload UID as a deterministic tie-breaker.
+4. **Ordering & Evaluation**: Once gathered, candidates are evaluated and sorted to satisfy the preemptor's requirements. In Alpha, candidates from configurable rules are appended and integrated with standard preemption heuristics (such as prioritizing workloads already marked for eviction, cohort borrow status, priority, and admission recency). Further optimizations (such as per-selector candidate queues) are planned for future iterations.
 
 {{% alert title="Note on Beta Evolution" color="info" %}}
-In Beta+, `PreemptionConfig` will achieve full feature parity with classical and fair sharing preemption. The two strategies will become mutually exclusive via a formal API field on `ClusterQueueSpec`, and the Alpha annotation will be retired.
+In Beta+, `PreemptionConfig` will achieve full feature parity with classical and fair sharing preemption. The strategies will become mutually exclusive via a formal API field on `ClusterQueueSpec`, and the Alpha annotation will be retired.
 {{% /alert %}}
 
 ---
 
 ## Observability
 
-When a workload is preempted by a `PreemptionConfig` rule, Kueue sets the `Evicted` and `Preempted` conditions in `Workload.status.conditions`, recording the specific rule name:
+To provide visibility into why a workload was preempted when custom rules are used, Kueue tracks configurable preemption outcomes in workload status:
+
+### 1. Eviction Scheduling Stats
+
+Kueue records detailed eviction information in `Workload.status.schedulingStats.evictions`:
+
+- **`reason`**: Set to `ConfigurablePreemption`.
+- **`underlyingCause`**: Identifies the preemptor workload, preemption config name, rule name, and selector indices that caused the preemption. For example:
+  ```text
+  Preempted by default/hero-job-xyz because of preemption config defrag-and-hero-preemption-config rule hero-preempt-lower-priority-any-queue/0
+  ```
+  If multiple selectors within a rule are triggered, their indices are concatenated (e.g., `rule-name/0,1`).
+
+### 2. Status Conditions
+
+Kueue also sets conditions in `Workload.status.conditions`:
 
 ```yaml
 status:
@@ -173,7 +187,7 @@ status:
     message: "Preempted by rule 'evict-smaller-jobs-for-large-topology' in PreemptionConfig 'topology-defragmentation' to accommodate workload default/training-job-xyz"
   - type: Preempted
     status: "True"
-    reason: PreemptionConfigRule
+    reason: ConfigurablePreemption
     message: "Preempted by rule 'evict-smaller-jobs-for-large-topology' in PreemptionConfig 'topology-defragmentation'"
 ```
 
