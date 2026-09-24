@@ -20,6 +20,11 @@ of its Pods are ready (meaning scheduled, running, and passing the
 optional readiness probe). If not all pods of the workload are ready
 within the configured timeout, then the workload is evicted and requeued.
 
+Starting from Kueue 0.20 version, the `waitForPodsReady` timeouts can
+be defined per Kueue managed resource like Jobs, statefulset, etc,
+in addition to the cluster wide configuration. This allows the user to
+tune the timeouts of resources to more realistic values.
+
 This page describes the `waitForPodsReady` configuration, which
 is a simple implementation of the all-or-nothing scheduling.
 The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator).
@@ -117,6 +122,53 @@ scheduling report `PodsReady=False` with reason `WaitForScheduling`.
 
 Remove `unscheduledTimeout` from the configuration before disabling the feature
 gate. This feature cannot be used together with `DisableWaitForPodsReady`.
+
+### Timeouts per workloads
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Use the `kueue.x-k8s.io/wait-for-pods-ready` annotation to define custom `timeoutSeconds`
+and `recoveryTimeoutSeconds` per kueue-managed resource, overriding the cluster-wide configuration for
+that workload.
+To enable it, set the `WorkloadLevelWaitForPodsReady`
+[feature gate](/docs/installation/#change-the-feature-gates-configuration) to `true`, which is
+`false` by default:
+
+```yaml
+featureGates:
+  WorkloadLevelWaitForPodsReady: true
+```
+
+Set the annotation on your job with the following format:
+
+```yaml
+annotations:
+  kueue.x-k8s.io/wait-for-pods-ready: |
+    {
+      "timeoutSeconds": 20,
+      "recoveryTimeoutSeconds": 40
+    }
+```
+
+You can cap the maximum value allowed for `timeoutSeconds` and `recoveryTimeoutSeconds`
+using the `maxTimeoutOnWorkload` field under the `waitForPodsReady` in the Kueue config,
+which defaults to 2 hours.
+
+```yaml
+waitForPodsReady:
+  maxTimeoutOnWorkload: 1h
+```
+
+When the annotation is set, its `timeoutSeconds` and `recoveryTimeoutSeconds` values take
+priority over the cluster-wide `waitForPodsReady.timeout` and `waitForPodsReady.recoveryTimeout`
+for that workload. If the annotation is absent, the cluster-wide values apply. If the annotation
+is present without `recoveryTimeoutSeconds`, it defaults to the cluster-wide `waitForPodsReady.recoveryTimeout`.
+
+The `timeoutSeconds` field is required and must be a positive integer (greater than 0) less
+than or equal to `maxTimeoutOnWorkload`. The `recoveryTimeoutSeconds` field is optional; if
+set, it must also be a positive integer less than or equal to `maxTimeoutOnWorkload`.
+
+This feature cannot be used together with `DisableWaitForPodsReady`.
 
 ### Requeuing Strategy
 

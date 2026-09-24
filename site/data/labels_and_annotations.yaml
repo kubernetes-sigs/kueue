@@ -499,3 +499,30 @@
     This is a prefix for annotations that are passed to a ProvisioningRequest as Parameters.
     Any annotation with this prefix on the Job or Workload will be forwarded to the
     corresponding ProvisioningRequest.
+
+- key: kueue.x-k8s.io/wait-for-pods-ready
+  type: Annotation
+  example: '`kueue.x-k8s.io/wait-for-pods-ready: {"timeoutSeconds": 20, "recoveryTimeoutSeconds": 40}`'
+  used_on: |
+    Any Kueue-managed resource (for example a [batch/Job](/docs/tasks/run/jobs/) or a
+    StatefulSet). Kueue propagates the annotation to the corresponding
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The annotation sets a per-workload
+    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) timeout and,
+    optionally, a recovery timeout, both in seconds, overriding those fields in the cluster-wide
+    `waitForPodsReady` configuration for that single workload.
+
+    The value is a JSON object with the following fields:
+    - `timeoutSeconds` (required): the maximum time, in seconds, Kueue waits for the
+      admitted workload's Pods to become ready before evicting and requeuing it. Must be
+      greater than `0`.
+    - `recoveryTimeoutSeconds` (optional): the maximum time, in seconds, a previously
+      ready workload may stay with unready Pods before it is evicted. Must be greater
+      than `0` when set.
+
+    The admission webhook rejects the resource if the value is not a valid JSON object,
+    if either timeout is not greater than `0`, or if either timeout exceeds the
+    cluster-wide `maxTimeoutOnWorkload` limit (when configured), which defaults to 2 hours.
+
+    This annotation is alpha-level for the `WorkloadLevelWaitForPodsReady` feature gate.
