@@ -1523,12 +1523,13 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	// a new scheduler assumption; drop it once it cannot. A LocalQueue move also
 	// requires removing the record from the previous queue.
 	// An evicted Workload that stays active on the same LocalQueue keeps its
-	// pending record and its settled identity, so re-admission cannot charge
-	// a second entry penalty. A deactivated Workload that still holds its
-	// reservation keeps the pending record: reactivated in place, it can
-	// reach the anchor without another scheduler assumption, and its penalty must
-	// still settle. Settled identity is also kept across deactivation so a
-	// later reactivation does not double-charge.
+	// pending record. Admitted → Pending also keeps the settled identity, so
+	// admit → evict → re-admit cannot charge a second entry penalty. A
+	// deactivated Workload that still holds its reservation keeps the pending
+	// record: reactivated in place, it can reach the anchor without another
+	// scheduler assumption, and its penalty must still settle. Settled identity
+	// is also kept across deactivation so a later reactivation does not
+	// double-charge.
 	wlRef := queueafs.WorkloadReference(workload.Key(e.ObjectNew))
 	if prevQueue != e.ObjectNew.Spec.QueueName {
 		oldKey := qutil.NewLocalQueueReference(e.ObjectOld.Namespace, prevQueue)
@@ -1544,6 +1545,16 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
 	}
 	if status == workload.StatusFinished && prevStatus != workload.StatusFinished {
+		r.queues.AfsUsageLedger.ForgetSettledPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
+	}
+	// QuotaReserved → Pending at the quota-reservation anchor keeps the settled
+	// cost in the decaying history, but the next reservation is a new entry
+	// (KEP-4136). Admitted → Pending does not take this path, so
+	// admit → evict → re-admit still cannot double-charge.
+	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) &&
+		prevStatus == workload.StatusQuotaReserved && status == workload.StatusPending &&
+		e.ObjectOld.Status.Admission != nil &&
+		r.cache.ClusterQueueUsesAdmissionFairSharing(e.ObjectOld.Status.Admission.ClusterQueue) {
 		r.queues.AfsUsageLedger.ForgetSettledPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
 	}
 }
