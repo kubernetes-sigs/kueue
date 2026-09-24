@@ -53,7 +53,7 @@ export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
 # Non-retriable: missing image, denied access, or a full disk.
-# Shared by `e2e_docker_pull_if_needed` and `e2e_docker_manifest_available` below.
+# Shared by `e2e_image_pull_is_retriable` and `e2e_docker_manifest_available` below.
 export E2E_NON_RETRIABLE_IMAGE_ERRORS="no such manifest|manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized: authentication required|unauthorized: access to the requested resource is not authorized|denied: requested access|no space left on device"
 
 # Retriable: transport-level failures reaching a git remote.
@@ -95,6 +95,34 @@ function e2e_supports_image_volume {
     [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
 }
 
+# Returns success when a failed `docker pull` is worth another attempt.
+#
+# $1 file holding the failed attempt's combined output
+# $2 image reference
+function e2e_image_pull_is_retriable {
+    local output_file="$1"
+    local image="$2"
+
+    if grep -qiE "${E2E_NON_RETRIABLE_IMAGE_ERRORS}" "${output_file}"; then
+        return 1
+    fi
+
+    # quay.io answers both a degraded token service and a missing tag with a
+    # bare `unauthorized`; only a manifest lookup tells the two apart.
+    if grep -qiE 'unauthorized' "${output_file}"; then
+        local manifest_error
+        if manifest_error=$(docker manifest inspect "${image}" 2>&1 >/dev/null); then
+            return 0
+        fi
+        if grep -qiE "${E2E_NON_RETRIABLE_IMAGE_ERRORS}" <<<"${manifest_error}"; then
+            echo "Image '${image}' is not available in the registry: ${manifest_error}" >&2
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
 # $1 image reference
 function e2e_docker_pull_if_needed {
     local image="$1"
@@ -103,9 +131,10 @@ function e2e_docker_pull_if_needed {
         return 0
     fi
 
+    export -f e2e_image_pull_is_retriable
     "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "! grep -qiE '${E2E_NON_RETRIABLE_IMAGE_ERRORS}' {output}" \
+        --continue-if "e2e_image_pull_is_retriable {output} '${image}'" \
         -- docker pull "$image"
 }
 
