@@ -1115,6 +1115,82 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"index-label annotation naming an absent label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-pod-index-label]",
+				},
+			}.ToAggregate(),
+		},
+		"index-label annotation naming a label that holds no index": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "test-value").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-pod-index-label]",
+				},
+			}.ToAggregate(),
+		},
+		"index-label annotation naming an index outside the group": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-pod-index-label]",
+				},
+			}.ToAggregate(),
+		},
+		"index-label annotation naming a label that holds the index": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "1").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+		},
+		"index-label annotation naming an absent label, rejection disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: false,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
