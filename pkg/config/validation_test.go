@@ -2552,6 +2552,19 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"KueueDRAIntegrationDeviceTaints requires KueueDRADeviceFeasibility": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationDeviceTaints): true,
+				string(features.KueueDRADeviceFeasibility):       false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationDeviceTaints is enabled, but depends on features that are disabled: [KueueDRADeviceFeasibility]",
+				},
+			},
+		},
 		"TASNodeFeasibilityForAllLevels requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,

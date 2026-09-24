@@ -1023,6 +1023,14 @@ func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSli
 	return w
 }
 
+func (w *ResourceSliceWrapper) DeviceTaint(key string, effect resourcev1.DeviceTaintEffect) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.Taints = append(last.Taints, resourcev1.DeviceTaint{Key: key, Effect: effect})
+	}
+	return w
+}
+
 func (w *ResourceSliceWrapper) NodeName(name string) *ResourceSliceWrapper {
 	w.Spec.NodeName = &name
 	return w

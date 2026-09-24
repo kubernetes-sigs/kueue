@@ -191,6 +191,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: KueueDRAIntegrationDeviceTaints
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRAIntegrationExtendedResource
   versionedSpecs:
   - default: false

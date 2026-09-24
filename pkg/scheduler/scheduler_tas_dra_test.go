@@ -170,9 +170,10 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:            true,
-				features.KueueDRADeviceFeasibility:      true,
-				features.TASNodeFeasibilityForAllLevels: true,
+				features.KueueDRAIntegration:             true,
+				features.KueueDRADeviceFeasibility:       true,
+				features.KueueDRAIntegrationDeviceTaints: true,
+				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 		"a DeviceTaintRule on every device: stays pending": {
@@ -204,9 +205,10 @@ func TestScheduleForTASDRA(t *testing.T) {
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:            true,
-				features.KueueDRADeviceFeasibility:      true,
-				features.TASNodeFeasibilityForAllLevels: true,
+				features.KueueDRAIntegration:             true,
+				features.KueueDRADeviceFeasibility:       true,
+				features.KueueDRAIntegrationDeviceTaints: true,
+				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 		"a claim tolerating the taint: admitted onto the first node": {
@@ -246,9 +248,10 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:            true,
-				features.KueueDRADeviceFeasibility:      true,
-				features.TASNodeFeasibilityForAllLevels: true,
+				features.KueueDRAIntegration:             true,
+				features.KueueDRADeviceFeasibility:       true,
+				features.KueueDRAIntegrationDeviceTaints: true,
+				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 		"DRADeviceTaintRules off: the rule is ignored and admitted onto the first node": {
@@ -288,10 +291,54 @@ func TestScheduleForTASDRA(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:            true,
-				features.KueueDRADeviceFeasibility:      true,
-				features.TASNodeFeasibilityForAllLevels: true,
-				kubefeatures.DRADeviceTaintRules:        false,
+				features.KueueDRAIntegration:             true,
+				features.KueueDRADeviceFeasibility:       true,
+				features.KueueDRAIntegrationDeviceTaints: true,
+				features.TASNodeFeasibilityForAllLevels:  true,
+				kubefeatures.DRADeviceTaintRules:         false,
+			},
+		},
+		"KueueDRAIntegrationDeviceTaints off: the rule is ignored and admitted onto the first node": {
+			nodes:           nodes,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: []kueue.ResourceFlavor{tasFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueue},
+			objects: append([]client.Object{
+				utiltesting.MakeDeviceTaintRule("maintenance", "example.com/maintenance").
+					Driver("gpu.example.com").Obj(),
+			}, devices...),
+			draResources: draResources,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/wl": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
+						Assignment("example.com/gpu", "tas-default", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "wl", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:             true,
+				features.KueueDRADeviceFeasibility:       true,
+				features.KueueDRAIntegrationDeviceTaints: false,
+				features.TASNodeFeasibilityForAllLevels:  true,
 			},
 		},
 	}

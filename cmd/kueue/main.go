@@ -364,7 +364,7 @@ func main() {
 	if draBackedResources != nil {
 		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))
 	}
-	if features.Enabled(features.KueueDRADeviceFeasibility) {
+	if features.Enabled(features.KueueDRAIntegrationDeviceTaints) {
 		// Only a discovery failure errors. Carrying on unregistered would let a scheduling
 		// cycle block on the informer once discovery recovered.
 		served, err := utildra.RegisterDeviceTaintRuleInformer(ctx, mgr)

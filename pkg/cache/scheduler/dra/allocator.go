@@ -31,6 +31,8 @@ import (
 	schedulerfeature "k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // CELCache holds the compiled device selectors, keyed by the expression, so one survives
@@ -87,8 +89,10 @@ func (c *Checker) buildAllocator(ctx context.Context) (structured.Allocator, err
 	}
 
 	// Configured from the Kubernetes DRA gates rather than the Kueue ones, by the same
-	// call kube-scheduler makes, so the two allocators stay in step.
+	// call kube-scheduler makes, so the two allocators stay in step. Device taints are the
+	// exception: KueueDRAIntegrationDeviceTaints gates them as DRADeviceTaints does in kube-scheduler.
 	draFeatures := dynamicresources.AllocatorFeatures(schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate))
+	draFeatures.DeviceTaints = draFeatures.DeviceTaints && features.Enabled(features.KueueDRAIntegrationDeviceTaints)
 
 	// The allocated state is read with the allocator's own setting rather than the gate, so
 	// the two cannot disagree on whether a shared device is partly or wholly consumed.
