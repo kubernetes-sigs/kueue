@@ -1565,14 +1565,14 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 		}
 
 		// Gather ready PodSetUpdates from admission checks
-		var podSetUpdate *kueue.PodSetUpdate
+		var podSetUpdate []kueue.PodSetUpdate
 		for _, ac := range wl.Obj.Status.AdmissionChecks {
-			if ac.State == kueue.CheckStateReady {
-				for _, u := range ac.PodSetUpdates {
-					if u.Name == podSet.Name {
-						podSetUpdate = &u
-						break
-					}
+			if ac.State != kueue.CheckStateReady {
+				continue
+			}
+			for _, u := range ac.PodSetUpdates {
+				if u.Name == podSet.Name {
+					podSetUpdate = append(podSetUpdate, u)
 				}
 			}
 		}
@@ -1580,14 +1580,16 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 		opts := was.CandidatePodOptions{
 			FlavorNodeLabels:  flavorSnapshot.NodeLabels(),
 			FlavorTolerations: flavorSnapshot.Tolerations(),
-			PodSetUpdate:      podSetUpdate,
+			PodSetUpdates:     podSetUpdate,
 		}
 
-		pods, err := was.CandidateVirtualPodsForPodSet(wl.Obj, podSet, opts)
-		if err != nil {
-			return nil, err
+		for i := range int(psAssignment.Count) {
+			pod, err := was.BuildCandidatePod(wl.Obj, podSet, i, opts)
+			if err != nil {
+				return nil, fmt.Errorf("failed to build candidate pod %d/%d for PodSet %q: %w", i, psAssignment.Count, podSet.Name, err)
+			}
+			allPods = append(allPods, pod)
 		}
-		allPods = append(allPods, pods...)
 	}
 	return allPods, nil
 }

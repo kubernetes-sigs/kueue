@@ -324,7 +324,7 @@ func TestBuildCandidatePodNodeSelector(t *testing.T) {
 				FlavorNodeLabels: tc.flavorNodeLabels,
 			}
 			if tc.updateSelector != nil {
-				opts.PodSetUpdate = &kueue.PodSetUpdate{NodeSelector: tc.updateSelector}
+				opts.PodSetUpdates = []kueue.PodSetUpdate{{NodeSelector: tc.updateSelector}}
 			}
 
 			pod, err := BuildCandidatePod(wl, ps, 0, opts)
@@ -361,10 +361,10 @@ func TestBuildCandidatePodTolerations(t *testing.T) {
 			{Key: "flavor-taint", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule},
 			{Key: "t1", Operator: corev1.TolerationOpEqual, Value: "v1", Effect: corev1.TaintEffectNoSchedule}, // duplicate
 		},
-		PodSetUpdate: &kueue.PodSetUpdate{
-			Tolerations: []corev1.Toleration{
+		PodSetUpdates: []kueue.PodSetUpdate{
+			{Tolerations: []corev1.Toleration{
 				{Key: "update-taint", Operator: corev1.TolerationOpEqual, Value: "v2", Effect: corev1.TaintEffectNoExecute},
-			},
+			}},
 		},
 	}
 

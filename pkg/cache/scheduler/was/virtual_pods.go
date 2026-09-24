@@ -134,7 +134,7 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 type CandidatePodOptions struct {
 	FlavorNodeLabels  map[string]string
 	FlavorTolerations []corev1.Toleration
-	PodSetUpdate      *kueue.PodSetUpdate
+	PodSetUpdates     []kueue.PodSetUpdate
 }
 
 // BuildCandidatePod builds a candidate pod for the i-th pod of a PodSet.
@@ -149,14 +149,16 @@ func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opt
 	nodeSelector := maps.Clone(ps.Template.Spec.NodeSelector)
 
 	// merge the nodeSelector from the podset and the podset update, fail if conflict
-	if opts.PodSetUpdate != nil && len(opts.PodSetUpdate.NodeSelector) > 0 {
-		if err := utilmaps.HaveConflict(nodeSelector, opts.PodSetUpdate.NodeSelector); err != nil {
-			return nil, fmt.Errorf("nodeSelector conflict between PodSet and PodSetUpdate: %w", err)
+	if len(opts.PodSetUpdates) > 0 {
+		for _, u := range opts.PodSetUpdates {
+			if err := utilmaps.HaveConflict(nodeSelector, u.NodeSelector); err != nil {
+				return nil, fmt.Errorf("nodeSelector conflict between PodSet and PodSetUpdate: %w", err)
+			}
+			if nodeSelector == nil {
+				nodeSelector = make(map[string]string, len(u.NodeSelector))
+			}
+			maps.Copy(nodeSelector, u.NodeSelector)
 		}
-		if nodeSelector == nil {
-			nodeSelector = make(map[string]string, len(opts.PodSetUpdate.NodeSelector))
-		}
-		maps.Copy(nodeSelector, opts.PodSetUpdate.NodeSelector)
 	}
 
 	// merge resourceFlavor nodelabels, checking for conflicts
@@ -173,8 +175,10 @@ func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opt
 	// merge tolerations from the podset, the assigned flavor, and any podSetUpdate
 
 	tolerations := utiltolerations.Merge(ps.Template.Spec.Tolerations, opts.FlavorTolerations)
-	if opts.PodSetUpdate != nil && len(opts.PodSetUpdate.Tolerations) > 0 {
-		tolerations = utiltolerations.Merge(tolerations, opts.PodSetUpdate.Tolerations)
+	if len(opts.PodSetUpdates) > 0 {
+		for _, u := range opts.PodSetUpdates {
+			tolerations = utiltolerations.Merge(tolerations, u.Tolerations)
+		}
 	}
 
 	// construct the candidate virtual pod
@@ -197,9 +201,27 @@ func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opt
 		pod.Labels = make(map[string]string)
 	}
 
+	if len(opts.PodSetUpdates) > 0 {
+		for _, u := range opts.PodSetUpdates {
+			if err := utilmaps.HaveConflict(pod.Labels, u.Labels); err != nil {
+				return nil, fmt.Errorf("labels conflict between PodSet and PodSetUpdate: %w", err)
+			}
+			maps.Copy(pod.Labels, u.Labels)
+		}
+	}
+
 	pod.Labels[constants.PodSetLabel] = string(ps.Name)
 	if pod.Annotations == nil {
 		pod.Annotations = make(map[string]string)
+	}
+
+	if len(opts.PodSetUpdates) > 0 {
+		for _, u := range opts.PodSetUpdates {
+			if err := utilmaps.HaveConflict(pod.Annotations, u.Annotations); err != nil {
+				return nil, fmt.Errorf("annotations conflict between PodSet and PodSetUpdate: %w", err)
+			}
+			maps.Copy(pod.Annotations, u.Annotations)
+		}
 	}
 
 	pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
