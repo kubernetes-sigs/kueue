@@ -97,12 +97,14 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRAIntegrationPartitionableDevices (v0.18)](#kueuedraintegrationpartitionabledevices-v018)
       - [KueueDRAIntegrationConsumableCapacity (v0.19)](#kueuedraintegrationconsumablecapacity-v019)
       - [KueueDRADeviceFeasibility (v0.20)](#kueuedradevicefeasibility-v020)
+      - [KueueDRAIntegrationDeviceTaints (v0.20)](#kueuedraintegrationdevicetaints-v020)
     - [Beta](#beta)
       - [KueueDRAIntegration (v0.18)](#kueuedraintegration-v018)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource)
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices)
       - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity)
       - [KueueDRADeviceFeasibility](#kueuedradevicefeasibility)
+      - [KueueDRAIntegrationDeviceTaints](#kueuedraintegrationdevicetaints)
     - [GA](#ga)
       - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
@@ -256,9 +258,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
   is not included. See [Risks and Mitigations](#risks-and-mitigations) for the
   planned approach.
 - Quota accounting for DRADeviceTaints is not included: a tainted device is charged like
-  any other. Taints written into a ResourceSlice are honored by the per-node feasibility
-  check instead; taints applied by a `DeviceTaintRule` are not, as
-  [DRA Device Feasibility](#dra-device-feasibility) records.
+  any other. The per-node feasibility check honors taints instead, as
+  [Device taints](#device-taints) describes.
 - Multi-host partitionable devices (e.g., NVLink fabrics spanning multiple nodes) are not
   supported.
 - Kubernetes DRA features that change what kube-scheduler computes outside the allocator
@@ -336,7 +337,7 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
   charges and device matching are computed globally before flavor assignment.
 - AdminAccess requests are skipped in quota counting (zero charge) since they provide
   shared read-only access to already-allocated devices. DRAPrioritizedLists support is
-  deferred. DRADeviceTaints is not supported.
+  deferred. DRADeviceTaints does not change quota; see [Device taints](#device-taints).
 - **Single-node partitionable devices (e.g., MIG) are supported** via counter-based
   quota. See [Partitionable Devices](#partitionable-devices). Multi-host partitionable
   devices are not supported.
@@ -459,6 +460,10 @@ Feature gates controlling DRA support in Kueue:
   satisfy its claims. Requires `KueueDRAIntegration`, `TopologyAwareScheduling` and
   `TASNodeFeasibilityForAllLevels`.
   See [DRA Device Feasibility](#dra-device-feasibility).
+- `KueueDRAIntegrationDeviceTaints` (Alpha): gates device taints and tolerations in the
+  per-node device check, for taints published in ResourceSlices and taints applied by
+  DeviceTaintRules. Requires `KueueDRADeviceFeasibility`.
+  See [Device taints](#device-taints).
 
 The following sections will explain the design in detail.
 
@@ -1764,13 +1769,31 @@ separately from a generic no-fit.
 
 #### Device taints
 
-An admin taints devices with a `DeviceTaintRule`, which names them by driver, pool and
-device. Kueue applies those taints to the ResourceSlices before allocating, as
-kube-scheduler does through `resourceslice/tracker`, so a request that does not tolerate
-the taint is not admitted onto that device. Rules are read only while the Kubernetes
-`DRADeviceTaintRules` gate is on, and only as `resource.k8s.io/v1`, which Kubernetes serves
-by default from 1.37. Kubernetes 1.35 and 1.36 serve the rules only as alpha and beta versions; Kueue does
-not read those, so on those releases kube-scheduler applies the rules and Kueue does not.
+This section is gated behind the `KueueDRAIntegrationDeviceTaints` Kueue feature gate.
+Device taints come from [KEP-5055](https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5055-dra-device-taints-and-tolerations),
+a Kubernetes feature with its own lifecycle. They get their own gate, named after the
+Kubernetes `DRADeviceTaints` gate, so they graduate separately from the check.
+
+A device is tainted in one of two ways, and a request can tolerate either.
+
+- A DRA driver writes the taint into the device in its ResourceSlice.
+- An admin writes a `DeviceTaintRule`, which names devices by driver, pool and device.
+  Kueue applies the rules to the ResourceSlices before allocating, as kube-scheduler does
+  through `resourceslice/tracker`. Rules are read only while the Kubernetes
+  `DRADeviceTaintRules` gate is on, and only as `resource.k8s.io/v1`, which Kubernetes
+  serves by default from 1.37. Kubernetes 1.35 and 1.36 serve the rules only as alpha and
+  beta versions; Kueue does not read those.
+
+The check hands the slices to the allocator kube-scheduler uses. It skips a device with a
+`NoSchedule` or `NoExecute` taint that the request does not tolerate. `None` taints are
+informational and ignored.
+
+With the gate off, Kueue ignores device taints and tolerations, as kube-scheduler does
+with `DRADeviceTaints` off. kube-scheduler still applies them while its own gate is on, and
+Kubernetes plans to lock that gate on in 1.38. So Kueue can admit a Workload onto a tainted
+device that kube-scheduler then refuses. The same gap exists for rules on Kubernetes 1.35
+and 1.36. To match kube-scheduler, enable this gate together with
+`KueueDRADeviceFeasibility`.
 
 #### Extended resources
 
@@ -1791,14 +1814,18 @@ domain unless a device plugin advertises the resource.
 
 #### Requeue
 
-A Workload that fails the check waits until the devices change. Kueue requeues it when a
-ResourceSlice, DeviceClass or DeviceTaintRule is created, updated or deleted, and when a
-ResourceClaim loses its allocation or is deleted while allocated. Slices, classes and rules
-change rarely, and even a delete can help: of two DeviceClasses for one extended resource
-the newer one resolves, so deleting it switches the Workload to the other. Claims change
-with every Pod, so only a claim that frees its devices counts, as in kube-scheduler. Only
-the ClusterQueues that use a TAS flavor are requeued, since only those run the check, and
-events within a second of each other are merged into one.
+A Workload that fails the check waits until the devices change. Kueue requeues it when:
+
+- a ResourceSlice or DeviceClass is created, updated or deleted. These change rarely, and
+  even a delete can help: of two DeviceClasses for one extended resource the newer one
+  resolves, so deleting it switches the Workload to the other.
+- a DeviceTaintRule is created, updated or deleted, while `KueueDRAIntegrationDeviceTaints`
+  is on.
+- a ResourceClaim loses its allocation or is deleted while allocated. Claims change with
+  every Pod, so only a claim that frees its devices counts, as in kube-scheduler.
+
+Only the ClusterQueues that use a TAS flavor are requeued, since only those run the check,
+and events within a second of each other are merged into one.
 
 #### Cost
 
@@ -1868,6 +1895,8 @@ predicts, so a cluster running one of them gets a different answer than this che
   feature gates are parsed, before the manager starts. It does not require
   `SchedulerLibraryIntegration`: the check wraps whichever simulator is in use, so a
   cluster not running the scheduler library gets it too.
+- `KueueDRAIntegrationDeviceTaints` requires `KueueDRADeviceFeasibility`, and enabling it
+  while `KueueDRADeviceFeasibility` is off is rejected the same way.
 - A claim reaches the check from a ResourceClaimTemplate or from a DRA-backed extended
   resource request. A Workload that references a ResourceClaim directly is marked
   inadmissible by the workload controller before scheduling, which is what depending on
@@ -2094,8 +2123,21 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
   extended resources, so quota is not reserved for a Workload kube-scheduler cannot place
 - requires `KueueDRAIntegration`, `TopologyAwareScheduling` and
   `TASNodeFeasibilityForAllLevels`; enabling it without them is rejected at startup
-- requeue Workloads rejected for devices when ResourceSlices, DeviceClasses, ResourceClaims
-  or DeviceTaintRules change
+- requeue Workloads rejected for devices when ResourceSlices, DeviceClasses or
+  ResourceClaims change
+- unit and integration tests
+
+##### KueueDRAIntegrationDeviceTaints (v0.20)
+
+- honor device taints and request tolerations in the per-node device check, for taints
+  published in ResourceSlices and taints applied by DeviceTaintRules
+- apply DeviceTaintRules served as `resource.k8s.io/v1` to the ResourceSlices, as
+  kube-scheduler's `resourceslice/tracker` does
+- with the gate off, the check ignores device taints and tolerations
+- requeue Workloads rejected for tainted devices when a DeviceTaintRule is created, updated
+  or deleted
+- requires `KueueDRADeviceFeasibility`; enabling it while that gate is off is rejected at
+  startup
 - unit and integration tests
 
 
@@ -2160,6 +2202,16 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - e2e tests covering that a Pod admitted by the feasibility check is actually placed
   by kube-scheduler on a node with the devices
 
+##### KueueDRAIntegrationDeviceTaints
+
+- feature gate enabled by default. This waits for `KueueDRADeviceFeasibility` to be enabled
+  by default, because a gate that is on by default cannot depend on one that is off.
+- apply the rules to a cached copy of the ResourceSlices instead of listing and patching
+  them every scheduling cycle
+- decide how Kueue handles an admitted Workload whose Pods a `NoExecute` rule evicts
+- e2e tests covering that a rule keeps a Workload off the devices it taints, and that
+  removing the rule lets the Workload in
+
 #### GA
 
 ##### KueueDRAIntegration
@@ -2212,6 +2264,8 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
 - Promoted KueueDRAIntegrationPartitionableDevices to Beta: July 2026 by @PannagaRao
 - DRA device feasibility: September 2026 by @sohankunkerkar — added per-node device
   checking before admission, so quota is not reserved for unplaceable Workloads
+- Device taints in device feasibility: September 2026 by @sohankunkerkar, gated by
+  `KueueDRAIntegrationDeviceTaints` so they graduate separately from the check
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution

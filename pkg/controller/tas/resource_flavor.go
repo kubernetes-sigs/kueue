@@ -96,7 +96,7 @@ func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache
 		bld = bld.Watches(&resourcev1.ResourceSlice{}, h).
 			Watches(&resourcev1.DeviceClass{}, h).
 			Watches(&resourcev1.ResourceClaim{}, h)
-		if cache.DeviceTaintRulesServed() {
+		if features.Enabled(features.KueueDRAIntegrationDeviceTaints) && cache.DeviceTaintRulesServed() {
 			bld = bld.Watches(&resourcev1.DeviceTaintRule{}, h)
 		}
 	}
