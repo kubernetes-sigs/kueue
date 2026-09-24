@@ -1,4 +1,4 @@
-title: Exact Topology Domain Distribution
+title: Uneven Slice Sizes for Topology Aware Scheduling
 kep-number: 13416
 authors:
   - "@sumukha-radhakrishna"
@@ -29,4 +29,4 @@ feature-gates:
 disable-supported: true
 
 metrics:
-  - kueue_tas_exact_distribution_failures_total
+  - kueue_tas_slice_placement_failures_total
