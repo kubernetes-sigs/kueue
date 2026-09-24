@@ -161,8 +161,8 @@ func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
 	return p.classicalPreemptions(preemptionCtx)
 }
 
-func (p *Preemptor) mergeConfigurableCandidates(preemptionCtx *preemptionCtx, allowBorrowing bool) (bool, []*Target) {
-	return preemptionCtx.configurableEvaluator.MergeCandidatesWithFitCheck(
+func (p *Preemptor) findConfigurableCandidates(preemptionCtx *preemptionCtx, allowBorrowing bool) (bool, []*Target) {
+	return preemptionCtx.configurableEvaluator.FindCandidates(
 		preemptionCtx.snapshot,
 		&preemptionCtx.preemptor,
 		preemptionCtx.frsNeedPreemption,
@@ -349,7 +349,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 			}
 		}
 		if features.Enabled(features.ConfigurablePreemptions) {
-			fits, configurableTargets := p.mergeConfigurableCandidates(preemptionCtx, attemptOpts.borrowing)
+			fits, configurableTargets := p.findConfigurableCandidates(preemptionCtx, attemptOpts.borrowing)
 			targets = append(targets, configurableTargets...)
 			if fits {
 				targets = fillBackWorkloads(preemptionCtx, targets, attemptOpts.borrowing)
@@ -611,7 +611,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		// configuration selects them explicitly, so they are only considered once the
 		// strategies failed to admit the workload.
 		var configurableTargets []*Target
-		fits, configurableTargets = p.mergeConfigurableCandidates(preemptionCtx, true)
+		fits, configurableTargets = p.findConfigurableCandidates(preemptionCtx, true)
 		targets = append(targets, configurableTargets...)
 	}
 	if !fits {

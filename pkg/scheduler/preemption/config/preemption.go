@@ -106,13 +106,13 @@ func (p *PreemptionEvaluator) OrderedCandidates(
 	return candidates
 }
 
-// MergeCandidatesWithFitCheck evaluates candidates across applicable PreemptionConfig
+// FindCandidates evaluates candidates across applicable PreemptionConfig
 // triggers and returns (fits, configurableTargets).
 //
 // Because candidates are removed from the snapshot as they are evaluated, subsequent
 // fit checks observe the updated snapshot state, and the evaluator only returns
 // candidates still admitted in the snapshot.
-func (p *PreemptionEvaluator) MergeCandidatesWithFitCheck(
+func (p *PreemptionEvaluator) FindCandidates(
 	snapshot *schdcache.Snapshot,
 	preemptor *workload.Info,
 	frsNeedPreemption sets.Set[resources.FlavorResource],

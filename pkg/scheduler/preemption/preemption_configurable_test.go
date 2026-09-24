@@ -916,7 +916,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 	}
 }
 
-func TestMergeConfigurableCandidatesWithFitCheck(t *testing.T) {
+func TestFindConfigurableCandidates(t *testing.T) {
 	now := time.Now()
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
 	defaultAssignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -1057,15 +1057,15 @@ func TestMergeConfigurableCandidatesWithFitCheck(t *testing.T) {
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, preemptionCtx.clock, nil, preemptexpectations.New(), nil)
 			preemptionCtx.configurableEvaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, preemptionCtx.clock, cl, preemptionCtx.preemptorCQ)
 
-			gotFits, gotTargets := preemptor.mergeConfigurableCandidates(preemptionCtx, true)
+			gotFits, gotTargets := preemptor.findConfigurableCandidates(preemptionCtx, true)
 			if gotFits != tc.wantFits {
-				t.Errorf("mergeConfigurableCandidatesWithFitCheck() fits = %v, want %v", gotFits, tc.wantFits)
+				t.Errorf("findConfigurableCandidates() fits = %v, want %v", gotFits, tc.wantFits)
 			}
 			gotTargetKeys := utilslices.Map(gotTargets, func(target **Target) string {
 				return string(workload.Key((*target).WorkloadInfo.Obj))
 			})
 			if diff := cmp.Diff(tc.wantTargets, gotTargetKeys, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("mergeConfigurableCandidatesWithFitCheck() targets (-want,+got):\n%s", diff)
+				t.Errorf("findConfigurableCandidates() targets (-want,+got):\n%s", diff)
 			}
 		})
 	}
