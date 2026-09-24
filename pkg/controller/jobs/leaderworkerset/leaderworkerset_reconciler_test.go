@@ -686,12 +686,6 @@ func TestReconciler(t *testing.T) {
 					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
 					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
 				},
-				{
-					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
-					EventType: corev1.EventTypeWarning,
-					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
-					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
-				},
 			},
 		},
 		// The other path into the boundary: the label is changed on a set that
@@ -783,12 +777,6 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: cmpopts.AnyError,
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
-					EventType: corev1.EventTypeWarning,
-					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
-					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
-				},
 				{
 					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
 					EventType: corev1.EventTypeWarning,

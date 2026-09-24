@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -58,6 +59,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		// ownerClass is the owner's kueue.x-k8s.io/priority-class label: "high"
+		// when nil, unset when empty. Ignored when job is set.
+		ownerClass       *string
 		class            *kueue.WorkloadPriorityClass
 		workloads        []*kueue.Workload
 		job              *batchv1.Job
@@ -293,10 +297,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// Same-name workloads are repaired before the name-changing ones, so a failed
-		// write leaves a name mismatch behind. That mismatch is the only thing that
-		// makes a later call resolve the class again, so writing the two groups the
-		// other way round strands the stale one for good.
+		// Same-name workloads are written first, so a failed write leaves a class
+		// name mismatch that makes the next call resolve again.
 		"keeps a retry marker when a write fails": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -324,6 +326,76 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"transitioning": {priority: new(int32(200))},
 			},
 		},
+
+		// A same-name repair that keeps failing blocks the transition behind it;
+		// the mismatched name keeps the next call coming back.
+		"a same-class write that keeps failing holds the transition back": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("stuck", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: refusingEveryWriteTo("stuck"),
+			steps:        []step{{wantErr: true}},
+			want: map[string]wantWorkload{
+				"stuck":  {refName: new("high"), priority: new(int32(100))},
+				"moving": {refName: new("low"), priority: new(int32(10))},
+			},
+		},
+
+		// spec.priority is mutable, so two workloads on one class disagreeing is
+		// not an unfinished write. WorkloadPriorityClassReconciler settles the
+		// value; this helper neither reads the class nor writes.
+		"leaves values under a name that already matches the class": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("chosen", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("other", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+			},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"chosen": {refName: new("high"), priority: new(int32(100))},
+				"other":  {refName: new("high"), priority: new(int32(200))},
+			},
+			wantClassReads:     new(0),
+			wantWorkloadWrites: new(0),
+		},
+
+		// Without the label, workloads with no reference would all match the empty
+		// class name. Writing them would overwrite values this helper never resolved.
+		"leaves an owner with no priority class alone": {
+			ownerClass: new(""),
+			class:      utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("first", "ns").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("second", "ns").Priority(200).Obj(),
+			},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"first":  {refName: new(""), priority: new(int32(100))},
+				"second": {refName: new(""), priority: new(int32(200))},
+			},
+			wantClassReads:     new(0),
+			wantWorkloadWrites: new(0),
+		},
+
+		// The transitioning workload keeps its mismatched name after the failed
+		// call, so the next call resolves again and finishes both writes.
+		"a failed repair leaves the marker for the next call": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("stale", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("transitioning", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: refusingFirstWriteTo("stale"),
+			steps:        []step{{wantErr: true}, {}},
+			want: map[string]wantWorkload{
+				"stale":         {refName: new("high"), priority: new(int32(200))},
+				"transitioning": {refName: new("high"), priority: new(int32(200))},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -331,7 +403,11 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			job := tc.job
 			if job == nil {
-				job = testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+				jobWrapper := testingjob.MakeJob("job", "ns")
+				if className := ptr.Deref(tc.ownerClass, "high"); className != "" {
+					jobWrapper = jobWrapper.WorkloadPriorityClass(className)
+				}
+				job = jobWrapper.Obj()
 			}
 
 			objs := []client.Object{job}
@@ -399,7 +475,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				}
 				if want.priority != nil {
 					if persisted.Spec.Priority == nil || *persisted.Spec.Priority != *want.priority {
-						t.Errorf("%s priority = %v, want %d", n, persisted.Spec.Priority, *want.priority)
+						t.Errorf("%s priority = %d, want %d", n, ptr.Deref(persisted.Spec.Priority, 0), *want.priority)
 					}
 				}
 			}
@@ -443,6 +519,52 @@ func countingWrites(s *priorityStats) interceptor.Funcs {
 			}
 			return c.Update(ctx, obj, opts...)
 		},
+	}
+}
+
+// countingReadsAndWrites counts class reads, including the PriorityClass list
+// an empty class name resolves through, and workload writes.
+func countingReadsAndWrites(s *priorityStats) interceptor.Funcs {
+	return interceptor.Funcs{
+		Get: countingClassReads(s).Get,
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*schedulingv1.PriorityClassList); ok {
+				s.classReads++
+			}
+			return c.List(ctx, list, opts...)
+		},
+		Update: countingWrites(s).Update,
+	}
+}
+
+// refusingFirstWriteTo fails the first write to the named workload and passes
+// the later ones.
+func refusingFirstWriteTo(name string) func(*priorityStats) interceptor.Funcs {
+	return func(*priorityStats) interceptor.Funcs {
+		refused := false
+		return interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == name && !refused {
+					refused = true
+					return errors.New("simulated conflict")
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}
+	}
+}
+
+// refusingEveryWriteTo fails every write to the named workload.
+func refusingEveryWriteTo(name string) func(*priorityStats) interceptor.Funcs {
+	return func(*priorityStats) interceptor.Funcs {
+		return interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == name {
+					return errors.New("simulated rejection")
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}
 	}
 }
 
@@ -538,6 +660,70 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("recorded events (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestApplyWorkloadPriority checks that a workload the classifier leaves out is
+// not written, whatever the resolved value is.
+func TestApplyWorkloadPriority(t *testing.T) {
+	cases := map[string]struct {
+		ownerClass   string
+		workload     *kueue.Workload
+		classRef     *kueue.PriorityClassRef
+		priority     int32
+		wantRefName  *string
+		wantPriority *int32
+	}{
+		"a workload with no class reference is left alone": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").Priority(1000).Obj(),
+			wantPriority: new(int32(1000)),
+		},
+		"a value already under the resolved class is left alone": {
+			ownerClass:   "high",
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(500).Obj(),
+			classRef:     kueue.NewWorkloadPriorityClassRef("high"),
+			priority:     100,
+			wantRefName:  new("high"),
+			wantPriority: new(int32(500)),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			jobWrapper := testingjob.MakeJob("job", "ns")
+			if tc.ownerClass != "" {
+				jobWrapper = jobWrapper.WorkloadPriorityClass(tc.ownerClass)
+			}
+			job := jobWrapper.Obj()
+
+			s := &priorityStats{}
+			cl := utiltesting.NewClientBuilder().WithObjects(tc.workload).
+				WithInterceptorFuncs(countingWrites(s)).Build()
+
+			_, targets := ClassifyWorkloadsForPriorityUpdate(log, job, []*kueue.Workload{tc.workload})
+			if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, tc.classRef, tc.priority, targets...); err != nil {
+				t.Fatalf("ApplyWorkloadPriority() = %v", err)
+			}
+
+			got := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), got); err != nil {
+				t.Fatalf("reading the workload back: %v", err)
+			}
+			var gotRefName *string
+			if got.Spec.PriorityClassRef != nil {
+				gotRefName = &got.Spec.PriorityClassRef.Name
+			}
+			if diff := cmp.Diff(tc.wantRefName, gotRefName); diff != "" {
+				t.Errorf("priority class reference name (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantPriority, got.Spec.Priority); diff != "" {
+				t.Errorf("priority (-want,+got):\n%s", diff)
+			}
+			if s.workloadWrites != 0 {
+				t.Errorf("wrote the workload %d times, want none", s.workloadWrites)
 			}
 		})
 	}
