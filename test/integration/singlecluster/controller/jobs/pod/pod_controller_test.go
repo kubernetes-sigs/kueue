@@ -3703,9 +3703,10 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 			MakeGroup(2)
 
 		ginkgo.By("Creating the first Pod of the group", func() {
-			err := k8sClient.Create(ctx, group[0])
-			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(err.Error()).To(gomega.ContainSubstring(kueue.PodGroupPodIndexLabelAnnotation))
+			gomega.Expect(k8sClient.Create(ctx, group[0])).Should(gomega.SatisfyAll(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodGroupPodIndexLabelAnnotation)),
+			))
 		})
 	})
 })
