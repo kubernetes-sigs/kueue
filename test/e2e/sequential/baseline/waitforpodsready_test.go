@@ -241,9 +241,10 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
-			cfg.FeatureGates = map[string]bool{
-				string(features.WaitForPodsReadyMinPods): true,
+			if cfg.FeatureGates == nil {
+				cfg.FeatureGates = make(map[string]bool)
 			}
+			cfg.FeatureGates[string(features.WaitForPodsReadyMinPods)] = true
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  new(true),

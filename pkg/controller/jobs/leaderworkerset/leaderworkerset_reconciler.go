@@ -523,7 +523,8 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 
 	shouldUngate := lws == nil || utilstatefulset.ShouldUngatePod(sts, pod)
 	isActive := !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil
-	if !shouldUngate && !isActive {
+	canSyncMinCount := lws != nil && pod.DeletionTimestamp == nil && features.Enabled(features.WaitForPodsReadyMinPods)
+	if !shouldUngate && !isActive && !canSyncMinCount {
 		return nil
 	}
 
@@ -536,11 +537,11 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 			} else {
 				log.V(3).Info("Skipping ungating LeaderWorkerSet Pod")
 			}
-		} else if r.setDefault(lws, pod) {
+		} else if isActive && r.setDefault(lws, pod) {
 			log.V(3).Info("Setting default values")
 			updated = true
 		}
-		if lws != nil && isActive && features.Enabled(features.WaitForPodsReadyMinPods) && r.syncPodsReadyMinCountAnnotation(lws, pod) {
+		if canSyncMinCount && r.syncPodsReadyMinCountAnnotation(lws, pod) {
 			log.V(3).Info("Syncing pod group pods ready min count annotation")
 			updated = true
 		}
