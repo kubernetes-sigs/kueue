@@ -75,6 +75,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [What the check does](#what-the-check-does)
     - [Device taints](#device-taints)
     - [Extended resources](#extended-resources-1)
+    - [Requeue](#requeue)
     - [Cost](#cost)
     - [The allocator](#the-allocator)
     - [What the check does not decide](#what-the-check-does-not-decide)
@@ -1788,6 +1789,17 @@ the device check. kube-scheduler leaves the same resources to its own DRA filter
 check disabled the resource keeps being counted, which is why such a Workload finds no
 domain unless a device plugin advertises the resource.
 
+#### Requeue
+
+A Workload that fails the check waits until the devices change. Kueue requeues it when a
+ResourceSlice, DeviceClass or DeviceTaintRule is created, updated or deleted, and when a
+ResourceClaim loses its allocation or is deleted while allocated. Slices, classes and rules
+change rarely, and even a delete can help: of two DeviceClasses for one extended resource
+the newer one resolves, so deleting it switches the Workload to the other. Claims change
+with every Pod, so only a claim that frees its devices counts, as in kube-scheduler. Only
+the ClusterQueues that use a TAS flavor are requeued, since only those run the check, and
+events within a second of each other are merged into one.
+
 #### Cost
 
 The check costs one allocation attempt per candidate node, so it scales with the number
@@ -1835,11 +1847,6 @@ scheduling pass only; the second pass, once quota is reserved, runs the check as
 - the per-node allocation attempt is not bounded. kube-scheduler gives its own attempt a
   deadline and treats a timeout as retryable; here a slow DeviceClass selector stretches
   the scheduling cycle instead
-- nothing re-evaluates a pending Workload when the devices it waits on change. A
-  ResourceSlice event only requeues when its driver is named by a `deviceClassMappings`
-  source, and DeviceClass, ResourceClaim and DeviceTaintRule changes requeue nothing,
-  so a Workload can stay pending after the devices become sufficient.
-  [#15769](https://github.com/kubernetes-sigs/kueue/issues/15769) covers all four
 
 These Kubernetes DRA features change what kube-scheduler does without changing what Kueue
 predicts, so a cluster running one of them gets a different answer than this check gives:
@@ -2087,6 +2094,8 @@ tracks adding this). This follows the same pattern as upstream K8s integration t
   extended resources, so quota is not reserved for a Workload kube-scheduler cannot place
 - requires `KueueDRAIntegration`, `TopologyAwareScheduling` and
   `TASNodeFeasibilityForAllLevels`; enabling it without them is rejected at startup
+- requeue Workloads rejected for devices when ResourceSlices, DeviceClasses, ResourceClaims
+  or DeviceTaintRules change
 - unit and integration tests
 
 
