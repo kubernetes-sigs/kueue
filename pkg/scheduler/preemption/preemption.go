@@ -559,13 +559,7 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 
 func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) []*Target {
 	candidates := p.findCandidates(preemptionCtx.log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
-	// TODO(#15893): remove the configurable candidates phase from the Fair Sharing
-	// algorithm once ConfigurablePreemption covers Fair Sharing and the two become
-	// mutually exclusive.
-	//
-	// The configurable candidates are only evaluated once the strategies failed, so
-	// their emptiness isn't known here; the presence of a rule is enough to keep going.
-	if len(candidates) == 0 && (!features.Enabled(features.ConfigurablePreemptions) || !preemptionCtx.configurableEvaluator.HasRules()) {
+	if noCandidates(preemptionCtx, candidates) {
 		return nil
 	}
 	slices.SortFunc(candidates, p.candidatesOrdering(preemptionCtx))
@@ -638,6 +632,16 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 			"targets", logging.GetObjectReferences(targets))
 	}
 	return targets
+}
+
+func noCandidates(preemptionCtx *preemptionCtx, candidates []*workload.Info) bool {
+	// TODO(#15893): remove the configurable candidates phase from the Fair Sharing
+	// algorithm once ConfigurablePreemption covers Fair Sharing and the two become
+	// mutually exclusive.
+	//
+	// The configurable candidates are only evaluated once the strategies failed, so
+	// their emptiness isn't known here; the presence of a rule is enough to keep going.
+	return len(candidates) == 0 && (!features.Enabled(features.ConfigurablePreemptions) || !preemptionCtx.configurableEvaluator.HasRules())
 }
 
 func containsWorkloadFromPreemptorCQ(preemptionCtx *preemptionCtx, targets []*Target) bool {
