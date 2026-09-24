@@ -25,7 +25,10 @@ in each environment.
   lock or checksum file (`go.sum` and `vendor/`, `package-lock.json`,
   hash-pinned `requirements.txt`, digest-pinned container images,
   SHA-pinned GitHub Actions) so that the same inputs produce the same
-  result regardless of where or when a build runs.
+  result regardless of where or when a build runs. This holds for all
+  production runtime dependencies. A few test-only dependencies are
+  not yet fully pinned; these are treated as exceptions to be
+  eliminated where feasible.
 - **One set of manifests for all environments.** Development, CI, and
   release builds all consume the same manifests. The differences
   between environments are limited to *which* dependencies are used
@@ -48,7 +51,9 @@ The development environment is a contributor's workstation running the
   declared in [`go.mod`](go.mod), verified against `go.sum`, and
   vendored under `vendor/`. Go builds from the vendored tree, so a
   development build does not require network access to the module
-  proxy once the repository is checked out.
+  proxy once the repository is checked out. This applies to core
+  Kueue; sub-projects may declare their own
+  runtime dependencies.
 - **Build and generation tooling.** Tools such as `golangci-lint`,
   `controller-gen`, `kustomize`, `helm`, `kind`, `setup-envtest`,
   `ginkgo`, `yq`, `hugo`, and `mockgen` are declared as Go tool
