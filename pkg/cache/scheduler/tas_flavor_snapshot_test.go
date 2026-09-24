@@ -641,8 +641,7 @@ func TestMergeTopologyAssignmentsWithMissingNodes(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, tree, newDefaultSimulatorSnapshot())
+			s := &TASFlavorSnapshot{topologyTree: tree}
 			levels := []string{corev1.LabelHostname}
 			a := &tas.TopologyAssignment{Levels: levels, Domains: tc.domains[:len(tc.domains)/2]}
 			b := &tas.TopologyAssignment{Levels: levels, Domains: tc.domains[len(tc.domains)/2:]}
