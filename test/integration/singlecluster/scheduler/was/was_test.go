@@ -34,6 +34,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -596,6 +597,132 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		})
+	})
+
+	ginkgo.When("host ports filter nodes", func() {
+		var (
+			topology     *kueue.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			nodes        []corev1.Node
+		)
+
+		ginkgo.BeforeEach(func() {
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("was-n1").
+					Label("node-group", "was-ports").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r1").
+					Label(corev1.LabelHostname, "was-n1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("was-n2").
+					Label("node-group", "was-ports").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r2").
+					Label(corev1.LabelHostname, "was-n2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			// A Pod outside Kueue holds hostPort 8080 on was-n1, the node TAS
+			// picks on its own. It is created before the queues so that its
+			// tracking by the simulator doesn't race the Workload's admission.
+			holder := testingpod.MakePod("port-holder", ns.Name).
+				NodeName("was-n1").
+				Port(8080, 8080, corev1.ProtocolTCP).
+				TerminationGracePeriod(0).
+				Obj()
+			util.MustCreate(ctx, k8sClient, holder)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cached corev1.Pod
+				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(holder), &cached)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			topology = utiltestingapi.MakeDefaultThreeLevelTopology("was-ports-topology")
+			gomega.Expect(k8sClient.Create(ctx, topology)).To(gomega.Succeed())
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("was-ports-flavor").
+				NodeLabel("node-group", "was-ports").
+				TopologyName("was-ports-topology").Obj()
+			gomega.Expect(k8sClient.Create(ctx, tasFlavor)).To(gomega.Succeed())
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("was-ports-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource(corev1.ResourceCPU, "10").
+					Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("was-ports-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			for _, node := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			}
+		})
+
+		ginkgo.It("should assign the workload to another node when its hostPort is taken", func() {
+			wl := utiltestingapi.MakeWorkload("wl-port-taken", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c").
+						WithResourceReq(corev1.ResourceCPU, "1").
+						Port(8080, 8080, corev1.ProtocolTCP).
+						Obj()).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
+		})
+
+		ginkgo.It("should assign the workload to was-n1 when its hostPort is free", func() {
+			wl := utiltestingapi.MakeWorkload("wl-port-free", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Containers(*utiltesting.MakeContainer().
+						Name("c").
+						WithResourceReq(corev1.ResourceCPU, "1").
+						Port(9090, 9090, corev1.ProtocolTCP).
+						Obj()).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n1"))
 		})
 	})
 })
