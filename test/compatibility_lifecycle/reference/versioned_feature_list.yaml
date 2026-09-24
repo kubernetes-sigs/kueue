@@ -563,6 +563,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: TASPartialSlices
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -699,6 +705,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: WorkloadLevelWaitForPodsReady
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WorkloadPriorityClassDefaulting
   versionedSpecs:
   - default: false

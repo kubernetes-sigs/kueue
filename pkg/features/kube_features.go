@@ -764,6 +764,21 @@ const (
 	// group reports PodsReady=False as soon as any member finishes, which can evict a
 	// healthy group once waitForPodsReady.recoveryTimeout elapses.
 	PodIntegrationCountSucceededPodsAsReady featuregate.Feature = "PodIntegrationCountSucceededPodsAsReady"
+
+	// owner: @MaysaMacedo
+	//
+	// Enables setting a per-workload WaitForPodsReady timeout and recovery timeout via the
+	// kueue.x-k8s.io/wait-for-pods-ready annotation, overriding the cluster-wide
+	// WaitForPodsReady.Timeout and WaitForPodsReady.RecoveryTimeout for that workload.
+	WorkloadLevelWaitForPodsReady featuregate.Feature = "WorkloadLevelWaitForPodsReady"
+
+	// owner: @pajakd
+	//
+	// Allow a PodSet slice size that does not evenly divide the PodSet count.
+	// The trailing pods form one partial slice, which is placed in a single
+	// topology domain just like a full slice. Without this gate the trailing
+	// pods are dropped from the assignment.
+	TASPartialSlices featuregate.Feature = "TASPartialSlices"
 )
 
 func init() {
@@ -799,6 +814,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASTopologySpreading:                            {TopologyAwareScheduling},
 	AdmissionFairSharingAnchorAtQuotaReservation:    {AdmissionFairSharing},
 	KueueDRADeviceFeasibility:                       {KueueDRAIntegration, TopologyAwareScheduling, TASNodeFeasibilityForAllLevels},
+	TASPartialSlices:                                {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1177,6 +1193,13 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	QuotaReleaseStrategy: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	WorkloadLevelWaitForPodsReady: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASPartialSlices: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

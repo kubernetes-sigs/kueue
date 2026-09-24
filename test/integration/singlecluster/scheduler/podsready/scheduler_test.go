@@ -31,8 +31,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -117,6 +120,63 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		podsReadyTimeout = defaultPodsReadyTimeout
 		requeuingTimestamp = defaultRequeuingTimestamp
 		requeueingBackoffLimitCount = defaultRequeuingBackoffLimitCount
+	})
+
+	ginkgo.Context("Per-workload WaitForPodsReady timeout", ginkgo.Label("feature:workloadlevelwaitforpodsready"), func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+			// The cluster-level timeout is intentionally large so it can never fire
+			// within the test window: any PodsReady-timeout eviction observed here must
+			// have been driven by the (much smaller) per-workload annotation, not by the
+			// cluster-level configuration.
+			podsReadyTimeout = util.LongTimeout
+		})
+
+		ginkgo.It("Should keep other workloads pending until the blocking workload is evicted by its per-workload timeout", func() {
+			ginkgo.By("creating a workload that is admitted but never reaches PodsReady, with a large per-workload timeout")
+			blockingWl := utiltestingapi.MakeWorkload("blocking-wl", ns.Name).
+				Queue(kueue.LocalQueueName(prodQueue.Name)).
+				Annotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, blockingWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, blockingWl)
+
+			ginkgo.By("creating a second workload that fits within the remaining quota")
+			pendingWl := utiltestingapi.MakeWorkload("pending-wl", ns.Name).
+				Queue(kueue.LocalQueueName(prodQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, pendingWl)
+
+			ginkgo.By("verifying the blocking workload stays not-ready and is not evicted while the large timeout applies")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingWl), blockingWl)).Should(gomega.Succeed())
+				g.Expect(workloadevict.IsEvicted(blockingWl)).Should(gomega.BeFalse())
+				g.Expect(apimeta.IsStatusConditionTrue(blockingWl.Status.Conditions, kueue.WorkloadPodsReady)).Should(gomega.BeFalse())
+			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the second workload stays pending because block admission is enabled")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pendingWl), pendingWl)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(pendingWl)).Should(gomega.BeFalse())
+			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("lowering the blocking workload's per-workload timeout so it is evicted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingWl), blockingWl)).Should(gomega.Succeed())
+				blockingWl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":1}`
+				g.Expect(k8sClient.Update(ctx, blockingWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the blocking workload is evicted by its per-workload timeout")
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(blockingWl), 0)
+			util.ExpectEvictedWorkloadsOnceTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "", 1)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, blockingWl)
+
+			ginkgo.By("verifying the pending workload gets admitted once the blocking one is evicted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, pendingWl)
+		})
 	})
 
 	ginkgo.Context("Long PodsReady timeout", func() {

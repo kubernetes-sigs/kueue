@@ -81,6 +81,11 @@ func (c *Checker) buildAllocator(ctx context.Context) (structured.Allocator, err
 		deviceSlices[i] = &sliceList.Items[i]
 	}
 
+	deviceSlices, err := applyDeviceTaintRules(ctx, c.cl, c.deviceTaintRules, deviceSlices)
+	if err != nil {
+		return nil, err
+	}
+
 	// Configured from the Kubernetes DRA gates rather than the Kueue ones, by the same
 	// call kube-scheduler makes, so the two allocators stay in step.
 	draFeatures := dynamicresources.AllocatorFeatures(schedulerfeature.NewSchedulerFeaturesFromGates(utilfeature.DefaultFeatureGate))

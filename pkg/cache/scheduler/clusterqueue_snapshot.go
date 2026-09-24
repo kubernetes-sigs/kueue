@@ -221,6 +221,10 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	}
 
 	result := make(TASAssignmentsResult)
+	var spreadCountsOpts []TopologySpreadCountsOption
+	if opts.simulateEmpty {
+		spreadCountsOpts = []TopologySpreadCountsOption{WithSpreadCountsSimulateEmpty(true)}
+	}
 	for _, tasFlavor := range slices.Sorted(maps.Keys(tasRequestsByFlavor)) {
 		flavorTASRequests := tasRequestsByFlavor[tasFlavor]
 		// We assume the `tasFlavor` is already in the snapshot as this was
@@ -230,7 +234,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// options is cloned only when there is something to append, so the
 		// common path adds no allocation per flavor.
 		flvOpts := options
-		if spreadCounts := c.topologySpreadCountsForFlavor(opts.workload, tasFlavor, flavorTASRequests); len(spreadCounts) > 0 {
+		if spreadCounts := c.topologySpreadCountsForFlavor(opts.workload, tasFlavor, flavorTASRequests, spreadCountsOpts...); len(spreadCounts) > 0 {
 			flvOpts = append(slices.Clone(flvOpts), WithTopologySpreadCounts(spreadCounts))
 		}
 		// The aggregation is limited to flavors with a user-declared hostname

@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -422,6 +423,59 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					util.ExpectEvictedWorkloadsOnceTotalMetric(clusterQueue.Name, "Deactivated", "AdmissionCheck", "", 1)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+
+		ginkgo.It("should report the admission-check wait time from quota reservation", func() {
+			wl := utiltestingapi.MakeWorkload("wl-admission-wait", ns.Name).Queue("queue").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			util.MustCreate(ctx, k8sClient, wl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+				g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string {
+					return string(c.Name)
+				})).Should(gomega.ConsistOf("check1", "check2"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			podSet := kueue.PodSetAssignment{
+				Name: kueue.DefaultPodSetName,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
+				},
+			}
+			util.SetQuotaReservation(ctx, k8sClient, wlKey,
+				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(podSet).Obj())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+				g.Expect(apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadQuotaReserved)).NotTo(gomega.BeNil())
+				quotaReserved := apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				quotaReserved.LastTransitionTime = metav1.NewTime(time.Now().Add(-time.Minute))
+				g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+				for _, name := range []string{"check1", "check2"} {
+					workloadpatching.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  kueue.AdmissionCheckReference(name),
+						State: kueue.CheckStateReady,
+					}, util.RealClock)
+				}
+				g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(event *eventsv1.Event) bool {
+					return event.Reason == "Admitted" && event.Type == corev1.EventTypeNormal &&
+						strings.Contains(event.Note, "Admitted by ClusterQueue cluster-queue, wait time since reservation was ") &&
+						!strings.HasSuffix(event.Note, " 0s")
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(found).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectAdmissionChecksWaitTimeMetricAtLeast(clusterQueue, "", 60)
 		})
 
 		ginkgo.It("should evict then finish with failure an admitted workload when a check is rejected", func() {

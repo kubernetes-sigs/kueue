@@ -267,6 +267,9 @@ spec:
                                 required:
                                   - key
                                 type: object
+                                x-kubernetes-validations:
+                                  - message: minValue must be less than or equal to maxValue
+                                    rule: '!has(self.minValue) || !has(self.maxValue) || self.minValue <= self.maxValue'
                               type: array
                               x-kubernetes-list-type: atomic
                             priority:

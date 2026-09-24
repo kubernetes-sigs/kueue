@@ -149,6 +149,7 @@ type Options struct {
 	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
 	QuotaReleaseStrategy         configapi.QuotaReleaseStrategy
+	MaxTimeoutOnWorkload         *metav1.Duration
 }
 
 // Option configures the reconciler.
@@ -192,6 +193,9 @@ func WithWaitForPodsReady(cfg *configapi.WaitForPodsReady) Option {
 	return func(o *Options) {
 		o.WaitForPodsReady = waitforpodsready.Enabled(cfg)
 		o.WaitForPodsReadyConfig = cfg
+		if cfg != nil && cfg.MaxTimeoutOnWorkload != nil {
+			o.MaxTimeoutOnWorkload = cfg.MaxTimeoutOnWorkload
+		}
 	}
 }
 
@@ -584,7 +588,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 5. handle WaitForPodsReady only for a standalone job.
 	// handle a job when waitForPodsReady is enabled, and it is the main job
-	if r.waitForPodsReady {
+	if r.waitForPodsReady || waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
 		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
@@ -1171,6 +1175,11 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
 				return nil, err
 			}
+			if wl != nil {
+				if err := UpdateWaitForPodsReady(ctx, r.client, r.record, job.Object(), wl); err != nil {
+					return nil, err
+				}
+			}
 			return wl, nil
 		}
 		// Fallback.
@@ -1261,6 +1270,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), match); err != nil {
 			return nil, err
 		}
+
+		if err := UpdateWaitForPodsReady(ctx, r.client, r.record, job.Object(), match); err != nil {
+			return nil, err
+		}
 	}
 
 	return match, nil
@@ -1329,6 +1342,64 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 	}
 
 	return false
+}
+
+// UpdateWaitForPodsReady propagates the WaitForPodsReady annotation from the job object
+// to its associated workload. Emits an event only if the annotation was actually changed
+// and the update succeeded.
+// The function returnes immediately if the WorkloadLevelWaitForPodsReady feature is not enabled.
+func UpdateWaitForPodsReady(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload) error {
+	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		return nil
+	}
+
+	var propagated bool
+	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
+		var err error
+		propagated, err = PropagateWaitForPodsReadyAnnotation(obj, wl)
+		return propagated, err
+	}); err != nil {
+		return fmt.Errorf("updating the WaitForPodsReady of existing workload: %w", err)
+	}
+
+	if propagated {
+		RecordWaitForPodsReadyUpdateEvent(r, obj)
+	}
+
+	return nil
+}
+
+// PropagateWaitForPodsReadyAnnotation copies the WaitForPodsReady annotation from the given object to
+// workload object but only in memory. It does not persist the changes to the API server.
+func PropagateWaitForPodsReadyAnnotation(obj client.Object, wl *kueue.Workload) (bool, error) {
+	jobCfg, err := waitforpodsready.ParseAnnotation(obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation])
+	if err != nil {
+		return false, err
+	}
+
+	wlCfg, err := waitforpodsready.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
+
+	if err == nil && apiequality.Semantic.DeepEqual(wlCfg, jobCfg) {
+		return false, nil
+	}
+
+	if wl.Annotations == nil {
+		wl.Annotations = make(map[string]string)
+	}
+	if jobCfg == nil {
+		delete(wl.Annotations, controllerconsts.WaitForPodsReadyAnnotation)
+	} else {
+		wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation]
+	}
+	return true, nil
+}
+
+// RecordWaitForPodsReadyUpdateEvent records a successful WaitForPodsReady annotation
+// update to a workload.
+func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object) {
+	r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+		"Updated workload WaitForPodsReady annotation to %s", obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation],
+	)
 }
 
 // UpdateWorkloadPriority reconciles the priority of each workload that still

@@ -35,15 +35,20 @@ type Checker struct {
 	cl        client.Client
 	celCache  *CELCache
 	allocator lazyAllocator
+
+	// deviceTaintRules is whether the cluster serves DeviceTaintRules, decided once at
+	// startup: listing a kind the API server lacks costs a discovery request each time.
+	deviceTaintRules bool
 }
 
 // NewChecker wraps inner with the device check. Pass the scheduler cache's CELCache
 // rather than a fresh one: it only pays off by outliving the snapshot.
-func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *CELCache) *Checker {
+func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *CELCache, deviceTaintRules bool) *Checker {
 	c := &Checker{
-		inner:    inner,
-		cl:       cl,
-		celCache: celCache,
+		inner:            inner,
+		cl:               cl,
+		celCache:         celCache,
+		deviceTaintRules: deviceTaintRules,
 	}
 	c.allocator.build = c.buildAllocator
 	return c

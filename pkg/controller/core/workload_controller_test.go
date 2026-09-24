@@ -54,6 +54,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -871,6 +872,37 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantUnderlyingCause: kueue.WorkloadWaitForStart,
 			wantRecheckAfter:    math.MaxInt64 - 3*time.Minute,
 		},
+		"PodsReady=False/WaitForRecovery with annotation timeout only; recoveryTimeout defaults to cluster-level configuration": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						controllerconstants.WaitForPodsReadyAnnotation: `{"timeoutSeconds": 300}`,
+					},
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForRecovery,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{recoveryTimeout: new(5 * time.Minute)},
+			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
+			wantRecheckAfter:    4 * time.Minute,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1379,17 +1411,15 @@ func TestUpdateSettlesAfsEntryPenaltyPerReservation(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
 
-	makeWl := func() *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl", "ns").
-			Queue("lq").
-			Active(true).
-			Request(corev1.ResourceCPU, "4")
-	}
+	baseWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request(corev1.ResourceCPU, "4")
 	admission := utiltestingapi.MakeAdmission("cq").
 		PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
 		Obj()
-	pending := makeWl().Obj()
-	quotaReserved := makeWl().ReserveQuotaAt(admission, now).Obj()
+	pending := baseWl.Clone().Obj()
+	quotaReserved := baseWl.Clone().ReserveQuotaAt(admission, now).Obj()
 
 	cases := map[string]struct {
 		atQuotaReservation bool
@@ -1551,6 +1581,36 @@ func TestReconcile(t *testing.T) {
 					Reason:    "Admitted",
 					Message: fmt.Sprintf("Admitted by ClusterQueue q1, wait time since reservation was %.0fs",
 						fakeClock.Since(metav1.NewTime(now).Time.Truncate(time.Second)).Seconds()),
+				},
+			},
+		},
+		"admit after waiting": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-time.Minute)).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-time.Minute)).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    "Admitted",
+					Status:  "True",
+					Reason:  "Admitted",
+					Message: "The workload is admitted",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
+					Reason:    "Admitted",
+					Message:   "Admitted by ClusterQueue q1, wait time since reservation was 60s",
 				},
 			},
 		},
@@ -3430,12 +3490,10 @@ func TestDeleteSubtractsPendingAfsEntryPenalty(t *testing.T) {
 func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
-	makeWl := func() *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl", "ns").
-			Queue("lq").
-			Request(corev1.ResourceCPU, "4")
-	}
-	quotaReserved := makeWl().SimpleReserveQuota("cq", "rf", now).Obj()
+	baseWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4")
+	quotaReserved := baseWl.Clone().SimpleReserveQuota("cq", "rf", now).Obj()
 
 	cases := map[string]struct {
 		oldWl *kueue.Workload
@@ -3445,32 +3503,32 @@ func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
 		wantPendingOn map[utilqueue.LocalQueueReference]bool
 	}{
 		"moving to another LocalQueue drops the record under the previous one": {
-			oldWl: makeWl().Obj(),
-			newWl: makeWl().Queue("lq2").Obj(),
+			oldWl: baseWl.Clone().Obj(),
+			newWl: baseWl.Clone().Queue("lq2").Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{
 				"ns/lq": false, "ns/lq2": false,
 			},
 		},
 		"deactivation with the reservation gone drops the record": {
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Active(false).Obj(),
+			newWl:         baseWl.Clone().Active(false).Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
 		},
 		"deactivation that keeps the reservation keeps the record": {
 			// Reactivated in place, the Workload can reach Admitted without a
 			// new scheduler assume, so its penalty must still be settleable.
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Active(false).SimpleReserveQuota("cq", "rf", now).Obj(),
+			newWl:         baseWl.Clone().Active(false).SimpleReserveQuota("cq", "rf", now).Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
 		},
 		"finishing without admission drops the record": {
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Finished().Obj(),
+			newWl:         baseWl.Clone().Finished().Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
 		},
 		"eviction back to pending on the same LocalQueue keeps the record": {
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Obj(),
+			newWl:         baseWl.Clone().Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
 		},
 	}

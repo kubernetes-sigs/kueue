@@ -5378,6 +5378,17 @@ func TestReclaimablePods(t *testing.T) {
 	}
 	retryableFailureJob := indexedJob(1, 1, "0", "")
 	retryableFailureJob.Spec.BackoffLimitPerIndex = new(int32(1))
+	nonIndexedJob := func(parallelism, completions, succeeded int32) *Job {
+		j := utiltestingjob.MakeJob("job", "ns").
+			Parallelism(parallelism).
+			Completions(completions).
+			Obj()
+		j.Status.Succeeded = succeeded
+		return (*Job)(j)
+	}
+	indexedJobWithParallelismAboveCompletions := indexedJob(1, 0, "0", "")
+	indexedJobWithParallelismAboveCompletions.Spec.Parallelism = new(int32(10))
+	indexedJobWithParallelismAboveCompletions.Spec.Completions = new(int32(5))
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod
@@ -5402,6 +5413,16 @@ func TestReclaimablePods(t *testing.T) {
 		"indexed Job with empty terminal indexes holds quota": {
 			job:  indexedJob(4, 0, "", ""),
 			want: nil,
+		},
+		// The PodSet only reserves min(parallelism, completions) Pods, so the Pods
+		// still running must keep their quota.
+		"non-indexed Job with parallelism above completions reclaims only finished Pods": {
+			job:  nonIndexedJob(10, 5, 1),
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}},
+		},
+		"indexed Job with parallelism above completions reclaims only finished indexes": {
+			job:  indexedJobWithParallelismAboveCompletions,
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}},
 		},
 	}
 	for name, tc := range cases {

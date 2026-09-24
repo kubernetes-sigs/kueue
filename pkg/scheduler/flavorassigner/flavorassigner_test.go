@@ -6642,18 +6642,32 @@ func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		flavor    kueue.ResourceFlavorReference
-		wantFit   bool
-		wantErrIn string
+		flavor           kueue.ResourceFlavorReference
+		explicitTopology bool
+		wantFit          bool
+		wantErrIn        string
 	}{
-		"flavor's topology lacks the rule's level: rejected": {
-			flavor:    "tas-without-rack",
-			wantFit:   false,
-			wantErrIn: "topology spreading",
+		"explicit TAS: flavor's topology lacks the rule's level: rejected": {
+			flavor:           "tas-without-rack",
+			explicitTopology: true,
+			wantFit:          false,
+			wantErrIn:        "topology spreading",
 		},
-		"flavor's topology has the rule's level: admitted": {
-			flavor:  "tas-with-rack",
-			wantFit: true,
+		"explicit TAS: flavor's topology has the rule's level: admitted": {
+			flavor:           "tas-with-rack",
+			explicitTopology: true,
+			wantFit:          true,
+		},
+		"implied TAS: flavor's topology lacks the rule's level: rejected": {
+			flavor:           "tas-without-rack",
+			explicitTopology: false,
+			wantFit:          false,
+			wantErrIn:        "topology spreading",
+		},
+		"implied TAS: flavor's topology has the rule's level: admitted": {
+			flavor:           "tas-with-rack",
+			explicitTopology: false,
+			wantFit:          true,
 		},
 	}
 
@@ -6661,13 +6675,13 @@ func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
-			wlPods := []kueue.PodSet{
-				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					Request(corev1.ResourceCPU, "1").
-					RequiredTopologyRequest(corev1.LabelHostname).
-					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation}).
-					Obj(),
+			psBuilder := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "1").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation})
+			if tc.explicitTopology {
+				psBuilder = psBuilder.RequiredTopologyRequest(corev1.LabelHostname)
 			}
+			wlPods := []kueue.PodSet{*psBuilder.Obj()}
 			wlInfo := workload.NewInfo(log, &kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: wlPods}})
 
 			clusterQueue := utiltestingapi.MakeClusterQueue("test-clusterqueue").

@@ -1122,7 +1122,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
 			revertPods := simulatePodRemoval(ctx, log, snapshot, targetWorkloads)
@@ -1409,7 +1409,11 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 		return
 	}
 
-	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %s, wait time since reservation was 0s", admission.ClusterQueue)
+	quotaReservedWaitTime := workload.QuotaReservedWaitTime(newWorkload, s.clock)
+
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted",
+		"Admitted by ClusterQueue %s, wait time since reservation was %.0fs",
+		admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 
 	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)

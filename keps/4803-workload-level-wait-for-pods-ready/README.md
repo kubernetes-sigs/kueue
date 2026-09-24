@@ -25,7 +25,7 @@
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Webhook unit tests](#webhook-unit-tests)
       - [webhooks/job (controller/jobframework/validation)](#webhooksjob-controllerjobframeworkvalidation)
-    - [e2e](#e2e)
+    - [Integration](#integration)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha1 (0.20)](#alpha1-020)
     - [Alpha2 (0.21)](#alpha2-021)
@@ -71,10 +71,8 @@ A new optional configuration is added to the `WaitForPodsReady` that allows admi
 the maximum timeout values they want to allow users to specify at the `kueue.x-k8s.io/wait-for-pods-ready`
 annotation.
 
-The managed-resource webhook (see [Webhooks](#webhooks)) rejects annotation
-changes while the resource is unsuspended. When the job is suspended and the
-annotation is changed, the mismatch is detected and the Workload spec is reconstructed.
-The webhooks also rejects timeouts that exceed the maximum timeout or are not valid integers.
+The managed-resource webhook (see [Webhooks](#webhooks)) rejects timeouts that exceed
+the maximum timeout, are not larger than 0 or is represent in an invalid JSON.
 
 ### User Stories
 
@@ -96,7 +94,8 @@ As a platform administrator, I want to configure Kueue with `blockAdmission: tru
 ### Notes/Constraints/Caveats
 
 - When a per-workload timeout is enforced and `DisableWaitForPodsReady` feature gate is enabled
-the timeout is ignored and a log warns about incompatible combination.
+  the timeout is ignored.
+- Enabling `DisableWaitForPodsReady` and `WorkloadLevelWaitForPodsReady` feature gates is not allowed.
 
 ### Risks and Mitigations
 
@@ -171,12 +170,6 @@ When a workload is constructed for a managed resource, the
 copied to the resulting workload's annotations. This covers most integrations
 (Job, StatefulSet, RayJob, PyTorchJob, JobSet, etc.).
 
-The **Deployment** integration is an exception: Kueue tracks Deployment-owned
-workloads via the Pod integration rather than directly from the Deployment object.
-Users must therefore place the annotation on the Pod template
-(`spec.template.metadata.annotations`), from where it is read when the workload
-is constructed for the Pod — no additional propagation logic is needed in Kueue.
-
 ### Webhooks
 
 #### Managed resources (Jobs, Deployments, StatefulSets, etc.)
@@ -185,11 +178,11 @@ is constructed for the Pod — no additional propagation logic is needed in Kueu
   positive integers and does not exceed the maximum value set by the admin in the
   cluster configuration.
 - Setting a recoveryTimeout without timeout set is not supported.
-- The annotation is immutable while the job is unsuspended. Changes are allowed
-  while the job is suspended (i.e. between eviction cycles), which is the
-  intended window for a user to adjust the timeout before re-admission. When a
-  change is detected during reconciliation, the workload's own annotation is
-  updated in place — no delete-and-recreate occurs.
+- To make the update behavior match all integrations, the annotation is always
+  allowed to be updated given it's valid. The annotation is updated in place,
+  no delete-and-recreate occurs.
+- The **Deployment** webhook copies the annotation from the metadata to the Template
+  to make sure it's propagated to the Pods and then to the workloads.
 
 ### Future Work
 
@@ -226,8 +219,7 @@ type WaitForPodsReady struct {
     // After exceeding the timeout the corresponding job gets suspended again
     // and requeued after the backoff delay.
     // If both this field and the cluster-wide WaitForPodsReady.RecoveryTimeout
-    // are set, this field takes precedence. Defaults to timeoutSeconds when
-    // timeoutSeconds is set and this field is not. Setting 0 disables it.
+    // are set, this field takes precedence.
     // +optional
     // +kubebuilder:validation:Minimum=0
     RecoveryTimeoutSeconds *int64 `json:"recoveryTimeoutSeconds,omitempty"`
@@ -262,16 +254,17 @@ No regressions in the existing `WaitForPodsReady` tests under
   exceeding `MaxTimeoutOnWorkload` is rejected at admission time."
 - "A Job annotated with `kueue.x-k8s.io/wait-for-pods-ready` set to malformed
   JSON is rejected at admission time."
-- "Changing the annotation on an unsuspended Job is rejected at admission time."
+- "A job with no annotation change has the webhook validation for the annotation
+  skipped."
 
-#### e2e
+#### Integration
 
+- "A job should have the annotation propagated to the workload during creation and update"
+- "Elastic job should have the annotation propagated on update"
 - "A job with a per-workload timeout shorter than the cluster wide timeout is evicted at
   per workload deadline"
-- "A job with a per-workload timeout longer than the cluster wide timeout is evicted at
+- "A job with a per-workload recoveryTimeout shorter than the cluster wide timeout is evicted at
   per workload deadline"
-- "Updating the annotation while the job is suspended causes the workload annotation
-  to be updated on the next reconciliation without delete-and-recreate."
 - "When `blockadmission:true`, a workload with a short per-workload timeout that expires
   unblocks admission of other workloads sooner than the cluster wide timeout."
 
@@ -282,8 +275,8 @@ No regressions in the existing `WaitForPodsReady` tests under
 - Feature gate `WorkloadLevelWaitForPodsReady` introduced, disabled by default.
 - New resource `kueue.x-k8s.io/wait-for-pods-ready` annotations implemented.
 - Introduce `MaxTimeoutOnWorkload` field in the cluster wide configuration.
-- Unit tests for annotation parsing, webhook validation (duration, immutability).
-- E2E tests added.
+- Unit tests for annotation parsing, webhook validation.
+- Integration tests added.
 
 #### Alpha2 (0.21)
 

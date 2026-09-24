@@ -54,6 +54,7 @@ const (
 	DefaultVisibilityBindPort                     = 8082
 	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
 	DefaultQuotaReleaseStrategy                   = QuotaReleaseOnTerminating
+	DefaultMaxTimeoutOnWorkload                   = 2 * time.Hour
 )
 
 func getOperatorNamespace() string {
@@ -115,6 +116,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.Timestamp, new(EvictionTimestamp))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds, new(int32(DefaultRequeuingBackoffBaseSeconds)))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds, new(int32(DefaultRequeuingBackoffMaxSeconds)))
+		cfg.WaitForPodsReady.MaxTimeoutOnWorkload = cmp.Or(cfg.WaitForPodsReady.MaxTimeoutOnWorkload, &metav1.Duration{Duration: DefaultMaxTimeoutOnWorkload})
 	}
 
 	cfg.Integrations = cmp.Or(cfg.Integrations, &Integrations{})

@@ -67,6 +67,9 @@ var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
 	RecoveryTimeout: &metav1.Duration{
 		Duration: 30 * time.Minute,
 	},
+	MaxTimeoutOnWorkload: &metav1.Duration{
+		Duration: configapi.DefaultMaxTimeoutOnWorkload,
+	},
 	RequeuingStrategy: &configapi.RequeuingStrategy{
 		Timestamp:          new(configapi.EvictionTimestamp),
 		BackoffBaseSeconds: new(int32(configapi.DefaultRequeuingBackoffBaseSeconds)),
@@ -673,10 +676,11 @@ objectRetentionPolicies:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					BlockAdmission:     new(true),
-					Timeout:            metav1.Duration{Duration: 50 * time.Second},
-					RecoveryTimeout:    &metav1.Duration{Duration: 3 * time.Minute},
-					UnscheduledTimeout: &metav1.Duration{Duration: 30 * time.Second},
+					BlockAdmission:       new(true),
+					Timeout:              metav1.Duration{Duration: 50 * time.Second},
+					RecoveryTimeout:      &metav1.Duration{Duration: 3 * time.Minute},
+					UnscheduledTimeout:   &metav1.Duration{Duration: 30 * time.Second},
+					MaxTimeoutOnWorkload: &metav1.Duration{Duration: configapi.DefaultMaxTimeoutOnWorkload},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
 						Timestamp:          new(configapi.CreationTimestamp),
 						BackoffLimitCount:  new(int32(10)),
@@ -1278,8 +1282,9 @@ func TestEncode(t *testing.T) {
 					"bindPort": int64(8082),
 				},
 				"waitForPodsReady": map[string]any{
-					"blockAdmission":  false,
-					"recoveryTimeout": "30m0s",
+					"blockAdmission":       false,
+					"recoveryTimeout":      "30m0s",
+					"maxTimeoutOnWorkload": "2h0m0s",
 					"requeuingStrategy": map[string]any{
 						"backoffBaseSeconds": int64(60),
 						"backoffMaxSeconds":  int64(3600),

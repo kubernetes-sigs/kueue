@@ -66,6 +66,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			extendedClass *resourceapi.DeviceClass
 			claimTemplate *resourceapi.ResourceClaimTemplate
 			tooBigClaim   *resourceapi.ResourceClaimTemplate
+			tolerantClaim *resourceapi.ResourceClaimTemplate
 			nodes         []corev1.Node
 			gpuSlice      *resourceapi.ResourceSlice
 		)
@@ -153,6 +154,13 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, tooBigClaim)).To(gomega.Succeed())
 
+			// Tolerates the taint the DeviceTaintRule cases below apply.
+			tolerantClaim = utiltesting.MakeResourceClaimTemplate("gpu-claim-tolerant", ns.Name).
+				DeviceRequest("gpu", "gpu.test.com", 1).
+				WithToleration("test.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
+				Obj()
+			util.MustCreate(ctx, k8sClient, tolerantClaim)
+
 			localQueue = utiltestingapi.MakeLocalQueue("was-dra-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
@@ -162,6 +170,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, claimTemplate)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, tooBigClaim)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, tolerantClaim)).Should(gomega.Succeed())
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
@@ -266,6 +275,72 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 					g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		// The taint is on the devices, not the node, so only the DRA check can see it.
+		ginkgo.When("a DeviceTaintRule taints the only node with devices", func() {
+			var taintRule *resourceapi.DeviceTaintRule
+
+			ginkgo.BeforeEach(func() {
+				taintRule = utiltesting.MakeDeviceTaintRule("was-dra-maintenance", "test.com/maintenance").
+					Driver("gpu.test.com").
+					Obj()
+				util.MustCreate(ctx, k8sClient, taintRule)
+				// The rule's name repeats across specs, so wait for this rule, not a previous one.
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cached resourceapi.DeviceTaintRule
+					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(taintRule), &cached)).To(gomega.Succeed())
+					g.Expect(cached.UID).To(gomega.Equal(taintRule.UID))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.AfterEach(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, taintRule, true)
+			})
+
+			ginkgo.It("should not admit a DRA workload that does not tolerate the taint", func() {
+				wl := utiltestingapi.MakeWorkload("wl-dra-tainted", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+
+				ginkgo.By("reporting the devices as the reason, not a generic no-fit", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						read := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("should admit a DRA workload whose claim tolerates the taint", func() {
+				wl := utiltestingapi.MakeWorkload("wl-dra-tolerant", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim-tolerant").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
+				gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
 			})
 		})
 
