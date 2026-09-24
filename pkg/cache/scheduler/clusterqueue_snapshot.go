@@ -61,6 +61,9 @@ type ClusterQueueSnapshot struct {
 	WorkloadsNotReady         sets.Set[workload.Reference]
 	NamespaceSelector         labels.Selector
 	Preemption                kueue.ClusterQueuePreemption
+	// PreemptionConfigName is the name of the PreemptionConfig referenced by the ClusterQueue.
+	// Only present when the ConfigurablePreemptions feature gate is enabled.
+	PreemptionConfigName      *string
 	FairWeight                float64
 	FlavorFungibility         kueue.FlavorFungibility
 	AdmissionScope            kueue.AdmissionScope
