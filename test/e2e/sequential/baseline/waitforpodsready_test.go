@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 
 	ginkgo.It("should keep StatefulSet workload PodsReady when ready pods stay above min count and evict when dropping below min count", func() {
 		var sts *appsv1.StatefulSet
-		ginkgo.By("creating a StatefulSet with 3 replicas and pod-group-pods-ready-min-count=2", func() {
+		ginkgo.By("creating a StatefulSet with 3 replicas and pod-group-pods-ready-min-threshold-count=2", func() {
 			sts = statefulsettesting.MakeStatefulSet("sts-min-pods", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").

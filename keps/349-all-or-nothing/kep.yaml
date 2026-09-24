@@ -3,17 +3,17 @@ kep-number: 349
 authors:
   - "@mimowo"
   - "@pbundyra"           # for recoveryTimeout extension
-  - "@j-skiba"            # for pod-group-pods-ready-min-count extension
+  - "@j-skiba"            # for pod-group-pods-ready-min-threshold-count extension
 status: provisional
 creation-date: 2022-11-23
 reviewers:
   - "@kerthcet"
   - "@alculquicondor"
-  - "@mimowo"             # for recoveryTimeout and pod-group-pods-ready-min-count extensions
+  - "@mimowo"             # for recoveryTimeout and pod-group-pods-ready-min-threshold-count extensions
   - "@yaroslava-serdiuk"  # for recoveryTimeout extension
 approvers:
   - "@ahg-g"
-  - "@mimowo"             # for recoveryTimeout and pod-group-pods-ready-min-count extensions
+  - "@mimowo"             # for recoveryTimeout and pod-group-pods-ready-min-threshold-count extensions
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: stable
@@ -30,7 +30,7 @@ milestone:
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
-  - name: WaitForPodsReadyMinPods
+  - name: WaitForPodsReadyMinThresholdPods
 disable-supported: true
 
 # The following PRR answers are required at beta release
