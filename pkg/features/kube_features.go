@@ -872,6 +872,7 @@ const (
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
 
 	// owner: @rjgoyln
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/15867
 	//
 	// Reject a Pod whose kueue.x-k8s.io/pod-group-pod-index-label annotation names a
 	// label that does not hold the Pod's index within its group, rather than admitting
