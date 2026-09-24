@@ -52,7 +52,9 @@ const (
 )
 
 type ClusterQueueSnapshot struct {
-	Name                      kueue.ClusterQueueReference
+	Name kueue.ClusterQueueReference
+	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
+	Labels                    map[string]string
 	draBackedResources        *dra.ExtendedResourceCache
 	ResourceGroups            []resourcegroups.ResourceGroup
 	Workloads                 map[workload.Reference]*workload.Info
