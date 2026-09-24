@@ -52,9 +52,14 @@ export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
 export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
+# The registry saying the tag will never appear. Kept separate from
+# E2E_NON_RETRIABLE_IMAGE_ERRORS, whose bare `not found` a registry's own 404
+# page also satisfies.
+export E2E_MISSING_IMAGE_ERRORS="no such manifest|manifest (unknown|for .* not found)|repository does not exist"
+
 # Non-retriable: missing image, denied access, or a full disk.
 # Shared by `e2e_image_pull_is_retriable` and `e2e_docker_manifest_available` below.
-export E2E_NON_RETRIABLE_IMAGE_ERRORS="no such manifest|manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized: authentication required|unauthorized: access to the requested resource is not authorized|denied: requested access|no space left on device"
+export E2E_NON_RETRIABLE_IMAGE_ERRORS="${E2E_MISSING_IMAGE_ERRORS}|not found|pull access denied|unauthorized: authentication required|unauthorized: access to the requested resource is not authorized|denied: requested access|no space left on device"
 
 # Retriable: transport-level failures reaching a git remote.
 # Composed from git's transport error strings; extend it as CI hits new ones.
@@ -114,8 +119,8 @@ function e2e_image_pull_is_retriable {
         if manifest_error=$(docker manifest inspect "${image}" 2>&1 >/dev/null); then
             return 0
         fi
-        if grep -qiE "${E2E_NON_RETRIABLE_IMAGE_ERRORS}" <<<"${manifest_error}"; then
-            echo "Image '${image}' is not available in the registry: ${manifest_error}" >&2
+        if grep -qiE "${E2E_MISSING_IMAGE_ERRORS}" <<<"${manifest_error}"; then
+            echo "Image '${image}' does not exist in the registry: ${manifest_error}" >&2
             return 1
         fi
     fi
