@@ -19,6 +19,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
@@ -184,10 +185,11 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 
 		if features.Enabled(features.TopologyAwareScheduling) {
 			if labelKey, ok := pod.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]; ok {
-				// Leave the index label unset unless the source label carries a value: an
-				// empty value reads as an invalid index rather than as "no index", which
-				// fails Workload construction for the whole group.
-				if index := pod.pod.Labels[labelKey]; index != "" {
+				// Copy the index only when the source label holds one. Anything else,
+				// an absent label included, reaches Workload construction as an invalid
+				// index rather than as "no index", and that fails the whole group.
+				index := pod.pod.Labels[labelKey]
+				if _, err := strconv.ParseUint(index, 10, 0); err == nil {
 					pod.pod.Labels[kueue.PodGroupPodIndexLabel] = index
 				}
 			}
