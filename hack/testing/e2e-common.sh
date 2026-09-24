@@ -137,9 +137,10 @@ function e2e_docker_pull_if_needed {
     fi
 
     export -f e2e_image_pull_is_retriable
-    "${ROOT_DIR}/hack/testing/retry.sh" \
+    # shellcheck disable=SC2016 # E2E_PULL_IMAGE is expanded by retry.sh's continue-if eval
+    E2E_PULL_IMAGE="${image}" "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "e2e_image_pull_is_retriable {output} '${image}'" \
+        --continue-if 'e2e_image_pull_is_retriable "{output}" "${E2E_PULL_IMAGE}"' \
         -- docker pull "$image"
 }
 
