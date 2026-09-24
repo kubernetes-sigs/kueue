@@ -709,6 +709,14 @@ const (
 	// share a job-uid value. The Pod UID is kept when the gate is disabled, and for Pods
 	// that Kueue does not manage through a Deployment.
 	DeploymentJobUIDLabel featuregate.Feature = "DeploymentJobUIDLabel"
+
+	// owner: @pajakd
+	//
+	// Allow a PodSet slice size that does not evenly divide the PodSet count.
+	// The trailing pods form one partial slice, which is placed in a single
+	// topology domain just like a full slice. Without this gate the trailing
+	// pods are dropped from the assignment.
+	TASPartialSlices featuregate.Feature = "TASPartialSlices"
 )
 
 func init() {
@@ -1077,6 +1085,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeploymentJobUIDLabel: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASPartialSlices: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

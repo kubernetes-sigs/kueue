@@ -381,7 +381,9 @@ func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, thresh
 		}
 	}
 	for _, d := range domains {
-		s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level, nil, leaderRequired)
+		// Balanced placement runs on a count padded to whole slices, so there
+		// is no partial slice to reserve room for here.
+		s.fillInCountsHelper(d, sliceShape{size: sliceSize}, sliceLevelIdx, level, nil, leaderRequired)
 		s.pruneDomainNodeBelowThreshold(d, threshold, leaderRequired)
 	}
 }
