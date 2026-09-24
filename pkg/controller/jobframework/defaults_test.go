@@ -308,7 +308,7 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			wpcObjects:             []client.Object{defaultWPC},
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
-			namespaceSelector:      &unmanagedNsSelector,
+			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "",
 			wantErr:                nsBoomErr,
 		},
