@@ -17,8 +17,12 @@ limitations under the License.
 package jobframework
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
@@ -341,11 +345,14 @@ func TestValidateTASPodSetRequest_GroupingWithSlicing(t *testing.T) {
 
 func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 	replicaPath := field.NewPath("spec", "template", "metadata")
+	annotationsPath := replicaPath.Child("annotations")
 
 	testCases := map[string]struct {
-		annotations map[string]string
-		podSetCount int32
-		wantErrNum  int
+		featureGates  map[featuregate.Feature]bool
+		annotations   map[string]string
+		podSetCount   int32
+		wantErr       field.ErrorList
+		wantErrDetail string
 	}{
 		"valid: PodSetSliceSizeAnnotation within bound": {
 			annotations: map[string]string{
@@ -354,7 +361,6 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
 			},
 			podSetCount: 20,
-			wantErrNum:  0,
 		},
 		"invalid: PodSetSliceSizeAnnotation exceeds pod count": {
 			annotations: map[string]string{
@@ -363,15 +369,16 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
 			},
 			podSetCount: 16,
-			wantErrNum:  1,
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: annotationsPath.Key(kueue.PodSetSliceSizeAnnotation).String()},
+			},
 		},
 		"valid: multi-layer outermost size within bound": {
 			annotations: map[string]string{
 				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
 				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
 			},
-			podSetCount: 20,
-			wantErrNum:  0,
+			podSetCount: 32,
 		},
 		"invalid: multi-layer outermost size exceeds pod count": {
 			annotations: map[string]string{
@@ -379,19 +386,56 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
 			},
 			podSetCount: 10,
-			wantErrNum:  1,
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation).String()},
+			},
+		},
+		// A partial last slice is only supported for a single layer, so
+		// with the feature on by default a multi-layer request has to divide evenly.
+		"invalid: partial slices, multi-layer outermost size does not divide the pod count": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
+			},
+			podSetCount: 20,
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation).String()},
+			},
+			wantErrDetail: "must evenly divide pod set count 20 when more than one layer is specified",
+		},
+		"valid: partial slices disabled, multi-layer outermost size does not divide the pod count": {
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: false},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
+			},
+			podSetCount: 20,
+		},
+		"valid: partial slices, a single layer may leave a partial slice": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16}]`,
+			},
+			podSetCount: 20,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			meta := &metav1.ObjectMeta{
 				Annotations: tc.annotations,
 			}
 			podSet := &kueue.PodSet{Count: tc.podSetCount}
-			errs := ValidateSliceSizeAnnotationUpperBound(replicaPath, meta, podSet)
-			if got := len(errs); got != tc.wantErrNum {
-				t.Errorf("ValidateSliceSizeAnnotationUpperBound() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			gotErr := ValidateSliceSizeAnnotationUpperBound(replicaPath, meta, podSet)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if tc.wantErrDetail != "" && !slices.ContainsFunc(gotErr, func(err *field.Error) bool {
+				return strings.Contains(err.Detail, tc.wantErrDetail)
+			}) {
+				t.Errorf("ValidateSliceSizeAnnotationUpperBound() did not report %q:\n%v", tc.wantErrDetail, gotErr)
 			}
 		})
 	}

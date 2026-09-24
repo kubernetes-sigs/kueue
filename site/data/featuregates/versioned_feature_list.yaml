@@ -587,6 +587,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASPartialSlices
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false

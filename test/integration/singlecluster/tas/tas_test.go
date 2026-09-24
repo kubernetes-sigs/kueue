@@ -3956,7 +3956,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.MustCreate(ctx, k8sClient, wl)
 				})
 
-				ginkgo.By("verifying the workload is admitted in block b2 with 15 sliced worker pods assigned", func() {
+				ginkgo.By("verifying the workload is admitted in block b2 with all 19 worker pods assigned", func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 					gomega.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).ShouldNot(gomega.BeNil())
@@ -3970,11 +3970,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 					// Leader pod assigned matches request
 					gomega.Expect(assignedPodCount(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)).To(gomega.Equal(int32(1)))
-					// 19 workers with slice size 5 yields 3 full slices = 15 pods assigned
-					gomega.Expect(assignedPodCount(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment)).To(gomega.Equal(int32(15)))
+					// 19 workers with slice size 5 yields 3 full slices (15 pods) + 1 partial slice (4 pods) = 19 pods assigned
+					gomega.Expect(assignedPodCount(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment)).To(gomega.Equal(int32(19)))
 
-					for _, domain := range workerTA.Domains {
-						gomega.Expect(domain.Count % 5).To(gomega.Equal(int32(0)))
+					for i, domain := range workerTA.Domains {
+						if i < len(workerTA.Domains)-1 {
+							gomega.Expect(domain.Count % 5).To(gomega.Equal(int32(0)))
+						} else {
+							gomega.Expect(domain.Count % 5).To(gomega.Equal(int32(4)))
+						}
 					}
 
 					// Verify best-fit places leader and workers in block b2 (closer fit: 3 slices in b2 vs 4 in b1)
@@ -4275,84 +4279,245 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}
 			})
 
-			ginkgo.It("scheduler persists Count greater than the sum of TopologyAssignment domains", func() {
-				var wl *kueue.Workload
-
-				ginkgo.By("creating a slice-topology workload whose count (3) is not divisible by the slice size (2)", func() {
-					wl = utiltestingapi.MakeWorkload("wl-short-assignment", ns.Name).
-						PodSets(*utiltestingapi.MakePodSet("worker", 3).
-							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
-							SliceRequiredTopologyRequest(corev1.LabelHostname).
-							SliceSizeTopologyRequest(2).
-							Obj()).
-						Queue(kueue.LocalQueueName(localQueue.Name)).
-						Request("nvidia.com/gpu", "1").
-						Obj()
-					util.MustCreate(ctx, k8sClient, wl)
+			ginkgo.When("TASPartialSlices feature gate is disabled", func() {
+				ginkgo.BeforeEach(func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASPartialSlices, false)
 				})
 
-				ginkgo.By("verifying it is admitted but the assignment covers only floor(3/2)*2=2 pods while Count stays 3", func() {
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				ginkgo.It("scheduler persists Count greater than the sum of TopologyAssignment domains", func() {
+					var wl *kueue.Workload
 
-					psa := wl.Status.Admission.PodSetAssignments[0]
-					gomega.Expect(psa.Count).ShouldNot(gomega.BeNil())
-					gomega.Expect(psa.TopologyAssignment).ShouldNot(gomega.BeNil())
+					ginkgo.By("creating a slice-topology workload whose count (3) is not divisible by the slice size (2)", func() {
+						wl = utiltestingapi.MakeWorkload("wl-short-assignment", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("worker", 3).
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								SliceSizeTopologyRequest(2).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).
+							Request("nvidia.com/gpu", "1").
+							Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+					})
 
-					domainSum := assignedPodCount(psa.TopologyAssignment)
+					ginkgo.By("verifying it is admitted but the assignment covers only floor(3/2)*2=2 pods while Count stays 3", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 
-					gomega.Expect(*psa.Count).To(gomega.Equal(int32(3)))
-					gomega.Expect(domainSum).To(gomega.Equal(int32(2)),
-						"scheduler floors slice placement to floor(3/2)*2=2 pods")
-					gomega.Expect(domainSum).To(gomega.BeNumerically("<", *psa.Count),
-						"TopologyAssignment covers fewer pods than the PodSet count")
+						psa := wl.Status.Admission.PodSetAssignments[0]
+						gomega.Expect(psa.Count).ShouldNot(gomega.BeNil())
+						gomega.Expect(psa.TopologyAssignment).ShouldNot(gomega.BeNil())
+
+						domainSum := assignedPodCount(psa.TopologyAssignment)
+
+						gomega.Expect(*psa.Count).To(gomega.Equal(int32(3)))
+						gomega.Expect(domainSum).To(gomega.Equal(int32(2)),
+							"scheduler floors slice placement to floor(3/2)*2=2 pods")
+						gomega.Expect(domainSum).To(gomega.BeNumerically("<", *psa.Count),
+							"TopologyAssignment covers fewer pods than the PodSet count")
+					})
+				})
+
+				ginkgo.It("ungater falls back to greedy assignment when a rank is out of range", func() {
+					// The scheduler admits count 3 with an assignment covering only 2 pods
+					// (see the sibling spec), so the gated Pod at completion index 2 has a
+					// rank beyond rankToDomainID. The ungater falls back to greedy assignment
+					// and ungates the two Pods that fit onto the domain, leaving the extra
+					// Pod gated.
+					var wl *kueue.Workload
+
+					ginkgo.By("creating and admitting a rank-ordered slice-topology workload (count 3, slice size 2)", func() {
+						wl = utiltestingapi.MakeWorkload("wl-ungater-oob", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("worker", 3).
+								PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								SliceSizeTopologyRequest(2).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).
+							Request("nvidia.com/gpu", "1").
+							Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("creating 3 gated pods, including the out-of-range completion index 2", func() {
+						for i := range 3 {
+							pod := testingpod.MakePod(fmt.Sprintf("worker-%d", i), ns.Name).
+								Annotation(kueue.WorkloadAnnotation, wl.Name).
+								Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+								Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(i)).
+								Label(constants.PodSetLabel, "worker").
+								TopologySchedulingGate().
+								Obj()
+							util.MustCreate(ctx, k8sClient, pod)
+						}
+					})
+
+					ginkgo.By("verifying the ungater ungates the 2 pods that fit", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							var pods corev1.PodList
+							g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name),
+								client.MatchingLabels{constants.PodSetLabel: "worker"})).To(gomega.Succeed())
+							g.Expect(countUngatedPods(pods.Items)).To(gomega.Equal(2),
+								"the assignment spans 2 ranks, so greedy assignment ungates exactly 2 of the 3 pods")
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
 				})
 			})
 
-			ginkgo.It("ungater falls back to greedy assignment when a rank is out of range", func() {
-				// The scheduler admits count 3 with an assignment covering only 2 pods
-				// (see the sibling spec), so the gated Pod at completion index 2 has a
-				// rank beyond rankToDomainID. The ungater falls back to greedy assignment
-				// and ungates the two Pods that fit onto the domain, leaving the extra
-				// Pod gated.
-				var wl *kueue.Workload
-
-				ginkgo.By("creating and admitting a rank-ordered slice-topology workload (count 3, slice size 2)", func() {
-					wl = utiltestingapi.MakeWorkload("wl-ungater-oob", ns.Name).
-						PodSets(*utiltestingapi.MakePodSet("worker", 3).
-							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
-							PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
-							SliceRequiredTopologyRequest(corev1.LabelHostname).
-							SliceSizeTopologyRequest(2).
-							Obj()).
-						Queue(kueue.LocalQueueName(localQueue.Name)).
-						Request("nvidia.com/gpu", "1").
-						Obj()
-					util.MustCreate(ctx, k8sClient, wl)
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			ginkgo.When("TASPartialSlices feature gate is enabled", func() {
+				ginkgo.BeforeEach(func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASPartialSlices, true)
 				})
 
-				ginkgo.By("creating 3 gated pods, including the out-of-range completion index 2", func() {
-					for i := range 3 {
-						pod := testingpod.MakePod(fmt.Sprintf("worker-%d", i), ns.Name).
-							Annotation(kueue.WorkloadAnnotation, wl.Name).
-							Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-							Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(i)).
-							Label(constants.PodSetLabel, "worker").
-							TopologySchedulingGate().
+				ginkgo.It("scheduler covers all pods including the partial slice", func() {
+					var wl *kueue.Workload
+
+					ginkgo.By("creating a slice-topology workload whose count (3) is not divisible by the slice size (2)", func() {
+						wl = utiltestingapi.MakeWorkload("wl-partial-assignment", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("worker", 3).
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								SliceSizeTopologyRequest(2).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).
+							Request("nvidia.com/gpu", "1").
 							Obj()
-						util.MustCreate(ctx, k8sClient, pod)
-					}
+						util.MustCreate(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("verifying it is admitted and the assignment covers all 3 pods", func() {
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+
+						psa := wl.Status.Admission.PodSetAssignments[0]
+						gomega.Expect(psa.Count).ShouldNot(gomega.BeNil())
+						gomega.Expect(psa.TopologyAssignment).ShouldNot(gomega.BeNil())
+
+						domainSum := assignedPodCount(psa.TopologyAssignment)
+
+						gomega.Expect(*psa.Count).To(gomega.Equal(int32(3)))
+						gomega.Expect(domainSum).To(gomega.Equal(int32(3)),
+							"scheduler admits all pods including the trailing partial slice")
+					})
 				})
 
-				ginkgo.By("verifying the ungater ungates the 2 pods that fit", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						var pods corev1.PodList
-						g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name),
-							client.MatchingLabels{constants.PodSetLabel: "worker"})).To(gomega.Succeed())
-						g.Expect(countUngatedPods(pods.Items)).To(gomega.Equal(2),
-							"the assignment spans 2 ranks, so greedy assignment ungates exactly 2 of the 3 pods")
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				ginkgo.It("ungater ungates all pods without leaving trailing pods gated", func() {
+					var wl *kueue.Workload
+
+					ginkgo.By("creating and admitting a rank-ordered slice-topology workload (count 3, slice size 2)", func() {
+						wl = utiltestingapi.MakeWorkload("wl-ungater-partial", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("worker", 3).
+								PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								SliceSizeTopologyRequest(2).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).
+							Request("nvidia.com/gpu", "1").
+							Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+					})
+
+					ginkgo.By("creating 3 gated pods", func() {
+						for i := range 3 {
+							pod := testingpod.MakePod(fmt.Sprintf("worker-partial-%d", i), ns.Name).
+								Annotation(kueue.WorkloadAnnotation, wl.Name).
+								Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+								Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(i)).
+								Label(constants.PodSetLabel, "worker").
+								TopologySchedulingGate().
+								Obj()
+							util.MustCreate(ctx, k8sClient, pod)
+						}
+					})
+
+					ginkgo.By("verifying the ungater ungates all 3 pods", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							var pods corev1.PodList
+							g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name),
+								client.MatchingLabels{constants.PodSetLabel: "worker"})).To(gomega.Succeed())
+							g.Expect(countUngatedPods(pods.Items)).To(gomega.Equal(3),
+								"the assignment covers all 3 ranks, so all 3 pods are ungated")
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
+				})
+
+				ginkgo.It("replaces failed node for workload with a partial slice", func() {
+					node3 := testingnode.MakeNode("x3").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r1").
+						Label(corev1.LabelHostname, "x3").
+						StatusAllocatable(corev1.ResourceList{
+							"nvidia.com/gpu":      resource.MustParse("12"),
+							corev1.ResourceCPU:    resource.MustParse("1"),
+							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("20"),
+						}).
+						Ready().
+						Obj()
+					util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node3})
+					ginkgo.DeferCleanup(func() {
+						util.ExpectObjectToBeDeleted(ctx, k8sClient, node3, true)
+					})
+
+					var wl *kueue.Workload
+					ginkgo.By("creating and admitting a slice-topology workload with partial slice", func() {
+						wl = utiltestingapi.MakeWorkload("wl-replace-partial", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("worker", 3).
+								PreferredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+								SliceRequiredTopologyRequest(corev1.LabelHostname).
+								SliceSizeTopologyRequest(2).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).
+							Request("nvidia.com/gpu", "1").
+							Obj()
+						util.MustCreate(ctx, k8sClient, wl)
+						util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+					})
+
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					psa := wl.Status.Admission.PodSetAssignments[0]
+					gomega.Expect(psa.TopologyAssignment).NotTo(gomega.BeNil())
+					gomega.Expect(assignedPodCount(psa.TopologyAssignment)).To(gomega.Equal(int32(3)))
+
+					assigned := utiltas.InternalFrom(psa.TopologyAssignment)
+					var failedNodeName string
+					for _, d := range assigned.Domains {
+						if d.Count == 1 {
+							failedNodeName = d.Values[0]
+							break
+						}
+					}
+					if failedNodeName == "" {
+						failedNodeName = assigned.Domains[0].Values[0]
+					}
+
+					ginkgo.By("marking node "+failedNodeName+" NotReady", func() {
+						nodeToUpdate := &corev1.Node{}
+						gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: failedNodeName}, nodeToUpdate)).Should(gomega.Succeed())
+						util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+							Type:               corev1.NodeReady,
+							Status:             corev1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+						})
+					})
+
+					ginkgo.By("verifying the failed node is replaced and UnhealthyNodes is cleared", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+							g.Expect(wl.Status.UnhealthyNodes).NotTo(gomega.ContainElement(kueue.UnhealthyNode{Name: failedNodeName}))
+							newSum := assignedPodCount(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+							g.Expect(newSum).To(gomega.Equal(int32(3)))
+							newAssigned := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+							for _, d := range newAssigned.Domains {
+								g.Expect(d.Values[0]).NotTo(gomega.Equal(failedNodeName))
+							}
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					})
 				})
 			})
 		})
