@@ -870,6 +870,14 @@ const (
 	// Verifies fair sharing preemption targets after fillBackWorkloads
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
+
+	// owner: @rjgoyln
+	//
+	// Reject a Pod whose kueue.x-k8s.io/pod-group-pod-index-label annotation names a
+	// label that does not hold the Pod's index within its group, rather than admitting
+	// the group without rank-based ordering. Disable where a controller creating Pods
+	// cannot guarantee the index label on every Pod, replacements included.
+	TASRejectInvalidPodIndexLabel featuregate.Feature = "TASRejectInvalidPodIndexLabel"
 )
 
 func init() {
@@ -913,6 +921,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
+	TASRejectInvalidPodIndexLabel:                       {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1348,6 +1357,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	FairSharingVerifyFinalTargets: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASRejectInvalidPodIndexLabel: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
