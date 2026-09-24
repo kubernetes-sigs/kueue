@@ -298,10 +298,8 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		}
 
 		if o.forObject != nil && !enableOwnerReferenceFilter &&
-			len(list.Items) == 0 && list.Continue == "" &&
-			opts.LabelSelector == initialLabelSelector && jobUIDLabelSelector != "" {
+			len(list.Items) == 0 && list.Continue == "" && opts.Continue == "" {
 			opts.LabelSelector = o.LabelSelector
-			opts.Continue = ""
 			enableOwnerReferenceFilter = true
 			continue
 		}
