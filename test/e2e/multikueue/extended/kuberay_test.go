@@ -42,6 +42,8 @@ import (
 type kubeRayTestContext struct {
 	managerNs         *corev1.Namespace
 	managerLq         *kueue.LocalQueue
+	managerHighWPC    *kueue.WorkloadPriorityClass
+	managerLowWPC     *kueue.WorkloadPriorityClass
 	multiKueueAc      *kueue.AdmissionCheck
 	kubernetesClients kubernetesClientsMap
 }
@@ -51,6 +53,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 		var (
 			managerNs         *corev1.Namespace
 			managerLq         *kueue.LocalQueue
+			managerHighWPC    *kueue.WorkloadPriorityClass
+			managerLowWPC     *kueue.WorkloadPriorityClass
 			multiKueueAc      *kueue.AdmissionCheck
 			kubernetesClients kubernetesClientsMap
 		)
@@ -59,6 +63,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 			tc := contextProvider()
 			managerNs = tc.managerNs
 			managerLq = tc.managerLq
+			managerHighWPC = tc.managerHighWPC
+			managerLowWPC = tc.managerLowWPC
 			multiKueueAc = tc.multiKueueAc
 			kubernetesClients = tc.kubernetesClients
 		})
@@ -208,6 +214,17 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+
+		ginkgo.It("Should delete a preempted elastic RayCluster from the worker cluster", func() {
+			runElasticRayClusterCleanupAfterPreemptionTest(
+				managerNs,
+				managerLq,
+				managerHighWPC,
+				managerLowWPC,
+				multiKueueAc,
+				kubernetesClients,
+			)
 		})
 
 		ginkgo.It("Should run a RayService on worker if admitted", func() {
