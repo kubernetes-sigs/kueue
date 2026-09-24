@@ -233,17 +233,20 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	}
 
 	// A single-pod Job or one with no terminal pods has nothing to reclaim; so
-	// does one whose remaining work still fills every parallel slot.
+	// does one whose remaining work still needs every Pod in the PodSet. Measure
+	// against the PodSet count rather than parallelism, which can exceed it.
+	count := j.podsCount()
 	reclaimable := int32(0)
-	if parallelism > 1 && terminalCount > 0 {
-		if remaining := max(completions-terminalCount, 0); remaining < parallelism {
-			reclaimable = parallelism - remaining
+	if count > 1 && terminalCount > 0 {
+		if remaining := max(completions-terminalCount, 0); remaining < count {
+			reclaimable = count - remaining
 		}
 	}
 
 	log.V(3).Info("Computed reclaimable pods for Job",
 		"parallelism", parallelism,
 		"completions", completions,
+		"podSetCount", count,
 		"terminalCount", terminalCount,
 		"reclaimable", reclaimable)
 
