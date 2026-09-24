@@ -182,11 +182,11 @@ and schedules each one independently.
 ### Risks and Mitigations
 
 **Packing quality:** chunks of mixed sizes are placed greedily, in the same way
-`size` places equal chunks today. Greedy placement can fail to find a packing
-that exists — three chunks of three into racks holding four and five pods fits,
-but a greedy pass that puts two chunks in the five-rack does not find it. This
-is existing behavior rather than something `sizes` introduces, and the failure
-is a pending workload, not a wrong placement.
+`size` places equal chunks today. Fitting chunks into domains is bin packing, so
+a greedy pass can leave a workload pending when some other arrangement would
+have fit. Whether that happens depends on the domain ordering the active
+placement mode produces. This is existing behavior rather than something `sizes`
+introduces, and the failure is a pending workload, not a wrong placement.
 
 **Scheduling cost:** placing chunks costs the same as placing the equivalent
 number of equal chunks. The list is capped at 128 entries, so a single layer
