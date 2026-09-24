@@ -319,18 +319,6 @@ func (c *Cache) updateClusterQueues(log logr.Logger) sets.Set[kueue.ClusterQueue
 	return cqs
 }
 
-func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
-	c.RLock()
-	defer c.RUnlock()
-	cqs := sets.New[kueue.ClusterQueueReference]()
-	for _, cq := range c.hm.ClusterQueues() {
-		if cq.Status == active {
-			cqs.Insert(cq.Name)
-		}
-	}
-	return cqs
-}
-
 // ClusterQueuesForResources returns the names of ClusterQueues whose
 // ResourceGroups cover any of the given resource names.
 func (c *Cache) ClusterQueuesForResources(resourceNames sets.Set[corev1.ResourceName]) sets.Set[kueue.ClusterQueueReference] {

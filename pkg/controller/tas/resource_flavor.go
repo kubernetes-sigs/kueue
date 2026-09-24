@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
@@ -155,8 +156,8 @@ func (r *rfReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		// requeue inadmissible workloads as a change to the resource flavor
 		// or the set of nodes can allow admitting a workload which was
 		// previously inadmissible.
-		if cqNames := r.cache.ActiveClusterQueues(); len(cqNames) > 0 {
-			qcache.NotifyRetryInadmissible(r.queues, cqNames)
+		if cqNames := r.cache.ClusterQueuesUsingFlavor(kueue.ResourceFlavorReference(req.Name)); len(cqNames) > 0 {
+			qcache.NotifyRetryInadmissible(r.queues, sets.New(cqNames...))
 		}
 	}
 	return reconcile.Result{}, nil
