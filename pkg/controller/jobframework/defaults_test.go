@@ -329,7 +329,6 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 					} else if _, isNS := obj.(*corev1.Namespace); isNS && errors.Is(tc.wantErr, nsBoomErr) {
 						return nsBoomErr
 					}
-					}
 					return cl.Get(ctx, key, obj, opts...)
 				},
 			})
