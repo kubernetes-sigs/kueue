@@ -687,7 +687,7 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
-- name: WaitForPodsReadyMinPods
+- name: WaitForPodsReadyMinThresholdPods
   versionedSpecs:
   - default: false
     lockToDefault: false

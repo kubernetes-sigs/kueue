@@ -67,7 +67,7 @@ const (
 	//
 	// Enables an annotation-based minimum-ready-pods threshold for WaitForPodsReady
 	// and RecoveryTimeout on pod-group-based integrations.
-	WaitForPodsReadyMinPods featuregate.Feature = "WaitForPodsReadyMinPods"
+	WaitForPodsReadyMinThresholdPods featuregate.Feature = "WaitForPodsReadyMinThresholdPods"
 
 	// owner: @yaroslava-serdiuk
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
@@ -1198,7 +1198,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	WaitForPodsReadyMinPods: {
+	WaitForPodsReadyMinThresholdPods: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
