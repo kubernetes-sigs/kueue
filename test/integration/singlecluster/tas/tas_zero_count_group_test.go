@@ -24,6 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -83,7 +85,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		}
 	})
 
-	ginkgo.It("should use actual requests for first admission with zero-count grouped workers", func() {
+	ginkgo.DescribeTable("should use actual requests for first admission with zero-count grouped workers", func(elastic bool) {
 		ginkgo.By("leaving only the smaller node available before creating the workload")
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
 		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").PodSets(
@@ -92,6 +94,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 			*utiltestingapi.MakePodSet("workers", 0).Request(corev1.ResourceCPU, "1").
 				PreferredTopologyRequest(corev1.LabelHostname).PodSetGroup("ranks").Obj(),
 		).Obj()
+		if elastic {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+			wl.Annotations = map[string]string{constants.ElasticJobAnnotation: "true"}
+			for i := range wl.Spec.PodSets {
+				wl.Spec.PodSets[i].TopologyRequest.Preferred = nil
+				wl.Spec.PodSets[i].TopologyRequest.Unconstrained = new(true)
+			}
+		}
 		util.MustCreate(ctx, k8sClient, wl)
 
 		ginkgo.By("admitting the leader on the smaller flavor without reserving resources for workers")
@@ -112,7 +123,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		gomega.Expect(workers.ResourceUsage).To(gomega.Equal(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}))
 		gomega.Expect(leader.TopologyAssignment).NotTo(gomega.BeNil())
 		gomega.Expect(workers.TopologyAssignment).To(gomega.BeNil())
-	})
+	},
+		ginkgo.Entry("non-elastic workload with preferred topology", false),
+		ginkgo.Entry("elastic workload with unconstrained topology", true),
+	)
 
 	ginkgo.It("should readmit remaining pods without requiring capacity for completed grouped workers", func() {
 		wl := utiltestingapi.MakeWorkload("workload", ns.Name).Queue("queue").PodSets(
