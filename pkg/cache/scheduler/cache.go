@@ -109,6 +109,12 @@ func WithFairSharing(enabled bool) Option {
 	}
 }
 
+func WithDeviceTaintRules(served bool) Option {
+	return func(c *Cache) {
+		c.deviceTaintRules = served
+	}
+}
+
 func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	return func(c *Cache) {
 		c.admissionFairSharing = afs
@@ -172,6 +178,8 @@ type Cache struct {
 	draBackedResources *dra.ExtendedResourceCache
 	// draSelectorsCache is the Cache's own, built lazily on first use.
 	draSelectorsCache schddra.CELCache
+	// deviceTaintRules is whether the cluster serves DeviceTaintRules, decided at startup.
+	deviceTaintRules bool
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 

@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utildra "sigs.k8s.io/kueue/pkg/util/dra"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -57,6 +58,9 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+
+	// managerClient reads the manager's cache, which is what the feasibility check sees.
+	managerClient client.Client
 )
 
 func TestAPIs(t *testing.T) {
@@ -76,6 +80,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		},
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
+			"DRADeviceTaintRules=true",
 		},
 	}
 	cfg = fwk.Init()
@@ -92,6 +97,11 @@ func managerSetup() func(ctx context.Context, mgr manager.Manager) {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = core.SetupResourceSliceIndexer(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		// Matches cmd/kueue/main.go.
+		deviceTaintRulesServed, err := utildra.RegisterDeviceTaintRuleInformer(ctx, mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(deviceTaintRulesServed).To(gomega.BeTrue())
+		managerClient = mgr.GetClient()
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
@@ -127,6 +137,7 @@ func managerSetup() func(ctx context.Context, mgr manager.Manager) {
 			schdcache.WithSimulatorFactory(sim),
 			schdcache.WithResourceFormatter(resourceFormatter),
 			schdcache.WithDRABackedResources(draBackedResources),
+			schdcache.WithDeviceTaintRules(deviceTaintRulesServed),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()

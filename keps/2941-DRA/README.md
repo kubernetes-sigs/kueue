@@ -73,6 +73,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Validation](#validation-1)
   - [DRA Device Feasibility](#dra-device-feasibility)
     - [What the check does](#what-the-check-does)
+    - [Device taints](#device-taints)
     - [Extended resources](#extended-resources-1)
     - [Cost](#cost)
     - [The allocator](#the-allocator)
@@ -1760,6 +1761,16 @@ drops the nodes where that allocation fails. When no node is left, the Workload 
 pending and its condition message counts the nodes dropped for devices as `draNoFit`,
 separately from a generic no-fit.
 
+#### Device taints
+
+An admin taints devices with a `DeviceTaintRule`, which names them by driver, pool and
+device. Kueue applies those taints to the ResourceSlices before allocating, as
+kube-scheduler does through `resourceslice/tracker`, so a request that does not tolerate
+the taint is not admitted onto that device. Rules are read only while the Kubernetes
+`DRADeviceTaintRules` gate is on, and only as `resource.k8s.io/v1`, which Kubernetes serves
+by default from 1.37. Kubernetes 1.35 and 1.36 serve the rules only as alpha and beta versions; Kueue does
+not read those, so on those releases kube-scheduler applies the rules and Kueue does not.
+
 #### Extended resources
 
 A Pod that requests a DRA-backed extended resource names no claim of its own, because
@@ -1824,13 +1835,18 @@ scheduling pass only; the second pass, once quota is reserved, runs the check as
 - the per-node allocation attempt is not bounded. kube-scheduler gives its own attempt a
   deadline and treats a timeout as retryable; here a slow DeviceClass selector stretches
   the scheduling cycle instead
+- nothing re-evaluates a pending Workload when the devices it waits on change. A
+  ResourceSlice event only requeues when its driver is named by a `deviceClassMappings`
+  source, and DeviceClass, ResourceClaim and DeviceTaintRule changes requeue nothing,
+  so a Workload can stay pending after the devices become sufficient.
+  [#15769](https://github.com/kubernetes-sigs/kueue/issues/15769) covers all four
 
 These Kubernetes DRA features change what kube-scheduler does without changing what Kueue
 predicts, so a cluster running one of them gets a different answer than this check gives:
 
 | Feature | Effect | What it waits on |
 |---|---|---|
-| `DRADeviceTaintRules` | admits onto a node whose devices a rule has tainted | reading the rules with the slices, [#15621](https://github.com/kubernetes-sigs/kueue/issues/15621) |
+| `DRADeviceTaintRules` on Kubernetes 1.35 and 1.36 | admits onto a node whose devices a rule has tainted | Kubernetes 1.37, which serves the rules as `v1` |
 | `DRAFractionalCapacityRange` | charges whole units for a fractional policy | charging in the policy's own units |
 | `DRAOptionalNodeOperations` | never admits: the device is rejected on every node | carrying the node's declared features |
 | `DRAPrioritizedList` | refuses a request that offers alternatives | quota for alternatives, [#13601](https://github.com/kubernetes-sigs/kueue/pull/13601) |
