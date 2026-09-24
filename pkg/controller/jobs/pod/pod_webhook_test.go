@@ -411,6 +411,30 @@ func TestDefault(t *testing.T) {
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
+				Label("test-label", "1").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Label("test-label", "1").
+				Label(kueue.PodGroupPodIndexLabel, "1").
+				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
+		"pod with TAS and PodGroupPodIndexLabelAnnotation naming a label that holds no index": {
+			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
 				Label("test-label", "test-value").
 				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
@@ -420,7 +444,6 @@ func TestDefault(t *testing.T) {
 				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Label("test-label", "test-value").
-				Label(kueue.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
