@@ -89,7 +89,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "NaN").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.ParseInt: parsing \"NaN\": invalid syntax"),
 			},
 		},
 		{
@@ -101,6 +101,17 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
+			},
+		},
+		{
+			name: "invalid partial admission annotation (outside int32 range)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2147483648").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "2147483648", "strconv.ParseInt: parsing \"2147483648\": value out of range"),
 			},
 		},
 		{
@@ -965,7 +976,7 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "NaN").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.ParseInt: parsing \"NaN\": invalid syntax"),
 			},
 		},
 		{
@@ -1476,10 +1487,8 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
 			args: args{
 				job: &Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-						},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 					},
 				},
 			},
@@ -1492,10 +1501,8 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-						},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 					},
 					Spec: batchv1.JobSpec{
 						Template: corev1.PodTemplateSpec{
@@ -1518,10 +1525,8 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
 				job: &Job{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-						},
+					Annotations: map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 					},
 					Spec: batchv1.JobSpec{
 						Template: corev1.PodTemplateSpec{

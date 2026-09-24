@@ -972,7 +972,7 @@ func TestScheduleForAFS(t *testing.T) {
 					}
 
 					if tc.deleteQueue != "" {
-						err := cl.Delete(ctx, &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: tc.deleteQueue, Namespace: "default"}})
+						err := cl.Delete(ctx, &kueue.LocalQueue{Name: tc.deleteQueue, Namespace: "default"})
 						if err != nil {
 							t.Fatalf("Deleting queue %s: %v", tc.deleteQueue, err)
 						}
@@ -1083,7 +1083,7 @@ func TestShouldApplyEntryPenalty(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := &Scheduler{admissionFairSharing: tc.afsConfig}
 			e := &entry{
-				Head: qcache.Head{Info: *workload.NewInfo(log, tc.wl)},
+				Info: *workload.NewInfo(log, tc.wl),
 				clusterQueueSnapshot: &schdcache.ClusterQueueSnapshot{
 					AdmissionScope: kueue.AdmissionScope{AdmissionMode: tc.admissionMode},
 				},

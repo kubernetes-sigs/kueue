@@ -54,15 +54,13 @@ var (
 // The object can be used in as a base for Server-Side-Apply.
 func baseSSAWorkload(w *kueue.Workload, strict bool) *kueue.Workload {
 	wlCopy := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			UID:         w.UID,
-			Name:        w.Name,
-			Namespace:   w.Namespace,
-			Generation:  w.Generation, // Produce a conflict if there was a change in the spec.
-			Annotations: maps.Clone(w.Annotations),
-			Labels:      maps.Clone(w.Labels),
-		},
-		TypeMeta: w.TypeMeta,
+		UID:         w.UID,
+		Name:        w.Name,
+		Namespace:   w.Namespace,
+		Generation:  w.Generation, // Produce a conflict if there was a change in the spec.
+		Annotations: maps.Clone(w.Annotations),
+		Labels:      maps.Clone(w.Labels),
+		TypeMeta:    w.TypeMeta,
 	}
 	if wlCopy.APIVersion == "" {
 		wlCopy.APIVersion = kueue.SchemeGroupVersion.String()

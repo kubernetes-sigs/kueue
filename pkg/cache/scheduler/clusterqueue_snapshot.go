@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -52,6 +53,7 @@ const (
 
 type ClusterQueueSnapshot struct {
 	Name                      kueue.ClusterQueueReference
+	draBackedResources        *dra.ExtendedResourceCache
 	ResourceGroups            []resourcegroups.ResourceGroup
 	Workloads                 map[workload.Reference]*workload.Info
 	WorkloadsNotReady         sets.Set[workload.Reference]
@@ -225,13 +227,18 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
+		// options is cloned only when there is something to append, so the
+		// common path adds no allocation per flavor.
 		flvOpts := options
+		if spreadCounts := c.topologySpreadCountsForFlavor(opts.workload, tasFlavor, flavorTASRequests); len(spreadCounts) > 0 {
+			flvOpts = append(slices.Clone(flvOpts), WithTopologySpreadCounts(spreadCounts))
+		}
 		// The aggregation is limited to flavors with a user-declared hostname
 		// level, as only node names identify the same capacity across
 		// flavors. Aggregating at node granularity for virtual hostname
 		// topologies is left to a follow-up.
 		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.declaresHostnameLevel() {
-			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
+			flvOpts = append(slices.Clone(flvOpts), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)
 		for psName, res := range flvResult {
@@ -265,4 +272,10 @@ func (c *ClusterQueueSnapshot) PathParentToRoot() iter.Seq[*CohortSnapshot] {
 			a = a.Parent()
 		}
 	}
+}
+
+// DRABackedResources is the set of extended resources a DeviceClass declares, which is
+// what makes them DRA-backed rather than advertised by a device plugin.
+func (c *ClusterQueueSnapshot) DRABackedResources() *dra.ExtendedResourceCache {
+	return c.draBackedResources
 }

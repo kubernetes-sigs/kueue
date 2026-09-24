@@ -24,7 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/utils/ptr"
 
 	utilmath "sigs.k8s.io/kueue/pkg/util/math"
@@ -53,7 +52,7 @@ func NewMapRequests(rl corev1.ResourceList) MapRequests {
 }
 
 func NewMapRequestsFromPodSpec(podSpec *corev1.PodSpec) MapRequests {
-	return NewMapRequests(resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{}))
+	return NewMapRequests(PodRequests(podSpec))
 }
 
 func (r MapRequests) Clone() Requests {

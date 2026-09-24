@@ -1,0 +1,23 @@
+# This overlay builds the kueue-viz dashboard behind a single path-routed Ingress:
+# /ws, /api and /auth reach the backend, everything else reaches the frontend.
+# Use ../kueueviz/ instead to expose each component on a host of its own.
+
+namespace: kueue-system
+namePrefix: kueue-
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: kueue
+      app.kubernetes.io/component: dashboard
+
+resources:
+  - ../components/kueueviz/
+
+patches:
+# Drop the per-host Ingresses; the path-routed one replaces both.
+# Kept as one resource per file: a multi-document $patch: delete file crashes the
+# kustomize embedded in kubectl <= 1.33 (kyaml v0.17.x).
+- path: remove_backend_ingress.yaml
+- path: remove_frontend_ingress.yaml
+# Serve the dashboard with no backend URL so it falls back to the origin that served it.
+- path: frontend_configmap_patch.yaml

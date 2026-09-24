@@ -28,7 +28,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	jsoniter "github.com/json-iterator/go"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
-	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -51,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -3488,7 +3488,7 @@ func TestElasticTopologyRegrowth(t *testing.T) {
 				if staleRequest {
 					requestName = "slice-0"
 				}
-				req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: requestName}}
+				req := reconcile.Request{Namespace: "ns", Name: requestName}
 				if _, err := r.Reconcile(ctx, req); err != nil {
 					t.Fatalf("resize to %d: %v", count, err)
 				}
@@ -3515,126 +3515,344 @@ func TestElasticTopologyRegrowth(t *testing.T) {
 	}
 }
 
-func TestTopologyUngaterElasticSlice(t *testing.T) {
-	now := time.Now()
-	makeSlice := func(name string, count int32) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, "ns").
-			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
-			PodSets(*utiltestingapi.MakePodSet("workers", int(count)).Obj()).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-				utiltestingapi.MakePodSetAssignment("workers").Count(count).
-					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-						Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, count).Obj()).Obj()).Obj(),
-			).Obj(), now).AdmittedAt(true, now)
+func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	// Workload and Pod events are both keyed by the slice chain name.
+	sliceKey := types.NamespacedName{Namespace: "ns", Name: "origin"}
+
+	baseWorkload := utiltestingapi.MakeWorkload("", "ns").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, sliceKey.Name)
+	origin := baseWorkload.Clone().Name("origin").
+		PodSets(*utiltestingapi.MakePodSet("workers", 1).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("workers").Count(1).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj()).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now).
+		Finished()
+	replacement := baseWorkload.Clone().Name("replacement").
+		Creation(now.Add(time.Second)).
+		PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("workers").Count(2).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 2).Obj()).Obj()).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now)
+
+	basePod := testingpod.MakePod("", "ns").
+		Annotation(kueue.WorkloadSliceNameAnnotation, sliceKey.Name).
+		Label(constants.PodSetLabel, "workers")
+	runningPod := basePod.Clone().Name("running").UID("running-uid").
+		Annotation(kueue.WorkloadAnnotation, "origin").
+		NodeSelector(corev1.LabelHostname, "node")
+	// The late Pod is created after the replacement slice is admitted.
+	latePod := basePod.Clone().Name("late").UID("late-uid").
+		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true")
+
+	testCases := map[string]struct {
+		workloads        []kueue.Workload
+		pods             []corev1.Pod
+		wantPods         []corev1.Pod
+		wantExpectedUIDs []types.UID
+	}{
+		"late Pod referencing the origin slice is ungated": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"late Pod referencing the origin slice is ungated when the origin slice has been deleted": {
+			workloads: []kueue.Workload{*replacement.Clone().Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"late Pod referencing the replacement slice is ungated": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"late Pod that is already ungated leaves no pending expectations": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+		},
+		"late Pod stays gated when the replacement slice is finished": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Finished().Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+		},
+		"late Pod stays gated when the replacement slice is evicted": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().EvictedAt(now).Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+		},
+		"late Pod stays gated when the replacement slice has quota reserved but is not admitted": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().AdmittedAt(false, now).Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+		},
 	}
 
-	for name, tc := range map[string]struct {
-		deleteOrigin bool
-		deletePod    bool
-		podReference string
-		replacement  *kueue.Workload
-		wantUngated  bool
-	}{
-		"deleted Pod clears chain expectations": {
-			deletePod:    true,
-			podReference: "replacement",
-			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
-			wantUngated:  true,
-		},
-		"late pod references original slice": {
-			podReference: "origin",
-			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
-			wantUngated:  true,
-		},
-		"original slice has been deleted": {
-			deleteOrigin: true,
-			podReference: "origin",
-			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
-			wantUngated:  true,
-		},
-		"pod references replacement but keeps chain identity": {
-			podReference: "replacement",
-			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Obj(),
-			wantUngated:  true,
-		},
-		"finished replacement cannot ungate": {
-			podReference: "origin",
-			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).Finished().Obj(),
-		},
-		"evicted replacement cannot ungate": {
-			podReference: "origin",
-			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).EvictedAt(now).Obj(),
-		},
-		"quota reservation without admission cannot ungate": {
-			podReference: "origin",
-			replacement:  makeSlice("replacement", 2).Creation(now.Add(time.Second)).AdmittedAt(false, now).Obj(),
-		},
-	} {
+	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			ctx, log := utiltesting.ContextWithLog(t)
-			g := gomega.NewWithT(t)
 
-			// The finished origin and its replacement share the Pod event key.
-			origin := makeSlice("origin", 1).Finished().Obj()
-			replacement := tc.replacement.DeepCopy()
-			running := testingpod.MakePod("running", "ns").UID("running-uid").
-				Annotation(kueue.WorkloadAnnotation, "origin").Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
-				Label(constants.PodSetLabel, "workers").NodeSelector(corev1.LabelHostname, "node").Obj()
-
-			builder := utiltesting.NewClientBuilder()
-			g.Expect(indexer.SetupIndexes(ctx, utiltesting.AsIndexer(builder))).To(gomega.Succeed())
-			builder.WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName)
-			builder.WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName)
-			builder.WithObjects(running, replacement).WithStatusSubresource(&kueue.Workload{})
-			if !tc.deleteOrigin {
-				builder.WithObjects(origin)
+			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{}).
+				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
+				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName)
+			if err := indexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			c := builder.Build()
-			r := newTopologyUngater(c, nil, nil)
+			for i := range tc.workloads {
+				clientBuilder = clientBuilder.WithObjects(&tc.workloads[i])
+			}
+			for i := range tc.pods {
+				clientBuilder = clientBuilder.WithObjects(&tc.pods[i])
+			}
+			kClient := clientBuilder.Build()
+			topologyUngater := newTopologyUngater(kClient, nil, nil)
 
-			// Admission is processed before the additional Pod exists.
-			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-
-			late := testingpod.MakePod("late", "ns").UID("late-uid").
-				Annotation(kueue.WorkloadAnnotation, tc.podReference).Annotation(kueue.WorkloadSliceNameAnnotation, "origin").
-				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
-				Label(constants.PodSetLabel, "workers").TopologySchedulingGate().Obj()
-			g.Expect(c.Create(ctx, late)).To(gomega.Succeed())
-
-			// Reconcile the request produced by the real Pod event handler.
-			h := podHandler{expectationsStore: r.expectationsStore}
-			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-			defer q.ShutDown()
-			h.Create(ctx, event.CreateEvent{Object: late}, q)
-			g.Eventually(q.Len, 5*time.Second, 10*time.Millisecond).Should(gomega.Equal(1))
-			req, shutdown := q.Get()
-			g.Expect(shutdown).To(gomega.BeFalse())
-			_, err = r.Reconcile(ctx, req)
-			q.Done(req)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-
-			updated := &corev1.Pod{}
-			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(late), updated)).To(gomega.Succeed())
-			if tc.wantUngated {
-				// Expectations must remain pending until the update or deletion is observed.
-				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeFalse())
-				if tc.deletePod {
-					h.Delete(ctx, event.DeleteEvent{Object: updated}, q)
-				} else {
-					h.Update(ctx, event.UpdateEvent{ObjectOld: late, ObjectNew: updated}, q)
-				}
-				g.Expect(r.expectationsStore.Satisfied(log, client.ObjectKeyFromObject(origin))).To(gomega.BeTrue())
-				_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(replacement)})
-				g.Expect(err).NotTo(gomega.HaveOccurred())
+			if _, err := topologyUngater.Reconcile(ctx, reconcile.Request{NamespacedName: sliceKey}); err != nil {
+				t.Fatalf("Reconcile returned error: %v", err)
 			}
 
-			g.Expect(req.Name).To(gomega.Equal("origin"))
-			g.Expect(utilpod.HasGate(updated, kueue.TopologySchedulingGate)).To(gomega.Equal(!tc.wantUngated))
-			if tc.wantUngated {
-				g.Expect(updated.Spec.NodeSelector[corev1.LabelHostname]).To(gomega.Equal("node"))
+			var gotPods corev1.PodList
+			if err := kClient.List(ctx, &gotPods); err != nil {
+				t.Fatalf("Could not list Pods after reconcile: %v", err)
+			}
+			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
+				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+			// The ungate expectations are tracked by the slice chain name until
+			// the Pod handler observes the Pod update or deletion.
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, topologyUngater.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
+			}
+			if got, want := topologyUngater.expectationsStore.Satisfied(log, sliceKey), len(tc.wantExpectedUIDs) == 0; got != want {
+				t.Errorf("Satisfied(%s) = %v, want %v", sliceKey, got, want)
+			}
+		})
+	}
+}
+
+func TestPodHandler_ElasticJobs_Create(t *testing.T) {
+	sliceKey := types.NamespacedName{Namespace: "ns", Name: "origin"}
+	basePod := testingpod.MakePod("late", "ns").UID("late-uid").
+		Annotation(kueue.WorkloadSliceNameAnnotation, sliceKey.Name).
+		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+		Label(constants.PodSetLabel, "workers")
+
+	testCases := map[string]struct {
+		pod              *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
+	}{
+		"create of a gated Pod referencing the origin slice enqueues the slice chain": {
+			pod:              basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+			wantRequests:     []reconcile.Request{{NamespacedName: sliceKey}},
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"create of a gated Pod referencing the replacement slice enqueues the slice chain": {
+			pod:              basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			wantRequests:     []reconcile.Request{{NamespacedName: sliceKey}},
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"create of an ungated Pod referencing the replacement slice observes the slice chain expectations": {
+			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			h := podHandler{expectationsStore: expectations.NewStore(TASTopologyUngater)}
+			h.expectationsStore.ExpectUIDs(log, sliceKey, []types.UID{tc.pod.UID})
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			h.Create(ctx, event.CreateEvent{Object: tc.pod}, q)
+
+			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodHandler_ElasticJobs_Update(t *testing.T) {
+	sliceKey := types.NamespacedName{Namespace: "ns", Name: "origin"}
+	basePod := testingpod.MakePod("late", "ns").UID("late-uid").
+		Annotation(kueue.WorkloadSliceNameAnnotation, sliceKey.Name).
+		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+		Label(constants.PodSetLabel, "workers")
+
+	testCases := map[string]struct {
+		oldPod           *corev1.Pod
+		newPod           *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
+	}{
+		"update ungating a Pod referencing the origin slice observes the slice chain expectations": {
+			oldPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+			newPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+		},
+		"update ungating a Pod referencing the replacement slice observes the slice chain expectations": {
+			oldPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			newPod:       basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+		},
+		"update of a Pod which is still gated keeps the slice chain expectations pending": {
+			oldPod:           basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			newPod:           basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Label("updated", "true").Obj(),
+			wantRequests:     []reconcile.Request{{NamespacedName: sliceKey}},
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			h := podHandler{expectationsStore: expectations.NewStore(TASTopologyUngater)}
+			h.expectationsStore.ExpectUIDs(log, sliceKey, []types.UID{tc.newPod.UID})
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			h.Update(ctx, event.UpdateEvent{ObjectOld: tc.oldPod, ObjectNew: tc.newPod}, q)
+
+			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodHandler_ElasticJobs_Delete(t *testing.T) {
+	sliceKey := types.NamespacedName{Namespace: "ns", Name: "origin"}
+	basePod := testingpod.MakePod("late", "ns").UID("late-uid").
+		Annotation(kueue.WorkloadSliceNameAnnotation, sliceKey.Name).
+		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+		Label(constants.PodSetLabel, "workers")
+
+	testCases := map[string]struct {
+		pod              *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
+	}{
+		"delete of an ungated Pod referencing the replacement slice observes the slice chain expectations": {
+			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+		},
+		"delete of a gated Pod referencing the replacement slice observes the slice chain expectations": {
+			pod:          basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").TopologySchedulingGate().Obj(),
+			wantRequests: []reconcile.Request{{NamespacedName: sliceKey}},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			h := podHandler{expectationsStore: expectations.NewStore(TASTopologyUngater)}
+			h.expectationsStore.ExpectUIDs(log, sliceKey, []types.UID{tc.pod.UID})
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			h.Delete(ctx, event.DeleteEvent{Object: tc.pod}, q)
+
+			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPodHandler_ElasticJobs_Generic(t *testing.T) {
+	sliceKey := types.NamespacedName{Namespace: "ns", Name: "origin"}
+	basePod := testingpod.MakePod("late", "ns").UID("late-uid").
+		Annotation(kueue.WorkloadSliceNameAnnotation, sliceKey.Name).
+		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+		Label(constants.PodSetLabel, "workers")
+
+	testCases := map[string]struct {
+		pod              *corev1.Pod
+		wantRequests     []reconcile.Request
+		wantExpectedUIDs []types.UID
+	}{
+		"generic event is ignored even for an ungated Pod": {
+			pod:              basePod.Clone().Annotation(kueue.WorkloadAnnotation, "replacement").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			h := podHandler{expectationsStore: expectations.NewStore(TASTopologyUngater)}
+			h.expectationsStore.ExpectUIDs(log, sliceKey, []types.UID{tc.pod.UID})
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			h.Generic(ctx, event.GenericEvent{Object: tc.pod}, q)
+
+			if diff := gocmp.Diff(tc.wantRequests, q.Items); diff != "" {
+				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+			if diff := gocmp.Diff(tc.wantExpectedUIDs, h.expectationsStore.ExpectedUIDs(sliceKey)); diff != "" {
+				t.Errorf("Unexpected pending UIDs (-want,+got):\n%s", diff)
 			}
 		})
 	}

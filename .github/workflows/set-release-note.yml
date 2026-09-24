@@ -52,7 +52,7 @@ jobs:
 
       - name: Verify actor authorization
         id: auth
-        uses: ./.github/actions/authorize-release-actor
+        uses: $/.github/actions/authorize-release-actor
         with:
           actor: ${{ github.actor }}
           aliases: release-team

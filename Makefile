@@ -115,7 +115,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.19.4
+RELEASE_VERSION=v0.19.5
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -273,7 +273,7 @@ image-pushing-periodic:
 
 .PHONY: image-pushing-postsubmit
 image-pushing-postsubmit:
-	$(MAKE) -j5 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
+	$(MAKE) -j3 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
@@ -314,7 +314,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = \
+set-release-branch-images = \
 	(cd config/components/manager && \
 		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
 	(cd config/components/kueueviz && \
@@ -344,7 +344,7 @@ uninstall-alpha-crds: compile-crd-manifests kustomize ## Uninstall alpha CRDs fr
 .PHONY: deploy
 deploy: compile-crd-manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply --server-side -k config/default
-	@$(call clean-manifests)
+	@$(call set-release-branch-images)
 
 .PHONY: prometheus
 prometheus:
@@ -384,21 +384,26 @@ verify-git-tag:
 		exit 1; \
 	fi
 
+define _artifacts_recipe
+$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
+$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
+$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
+$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
+$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
+$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
+$(KUSTOMIZE) build config/kueueviz-single-host -o $(ARTIFACTS)/kueueviz-single-host.yaml
+$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
+$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
+$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
+$(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
+@$(call set-release-branch-images)
+CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+endef
+
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
 artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
-	$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
-	$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
-	$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
-	$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
-	$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
-	$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
-	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
-	$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
-	$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
-	$(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
-	@$(call clean-manifests)
-	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+	$(_artifacts_recipe)
 
 .PHONY: release-artifacts
 release-artifacts: ## Generate release artifacts.
@@ -406,6 +411,7 @@ release-artifacts: ## Generate release artifacts.
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
+	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="$(APP_VERSION)/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md

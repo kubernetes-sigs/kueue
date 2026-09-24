@@ -71,7 +71,7 @@ var (
 )
 
 func TestEnqueue(t *testing.T) {
-	queued := []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: testNS, Name: testLWS}}}
+	queued := []reconcile.Request{{Namespace: testNS, Name: testLWS}}
 	cases := map[string]struct {
 		current string
 		update  string
@@ -102,7 +102,7 @@ func TestEnqueue(t *testing.T) {
 
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+	request := reconcile.Request{Name: testLWS, Namespace: testNS}
 	workloadUpdateErr := errors.New("workload update failed")
 
 	cases := map[string]struct {
@@ -324,15 +324,13 @@ func TestReconciler(t *testing.T) {
 				Replicas(1).
 				Size(3).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							"custom-leader-annotation":                  "leader-value",
-							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-						},
-						Labels: map[string]string{
-							"leaderworkerset.sigs.k8s.io/name":        testLWS,
-							"leaderworkerset.sigs.k8s.io/group-index": "1",
-						},
+					Annotations: map[string]string{
+						"custom-leader-annotation":                  "leader-value",
+						"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+					},
+					Labels: map[string]string{
+						"leaderworkerset.sigs.k8s.io/name":        testLWS,
+						"leaderworkerset.sigs.k8s.io/group-index": "1",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -341,15 +339,13 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							"custom-worker-annotation":                  "worker-value",
-							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-						},
-						Labels: map[string]string{
-							"leaderworkerset.sigs.k8s.io/name":        testLWS,
-							"leaderworkerset.sigs.k8s.io/group-index": "1",
-						},
+					Annotations: map[string]string{
+						"custom-worker-annotation":                  "worker-value",
+						"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+					},
+					Labels: map[string]string{
+						"leaderworkerset.sigs.k8s.io/name":        testLWS,
+						"leaderworkerset.sigs.k8s.io/group-index": "1",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -364,15 +360,13 @@ func TestReconciler(t *testing.T) {
 					Replicas(1).
 					Size(3).
 					LeaderTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								"custom-leader-annotation":                  "leader-value",
-								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-							},
-							Labels: map[string]string{
-								"leaderworkerset.sigs.k8s.io/name":        testLWS,
-								"leaderworkerset.sigs.k8s.io/group-index": "1",
-							},
+						Annotations: map[string]string{
+							"custom-leader-annotation":                  "leader-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -381,15 +375,13 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					WorkerTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								"custom-worker-annotation":                  "worker-value",
-								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-							},
-							Labels: map[string]string{
-								"leaderworkerset.sigs.k8s.io/name":        testLWS,
-								"leaderworkerset.sigs.k8s.io/group-index": "1",
-							},
+						Annotations: map[string]string{
+							"custom-worker-annotation":                  "worker-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -444,10 +436,8 @@ func TestReconciler(t *testing.T) {
 				UID(testLWS).
 				Size(3).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -456,10 +446,8 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -473,10 +461,8 @@ func TestReconciler(t *testing.T) {
 					UID(testLWS).
 					Size(3).
 					LeaderTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -485,10 +471,8 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					WorkerTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -546,10 +530,8 @@ func TestReconciler(t *testing.T) {
 				UID(testLWS).
 				Size(3).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -558,10 +540,8 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -575,10 +555,8 @@ func TestReconciler(t *testing.T) {
 					UID(testLWS).
 					Size(3).
 					LeaderTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -587,10 +565,8 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					WorkerTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -2846,7 +2822,7 @@ func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Creating the reconciler: %v", err)
 	}
-	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}})
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{Name: testLWS, Namespace: testNS})
 	if errors.Is(err, errNotOrdered) {
 		t.Fatalf("Reconcile() error = %v, so the branches never interleaved and the ordering below was not exercised", err)
 	}

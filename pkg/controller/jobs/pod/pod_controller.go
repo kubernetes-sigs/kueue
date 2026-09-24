@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -47,7 +48,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -118,9 +121,10 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 
 type Reconciler struct {
 	*jobframework.JobReconciler
-	integrationManager *jobframework.IntegrationManager
-	expectationsStore  *expectations.Store
-	clock              clock.Clock
+	integrationManager         *jobframework.IntegrationManager
+	manageJobsWithoutQueueName bool
+	expectationsStore          *expectations.Store
+	clock                      clock.Clock
 }
 
 const controllerName = "v1_pod"
@@ -130,6 +134,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		WithExcessPodExpectations(r.expectationsStore),
 		WithClock(r.clock),
 		WithIntegrationManager(r.integrationManager),
+		WithManageJobsWithoutQueueName(r.manageJobsWithoutQueueName),
 		WithRoleTracker(r.RoleTracker()),
 		WithCustomLabels(r.CustomLabels()),
 	))
@@ -156,27 +161,29 @@ func NewJob() jobframework.GenericJob {
 func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 	return &Reconciler{
-		JobReconciler:      jobframework.NewReconciler(c, record, opts...),
-		integrationManager: options.IntegrationManager,
-		expectationsStore:  expectations.NewStore("finalizedPods"),
-		clock:              options.Clock,
+		JobReconciler:              jobframework.NewReconciler(c, record, opts...),
+		integrationManager:         options.IntegrationManager,
+		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		expectationsStore:          expectations.NewStore("finalizedPods"),
+		clock:                      options.Clock,
 	}, nil
 }
 
 type Pod struct {
-	integrationManager    *jobframework.IntegrationManager
-	pod                   corev1.Pod
-	key                   types.NamespacedName
-	isFound               bool
-	isGroup               bool
-	unretriableGroup      *bool
-	list                  corev1.PodList
-	absentPods            int
-	excessPodExpectations *expectations.Store
-	satisfiedExcessPods   bool
-	clock                 clock.Clock
-	roleTracker           *roletracker.RoleTracker
-	customLabels          *metrics.CustomLabels
+	integrationManager         *jobframework.IntegrationManager
+	manageJobsWithoutQueueName bool
+	pod                        corev1.Pod
+	key                        types.NamespacedName
+	isFound                    bool
+	isGroup                    bool
+	unretriableGroup           *bool
+	list                       corev1.PodList
+	absentPods                 int
+	excessPodExpectations      *expectations.Store
+	satisfiedExcessPods        bool
+	clock                      clock.Clock
+	roleTracker                *roletracker.RoleTracker
+	customLabels               *metrics.CustomLabels
 }
 
 var (
@@ -212,6 +219,14 @@ func WithClock(clock clock.Clock) PodOption {
 func WithIntegrationManager(manager *jobframework.IntegrationManager) PodOption {
 	return func(pod *Pod) {
 		pod.integrationManager = manager
+	}
+}
+
+// WithManageJobsWithoutQueueName tells the Pod whether an ancestor without a queue-name
+// still counts as Kueue-managed when its ownership chain is walked.
+func WithManageJobsWithoutQueueName(manage bool) PodOption {
+	return func(pod *Pod) {
+		pod.manageJobsWithoutQueueName = manage
 	}
 }
 
@@ -501,10 +516,23 @@ func hasPodReadyTrue(conds []corev1.PodCondition) bool {
 	return false
 }
 
+// isPodReadyOrSucceeded reports whether the pod is currently ready, or has already
+// completed successfully. A Succeeded pod has its PodReady condition set to False by
+// the kubelet, so checking readiness alone would treat a finished pod as unhealthy.
+// Serving groups are excluded: a Succeeded serving pod has terminated and won't serve
+// again, and counting it as ready would suppress the recoveryTimeout eviction that
+// unblocks a same-name (StatefulSet) replacement - see shouldFinalizeNow.
+func (p *Pod) isPodReadyOrSucceeded(pod *corev1.Pod) bool {
+	if features.Enabled(features.PodIntegrationCountSucceededPodsAsReady) && !p.isServing() && pod.Status.Phase == corev1.PodSucceeded {
+		return true
+	}
+	return hasPodReadyTrue(pod.Status.Conditions)
+}
+
 // PodsReady instructs whether job derived pods are all ready now.
 func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
-		return hasPodReadyTrue(p.pod.Status.Conditions)
+		return p.isPodReadyOrSucceeded(&p.pod)
 	}
 
 	tc, err := p.groupTotalCount()
@@ -517,7 +545,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	}
 
 	for i := range p.list.Items {
-		if !hasPodReadyTrue(p.list.Items[i].Status.Conditions) {
+		if !p.isPodReadyOrSucceeded(&p.list.Items[i]) {
 			return false
 		}
 	}
@@ -815,6 +843,11 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 			return kueue.PodSet{}, err
 		}
 		podSet.TopologyRequest = topologyRequest
+	}
+	if features.Enabled(features.TASTopologySpreading) {
+		if v, ok := p.Annotations[kueue.PodSetTopologySpreadingAnnotation]; ok {
+			podSet.Template.Annotations = map[string]string{kueue.PodSetTopologySpreadingAnnotation: v}
+		}
 	}
 	return podSet, nil
 }
@@ -1183,7 +1216,16 @@ func (p *Pod) getByKey(
 
 func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r events.EventRecorder, labelKeysToCopy, annotationsToCopy sets.Set[string]) (*kueue.Workload, error) {
 	if !p.isGroup {
-		return jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy, annotationsToCopy)
+		wl, err := jobframework.ConstructWorkload(ctx, c, p, labelKeysToCopy, annotationsToCopy)
+		if err != nil {
+			return nil, err
+		}
+		if features.Enabled(features.DeploymentJobUIDLabel) {
+			if err := p.applyDeploymentJobUID(ctx, c, wl); err != nil {
+				return nil, err
+			}
+		}
+		return wl, nil
 	}
 
 	activePods, inactivePods := p.partitionPods()
@@ -1253,6 +1295,35 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
 	}
 	return wl, nil
+}
+
+// applyDeploymentJobUID replaces the Pod UID that ConstructWorkload put in the job-uid
+// label with the UID of the Deployment the Pod belongs to, so that every Workload of one
+// Deployment shares a single value. The ancestor walk yields only an object Kueue manages
+// on the user's behalf, so its type is what decides whether the Deployment UID applies.
+func (p *Pod) applyDeploymentJobUID(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if p.integrationManager == nil {
+		return nil
+	}
+	// The annotation value is free-form and may refer to an external controller.
+	if p.pod.Annotations[podconstants.SuspendedByParentAnnotation] != deploymentconstants.FrameworkName {
+		return nil
+	}
+
+	ancestor, err := p.integrationManager.FindAncestorJobManagedByKueue(ctx, c, &p.pod, p.manageJobsWithoutQueueName)
+	if err != nil {
+		return err
+	}
+	deployment, ownedByDeployment := ancestor.(*appsv1.Deployment)
+	if !ownedByDeployment {
+		return nil
+	}
+
+	if wl.Labels == nil {
+		wl.Labels = make(map[string]string, 1)
+	}
+	wl.Labels[ctrlconstants.JobUIDLabel] = string(deployment.UID)
+	return nil
 }
 
 func (p *Pod) workloadName() string {

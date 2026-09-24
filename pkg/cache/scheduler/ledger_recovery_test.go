@@ -86,10 +86,10 @@ func TestLedgerRecoversAcrossTheCache(t *testing.T) {
 				Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 				Obj()
 
-			cache.AddOrUpdateWorkload(log, saturating)
+			cache.AddOrUpdateWorkload(ctx, log, saturating)
 			assertLedgers(t, cache, "after the saturating workload joined", resources.NewAmount(math.MaxInt64))
 
-			cache.AddOrUpdateWorkload(log, seven)
+			cache.AddOrUpdateWorkload(ctx, log, seven)
 			// Built by arithmetic: no single Quantity carries more than MaxInt64.
 			assertLedgers(t, cache, "after the 7-unit workload joined", resources.NewAmount(math.MaxInt64).AddInt64(7))
 
@@ -140,7 +140,7 @@ func assertLedgers(t *testing.T, cache *Cache, when string, want resources.Amoun
 	if !found {
 		t.Fatalf("%s: the LocalQueue is not in the cache", when)
 	}
-	check("LocalQueue reserved", lq.totalReserved[ledgerFR])
+	check("LocalQueue reserved", lq.reservedUsage[ledgerFR])
 	check("LocalQueue admitted usage", lq.admittedUsage[ledgerFR])
 
 	if cq.HasParent() {

@@ -49,7 +49,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -135,7 +134,7 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	workload.AdjustResources(ctx, r.client, wl)
+	wi := workload.NewInfoFromClient(ctx, r.client, wl)
 	if workload.HasResourceClaim(wl) {
 		log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -166,7 +165,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	// Process Extended Resources backed by DRA
 	var replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		extendedResources, replaced, extFieldErrs := dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, wl)
+		extendedResources, replaced, extFieldErrs := dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, wi)
 		if len(extFieldErrs) > 0 {
 			done, result, err := r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
 			return done, result, nil, err
@@ -197,35 +196,43 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
-	quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
 
-	var conditionsCleared bool
-	if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		conditionsCleared = true
-	}
+	var conditionsChanged bool
 	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
-		conditionsCleared = true
+		if requeuedCond.Reason == kueue.WorkloadInadmissible {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+			}); err != nil {
+				return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
+			}
+		} else {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
+		}
+		conditionsChanged = true
+	}
+	if quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
+		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		conditionsChanged = true
 	}
 
-	if conditionsCleared {
-		log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
+	if conditionsChanged {
+		log.V(3).Info("Updated previous inadmissible conditions after successful DRA processing")
 	}
 
+	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 	}
 
 	if workload.IsAdmissible(wl) {
-		if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
+		if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), queueOptions...); err != nil {
 			log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 			return true, ctrl.Result{}, nil, err
 		}
 		log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
 	} else {
-		if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
+		if !r.cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy()) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 		log.V(3).Info("Successfully pre-processed DRA workload for cache")
@@ -381,7 +388,7 @@ type WorkloadReconciler struct {
 }
 
 var _ reconcile.Reconciler = (*WorkloadReconciler)(nil)
-var _ predicate.TypedPredicate[*kueue.Workload] = (*WorkloadReconciler)(nil)
+var _ handler.TypedEventHandler[*kueue.Workload, reconcile.Request] = (*workloadEventHandler)(nil)
 
 func NewWorkloadReconciler(client client.Client, queues *qcache.Manager, cache *schdcache.Cache, recorder events.EventRecorder, options ...Option) *WorkloadReconciler {
 	r := &WorkloadReconciler{
@@ -535,7 +542,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return ctrl.Result{}, nil
 	}
 	var draQueueOptions []workload.InfoOption
-	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
+	if workload.Status(&wl) == workload.StatusPending && r.needsDRAReconcile(ctx, &wl) {
 		if done, result, opts, err := r.handleDRA(ctx, &wl); done {
 			return result, err
 		} else {
@@ -545,9 +552,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 
 	if workload.IsActive(&wl) {
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
-			// Patch only the field this branch owns: the in-memory object may
-			// carry the resource adjustments (see handleDRA above), which a
-			// full-object update would persist into the user's spec.
+			// Patch only the field this branch owns to preserve the user's spec.
 			err := clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
 				wl.Spec.Active = new(false)
 				return true, nil
@@ -580,12 +585,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					return ctrl.Result{}, nil
 				}
 
-				// Adjust the copy before queueing, as every sibling producer
-				// does; the queue accounting must reflect the effective
-				// resources, not the raw spec.
-				wlCopy := wl.DeepCopy()
-				workload.AdjustResources(ctx, r.client, wlCopy)
-				if err := r.queues.AddOrUpdateWorkload(log, wlCopy, draQueueOptions...); err != nil {
+				if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
@@ -1285,7 +1285,7 @@ func (r *WorkloadReconciler) triggerDeactivation(ctx context.Context, wl *kueue.
 	return false, nil
 }
 
-func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
+func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCreateEvent[*kueue.Workload]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 	status := workload.Status(e.Object)
 	log := r.logger().WithValues("workload", klog.KObj(e.Object), "queue", e.Object.Spec.QueueName, "status", status)
@@ -1296,29 +1296,28 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 		return true
 	}
 
-	ctx := ctrl.LoggerInto(context.Background(), log)
-	wlCopy := e.Object.DeepCopy()
-	workload.AdjustResources(ctx, r.client, wlCopy)
+	ctx = ctrl.LoggerInto(ctx, log)
+	wl := e.Object
 
-	if dra.NeedsDRAReconcile(e.Object, r.draBackedResources) {
+	if r.needsDRAReconcile(ctx, e.Object) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
 
 	if workload.IsAdmissible(e.Object) {
-		if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+		if err := r.queues.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 			log.V(2).Info("ignored an error for now", "error", err)
 		}
 		return true
 	}
-	if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+	if !r.cache.AddOrUpdateWorkload(ctx, log, wl) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
-	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
+	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
 }
 
-func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) bool {
+func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDeleteEvent[*kueue.Workload]) bool {
 	defer r.notifyWatchers(e.Object, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
@@ -1329,7 +1328,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	r.preemptionExpectations.ObservedUID(log,
 		client.ObjectKeyFromObject(e.Object), e.Object.UID)
 
-	ctx := ctrl.LoggerInto(context.Background(), log)
+	ctx = ctrl.LoggerInto(ctx, log)
 	wlKey := workload.Key(e.Object)
 
 	// Delete from cache unconditionally. Pending workloads may have been "assumed"
@@ -1346,20 +1345,19 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	r.queues.DeleteAndForgetWorkload(log, wlKey)
 
 	if afs.Enabled(r.admissionFSConfig) {
-		// A Workload deleted before settling (e.g. a Job deleted while waiting
-		// for an AdmissionCheck) would leave its penalty pending forever,
-		// inflating the LocalQueue's fair-sharing usage until restart.
+		// Drop any entry penalty that never reached the accounting anchor;
+		// otherwise it stays charged until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
 	}
 	return true
 }
 
-func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) bool {
+func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpdateEvent[*kueue.Workload]) bool {
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
 
 	status := workload.Status(e.ObjectNew)
 	log := r.logger().WithValues("workload", klog.KObj(e.ObjectNew), "queue", e.ObjectNew.Spec.QueueName, "status", status)
-	ctx := ctrl.LoggerInto(context.Background(), log)
+	ctx = ctrl.LoggerInto(ctx, log)
 	active := workload.IsActive(e.ObjectNew)
 
 	prevQueue := e.ObjectOld.Spec.QueueName
@@ -1384,12 +1382,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	}
 	log.V(2).Info("Workload update event")
 
-	wlCopy := e.ObjectNew.DeepCopy()
+	wl := e.ObjectNew
 	wlKey := workload.Key(e.ObjectNew)
-	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
-	onHold := workload.IsOnHold(wlCopy)
+	onHold := workload.IsOnHold(wl)
 
 	switch {
 	case status == workload.StatusFinished || !active:
@@ -1398,12 +1394,12 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		}
 
 		if status == workload.StatusFinished && prevStatus != workload.StatusFinished {
-			r.reportFinishedWorkload(log, wlCopy)
+			r.reportFinishedWorkload(log, wl)
 		}
 
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(log, wlKey)
-		r.queues.AddFinishedWorkload(wlCopy)
+		r.queues.AddFinishedWorkload(wl)
 
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1419,16 +1415,16 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		case onHold:
 			log.V(2).Info("Removing workload from queue because it is on-hold")
 			r.queues.DeleteWorkload(log, wlKey)
-		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
+		case r.needsDRAReconcile(ctx, e.ObjectNew):
 			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
 		default:
-			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+			if err := r.queues.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
 	case prevStatus == workload.StatusPending && (status == workload.StatusQuotaReserved || status == workload.StatusAdmitted):
 		r.queues.DeleteWorkload(log, wlKey)
-		if !r.cache.AddOrUpdateWorkload(log, wlCopy) {
+		if !r.cache.AddOrUpdateWorkload(ctx, log, wl) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	case workload.FromQuotaReservedOrAdmittedToPending(prevStatus, status):
@@ -1436,7 +1432,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			metrics.ReportWorkloadEvictionLatency(cq, reason, latency, r.customLabels.CQGet(cq), r.roleTracker)
 		}
 		var backoff time.Duration
-		if wlCopy.Status.RequeueState != nil && wlCopy.Status.RequeueState.RequeueAt != nil {
+		if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
 			backoff = time.Until(e.ObjectNew.Status.RequeueState.RequeueAt.Time)
 		}
 		immediate := backoff <= 0
@@ -1458,10 +1454,10 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				switch {
 				case onHold:
 					log.V(2).Info("Skipping immediate requeue for on-hold workload")
-				case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
+				case r.needsDRAReconcile(ctx, e.ObjectNew):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				default:
-					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
+					if err := r.queues.AddOrUpdateWorkloadWithoutLock(ctx, log, wl); err != nil {
 						log.V(2).Info("ignored an error for now", "error", err)
 					}
 					r.queues.DeleteSecondPassWithoutLock(wlKey)
@@ -1469,7 +1465,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			}
 
 			// Clean up second pass when the updated workload no longer needs it.
-			if !workload.NeedsSecondPass(wlCopy) {
+			if !workload.NeedsSecondPass(wl) {
 				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
 		})
@@ -1481,24 +1477,22 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// Update the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			r.cache.AddOrUpdateWorkload(log, wlCopy)
+			r.cache.AddOrUpdateWorkload(ctx, log, wl)
 		})
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		r.cache.AddOrUpdateWorkload(log, wlCopy)
+		r.cache.AddOrUpdateWorkload(ctx, log, wl)
 	}
-	r.reconcileAfsPenaltiesOnUpdate(log, e, wlCopy, active, status, prevStatus, prevQueue)
-	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
+	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
+	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
 }
 
-// reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle for an
-// updated Workload. It must run after the Update event switch: outside the
-// switch so that no transition into Admitted is missed, and after it so that
-// the cache already accounts for the workload usage read by
-// updateAfsConsumedUsage.
+// reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle against
+// the Workload's post-update cache state. It must run once the cache reflects
+// the update, since settlement reads live usage from it.
 func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	log logr.Logger,
 	e event.TypedUpdateEvent[*kueue.Workload],
@@ -1510,22 +1504,13 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	if !afs.Enabled(r.admissionFSConfig) {
 		return
 	}
-	// The AFS entry penalty must be settled on every transition into Admitted
-	// (#12539). Deactivation wins over admission: a workload deactivated in the
-	// same event was removed from the cache by the event switch and must not be
-	// charged.
-	if active && status == workload.StatusAdmitted && prevStatus != workload.StatusAdmitted &&
+	if reachedAfsAnchor(e, status, prevStatus) &&
 		r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
 		r.updateAfsConsumedUsage(log, wlCopy)
 	}
-	// Drop a pending penalty its Workload can no longer settle — moved to
-	// another LocalQueue (settlement and deletion key by the current queueName),
-	// inactive with its reservation gone, or finished without admission — or it
-	// inflates the LocalQueue's fair-sharing usage until the object is deleted.
-	// An evicted Workload that stays active on the same LocalQueue keeps its
-	// record, and so does a deactivated Workload that still holds its
-	// reservation: reactivated in place, it can reach Admitted without another
-	// scheduler assume, and its penalty must still settle.
+	// Keep a pending penalty while its Workload can still reach the anchor without
+	// a new scheduler assumption; drop it once it cannot. A LocalQueue move also
+	// requires removing the record from the previous queue.
 	wlRef := queueafs.WorkloadReference(workload.Key(e.ObjectNew))
 	if prevQueue != e.ObjectNew.Spec.QueueName {
 		r.queues.AfsUsageLedger.SubPenalty(qutil.NewLocalQueueReference(e.ObjectOld.Namespace, prevQueue), wlRef)
@@ -1538,9 +1523,28 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	}
 }
 
-func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
-	r.logger().V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
-	return false
+// reachedAfsAnchor reports whether the Workload crossed the configured AFS
+// accounting boundary (#12539): admission by default, or actively holding a
+// quota reservation under AdmissionFairSharingAnchorAtQuotaReservation. Reactivation
+// with an existing reservation crosses the quota-reservation anchor.
+func reachedAfsAnchor(e event.TypedUpdateEvent[*kueue.Workload], status, prevStatus string) bool {
+	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) {
+		return workload.HasActiveQuotaReservation(e.ObjectNew) && !workload.HasActiveQuotaReservation(e.ObjectOld)
+	}
+	return workload.IsActive(e.ObjectNew) &&
+		status == workload.StatusAdmitted && prevStatus != workload.StatusAdmitted
+}
+
+// afsAccountedUsage keeps the live usage AFS decays towards aligned with the
+// entry-penalty anchor: both move to quota reservation only for ClusterQueues
+// that admit on usage. Sampling behind the anchor would let a Workload's cost
+// decay away while it still holds quota.
+func afsAccountedUsage(cache *schdcache.Cache, cqName kueue.ClusterQueueReference, lq *schdcache.LocalQueue) corev1.ResourceList {
+	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) &&
+		cache.ClusterQueueUsesAdmissionFairSharing(cqName) {
+		return lq.ReservedUsage()
+	}
+	return lq.AdmittedUsage()
 }
 
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
@@ -1553,10 +1557,9 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 		log.V(2).Info("Failed to get cache LocalQueue", "error", err)
 		return
 	}
-	// Read live usage before taking the entry lock: the scheduler snapshot reads
-	// AfsUsageLedger while holding the scheduler-cache lock, so the Update
-	// closure must not call back into the cache.
-	newUsage := cacheLq.GetAdmittedUsage()
+	// Preserve the cache -> ledger lock ordering: scheduler snapshots read the
+	// ledger while holding the cache lock, so do not read the cache inside Update.
+	newUsage := afsAccountedUsage(r.cache, wl.Status.Admission.ClusterQueue, cacheLq)
 
 	var settled corev1.ResourceList
 	updated := r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
@@ -1615,20 +1618,62 @@ func (r *WorkloadReconciler) reportFinishedWorkload(log logr.Logger, wl *kueue.W
 	}
 }
 
+// workloadEventSource binds the handler to the controller lifetime before the
+// informer starts delivering events. Per-event contexts are cancelled when the
+// callback returns, too early for delayed second-pass resource lookups.
+type workloadEventSource struct {
+	source.SyncingSource
+	handler *workloadEventHandler
+}
+
+func (s *workloadEventSource) Start(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+	s.handler.ctx = ctx
+	return s.SyncingSource.Start(ctx, q)
+}
+
+// workloadEventHandler updates the queues and cache before enqueuing reconciliation.
+type workloadEventHandler struct {
+	r       *WorkloadReconciler
+	ctx     context.Context // Set once by workloadEventSource.Start before event delivery.
+	enqueue handler.TypedEnqueueRequestForObject[*kueue.Workload]
+}
+
+func (h *workloadEventHandler) Create(_ context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleCreate(h.ctx, e) {
+		h.enqueue.Create(h.ctx, e, q)
+	}
+}
+
+func (h *workloadEventHandler) Update(_ context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleUpdate(h.ctx, e) {
+		h.enqueue.Update(h.ctx, e, q)
+	}
+}
+
+func (h *workloadEventHandler) Delete(_ context.Context, e event.TypedDeleteEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	if h.r.handleDelete(h.ctx, e) {
+		h.enqueue.Delete(h.ctx, e, q)
+	}
+}
+
+func (h *workloadEventHandler) Generic(_ context.Context, e event.TypedGenericEvent[*kueue.Workload], _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.r.logger().V(3).Info("Ignore Workload generic event", "workload", klog.KObj(e.Object))
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	ruh := &resourceUpdatesHandler{r: r}
 	wqh := &workloadQueueHandler{r: r}
 	deh := &draEventHandler{}
 	dch := &deviceClassHandler{r: r}
+	weh := &workloadEventHandler{r: r}
+	workloadSource := &workloadEventSource{
+		SyncingSource: source.TypedKind(mgr.GetCache(), &kueue.Workload{}, weh),
+		handler:       weh,
+	}
 	bld := builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("workload_controller").
-		WatchesRawSource(source.TypedKind(
-			mgr.GetCache(),
-			&kueue.Workload{},
-			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
-			r,
-		)).
+		WatchesRawSource(workloadSource).
 		WatchesRawSource(source.Channel(r.draReconcileChannel, deh)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
@@ -1837,26 +1882,23 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 		log.Error(err, "Could not list pending workloads")
 	}
 	log.V(4).Info("Updating pending workload requests", "count", len(lst.Items))
-	for _, w := range lst.Items {
-		wlCopy := w.DeepCopy()
-		log := log.WithValues("workload", klog.KObj(wlCopy))
+	for i := range lst.Items {
+		wl := &lst.Items[i]
+		log := log.WithValues("workload", klog.KObj(wl))
 		log.V(5).Info("Queue reconcile for")
-		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
 
-		if dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
+		if h.r.needsDRAReconcile(ctx, wl) {
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      wlCopy.Name,
-					Namespace: wlCopy.Namespace,
-				},
+				Name:      wl.Name,
+				Namespace: wl.Namespace,
 			}
 			q.Add(req)
 			log.V(2).Info("Queued reconcile for DRA workload due to resource update")
 			continue
 		}
 
-		if workload.IsAdmissible(wlCopy) {
-			if err = h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+		if workload.IsAdmissible(wl) {
+			if err = h.r.queues.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
 		}
@@ -1957,10 +1999,8 @@ func (w *workloadQueueHandler) queueReconcileForWorkloadsOfLocalQueue(ctx contex
 	for _, wl := range lst.Items {
 		log := log.WithValues("workload", klog.KObj(&wl))
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      wl.Name,
-				Namespace: wl.Namespace,
-			},
+			Name:      wl.Name,
+			Namespace: wl.Namespace,
 		}
 		wq.Add(req)
 		log.V(5).Info("Queued reconcile for workload")
@@ -1982,10 +2022,8 @@ func (h *draEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*
 
 func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	reconcileReq := reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      e.Object.Name,
-			Namespace: e.Object.Namespace,
-		},
+		Name:      e.Object.Name,
+		Namespace: e.Object.Namespace,
 	}
 	q.Add(reconcileReq)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Object))
@@ -2064,18 +2102,14 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 		for i := range lst.Items {
 			w := &lst.Items[i]
 			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
-			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) {
-				wlCopy := w.DeepCopy()
-				workload.AdjustResources(ctx, h.r.client, wlCopy)
-				if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+			if !h.r.needsDRAReconcile(ctx, w) && workload.IsAdmissible(w) {
+				if err := h.r.queues.AddOrUpdateWorkload(ctx, log, w); err != nil {
 					log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
 				}
 			}
 			q.AddAfter(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      w.Name,
-					Namespace: w.Namespace,
-				},
+				Name:      w.Name,
+				Namespace: w.Namespace,
 			}, time.Second)
 		}
 	}
@@ -2135,7 +2169,7 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
 			return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err), nil
 		}
-		wlInfo := workload.NewInfo(ctrl.LoggerFrom(ctx), wl)
+		wlInfo := workload.NewInfoFromClient(ctx, r.client, wl)
 		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
 		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
 			return "", "", admissibilityErr
@@ -2236,4 +2270,12 @@ func shouldCheckEquivalenceHash(cond *metav1.Condition) bool {
 	default:
 		return false
 	}
+}
+
+func (r *WorkloadReconciler) needsDRAReconcile(ctx context.Context, wl *kueue.Workload) bool {
+	wi := &workload.Info{Obj: wl}
+	if features.Enabled(features.KueueDRAIntegration) && features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+		wi = workload.NewInfoFromClient(ctx, r.client, wl)
+	}
+	return dra.NeedsDRAReconcile(wi, r.draBackedResources)
 }
