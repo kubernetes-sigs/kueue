@@ -1103,20 +1103,18 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
-	domainValues := ta.Domains[0].Values
-	if len(domainValues) == 0 {
-		return ""
+	// Queued failed nodes may be missing, but a surviving assignment still pins the required domain.
+	for _, assignment := range ta.Domains {
+		domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(assignment.Values)]
+		if !found {
+			continue
+		}
+		for i := nodeLevel; i > levelIdx; i-- {
+			domain = domain.parent
+		}
+		return domain.id
 	}
-	// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
-	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
-	if !found {
-		return ""
-	}
-	// Find a domain that complies with the required policy
-	for i := nodeLevel; i > levelIdx; i-- {
-		domain = domain.parent
-	}
-	return domain.id
+	return ""
 }
 
 // domainForAssignmentValues resolves the domain referenced by a serialized
