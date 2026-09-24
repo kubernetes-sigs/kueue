@@ -468,15 +468,11 @@ func TestApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(t *te
 			}
 			builder = builder.WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					switch obj.(type) {
-					case *kueue.WorkloadPriorityClass:
-						if errors.Is(tc.wantErr, wpcBoomErr) {
-							return wpcBoomErr
-						}
-					case *corev1.Namespace:
-						if errors.Is(tc.wantErr, nsBoomErr) {
-							return nsBoomErr
-						}
+					if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC && errors.Is(tc.wantErr, wpcBoomErr) {
+						return wpcBoomErr
+					} else if _, isNS := obj.(*corev1.Namespace); isNS && errors.Is(tc.wantErr, nsBoomErr) {
+						return nsBoomErr
+					}
 					}
 					return cl.Get(ctx, key, obj, opts...)
 				},
