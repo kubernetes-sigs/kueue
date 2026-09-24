@@ -638,7 +638,7 @@ func TestFromAssignmentNodeLabelConflict(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	// Each run used to pick a winner by map order; now every run must refuse.
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		_, err := FromAssignment(ctx, client, assignment, &podSet)
 		if err == nil {
 			t.Fatalf("run %d: expected a conflict error, got none", i)
@@ -672,7 +672,7 @@ func TestFromAssignmentStableFlavorOrder(t *testing.T) {
 
 	// The flavors are applied in a stable resource order, cpu before memory.
 	wantTolerations := []corev1.Toleration{cpuToleration, memoryToleration}
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		got, err := FromAssignment(ctx, client, assignment, &podSet)
 		if err != nil {
 			t.Fatalf("run %d: unexpected error: %v", i, err)
