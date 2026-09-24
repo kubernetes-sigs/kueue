@@ -287,18 +287,6 @@ func (c *Cache) updateClusterQueues(log logr.Logger) sets.Set[kueue.ClusterQueue
 	return cqs
 }
 
-func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
-	c.RLock()
-	defer c.RUnlock()
-	cqs := sets.New[kueue.ClusterQueueReference]()
-	for _, cq := range c.hm.ClusterQueues() {
-		if cq.Status == active {
-			cqs.Insert(cq.Name)
-		}
-	}
-	return cqs
-}
-
 func (c *Cache) TASCache() *tasCache {
 	return &c.tasCache
 }
