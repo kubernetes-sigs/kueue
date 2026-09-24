@@ -422,8 +422,23 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		startWatcher()
 	}
 
+	if !connected {
+		rc.requeueWorkloadsForCluster(watchCtx)
+	}
+
 	rc.resetFailedConnAttempt()
 	return nil, nil
+}
+
+func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) {
+	wls := &kueue.WorkloadList{}
+	if err := rc.getClient().List(ctx, wls, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing remote workloads for resync after reconnect")
+		return
+	}
+	for i := range wls.Items {
+		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
+	}
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it
