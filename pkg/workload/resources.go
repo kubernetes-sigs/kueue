@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -47,7 +49,8 @@ const (
 )
 
 // UseLimitsAsMissingRequestsInPod adjust the resource requests to the limits value
-// for resources that only set limits.
+// for resources that only set limits. It only covers the (init) containers; the
+// pod-level requests are handled by DefaultPodLevelRequests.
 func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 	for ci := range pod.InitContainers {
 		res := &pod.InitContainers[ci].Resources
@@ -57,10 +60,44 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 		res := &pod.Containers[ci].Resources
 		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
 	}
+}
+
+// DefaultPodLevelRequests fills the missing pod-level resource requests the way
+// the API server does: from the aggregate requests of the containers, for the
+// overcommittable resources the containers request, and from the pod-level
+// limits for the remaining supported resources. The API server defers this
+// defaulting until after admission, so the aggregate includes the container
+// defaults that LimitRanges apply; callers must keep it after those defaults.
+func DefaultPodLevelRequests(pod *corev1.PodSpec) {
 	// Pod-level resources (KEP-2837) are an optional pointer, only set when the
 	// PodLevelResources feature is enabled and used.
-	if pod.Resources != nil {
-		pod.Resources.Requests = resource.MergeResourceListKeepFirst(pod.Resources.Requests, pod.Resources.Limits)
+	if pod.Resources == nil || (len(pod.Resources.Requests) == 0 && len(pod.Resources.Limits) == 0) {
+		return
+	}
+	podRequests := pod.Resources.Requests
+	if podRequests == nil {
+		podRequests = make(corev1.ResourceList)
+	}
+	aggregatedRequests := resourcehelpers.AggregateContainerRequests(&corev1.Pod{Spec: *pod}, resourcehelpers.PodResourcesOptions{})
+	for name, quantity := range aggregatedRequests {
+		if _, found := podRequests[name]; found || !resourcehelpers.IsSupportedPodLevelResource(name) {
+			continue
+		}
+		// Only overcommittable resources default from the containers; among the
+		// pod-level resources that excludes hugepages.
+		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
+			continue
+		}
+		podRequests[name] = quantity.DeepCopy()
+	}
+	for name, limit := range pod.Resources.Limits {
+		if _, found := podRequests[name]; found || !resourcehelpers.IsSupportedPodLevelResource(name) {
+			continue
+		}
+		podRequests[name] = limit.DeepCopy()
+	}
+	if len(podRequests) > 0 {
+		pod.Resources.Requests = podRequests
 	}
 }
 

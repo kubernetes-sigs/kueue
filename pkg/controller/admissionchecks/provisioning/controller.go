@@ -461,6 +461,7 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 
 	// copy limits to requests if needed
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
+	workload.DefaultPodLevelRequests(&newPt.Template.Spec)
 
 	return newPt, nil
 }

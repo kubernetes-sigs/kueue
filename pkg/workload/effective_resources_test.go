@@ -101,6 +101,34 @@ func TestEffectivePodSpecs(t *testing.T) {
 					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
 			},
 		},
+		"pod-level request aggregates the container requests": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					Limit(corev1.ResourceCPU, "4").
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "1").Template.Spec,
+			},
+		},
+		"pod-level request aggregates the container limits": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "1").
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceCPU, "1").
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "1").Template.Spec,
+			},
+		},
 		"pod-level limits": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -108,7 +136,8 @@ func TestEffectivePodSpecs(t *testing.T) {
 				Obj(),
 			wantPodSpecs: []corev1.PodSpec{
 				utiltestingapi.MakePodSet("main", 1).
-					PodLevelLimit(corev1.ResourceMemory, "2Gi").PodLevelRequest(corev1.ResourceMemory, "2Gi").
+					PodLevelLimit(corev1.ResourceMemory, "2Gi").
+					PodLevelRequest(corev1.ResourceMemory, "2Gi").PodLevelRequest(corev1.ResourceCPU, "2").
 					Limit(corev1.ResourceCPU, "4").Request(corev1.ResourceCPU, "2").Template.Spec,
 			},
 		},
