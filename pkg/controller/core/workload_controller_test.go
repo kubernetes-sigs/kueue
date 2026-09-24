@@ -1411,17 +1411,15 @@ func TestUpdateSettlesAfsEntryPenaltyPerReservation(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
 
-	makeWl := func() *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl", "ns").
-			Queue("lq").
-			Active(true).
-			Request(corev1.ResourceCPU, "4")
-	}
+	baseWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request(corev1.ResourceCPU, "4")
 	admission := utiltestingapi.MakeAdmission("cq").
 		PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
 		Obj()
-	pending := makeWl().Obj()
-	quotaReserved := makeWl().ReserveQuotaAt(admission, now).Obj()
+	pending := baseWl.Clone().Obj()
+	quotaReserved := baseWl.Clone().ReserveQuotaAt(admission, now).Obj()
 
 	cases := map[string]struct {
 		atQuotaReservation bool
@@ -3492,12 +3490,10 @@ func TestDeleteSubtractsPendingAfsEntryPenalty(t *testing.T) {
 func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
-	makeWl := func() *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload("wl", "ns").
-			Queue("lq").
-			Request(corev1.ResourceCPU, "4")
-	}
-	quotaReserved := makeWl().SimpleReserveQuota("cq", "rf", now).Obj()
+	baseWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4")
+	quotaReserved := baseWl.Clone().SimpleReserveQuota("cq", "rf", now).Obj()
 
 	cases := map[string]struct {
 		oldWl *kueue.Workload
@@ -3507,32 +3503,32 @@ func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
 		wantPendingOn map[utilqueue.LocalQueueReference]bool
 	}{
 		"moving to another LocalQueue drops the record under the previous one": {
-			oldWl: makeWl().Obj(),
-			newWl: makeWl().Queue("lq2").Obj(),
+			oldWl: baseWl.Clone().Obj(),
+			newWl: baseWl.Clone().Queue("lq2").Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{
 				"ns/lq": false, "ns/lq2": false,
 			},
 		},
 		"deactivation with the reservation gone drops the record": {
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Active(false).Obj(),
+			newWl:         baseWl.Clone().Active(false).Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
 		},
 		"deactivation that keeps the reservation keeps the record": {
 			// Reactivated in place, the Workload can reach Admitted without a
 			// new scheduler assume, so its penalty must still be settleable.
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Active(false).SimpleReserveQuota("cq", "rf", now).Obj(),
+			newWl:         baseWl.Clone().Active(false).SimpleReserveQuota("cq", "rf", now).Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
 		},
 		"finishing without admission drops the record": {
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Finished().Obj(),
+			newWl:         baseWl.Clone().Finished().Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
 		},
 		"eviction back to pending on the same LocalQueue keeps the record": {
 			oldWl:         quotaReserved,
-			newWl:         makeWl().Obj(),
+			newWl:         baseWl.Clone().Obj(),
 			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
 		},
 	}
