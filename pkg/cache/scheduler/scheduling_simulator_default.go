@@ -31,19 +31,23 @@ import (
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
-type defaultSimulator struct{}
+type defaultSimulatorFactory struct{}
 
-func newDefaultSimulator() simulator.SchedulingSimulator {
+func newDefaultSimulatorFactory() simulator.Factory {
+	return &defaultSimulatorFactory{}
+}
+
+func newDefaultSimulator() simulator.SchedulerSimulator {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(_ context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
-	return &defaultChecker{}, nil
+type defaultSimulator struct{}
+
+func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, nodes []*corev1.Node) (simulator.SchedulerSimulator, error) {
+	return &defaultSimulator{}, nil
 }
 
-type defaultChecker struct{}
-
-func (c *defaultChecker) FindFeasibleNodes(
+func (s *defaultSimulator) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,

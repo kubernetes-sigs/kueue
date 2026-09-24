@@ -72,9 +72,9 @@ func WithPodsReadyTracking(f bool) Option {
 	}
 }
 
-func WithSchedulingSimulator(s simulator.SchedulingSimulator) Option {
+func WithSimulatorFactory(s simulator.Factory) Option {
 	return func(c *Cache) {
-		c.schedulingSimulator = s
+		c.simulatorFactory = s
 	}
 }
 
@@ -163,7 +163,7 @@ type Cache struct {
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
-	schedulingSimulator simulator.SchedulingSimulator
+	simulatorFactory simulator.Factory
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -175,12 +175,12 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
-		schedulingSimulator:    newDefaultSimulator(),
+		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.schedulingSimulator, resourceFormatter)
+	cache.tasCache = NewTASCache(client, cache.simulatorFactory, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }

@@ -519,7 +519,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", tree, nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "dummy", tree, nil, newDefaultSimulator())
 
 			got := s.mergeTopologyAssignments(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, *got); diff != "" {
@@ -590,7 +590,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree(levels, nil, 0), nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree(levels, nil, 0), nil, newDefaultSimulator())
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
@@ -866,7 +866,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, newDefaultSimulator())
 
 			sorted := s.sortedDomainsWithLeader(addDomainsWithState(s, tc.domains), tc.unconstrained)
 
@@ -1083,7 +1083,7 @@ func TestSortedDomains(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, newDefaultSimulator())
 
 			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.unconstrained)
 
@@ -1147,7 +1147,7 @@ func TestCompareDomainLevelValues(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			s := newTASFlavorSnapshot(log, "test", newTopologyTree(tc.levels, nil, 0), nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(tc.levels, nil, 0), nil, newDefaultSimulator())
 			got := s.compareDomainLevelValues(tc.a, tc.b)
 			if (got < 0 && tc.want >= 0) || (got > 0 && tc.want <= 0) || (got == 0 && tc.want != 0) {
 				t.Errorf("compareDomainLevelValues() = %d, want sign matching %d", got, tc.want)
@@ -1466,7 +1466,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				}).
 				Ready().
 				Obj()
-			snapshot := newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), nil, &defaultChecker{})
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), nil, newDefaultSimulator())
 			domainID := snapshot.nodeToDomain[nodeObj.Name]
 
 			if snapshot.leaves[domainID] == nil {
@@ -1536,7 +1536,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 				Ready().
 				Obj())
 		}
-		return newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, &defaultChecker{})
+		return newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, newDefaultSimulator())
 	}
 	// One domain with capacity 1 cannot satisfy count 10.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
@@ -1612,13 +1612,13 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	})
 }
 
-// nodeDerefChecker reads the node off every candidate the way the WAS simulator does,
+// nodeDerefSchedulerSimulator reads the node off every candidate the way the WAS simulator does,
 // so a leaf with no node of its own fails loudly here.
-type nodeDerefChecker struct {
-	simulator.NodeFeasibilityChecker
+type nodeDerefSchedulerSimulator struct {
+	simulator.SchedulerSimulator
 }
 
-func (s *nodeDerefChecker) FindFeasibleNodes(
+func (s *nodeDerefSchedulerSimulator) FindFeasibleNodes(
 	_ context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	_ *simulator.PodRequirements,
@@ -1657,7 +1657,7 @@ func TestLeaderPodSetFeasibilitySkipsSimulatorWithoutNodes(t *testing.T) {
 	}
 	tree := newTopologyTree([]string{rackLabel}, nodes, 0)
 	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil,
-		&nodeDerefChecker{NodeFeasibilityChecker: &defaultChecker{}})
+		&nodeDerefSchedulerSimulator{SchedulerSimulator: newDefaultSimulator()})
 
 	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
 	podSet := func(name string, count int32, spec corev1.PodSpec) TASPodSetRequests {
@@ -1717,7 +1717,7 @@ func TestBuildPodRequirementsMergesTolerations(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			snapshot := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), tc.flavorTolerations, &defaultChecker{})
+			snapshot := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), tc.flavorTolerations, newDefaultSimulator())
 			podSet := &kueue.PodSet{
 				Name:     "main",
 				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Tolerations: tc.templateTolerations}},
@@ -1797,7 +1797,7 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 						Label(corev1.LabelHostname, "n2").Label("pool", "leader").Obj(),
 				}
 				tree := newTopologyTree([]string{blockLabel, rackLabel, corev1.LabelHostname}, nodes, 0)
-				snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+				snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulator())
 
 				const groupName = "group"
 				oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
@@ -1915,7 +1915,7 @@ func TestSliceLevelUsagesPreserveAssignmentOrder(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			tree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulator())
 
 			// Repeat, so that a map-order dependency cannot pass by chance.
 			for range 20 {
@@ -2092,7 +2092,7 @@ func TestAssignmentSliceAligned(t *testing.T) {
 				levels = []string{rackLabel}
 			}
 			tree := newTopologyTree(levels, nodes, 0)
-			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulator())
 
 			if got := snapshot.assignmentSliceAligned(tc.assignment, tc.request, tc.sliceSize); got != tc.want {
 				t.Errorf("assignmentSliceAligned() = %v, want %v", got, tc.want)

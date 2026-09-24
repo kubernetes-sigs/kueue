@@ -1,11 +1,25 @@
 //go:build !exclude_scheduler_library
 
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package was
 
 import (
 	"context"
-	"fmt"
-	"iter"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -20,18 +34,18 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
-	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
-type wasSimulator struct {
+var _ simulator.Factory = (*wasSimulatorFactory)(nil)
+
+type wasSimulatorFactory struct {
 	sim *schedLibSimulator.SchedulingSimulator
 }
 
-func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
-	cfg := &schedulerconfig.KubeSchedulerConfiguration{
+func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
+	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
 				SchedulerName: corev1.DefaultSchedulerName,
@@ -66,6 +80,10 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 			},
 		},
 	}
+}
+
+func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (simulator.Factory, error) {
+	cfg := newWASSchedulerConfig()
 
 	roClient, err := schedLibSimulator.NewReadonlyClient(restConfig)
 	if err != nil {
@@ -85,75 +103,21 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 		return nil, err
 	}
 
-	return &wasSimulator{sim: sim}, nil
+	return &wasSimulatorFactory{sim: sim}, nil
 }
 
-// NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
+// NewWASSimulatorFactoryForTest creates a WAS simulator factory backed by a fake client,
 // suitable for unit tests that need the full filter plugin pipeline.
 // It wraps ctx with a discard logger to prevent background informer goroutines
 // from racing with test teardown when t.Context() carries a test logger.
-func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
-	return NewWASSimulator(klog.NewContext(ctx, logr.Discard()), &rest.Config{})
+func NewWASSimulatorFactoryForTest(ctx context.Context) (simulator.Factory, error) {
+	return NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), &rest.Config{})
 }
 
-func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
+func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node) (simulator.SchedulerSimulator, error) {
 	clusterSnap, err := s.sim.NewClusterSnapshot(ctx, nil, nodes)
 	if err != nil {
 		return nil, err
 	}
-	return &wasChecker{snap: clusterSnap}, nil
-}
-
-type wasChecker struct {
-	snap *schedLibSnapshot.ClusterSnapshot
-}
-
-func (c *wasChecker) FindFeasibleNodes(
-	ctx context.Context,
-	candidates iter.Seq[simulator.Candidate],
-	requirements *simulator.PodRequirements,
-	stats *simulator.NodeExclusionStats,
-) ([]simulator.MatchedCandidate, error) {
-	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
-	var candidateNodeNames []string
-	var feasibleCandidates []simulator.MatchedCandidate
-
-	for candidate := range candidates {
-		matchedCandidate, ok := candidate.(simulator.MatchedCandidate)
-		if !ok {
-			return nil, fmt.Errorf("failed to cast candidate %T to simulator.MatchedCandidate", candidate)
-		}
-
-		stats.TotalNodes++
-		nodeObj := candidate.GetNode()
-		candidateNodeNames = append(candidateNodeNames, nodeObj.Name)
-		candidateLeaves[nodeObj.Name] = matchedCandidate
-	}
-
-	dummyPod := &corev1.Pod{
-		ObjectMeta: requirements.PodTemplate.ObjectMeta,
-		Spec:       requirements.PodTemplate.Spec,
-	}
-	// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
-	dummyPod.Spec.SchedulerName = corev1.DefaultSchedulerName
-	placement, err := c.snap.MakePlacement(candidateNodeNames)
-	if err != nil {
-		return nil, err
-	}
-	feasibleNodeNames, _, err := c.snap.CanSchedulePod(ctx, dummyPod, placement)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, nodeName := range feasibleNodeNames {
-		leaf := candidateLeaves[nodeName]
-		feasibleCandidates = append(feasibleCandidates, leaf)
-		if features.Enabled(features.TASRespectNodeAffinityPreferred) && requirements.PreferredSchedulingTerms != nil {
-			newAffinityScore := leaf.GetAffinityScore() + requirements.PreferredSchedulingTerms.Score(leaf.GetNode())
-			leaf.SetAffinityScore(newAffinityScore)
-		}
-	}
-	stats.SchedulerLibraryNoFit = len(candidateNodeNames) - len(feasibleNodeNames)
-
-	return feasibleCandidates, nil
+	return &wasSimulator{snap: clusterSnap}, nil
 }

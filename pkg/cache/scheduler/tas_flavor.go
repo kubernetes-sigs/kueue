@@ -92,9 +92,9 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	// schedulingSimulator performs the node feasibility check
+	// simulatorFactory performs the node feasibility check
 	// based on topology requirements.
-	schedulingSimulator simulator.SchedulingSimulator
+	simulatorFactory simulator.Factory
 
 	resourceFormatter *resources.ResourceFormatter
 
@@ -115,15 +115,15 @@ type TASFlavorCache struct {
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 	flavorInfo flavorInformation) *TASFlavorCache {
 	return &TASFlavorCache{
-		client:              t.client,
-		topology:            topologyInfo,
-		flavor:              flavorInfo,
-		usage:               make(map[utiltas.TopologyDomainID]resources.Requests),
-		wlUsage:             make(map[workload.Reference][]workload.TopologyDomainRequests),
-		nonTasUsageCache:    t.nonTasUsageCache,
-		schedulingSimulator: t.schedulingSimulator,
-		resourceFormatter:   t.resourceFormatter,
-		nodesCache:          t.nodesCache,
+		client:            t.client,
+		topology:          topologyInfo,
+		flavor:            flavorInfo,
+		usage:             make(map[utiltas.TopologyDomainID]resources.Requests),
+		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
+		nonTasUsageCache:  t.nonTasUsageCache,
+		simulatorFactory:  t.simulatorFactory,
+		resourceFormatter: t.resourceFormatter,
+		nodesCache:        t.nodesCache,
 	}
 }
 
@@ -158,12 +158,12 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, tree.nodes)
+	schedulerSimulator, err := c.simulatorFactory.NewSimulator(ctx, tree.nodes)
 	if err != nil {
 		return nil, err
 	}
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, schedulerSimulator, withResourceFormatter(c.resourceFormatter))
 
 	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {

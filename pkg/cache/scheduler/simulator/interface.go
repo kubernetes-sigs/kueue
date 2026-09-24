@@ -23,14 +23,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
-type NodeFeasibilityChecker interface {
-	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
+// Factory allows building instances of SchedulerSimulator.
+type Factory interface {
+	NewSimulator(ctx context.Context, nodes []*corev1.Node) (SchedulerSimulator, error)
 }
 
-// SchedulingSimulator acts as a factory for the feasibility checker.
-type SchedulingSimulator interface {
-	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (NodeFeasibilityChecker, error)
+// SchedulerSimulator determines which topology leaves can satisfy pod requirements.
+type SchedulerSimulator interface {
+	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
