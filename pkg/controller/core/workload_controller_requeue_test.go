@@ -725,6 +725,9 @@ func TestReconcileRequeue(t *testing.T) {
 								Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 									corev1.ResourceCPU: 3000,
 								}),
+								PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 3000,
+								}),
 							},
 						},
 					},

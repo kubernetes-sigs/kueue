@@ -47,6 +47,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: DeploymentJobUIDLabel
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: DRAExtendedResources
   versionedSpecs:
   - default: false
@@ -83,6 +89,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: EnforceProvisioningPodTemplateContents
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: FailureRecoveryPolicy
   versionedSpecs:
   - default: false
