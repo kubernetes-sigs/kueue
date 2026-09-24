@@ -554,7 +554,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	}
 	if readyCount >= requiredCount {
 		if readyCount < tc {
-			ctrl.LoggerFrom(ctx).V(4).Info("Pod group reached minimum ready pods threshold",
+			ctrl.LoggerFrom(ctx).V(4).Info("Not all pods in the group are ready, but the minimum ready pods threshold is met",
 				"podGroup", utilpod.GetPodGroupName(&p.pod),
 				"readyPods", readyCount,
 				"minReadyPods", requiredCount,
