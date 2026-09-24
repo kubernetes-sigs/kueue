@@ -312,6 +312,10 @@ if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$G
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
+if [[ "${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
+    export PROVISIONING_REQUEST_CRDS=${ROOT_DIR}/dep-crds/cluster-autoscaler/
+fi
+
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
@@ -333,6 +337,8 @@ if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
     export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
     export PROMETHEUS_OPERATOR_IMAGE="quay.io/prometheus-operator/prometheus-operator:${PROMETHEUS_OPERATOR_VERSION}"
     export PROMETHEUS_CONFIG_RELOADER_IMAGE="quay.io/prometheus-operator/prometheus-config-reloader:${PROMETHEUS_OPERATOR_VERSION}"
+    PROMETHEUS_IMAGE_WITH_SHA=$(grep '^FROM' "${SOURCE_DIR}/prometheus/Dockerfile" | awk '{print $2}')
+    export PROMETHEUS_IMAGE=${PROMETHEUS_IMAGE_WITH_SHA%%@*}
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
@@ -706,6 +712,7 @@ function prepare_docker_images {
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+        e2e_docker_pull_if_needed "${PROMETHEUS_IMAGE}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -778,6 +785,9 @@ function kind_load {
     fi
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
+    fi
+    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
+        install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
 
@@ -1026,6 +1036,25 @@ function install_appwrapper {
     cluster_kind_load_image "${name}" "${APPWRAPPER_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${APPWRAPPER_MANIFEST}"
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
+}
+
+# $1 kubeconfig option
+function install_provisioning_request_crds {
+    local kubeconfig=${1:-}
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    if e2e_crd_exists "${kubeconfig}" "provisioningrequests.autoscaling.x-k8s.io"; then
+        if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+            echo "ProvisioningRequest CRD already installed; skipping install (E2E_MODE=dev)."
+            return 0
+        fi
+    fi
+
+    echo "Installing ProvisioningRequest CRDs from ${PROVISIONING_REQUEST_CRDS}"
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} apply --server-side -f "${PROVISIONING_REQUEST_CRDS}"
 }
 
 # $1 cluster name
@@ -1405,11 +1434,17 @@ function install_prometheus_operator {
 
     cluster_kind_load_image "${name}" "${PROMETHEUS_OPERATOR_IMAGE}"
     cluster_kind_load_image "${name}" "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    cluster_kind_load_image "${name}" "${PROMETHEUS_IMAGE}"
     e2e_kubectl_apply_url "${PROMETHEUS_OPERATOR_BUNDLE}" --kubeconfig="${kubeconfig}"
     kubectl wait deploy/"${deployment_name}" -n "${ns}" \
         --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side \
-        -f "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml"
+    (
+        prometheus_setup=$(mktemp) && trap 'rm -f "$prometheus_setup"' EXIT
+        cp "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml" "$prometheus_setup"
+        $YQ -i "(select(.kind == \"Prometheus\") | .spec.image) = \"${PROMETHEUS_IMAGE}\"" "$prometheus_setup"
+        $YQ -i "(select(.kind == \"Prometheus\") | .spec.version) = \"${PROMETHEUS_IMAGE##*:}\"" "$prometheus_setup"
+        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "$prometheus_setup"
+    )
 }
 
 # $1 kubeconfig option

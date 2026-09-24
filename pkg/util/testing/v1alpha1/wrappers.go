@@ -35,15 +35,9 @@ type DynamicQuotaOrchestratorWrapper struct {
 // MakeDynamicQuotaOrchestrator creates a DynamicQuotaOrchestrator wrapper.
 func MakeDynamicQuotaOrchestrator(name string) *DynamicQuotaOrchestratorWrapper {
 	return &DynamicQuotaOrchestratorWrapper{
-		DynamicQuotaOrchestrator: kueuealpha.DynamicQuotaOrchestrator{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: kueuealpha.SchemeGroupVersion.String(),
-				Kind:       "DynamicQuotaOrchestrator",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		APIVersion: kueuealpha.SchemeGroupVersion.String(),
+		Kind:       "DynamicQuotaOrchestrator",
+		Name:       name,
 	}
 }
 
@@ -127,15 +121,9 @@ type CapacityProviderWrapper struct {
 // MakeCapacityProvider creates a CapacityProvider wrapper.
 func MakeCapacityProvider(name string) *CapacityProviderWrapper {
 	return &CapacityProviderWrapper{
-		CapacityProvider: kueuealpha.CapacityProvider{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: kueuealpha.SchemeGroupVersion.String(),
-				Kind:       "CapacityProvider",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		APIVersion: kueuealpha.SchemeGroupVersion.String(),
+		Kind:       "CapacityProvider",
+		Name:       name,
 	}
 }
 
@@ -224,10 +212,8 @@ type CapacityProviderNormalizedCapacityFlavorWrapper struct {
 // MakeNormalizedCapacityFlavor creates a CapacityProviderNormalizedCapacityFlavor wrapper.
 func MakeNormalizedCapacityFlavor(name string) *CapacityProviderNormalizedCapacityFlavorWrapper {
 	return &CapacityProviderNormalizedCapacityFlavorWrapper{
-		CapacityProviderNormalizedCapacityFlavor: kueuealpha.CapacityProviderNormalizedCapacityFlavor{
-			Name:      kueuealpha.ResourceFlavorReference(name),
-			Resources: corev1.ResourceList{},
-		},
+		Name:      kueuealpha.ResourceFlavorReference(name),
+		Resources: corev1.ResourceList{},
 	}
 }
 
@@ -274,10 +260,8 @@ type EffectiveCapacityFlavorWrapper struct {
 // MakeEffectiveCapacityFlavor creates an EffectiveCapacityFlavor wrapper.
 func MakeEffectiveCapacityFlavor(name string) *EffectiveCapacityFlavorWrapper {
 	return &EffectiveCapacityFlavorWrapper{
-		EffectiveCapacityFlavor: kueuealpha.EffectiveCapacityFlavor{
-			Name:      kueuealpha.ResourceFlavorReference(name),
-			Resources: corev1.ResourceList{},
-		},
+		Name:      kueuealpha.ResourceFlavorReference(name),
+		Resources: corev1.ResourceList{},
 	}
 }
 

@@ -2180,7 +2180,7 @@ func TestWlReconcile(t *testing.T) {
 					})
 				}
 
-				gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
+				gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor, Namespace: TestNamespace})
 				if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("unexpected error (-want/+got):\n%s", diff)
 				}
@@ -2345,7 +2345,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		WithClock(t, fakeClock),
 	)
 
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
+	req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
 
 	// Step 1: worker2 is reconnecting — reconcile should requeue and NOT delete worker2's workload.
 	result, err := reconciler.Reconcile(ctx, req)
@@ -2465,7 +2465,7 @@ func TestMultiKueueWorkloadAdmittedMetricIncrementedOnceOnAdmission(t *testing.T
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	reconciler := setupAdmittedMetricTest(ctx, t, kueue.CheckStatePending)
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
+	req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
 
 	// First reconcile: the admission check transitions Pending -> Ready,
 	// the counter must increment exactly once.
@@ -2495,7 +2495,7 @@ func TestMultiKueueWorkloadAdmittedMetricNotIncrementedOnRetryOrRejected(t *test
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			reconciler := setupAdmittedMetricTest(ctx, t, state)
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}}
+			req := reconcile.Request{Name: "wl1", Namespace: TestNamespace}
 
 			// syncReservingRemoteState intentionally does not flip Retry/Rejected
 			// to Ready, so no admission happens and the counter must stay 0 no
@@ -2608,7 +2608,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			fakeClock := testingclock.NewFakeClock(now)
 
 			local := &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns"},
+				Name: "wl", Namespace: "ns",
 				Status: kueue.WorkloadStatus{
 					Conditions:            make([]metav1.Condition, 0, 1),
 					NominatedClusterNames: tt.nominatedWorkers,

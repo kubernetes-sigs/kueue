@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilResource "sigs.k8s.io/kueue/pkg/util/resource"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 // PriorityClassWrapper wraps a PriorityClass.
@@ -40,9 +41,7 @@ type PriorityClassWrapper struct {
 // MakePriorityClass creates a wrapper for a PriorityClass.
 func MakePriorityClass(name string) *PriorityClassWrapper {
 	return &PriorityClassWrapper{schedulingv1.PriorityClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		}},
+		Name: name},
 	}
 }
 
@@ -63,9 +62,7 @@ type RuntimeClassWrapper struct{ nodev1.RuntimeClass }
 // MakeRuntimeClass creates a wrapper for a Runtime.
 func MakeRuntimeClass(name, handler string) *RuntimeClassWrapper {
 	return &RuntimeClassWrapper{nodev1.RuntimeClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		Name:    name,
 		Handler: handler,
 	}}
 }
@@ -87,21 +84,17 @@ type LimitRangeWrapper struct{ corev1.LimitRange }
 
 func MakeLimitRange(name, namespace string) *LimitRangeWrapper {
 	return &LimitRangeWrapper{
-		LimitRange: corev1.LimitRange{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: corev1.LimitRangeSpec{
-				Limits: []corev1.LimitRangeItem{
-					{
-						Type:                 corev1.LimitTypeContainer,
-						Max:                  corev1.ResourceList{},
-						Min:                  corev1.ResourceList{},
-						Default:              corev1.ResourceList{},
-						DefaultRequest:       corev1.ResourceList{},
-						MaxLimitRequestRatio: corev1.ResourceList{},
-					},
+		Name:      name,
+		Namespace: namespace,
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type:                 corev1.LimitTypeContainer,
+					Max:                  corev1.ResourceList{},
+					Min:                  corev1.ResourceList{},
+					Default:              corev1.ResourceList{},
+					DefaultRequest:       corev1.ResourceList{},
+					MaxLimitRequestRatio: corev1.ResourceList{},
 				},
 			},
 		},
@@ -237,10 +230,8 @@ type PodTemplateWrapper struct {
 func MakePodTemplate(name, namespace string) *PodTemplateWrapper {
 	return &PodTemplateWrapper{
 		corev1.PodTemplate{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
+			Name:      name,
+			Namespace: namespace,
 		},
 	}
 }
@@ -358,9 +349,7 @@ type NamespaceWrapper struct {
 func MakeNamespaceWrapper(name string) *NamespaceWrapper {
 	return &NamespaceWrapper{
 		corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
+			Name: name,
 		},
 	}
 }
@@ -403,11 +392,9 @@ type EventRecordWrapper struct {
 
 func MakeEventRecord(namespace, name, reason, eventType string) *EventRecordWrapper {
 	return &EventRecordWrapper{
-		EventRecord: EventRecord{
-			Key:       types.NamespacedName{Namespace: namespace, Name: name},
-			Reason:    reason,
-			EventType: eventType,
-		},
+		Key:       types.NamespacedName{Namespace: namespace, Name: name},
+		Reason:    reason,
+		EventType: eventType,
 	}
 }
 
@@ -438,15 +425,7 @@ func NewResourceClaimSpecBuilder() *ResourceClaimSpecBuilder {
 
 // DeviceRequest adds a basic device request with the specified name and device class
 func (b *ResourceClaimSpecBuilder) DeviceRequest(requestName, deviceClassName string, count int64) *ResourceClaimSpecBuilder {
-	req := resourcev1.DeviceRequest{
-		Name: requestName,
-		Exactly: &resourcev1.ExactDeviceRequest{
-			DeviceClassName: deviceClassName,
-			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-			Count:           count,
-		},
-	}
-	b.spec.Devices.Requests = append(b.spec.Devices.Requests, req)
+	b.spec.Devices.Requests = append(b.spec.Devices.Requests, testingdra.MakeDeviceRequest(requestName, deviceClassName, count).Obj())
 	return b
 }
 
@@ -473,6 +452,16 @@ func (b *ResourceClaimSpecBuilder) WithCELSelectors(expression string) *Resource
 				},
 			}}
 		}
+	}
+	return b
+}
+
+// WithToleration adds a toleration to the last device request
+func (b *ResourceClaimSpecBuilder) WithToleration(key string, effect resourcev1.DeviceTaintEffect) *ResourceClaimSpecBuilder {
+	if len(b.spec.Devices.Requests) > 0 {
+		lastIdx := len(b.spec.Devices.Requests) - 1
+		wrapper := &testingdra.DeviceRequestWrapper{DeviceRequest: b.spec.Devices.Requests[lastIdx]}
+		b.spec.Devices.Requests[lastIdx] = wrapper.Toleration(key, effect).Obj()
 	}
 	return b
 }
@@ -518,11 +507,9 @@ func (b *ResourceClaimSpecBuilder) WithDeviceConstraints(requestNames []string, 
 func (b *ResourceClaimSpecBuilder) WithDeviceConfig(requestName, driver string, parameters []byte) *ResourceClaimSpecBuilder {
 	config := resourcev1.DeviceClaimConfiguration{
 		Requests: []string{requestName},
-		DeviceConfiguration: resourcev1.DeviceConfiguration{
-			Opaque: &resourcev1.OpaqueDeviceConfiguration{
-				Driver:     driver,
-				Parameters: runtime.RawExtension{Raw: parameters},
-			},
+		Opaque: &resourcev1.OpaqueDeviceConfiguration{
+			Driver:     driver,
+			Parameters: runtime.RawExtension{Raw: parameters},
 		},
 	}
 	b.spec.Devices.Config = append(b.spec.Devices.Config, config)
@@ -531,13 +518,12 @@ func (b *ResourceClaimSpecBuilder) WithDeviceConfig(requestName, driver string, 
 
 // FirstAvailableRequest adds a FirstAvailable device request
 func (b *ResourceClaimSpecBuilder) FirstAvailableRequest(requestName, deviceClassName string) *ResourceClaimSpecBuilder {
-	req := resourcev1.DeviceRequest{
-		Name: requestName,
-		FirstAvailable: []resourcev1.DeviceSubRequest{{
+	req := testingdra.MakeDeviceRequest(requestName, deviceClassName, 1).
+		FirstAvailableRequest(resourcev1.DeviceSubRequest{
 			Name:            "sub1",
 			DeviceClassName: deviceClassName,
-		}},
-	}
+		}).
+		Obj()
 	b.spec.Devices.Requests = append(b.spec.Devices.Requests, req)
 	return b
 }
@@ -556,10 +542,8 @@ type ResourceClaimTemplateWrapper struct {
 func MakeResourceClaimTemplate(name, namespace string) *ResourceClaimTemplateWrapper {
 	return &ResourceClaimTemplateWrapper{
 		resourcev1.ResourceClaimTemplate{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
+			Name:      name,
+			Namespace: namespace,
 			Spec: resourcev1.ResourceClaimTemplateSpec{
 				Spec: NewResourceClaimSpecBuilder().Build(),
 			},
@@ -590,6 +574,15 @@ func (r *ResourceClaimTemplateWrapper) WithCELSelectors(expression string) *Reso
 	builder := NewResourceClaimSpecBuilder()
 	builder.spec = r.Spec.Spec
 	builder.WithCELSelectors(expression)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// WithToleration adds a toleration to the last device request
+func (r *ResourceClaimTemplateWrapper) WithToleration(key string, effect resourcev1.DeviceTaintEffect) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.WithToleration(key, effect)
 	r.Spec.Spec = builder.Build()
 	return r
 }
@@ -650,11 +643,9 @@ type ResourceClaimWrapper struct{ resourcev1.ResourceClaim }
 func MakeResourceClaim(name, namespace string) *ResourceClaimWrapper {
 	return &ResourceClaimWrapper{
 		resourcev1.ResourceClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: namespace,
-			},
-			Spec: NewResourceClaimSpecBuilder().Build(),
+			Name:      name,
+			Namespace: namespace,
+			Spec:      NewResourceClaimSpecBuilder().Build(),
 		},
 	}
 }
@@ -732,10 +723,8 @@ type SecretWrapper struct{ corev1.Secret }
 func MakeSecret(name, ns string) *SecretWrapper {
 	return &SecretWrapper{
 		corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns,
-			},
+			Name:      name,
+			Namespace: ns,
 		}}
 }
 
@@ -756,10 +745,8 @@ type RoleWrapper struct{ rbacv1.Role }
 func MakeRole(name, ns string) *RoleWrapper {
 	return &RoleWrapper{
 		rbacv1.Role{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns,
-			},
+			Name:      name,
+			Namespace: ns,
 		},
 	}
 }
@@ -782,10 +769,8 @@ type RoleBindingWrapper struct{ rbacv1.RoleBinding }
 func MakeRoleBinding(name, ns string) *RoleBindingWrapper {
 	return &RoleBindingWrapper{
 		rbacv1.RoleBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns,
-			},
+			Name:      name,
+			Namespace: ns,
 		},
 	}
 }
@@ -810,6 +795,38 @@ func (rb *RoleBindingWrapper) Subject(kind, name, namespace string) *RoleBinding
 		Namespace: namespace,
 	})
 	return rb
+}
+
+type ClusterRoleBindingWrapper struct{ rbacv1.ClusterRoleBinding }
+
+func MakeClusterRoleBinding(name string) *ClusterRoleBindingWrapper {
+	return &ClusterRoleBindingWrapper{
+		Name: name,
+	}
+}
+
+func (crb *ClusterRoleBindingWrapper) Obj() *rbacv1.ClusterRoleBinding {
+	return &crb.ClusterRoleBinding
+}
+
+func (crb *ClusterRoleBindingWrapper) RoleRef(apiGroup, kind, name string) *ClusterRoleBindingWrapper {
+	crb.ClusterRoleBinding.RoleRef = rbacv1.RoleRef{
+		APIGroup: apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
+	return crb
+}
+
+// UserSubject adds a User subject. User subjects must carry the rbac.authorization.k8s.io API
+// group; a subject without it matches nothing and the binding silently grants no access.
+func (crb *ClusterRoleBindingWrapper) UserSubject(name string) *ClusterRoleBindingWrapper {
+	crb.Subjects = append(crb.Subjects, rbacv1.Subject{
+		Kind:     rbacv1.UserKind,
+		APIGroup: rbacv1.GroupName,
+		Name:     name,
+	})
+	return crb
 }
 
 type PreferredSchedulingTermsWrapper struct {
@@ -865,14 +882,62 @@ func (w *NodeSelectorTermsWrapper) Obj() []corev1.NodeSelectorTerm {
 	return w.terms
 }
 
+type DeviceTaintRuleWrapper struct{ resourcev1.DeviceTaintRule }
+
+// MakeDeviceTaintRule creates a rule that taints every device in the cluster NoSchedule
+// with the given key. Narrow it with Driver, Pool and Device.
+func MakeDeviceTaintRule(name, key string) *DeviceTaintRuleWrapper {
+	return &DeviceTaintRuleWrapper{
+		resourcev1.DeviceTaintRule{
+			Name: name,
+			Spec: resourcev1.DeviceTaintRuleSpec{
+				DeviceSelector: &resourcev1.DeviceTaintSelector{},
+				Taint: resourcev1.DeviceTaint{
+					Key:    key,
+					Effect: resourcev1.DeviceTaintEffectNoSchedule,
+				},
+			},
+		},
+	}
+}
+
+func (w *DeviceTaintRuleWrapper) Driver(driver string) *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector.Driver = new(driver)
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Pool(pool string) *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector.Pool = new(pool)
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Device(device string) *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector.Device = new(device)
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Effect(effect resourcev1.DeviceTaintEffect) *DeviceTaintRuleWrapper {
+	w.Spec.Taint.Effect = effect
+	return w
+}
+
+// NoSelector drops the selector entirely, which the API describes as selecting no
+// devices and resourceslice/tracker treats as selecting all of them.
+func (w *DeviceTaintRuleWrapper) NoSelector() *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector = nil
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Obj() *resourcev1.DeviceTaintRule {
+	return &w.DeviceTaintRule
+}
+
 type ResourceSliceWrapper struct{ resourcev1.ResourceSlice }
 
 func MakeResourceSlice(name, driver string) *ResourceSliceWrapper {
 	return &ResourceSliceWrapper{
 		resourcev1.ResourceSlice{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
+			Name: name,
 			Spec: resourcev1.ResourceSliceSpec{
 				Driver: driver,
 				Pool: resourcev1.ResourcePool{
@@ -944,48 +1009,11 @@ func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSli
 	return w
 }
 
+func (w *ResourceSliceWrapper) NodeName(name string) *ResourceSliceWrapper {
+	w.Spec.NodeName = &name
+	return w
+}
+
 func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
 	return &w.ResourceSlice
-}
-
-// DeviceClassWrapper wraps a resourcev1.DeviceClass.
-type DeviceClassWrapper struct {
-	resourcev1.DeviceClass
-}
-
-// MakeDeviceClass creates a DeviceClassWrapper with basic metadata.
-func MakeDeviceClass(name string) *DeviceClassWrapper {
-	return &DeviceClassWrapper{
-		resourcev1.DeviceClass{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
-	}
-}
-
-// ExtendedResourceName sets the extended resource name on the DeviceClass.
-func (d *DeviceClassWrapper) ExtendedResourceName(name string) *DeviceClassWrapper {
-	d.Spec.ExtendedResourceName = new(name)
-	return d
-}
-
-// GeneratedName sets the generate name on the DeviceClass and clears the name.
-func (d *DeviceClassWrapper) GeneratedName(name string) *DeviceClassWrapper {
-	d.GenerateName = name
-	d.Name = ""
-	return d
-}
-
-// CELSelector adds a CEL device selector to the DeviceClass.
-func (d *DeviceClassWrapper) CELSelector(expression string) *DeviceClassWrapper {
-	d.Spec.Selectors = append(d.Spec.Selectors, resourcev1.DeviceSelector{
-		CEL: &resourcev1.CELDeviceSelector{Expression: expression},
-	})
-	return d
-}
-
-// Obj returns the inner DeviceClass.
-func (d *DeviceClassWrapper) Obj() *resourcev1.DeviceClass {
-	return &d.DeviceClass
 }

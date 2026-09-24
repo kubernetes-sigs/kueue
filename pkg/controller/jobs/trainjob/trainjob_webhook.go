@@ -20,6 +20,7 @@ import (
 	"context"
 
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,6 +41,7 @@ type TrainJobWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupTrainJobWebhook configures the webhook for kubeflow TrainJob.
@@ -52,6 +54,7 @@ func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &kftrainerapi.TrainJob{}
 	if options.NoopWebhook {
@@ -77,7 +80,9 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, trainJob.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())
+	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object(), w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
 	suspend, err := w.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
@@ -115,7 +120,7 @@ func (w *TrainJobWebhook) ValidateCreate(ctx context.Context, obj *kftrainerapi.
 	trainjob := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, trainjob)
+	validationErrs, err := w.validateCreate(ctx, trainjob, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +142,8 @@ func (w *TrainJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *kf
 
 func (w *TrainJobWebhook) validateUpdate(ctx context.Context, oldTrainJob, newTrainJob *TrainJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldTrainJob, newTrainJob, w.queues.DefaultLocalQueueExist)...)
-	validationErrs, err := w.validateCreate(ctx, newTrainJob)
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldTrainJob, newTrainJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
+	validationErrs, err := w.validateCreate(ctx, newTrainJob, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -146,9 +151,9 @@ func (w *TrainJobWebhook) validateUpdate(ctx context.Context, oldTrainJob, newTr
 	return allErrs, nil
 }
 
-func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob) (field.ErrorList, error) {
+func (w *TrainJobWebhook) validateCreate(ctx context.Context, trainjob *TrainJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(trainjob)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(trainjob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, trainjob)
 		if err != nil {

@@ -28,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -56,6 +55,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
@@ -309,6 +309,15 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
+	var waitForPodsReadyUpdated bool
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(sts, wl)
+		if err != nil {
+			return err
+		}
+		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
+	}
+
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
@@ -318,6 +327,9 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
+	if waitForPodsReadyUpdated {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
+	}
 	if shouldReleaseReservation {
 		return r.releaseScaleDownReservation(ctx, wl)
 	}
@@ -538,10 +550,8 @@ func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 			return
 		}
 		q.AddAfter(reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: pod.Namespace,
-				Name:      controllerRef.Name,
-			},
+			Namespace: pod.Namespace,
+			Name:      controllerRef.Name,
 		}, podBatchPeriod)
 	}
 }

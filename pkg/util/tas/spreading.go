@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -140,13 +141,18 @@ func (s *SpreadingSpec) Selector() labels.Selector {
 	return s.selector
 }
 
-// NewSpreadingSpec builds a spec from already-decoded parts, compiling the
-// label selector. ParseSpreadingAnnotation is the usual way in; this exists
-// for callers holding the parts directly, such as tests in other packages
+// NewSpreadingSpec builds a spec from already-decoded parts, applying defaults
+// and compiling the label selector. ParseSpreadingAnnotation is the usual way in;
+// this exists for callers holding the parts directly, such as tests in other packages
 // that cannot reach the unexported selector. defaultJobUID is as in
 // ParseSpreadingAnnotation.
 func NewSpreadingSpec(selectors []metav1.LabelSelectorRequirement, rules []SpreadingRule, defaultJobUID string) (*SpreadingSpec, error) {
-	spec := &SpreadingSpec{WorkloadLabelSelectors: selectors, Rules: rules}
+	spec := &SpreadingSpec{WorkloadLabelSelectors: selectors, Rules: slices.Clone(rules)}
+	for i := range spec.Rules {
+		if spec.Rules[i].EnforcementMode == "" {
+			spec.Rules[i].EnforcementMode = defaultEnforcementMode
+		}
+	}
 	if err := spec.compileSelector(defaultJobUID); err != nil {
 		return nil, err
 	}

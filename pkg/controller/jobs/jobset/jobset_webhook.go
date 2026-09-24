@@ -19,6 +19,7 @@ package jobset
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,6 +46,7 @@ type JobSetWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupJobSetWebhook configures the webhook for kubeflow JobSet.
@@ -57,6 +59,7 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &jobsetapi.JobSet{}
 	if options.NoopWebhook {
@@ -82,7 +85,9 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) erro
 	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, obj, w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, obj)
+	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, obj, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, jobSet, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -101,7 +106,7 @@ func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj *jobsetapi.JobSe
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, jobSet)
+	validationErrs, err := w.validateCreate(ctx, jobSet, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -123,8 +128,8 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobs
 
 func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
-	validationErrs, err := w.validateCreate(ctx, newJob)
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
+	validationErrs, err := w.validateCreate(ctx, newJob, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -132,9 +137,9 @@ func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobS
 	return allErrs, nil
 }
 
-func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
+func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, jobSet)
 		if err != nil {

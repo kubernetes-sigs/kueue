@@ -22,25 +22,52 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// SchedulingSimulator acts as a factory for SimulatorSnapshots.
+type simulatorOptions struct {
+	assumedWorkloads []*kueue.Workload
+}
+
+type Option func(*simulatorOptions)
+
+// WithAssumedWorkloads configures the assumed workloads for virtual pod generation and deduplication
+func WithAssumedWorkloads(wls []*kueue.Workload) Option {
+	return func(o *simulatorOptions) {
+		o.assumedWorkloads = wls
+	}
+}
+
+// AssumedWorkloads extracts the assumed workloads from the given snapshot options.
+func AssumedWorkloads(options ...Option) []*kueue.Workload {
+	opts := &simulatorOptions{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts.assumedWorkloads
+}
+
+// Factory allows building instances of SchedulerSimulator
+// based on a snapshot of its internal state.
 // It also tracks all existing Pods (even those not managed by Kueue),
 // to ensure they're included in the snapshots.
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
-type SchedulingSimulator interface {
-	Snapshot(ctx context.Context, nodes []*corev1.Node) (SimulatorSnapshot, error)
+type Factory interface {
+	NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...Option) (SchedulerSimulator, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
 	UntrackPod(ctx context.Context, key client.ObjectKey)
 }
 
-// SimulatorSnapshot allows running simulations on a snapshotted cluster state.
+// SchedulerSimulator allows running simulations on a snapshotted cluster state.
 // This interface is purposed to control Kueue-WAS integration.
 // The default (non-WAS) implementation may trivialize some methods.
-type SimulatorSnapshot interface {
+type SchedulerSimulator interface {
 	// Simulate executes the provided function.
 	// After the simulation ends, any changes made to the snapshot state
 	// via its built-in methods will be reverted.

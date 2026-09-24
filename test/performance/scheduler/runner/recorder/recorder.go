@@ -472,15 +472,13 @@ func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 		Time:          time.Now(),
 		CreationTime:  wl.CreationTimestamp.Time,
 		AdmissionTime: admissionTime,
-		NamespacedName: types.NamespacedName{
-			Namespace: wl.Namespace,
-			Name:      wl.Name,
-		},
-		UID:       wl.UID,
-		ClassName: wl.Labels[generator.ClassLabel],
-		Admitted:  admitted,
-		Evicted:   workloadevict.IsEvicted(wl),
-		Finished:  workloadfinish.IsFinished(wl),
+		Namespace:     wl.Namespace,
+		Name:          wl.Name,
+		UID:           wl.UID,
+		ClassName:     wl.Labels[generator.ClassLabel],
+		Admitted:      admitted,
+		Evicted:       workloadevict.IsEvicted(wl),
+		Finished:      workloadfinish.IsFinished(wl),
 	}
 	select {
 	case r.wlEvChan <- ev:

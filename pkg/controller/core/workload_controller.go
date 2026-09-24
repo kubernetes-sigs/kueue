@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utilwfpr "sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -196,21 +197,28 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
-	quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
 
-	var conditionsCleared bool
-	if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		conditionsCleared = true
-	}
+	var conditionsChanged bool
 	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
-		conditionsCleared = true
+		if requeuedCond.Reason == kueue.WorkloadInadmissible {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+			}); err != nil {
+				return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
+			}
+		} else {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
+		}
+		conditionsChanged = true
+	}
+	if quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
+		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		conditionsChanged = true
 	}
 
-	if conditionsCleared {
-		log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
+	if conditionsChanged {
+		log.V(3).Info("Updated previous inadmissible conditions after successful DRA processing")
 	}
 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
@@ -414,6 +422,7 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=devicetaintrules,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -1337,9 +1346,8 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 	r.queues.DeleteAndForgetWorkload(log, wlKey)
 
 	if afs.Enabled(r.admissionFSConfig) {
-		// A Workload deleted before settling (e.g. a Job deleted while waiting
-		// for an AdmissionCheck) would leave its penalty pending forever,
-		// inflating the LocalQueue's fair-sharing usage until restart.
+		// Drop any entry penalty that never reached the accounting anchor;
+		// otherwise it stays charged until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
 	}
 	return true
@@ -1483,11 +1491,9 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	return true
 }
 
-// reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle for an
-// updated Workload. It must run after the Update event switch: outside the
-// switch so that no transition into Admitted is missed, and after it so that
-// the cache already accounts for the workload usage read by
-// updateAfsConsumedUsage.
+// reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle against
+// the Workload's post-update cache state. It must run once the cache reflects
+// the update, since settlement reads live usage from it.
 func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	log logr.Logger,
 	e event.TypedUpdateEvent[*kueue.Workload],
@@ -1499,22 +1505,13 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	if !afs.Enabled(r.admissionFSConfig) {
 		return
 	}
-	// The AFS entry penalty must be settled on every transition into Admitted
-	// (#12539). Deactivation wins over admission: a workload deactivated in the
-	// same event was removed from the cache by the event switch and must not be
-	// charged.
-	if active && status == workload.StatusAdmitted && prevStatus != workload.StatusAdmitted &&
+	if reachedAfsAnchor(e, status, prevStatus) &&
 		r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
 		r.updateAfsConsumedUsage(log, wlCopy)
 	}
-	// Drop a pending penalty its Workload can no longer settle — moved to
-	// another LocalQueue (settlement and deletion key by the current queueName),
-	// inactive with its reservation gone, or finished without admission — or it
-	// inflates the LocalQueue's fair-sharing usage until the object is deleted.
-	// An evicted Workload that stays active on the same LocalQueue keeps its
-	// record, and so does a deactivated Workload that still holds its
-	// reservation: reactivated in place, it can reach Admitted without another
-	// scheduler assume, and its penalty must still settle.
+	// Keep a pending penalty while its Workload can still reach the anchor without
+	// a new scheduler assumption; drop it once it cannot. A LocalQueue move also
+	// requires removing the record from the previous queue.
 	wlRef := queueafs.WorkloadReference(workload.Key(e.ObjectNew))
 	if prevQueue != e.ObjectNew.Spec.QueueName {
 		r.queues.AfsUsageLedger.SubPenalty(qutil.NewLocalQueueReference(e.ObjectOld.Namespace, prevQueue), wlRef)
@@ -1527,6 +1524,30 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	}
 }
 
+// reachedAfsAnchor reports whether the Workload crossed the configured AFS
+// accounting boundary (#12539): admission by default, or actively holding a
+// quota reservation under AdmissionFairSharingAnchorAtQuotaReservation. Reactivation
+// with an existing reservation crosses the quota-reservation anchor.
+func reachedAfsAnchor(e event.TypedUpdateEvent[*kueue.Workload], status, prevStatus string) bool {
+	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) {
+		return workload.HasActiveQuotaReservation(e.ObjectNew) && !workload.HasActiveQuotaReservation(e.ObjectOld)
+	}
+	return workload.IsActive(e.ObjectNew) &&
+		status == workload.StatusAdmitted && prevStatus != workload.StatusAdmitted
+}
+
+// afsAccountedUsage keeps the live usage AFS decays towards aligned with the
+// entry-penalty anchor: both move to quota reservation only for ClusterQueues
+// that admit on usage. Sampling behind the anchor would let a Workload's cost
+// decay away while it still holds quota.
+func afsAccountedUsage(cache *schdcache.Cache, cqName kueue.ClusterQueueReference, lq *schdcache.LocalQueue) corev1.ResourceList {
+	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) &&
+		cache.ClusterQueueUsesAdmissionFairSharing(cqName) {
+		return lq.ReservedUsage()
+	}
+	return lq.AdmittedUsage()
+}
+
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
 	lqKey := qutil.KeyFromWorkload(wl)
 	wlKey := queueafs.WorkloadReference(workload.Key(wl))
@@ -1537,10 +1558,9 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 		log.V(2).Info("Failed to get cache LocalQueue", "error", err)
 		return
 	}
-	// Read live usage before taking the entry lock: the scheduler snapshot reads
-	// AfsUsageLedger while holding the scheduler-cache lock, so the Update
-	// closure must not call back into the cache.
-	newUsage := cacheLq.GetAdmittedUsage()
+	// Preserve the cache -> ledger lock ordering: scheduler snapshots read the
+	// ledger while holding the cache lock, so do not read the cache inside Update.
+	newUsage := afsAccountedUsage(r.cache, wl.Status.Admission.ClusterQueue, cacheLq)
 
 	var settled corev1.ResourceList
 	updated := r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
@@ -1677,14 +1697,40 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
+// determineTimeouts returns the timeout and recovery timeout for the workload,
+// giving precedence to the per-workload annotation over the cluster-level configuration.
+// It returns ok=false when no timeout and recovery timeout are configured at either level.
+func (r *WorkloadReconciler) determineTimeouts(wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
+	cfg, err := utilwfpr.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
+	if err != nil {
+		r.logger().Error(err, "Failed to unmarshal WaitForPodsReady annotation; falling back to cluster-level configuration", "workload", klog.KObj(wl))
+	}
+	switch {
+	case cfg != nil:
+		timeout = cfg.Timeout
+		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > 0 {
+			recoveryTimeout = cfg.RecoveryTimeout
+		} else if cfg.RecoveryTimeout == nil {
+			recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+		}
+	case r.waitForPodsReady != nil:
+		timeout = r.waitForPodsReady.timeout
+		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+	default:
+		// No timeout configured at either level.
+		return 0, nil, false
+	}
+	return timeout, recoveryTimeout, true
+}
+
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
 // a workload that is admitted but not yet in PodsReady condition.
 //
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	if r.waitForPodsReady == nil {
-		// the timeout is not configured for the workload controller
+	timeout, recoveryTimeout, ok := r.determineTimeouts(wl)
+	if !ok {
 		return "", 0
 	}
 	if !workload.IsAdmitted(wl) {
@@ -1699,23 +1745,23 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 
 	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
 	if r.podsScheduledTrackingEnabled() && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
-		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt, timeout))
 	}
 
 	switch {
 	case podsReadyCond == nil, podsReadyCond.Reason == kueue.WorkloadWaitForStart, podsReadyCond.Reason == kueue.WorkloadPodsReady,
 		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
-		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(r.waitForPodsReady.timeout))
-	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil:
+		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(timeout))
+	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && recoveryTimeout != nil:
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-		return kueue.WorkloadWaitForRecovery, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
+		return kueue.WorkloadWaitForRecovery, max(*recoveryTimeout-elapsedTime, 0)
 	}
 	return "", 0
 }
 
-func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time) time.Time {
-	deadline := metav1.NewTime(admittedAt.Add(r.waitForPodsReady.timeout))
+func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time, timeout time.Duration) time.Time {
+	deadline := metav1.NewTime(admittedAt.Add(timeout))
 	if r.waitForPodsReady.unscheduledTimeout == nil {
 		return deadline.Time
 	}
@@ -1870,10 +1916,8 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 
 		if h.r.needsDRAReconcile(ctx, wl) {
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      wl.Name,
-					Namespace: wl.Namespace,
-				},
+				Name:      wl.Name,
+				Namespace: wl.Namespace,
 			}
 			q.Add(req)
 			log.V(2).Info("Queued reconcile for DRA workload due to resource update")
@@ -1982,10 +2026,8 @@ func (w *workloadQueueHandler) queueReconcileForWorkloadsOfLocalQueue(ctx contex
 	for _, wl := range lst.Items {
 		log := log.WithValues("workload", klog.KObj(&wl))
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      wl.Name,
-				Namespace: wl.Namespace,
-			},
+			Name:      wl.Name,
+			Namespace: wl.Namespace,
 		}
 		wq.Add(req)
 		log.V(5).Info("Queued reconcile for workload")
@@ -2007,10 +2049,8 @@ func (h *draEventHandler) Delete(ctx context.Context, e event.TypedDeleteEvent[*
 
 func (h *draEventHandler) Generic(ctx context.Context, e event.TypedGenericEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	reconcileReq := reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      e.Object.Name,
-			Namespace: e.Object.Namespace,
-		},
+		Name:      e.Object.Name,
+		Namespace: e.Object.Namespace,
 	}
 	q.Add(reconcileReq)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Object))
@@ -2095,10 +2135,8 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 				}
 			}
 			q.AddAfter(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      w.Name,
-					Namespace: w.Namespace,
-				},
+				Name:      w.Name,
+				Namespace: w.Namespace,
 			}, time.Second)
 		}
 	}

@@ -137,7 +137,9 @@ define _ci_lint_recipe
 endef
 
 define _lint_api_recipe
-$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yaml $(GOLANGCI_LINT_FIX)
+$(GOLANGCI_LINT_KAL) run -v \
+	--config $(PROJECT_DIR)/.golangci-kal.yaml $(GOLANGCI_LINT_FIX) \
+	./apis/kueue/...
 endef
 
 define _fmt_verify_recipe

@@ -843,7 +843,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				*utiltestingapi.MakePodSet("main", 1).PriorityClass("podpc").Obj(),
 			},
 			objs: []client.Object{
-				&schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+				&schedulingv1.PriorityClass{Name: "podpc", Value: 50},
 				baseWl.Clone().Name("job-test-job-1").
 					PodSets(*utiltestingapi.MakePodSet("main", 1).PriorityClass("podpc").Obj()).
 					WorkloadPriorityClassRef("high").Priority(100).
@@ -1515,11 +1515,9 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 	jobNamespace := "default"
 
 	cronJob := &batchv1.CronJob{
-		ObjectMeta: metav1.ObjectMeta{
-			UID:       types.UID("cronjob"),
-			Name:      "cronjob",
-			Namespace: jobNamespace,
-		},
+		UID:       types.UID("cronjob"),
+		Name:      "cronjob",
+		Namespace: jobNamespace,
 	}
 
 	cronJobWithQueueNameLabel := cronJob.DeepCopy()
@@ -1783,17 +1781,15 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
 				&batchv1.CronJob{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "cronjob",
-						Namespace: jobNamespace,
-						OwnerReferences: []metav1.OwnerReference{{
-							Name:       "aw",
-							APIVersion: awv1beta2.GroupVersion.String(),
-							Kind:       awv1beta2.AppWrapperKind,
-							UID:        "aw",
-							Controller: new(true),
-						}},
-					},
+					Name:      "cronjob",
+					Namespace: jobNamespace,
+					OwnerReferences: []metav1.OwnerReference{{
+						Name:       "aw",
+						APIVersion: awv1beta2.GroupVersion.String(),
+						Kind:       awv1beta2.AppWrapperKind,
+						UID:        "aw",
+						Controller: new(true),
+					}},
 				},
 			},
 			job: testingjob.MakeJob("job", jobNamespace).UID("job").
@@ -1806,18 +1802,16 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 			ancestors: []client.Object{
 				testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
 				&batchv1.CronJob{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "cronjob",
-						Namespace: jobNamespace,
-						UID:       "cronjob",
-						OwnerReferences: []metav1.OwnerReference{{
-							Name:       "aw",
-							APIVersion: awv1beta2.GroupVersion.String(),
-							Kind:       awv1beta2.AppWrapperKind,
-							UID:        "aw",
-							Controller: new(true),
-						}},
-					},
+					Name:      "cronjob",
+					Namespace: jobNamespace,
+					UID:       "cronjob",
+					OwnerReferences: []metav1.OwnerReference{{
+						Name:       "aw",
+						APIVersion: awv1beta2.GroupVersion.String(),
+						Kind:       awv1beta2.AppWrapperKind,
+						UID:        "aw",
+						Controller: new(true),
+					}},
 				},
 			},
 			job: testingjob.MakeJob("job", jobNamespace).UID("job").
@@ -1848,18 +1842,16 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 			ancestors: []client.Object{
 				testingdeployment.MakeDeployment("deploy", jobNamespace).UID("deploy").Queue("test-q").Obj(),
 				&appsv1.ReplicaSet{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "rs",
-						Namespace: jobNamespace,
-						UID:       "rs",
-						OwnerReferences: []metav1.OwnerReference{{
-							Name:       "deploy",
-							APIVersion: appsv1.SchemeGroupVersion.String(),
-							Kind:       "Deployment",
-							UID:        "deploy",
-							Controller: new(true),
-						}},
-					},
+					Name:      "rs",
+					Namespace: jobNamespace,
+					UID:       "rs",
+					OwnerReferences: []metav1.OwnerReference{{
+						Name:       "deploy",
+						APIVersion: appsv1.SchemeGroupVersion.String(),
+						Kind:       "Deployment",
+						UID:        "deploy",
+						Controller: new(true),
+					}},
 				},
 			},
 			job: testingjob.MakeJob("pod", jobNamespace).UID("pod").
@@ -2513,10 +2505,8 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			r := NewReconciler(cl, recorder, options...)
 			_, err := r.ReconcileGenericJob(ctx, controllerruntime.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      tc.job.Object().GetName(),
-					Namespace: tc.job.Object().GetNamespace(),
-				}}, tc.job)
+				Name:      tc.job.Object().GetName(),
+				Namespace: tc.job.Object().GetNamespace()}, tc.job)
 			if !errors.Is(err, tc.wantError) {
 				t.Errorf("unexpected reconcile error want %s got %s)", tc.wantError, err)
 			}
@@ -2577,7 +2567,7 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(podSets, nil).AnyTimes()
 
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+			ns := &corev1.Namespace{Name: "ns"}
 			gvk := batchv1.SchemeGroupVersion.WithKind("Job")
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithObjects(job, wl, ns).
@@ -2588,7 +2578,7 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			r := NewReconciler(cl, recorder)
 
-			req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "job-1"}}
+			req := controllerruntime.Request{Namespace: "ns", Name: "job-1"}
 			_, err := r.ReconcileGenericJob(ctx, req, mgj)
 			if err != nil {
 				t.Fatalf("ReconcileGenericJob() error: %v", err)
@@ -2709,7 +2699,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 			mgj.EXPECT().GVK().Return(gvk).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+			ns := &corev1.Namespace{Name: "ns"}
 			objects := append([]client.Object{ns}, tc.existingObjects...)
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(objects...).

@@ -66,8 +66,24 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 					"nvidia.com/total-gpumem": resource.MustParse("1"),
 				},
 			},
+			{
+				Input:      "nvidia.com/vgpu-cores",
+				Strategy:   new(config.Replace),
+				MultiplyBy: "nvidia.com/vgpu-count",
+				Outputs: corev1.ResourceList{
+					"nvidia.com/total-vgpu-cores": resource.MustParse("1"),
+				},
+			},
+			{
+				Input:      "nvidia.com/vgpu-count",
+				Strategy:   new(config.Replace),
+				MultiplyBy: "nvidia.com/vgpu-cores",
+				Outputs: corev1.ResourceList{
+					"example.com/total-vgpu-cores": resource.MustParse("1"),
+				},
+			},
 		}
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(transformations))
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(transformations, []string{"nvidia.com/vgpu-count"}))
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -84,6 +100,8 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 					Resource("nvidia.com/gpu", "50").
 					Resource("nvidia.com/total-gpucores", "1000").
 					Resource("nvidia.com/total-gpumem", "102400").
+					Resource("nvidia.com/total-vgpu-cores", "1000").
+					Resource("example.com/total-vgpu-cores", "50").
 					Obj(),
 			).Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -131,6 +149,76 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 				}))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+	})
+
+	ginkgo.It("should use an excluded resource as a MultiplyBy operand", func() {
+		wl := utiltestingapi.MakeWorkload("excluded-multiplier-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request("nvidia.com/vgpu-count", "2").
+			Request("nvidia.com/vgpu-cores", "20").
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+		ginkgo.By("Verifying the excluded multiplier scales the transformed resource without being charged", func() {
+			wlLookupKey := client.ObjectKeyFromObject(wl)
+			createdWorkload := &kueue.Workload{}
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+
+				resourceUsage := createdWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage
+				g.Expect(resourceUsage).To(gomega.BeComparableTo(corev1.ResourceList{
+					"nvidia.com/total-vgpu-cores":  resource.MustParse("40"),
+					"example.com/total-vgpu-cores": resource.MustParse("40"),
+				}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should enforce quota for a transformation with an excluded MultiplyBy operand", func() {
+		wl := utiltestingapi.MakeWorkload("excluded-multiplier-over-quota-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request("nvidia.com/vgpu-count", "2").
+			Request("nvidia.com/vgpu-cores", "501").
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+	})
+
+	ginkgo.It("should account for an excluded transformation input without charging it directly", func() {
+		wl := utiltestingapi.MakeWorkload("excluded-input-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request("nvidia.com/vgpu-count", "2").
+			Request("nvidia.com/vgpu-cores", "20").
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+		createdWorkload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).To(gomega.Succeed())
+			g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
+			g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage).To(gomega.BeComparableTo(corev1.ResourceList{
+				"nvidia.com/total-vgpu-cores":  resource.MustParse("40"),
+				"example.com/total-vgpu-cores": resource.MustParse("40"),
+			}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should enforce quota for a transformation with an excluded input", func() {
+		wl := utiltestingapi.MakeWorkload("excluded-input-over-quota-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request("nvidia.com/vgpu-count", "2").
+			Request("nvidia.com/vgpu-cores", "30").
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 	})
 
 	ginkgo.It("should handle multiple PodSets with transformations", func() {
@@ -204,7 +292,7 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 			Input:    corev1.ResourceCPU,
 			Strategy: new(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
-		}}))
+		}}, nil))
 	})
 
 	ginkgo.AfterAll(func() {

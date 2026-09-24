@@ -49,10 +49,8 @@ func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
 
 	if groupName == "" {
 		return reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: p.Namespace,
-				Name:      p.Name,
-			},
+			Namespace: p.Namespace,
+			Name:      p.Name,
 		}
 	}
 	return reconcileRequestForPodGroup(p.Namespace, groupName)
@@ -60,10 +58,8 @@ func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
 
 func reconcileRequestForPodGroup(namespace, groupName string) reconcile.Request {
 	return reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      groupName,
-			Namespace: fmt.Sprintf("group/%s", namespace),
-		},
+		Name:      groupName,
+		Namespace: fmt.Sprintf("group/%s", namespace),
 	}
 }
 
@@ -190,10 +186,9 @@ func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object 
 		// Check if the OwnerReference is pointing to a Pod object.
 		if ref.Kind == "Pod" && refGV.Group == "" {
 			// Match found - add a Request for the object referred to in the OwnerReference
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+			q.Add(reconcile.Request{
 				Name:      ref.Name,
-				Namespace: object.GetNamespace(),
-			}})
+				Namespace: object.GetNamespace()})
 			return
 		}
 	}

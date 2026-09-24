@@ -71,16 +71,16 @@ func TestEnabled(t *testing.T) {
 		"EmptyAnnotation": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+					Annotations: map[string]string{},
 				},
 			},
 		},
 		"Enabled": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					Annotations: map[string]string{
 						EnabledAnnotationKey: EnabledAnnotationValue,
-					}},
+					},
 				},
 			},
 			want: true,
@@ -88,9 +88,9 @@ func TestEnabled(t *testing.T) {
 		"NotEnabled": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					Annotations: map[string]string{
 						EnabledAnnotationKey: "True", // <-- value is case sensitive.
-					}},
+					},
 				},
 			},
 		},
@@ -668,14 +668,14 @@ func TestPreemptibleSliceKey(t *testing.T) {
 		"EmptyAnnotations": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: make(map[string]string)},
+					Annotations: make(map[string]string),
 				},
 			},
 		},
 		"Found": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadSliceReplacementFor: string(testReference)}},
+					Annotations: map[string]string{WorkloadSliceReplacementFor: string(testReference)},
 				},
 			},
 			want: &testReference,
@@ -694,10 +694,8 @@ var (
 	testJobGVK = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	testJobObject = &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test",
-			UID:  uuid.NewUUID(),
-		},
+		Name: "test",
+		UID:  uuid.NewUUID(),
 	}
 )
 
@@ -1678,8 +1676,9 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		workloads []kueue.Workload
-		want      want
+		partialScaleUp bool
+		workloads      []kueue.Workload
+		want           want
 	}{
 		"two admitted, keep newest": {
 			workloads: []kueue.Workload{
@@ -1707,6 +1706,33 @@ func TestNormalizeActiveSlices(t *testing.T) {
 					EvictedAt(now).Obj(),
 				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		// wl-b is a partial scale-up probe (it carries a minCount) replacing the
+		// evicted wl-a. It's treated like any other pending replacement and kept.
+		"evicted admitted with pending probe, keep probe and finish evicted": {
+			partialScaleUp: true,
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").SetMinimumCount(2).Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		// Same shape as above, but without the feature enabled: minCount could only
+		// have come from classic PartialAdmission here. Same outcome either way.
+		"evicted admitted with minCount but feature disabled, keep pending and finish evicted": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").SetMinimumCount(2).Obj()).Obj(),
 			},
 			want: want{survivor: "wl-b"},
 		},
@@ -1813,6 +1839,9 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: tc.partialScaleUp,
+			})
 			ctx, _ := utiltesting.ContextWithLog(t)
 			testSchema := runtime.NewScheme()
 			_ = kueue.AddToScheme(testSchema)

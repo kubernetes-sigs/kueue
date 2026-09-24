@@ -280,6 +280,10 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 		allErrs = append(allErrs, field.Forbidden(featureGatesPath.Key(string(features.WaitForPodsReadyUnscheduledTimeout)),
 			"cannot be enabled together with DisableWaitForPodsReady"))
 	}
+	if features.Enabled(features.WorkloadLevelWaitForPodsReady) && features.Enabled(features.DisableWaitForPodsReady) {
+		allErrs = append(allErrs, field.Forbidden(featureGatesPath.Key(string(features.WorkloadLevelWaitForPodsReady)),
+			"cannot be enabled together with DisableWaitForPodsReady"))
+	}
 	if c.WaitForPodsReady != nil && c.WaitForPodsReady.UnscheduledTimeout != nil && !features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) {
 		allErrs = append(allErrs, field.Forbidden(waitForPodsReadyPath.Child("unscheduledTimeout"),
 			"requires the WaitForPodsReadyUnscheduledTimeout feature gate"))
@@ -307,6 +311,10 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("unscheduledTimeout"),
 				ut, "must not exceed waitForPodsReady.timeout"))
 		}
+	}
+	if c.WaitForPodsReady.MaxTimeoutOnWorkload != nil && c.WaitForPodsReady.MaxTimeoutOnWorkload.Duration <= 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("maxTimeoutOnWorkload"),
+			c.WaitForPodsReady.MaxTimeoutOnWorkload, "must be greater than 0"))
 	}
 	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil {
 		if strategy.Timestamp != nil &&

@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -54,7 +55,7 @@ type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
-	SimulatorSnapshot        simulator.SimulatorSnapshot
+	SchedulerSimulator       simulator.SchedulerSimulator
 
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
@@ -230,9 +231,18 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
-		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
+		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
+			ctx,
+			c.tasCache.nodesCache.getAllNodes(),
+			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+		)
 		if err != nil {
 			return nil, err
+		}
+		// Wrapping here rather than inside a simulator keeps the device check on
+		// whichever one is configured, so it does not depend on the scheduler library.
+		if features.Enabled(features.KueueDRADeviceFeasibility) {
+			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRules)
 		}
 	}
 
@@ -280,7 +290,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			tasSnapshots[flavor], err = cache.snapshot(
 				ctx,
 				log,
-				snap.SimulatorSnapshot,
+				snap.SchedulerSimulator,
 				aggregatedDomainUsagesForFlavor,
 			)
 			if err != nil {
@@ -314,6 +324,18 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	// Shallow copy is enough
 	maps.Copy(snap.ResourceFlavors, c.resourceFlavors)
 	return &snap, nil
+}
+
+func (c *Cache) assumedWorkloads() []*kueue.Workload {
+	var assumedWorkloads []*kueue.Workload
+	for _, cq := range c.hm.ClusterQueues() {
+		for _, wInfo := range cq.Workloads {
+			if wInfo.Obj != nil {
+				assumedWorkloads = append(assumedWorkloads, wInfo.Obj)
+			}
+		}
+	}
+	return assumedWorkloads
 }
 
 func (c *Cache) snapshotTopologyDomainUsages(
@@ -376,6 +398,7 @@ func (c *Cache) snapshotClusterQueue(
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
 		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
+		draBackedResources:            c.draBackedResources,
 	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()

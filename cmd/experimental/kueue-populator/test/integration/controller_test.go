@@ -42,9 +42,7 @@ var _ = ginkgo.Describe("KueuePopulator controller", ginkgo.Serial, func() {
 			fwk.StopManager(ctx)
 			fwk.StartManager(ctx, cfg, managerSetup)
 			ns = &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "ns-",
-				},
+				GenerateName: "ns-",
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 			ns.Labels = map[string]string{ns.Name: ""}
@@ -94,11 +92,9 @@ var _ = ginkgo.Describe("KueuePopulator controller", ginkgo.Serial, func() {
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 
 			newNs := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "new-ns",
-					Labels: map[string]string{
-						"eng": "dev",
-					},
+				Name: "new-ns",
+				Labels: map[string]string{
+					"eng": "dev",
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, newNs)).To(gomega.Succeed())
@@ -128,9 +124,7 @@ var _ = ginkgo.Describe("KueuePopulator controller", ginkgo.Serial, func() {
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 
 			nonMatchingNs := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "non-matching-ns",
-				},
+				Name: "non-matching-ns",
 			}
 			gomega.Expect(k8sClient.Create(ctx, nonMatchingNs)).To(gomega.Succeed())
 			defer func() {
@@ -258,9 +252,7 @@ var _ = ginkgo.Describe("KueuePopulator controller", ginkgo.Serial, func() {
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 
 			nonMatchingNs := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					GenerateName: "non-matching-",
-				},
+				GenerateName: "non-matching-",
 			}
 			gomega.Expect(k8sClient.Create(ctx, nonMatchingNs)).To(gomega.Succeed())
 			defer func() {

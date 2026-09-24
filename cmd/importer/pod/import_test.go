@@ -382,7 +382,7 @@ func TestImportNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
 			},
 			priorityClasses: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "p-class"}, Value: 100},
+				{Name: "p-class", Value: 100},
 			},
 			wantPods: []corev1.Pod{
 				*basePodWrapper.Clone().PriorityClass("p-class").

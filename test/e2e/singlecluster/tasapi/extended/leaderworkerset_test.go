@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -106,10 +105,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				Size(size).
 				Queue(localQueue.Name).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -207,10 +204,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				Size(size).
 				Queue(localQueue.Name).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -231,10 +226,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					},
 				}).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -338,11 +331,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				Size(size).
 				Queue(localQueue.Name).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                  "same-group",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetGroupName:                  "same-group",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -363,11 +354,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					},
 				}).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                  "same-group",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetGroupName:                  "same-group",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -460,11 +449,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				Size(size).
 				Queue(localQueue.Name).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                  "same-group",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetGroupName:                  "same-group",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -487,11 +474,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					},
 				}).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                  "same-group",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetGroupName:                  "same-group",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -585,13 +570,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				Size(size).
 				Queue(localQueue.Name).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation:      utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
-							kueue.PodSetSliceSizeAnnotation:             "2",
-							kueue.PodSetGroupName:                       "same-group",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation:      utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetSliceRequiredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
+						kueue.PodSetSliceSizeAnnotation:             "2",
+						kueue.PodSetGroupName:                       "same-group",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -614,11 +597,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					},
 				}).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                  "same-group",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetGroupName:                  "same-group",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -736,12 +717,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				Queue(localQueue.Name).
 				Label(spreadGroupLabel, spreadGroupValue).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation:  utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                   "replica-group",
-							kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation:  utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetGroupName:                   "replica-group",
+						kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -755,12 +734,10 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					},
 				}).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation:  utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                   "replica-group",
-							kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation:  utiltesting.DefaultBlockTopologyLevel,
+						kueue.PodSetGroupName:                   "replica-group",
+						kueue.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{

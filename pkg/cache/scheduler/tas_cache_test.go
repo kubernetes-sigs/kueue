@@ -19,16 +19,20 @@ package scheduler
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -36,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -48,6 +53,9 @@ type PodSetTestCase struct {
 	requests        map[corev1.ResourceName]int64
 
 	count              int32
+	resourceClaims     []corev1.PodResourceClaim
+	draBackedRequests  map[corev1.ResourceName]int64
+	containerRequests  corev1.ResourceList
 	tolerations        []corev1.Toleration
 	nodeSelector       map[string]string
 	nodeAffinity       *corev1.NodeAffinity
@@ -490,7 +498,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 		// domain ID holds the total number of matching Workloads. Computing it
 		// is covered by TestTopologySpreadCounts.
 		spreadCounts PodSetGroupNameToTreeCount
-		podSets      []PodSetTestCase
+		// draObjects are the DeviceClasses, ResourceClaimTemplates and ResourceSlices
+		// the per-node device check reads. Setting them puts a DRAChecker in front of
+		// the simulator snapshot, the way main.go does under KueueDRADeviceFeasibility.
+		draObjects []client.Object
+		podSets    []PodSetTestCase
 	}{
 		"node replacement skipped for single-Pod-owned workload; gate on": {
 			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
@@ -1425,6 +1437,299 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Count: 1, Values: []string{"x5"}},
 						{Count: 1, Values: []string{"x2"}},
 						{Count: 2, Values: []string{"x6"}},
+					},
+				},
+			}},
+		},
+		"a PodSet's DRA-backed extended resources are only satisfied by the node publishing the device": {
+			// kube-scheduler creates the ResourceClaim for an extended resource after
+			// Kueue admits, so the PodSet names no claim and the device check has to
+			// derive one. Both hosts fit the CPU request and x1 sorts first, so an
+			// assignment landing on x2 can only come from that check.
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:             1,
+				containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"a node advertising a DRA-backed extended resource counts it against its own capacity": {
+			// x1 publishes one device through a device plugin, x2 through a DeviceClass.
+			// x1 must take only the one Pod its allocatable covers, so the second goes to
+			// x2. Without counting the resource on x1 it looks able to hold both.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+				count:             2,
+				containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"a leader counts a DRA-backed extended resource on a node advertising it": {
+			// Each node publishes one device, so a node holds the leader or a worker but
+			// not both. Without counting it for the leader, x1 looks able to take both.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+				features.TASLeaderPodSetFeasibility:          true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained:   new(true),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:          map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					podSetGroupName:   new("sameGroup"),
+					count:             1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained:   new(true),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:          map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					podSetGroupName:   new("sameGroup"),
+					count:             1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x1"}}},
+					},
+				},
+			},
+		},
+		"a node advertising a DRA-backed extended resource itself passes the device check": {
+			// x1 publishes the resource through a device plugin and x2 through a
+			// DeviceClass. x1 has no ResourceSlice, so it only survives the device check
+			// because it supplies the resource from its own allocatable. x1 sorts first.
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationExtendedResource: true},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count:             1,
+				containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+					},
+				},
+			}},
+		},
+		"a PodSet's ResourceClaims are only satisfied by the node publishing the device": {
+			// Both hosts fit the CPU request and x1 sorts first, so an assignment
+			// landing on x2 can only come from the per-node device check.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
+				utiltesting.MakeResourceClaimTemplate("gpu-claim", "ns").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					Obj(),
+				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+					NodeName("x2").
+					Pool("x2-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+			},
+			// The claim templates are namespaced and the PodSet template is not, so
+			// the namespace has to come from the Workload.
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName: "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 1,
+				resourceClaims: []corev1.PodResourceClaim{
+					{Name: "gpu", ResourceClaimTemplateName: new("gpu-claim")},
+				},
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x2"}},
 					},
 				},
 			}},
@@ -10125,12 +10430,15 @@ func TestFindTopologyAssignments(t *testing.T) {
 				for i := range tc.pods {
 					initialObjects = append(initialObjects, &tc.pods[i])
 				}
+				initialObjects = append(initialObjects, tc.draObjects...)
 				clientBuilder := utiltesting.NewClientBuilder()
 				clientBuilder.WithObjects(initialObjects...)
 				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+				_ = utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &resourcev1.DeviceClass{},
+					coreindexer.DeviceClassExtendedResourceNameIndex, coreindexer.IndexDeviceClassExtendedResourceName)
 				client := clientBuilder.Build()
 
-				tasCache := NewTASCache(client, newDefaultSimulator(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(client, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 				for i := range tc.nodes {
 					tasCache.SyncNode(&tc.nodes[i])
 				}
@@ -10168,10 +10476,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
+				simulatorSnapshot := newDefaultSimulator()
+				if len(tc.draObjects) > 0 {
+					simulatorSnapshot = schddra.NewChecker(simulatorSnapshot, client, &schddra.CELCache{}, true)
+				}
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					newDefaultSimulatorSnapshot(),
+					simulatorSnapshot,
 					aggregatedDomainUsage,
 				)
 				if err != nil {
@@ -10198,15 +10510,27 @@ func TestFindTopologyAssignments(t *testing.T) {
 						}
 						topologyRequest.PodSetGroupName = ps.podSetGroupName
 					}
+					// Extended resources are read off the containers. They are absent
+					// from SinglePodRequests because the flavor assigner delegates a
+					// DRA-backed one to the device check before building these requests.
+					var containers []corev1.Container
+					if len(ps.containerRequests) > 0 {
+						containers = []corev1.Container{{
+							Name:      "c",
+							Resources: corev1.ResourceRequirements{Requests: ps.containerRequests},
+						}}
+					}
 					tasInput := TASPodSetRequests{
 						PodSet: &kueue.PodSet{
 							Name:            kueue.NewPodSetReference(ps.podSetName),
 							TopologyRequest: topologyRequest,
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
-									Tolerations:  ps.tolerations,
-									NodeSelector: ps.nodeSelector,
-									Affinity:     affinity,
+									Tolerations:    ps.tolerations,
+									NodeSelector:   ps.nodeSelector,
+									Affinity:       affinity,
+									ResourceClaims: ps.resourceClaims,
+									Containers:     containers,
 								},
 							},
 						},
@@ -10214,6 +10538,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 						SinglePodRequests:  resources.NewRequestsFromMap(ps.requests),
 						Count:              ps.count,
 						PreviousAssignment: ps.previousAssignment,
+					}
+					if len(ps.draBackedRequests) > 0 {
+						undelegated := resources.NewRequestsFromMap(ps.requests).Clone()
+						names := slices.Sorted(maps.Keys(ps.draBackedRequests))
+						for _, name := range names {
+							undelegated.Set(name, ps.draBackedRequests[name])
+						}
+						tasInput.DRADelegation = &DRADelegation{Resources: names, Undelegated: undelegated}
 					}
 					if ps.podSetGroupName != nil {
 						tasInput.PodSetGroupName = ps.podSetGroupName

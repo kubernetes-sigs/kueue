@@ -131,10 +131,9 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 			mgr.GetCache(),
 			&kueue.Workload{},
 			handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, wl *kueue.Workload) []reconcile.Request {
-				return []reconcile.Request{{NamespacedName: types.NamespacedName{
+				return []reconcile.Request{{
 					Namespace: wl.Namespace,
-					Name:      workloadslicing.SliceName(wl),
-				}}}
+					Name:      workloadslicing.SliceName(wl)}}
 			}),
 			r,
 		)).

@@ -165,7 +165,7 @@ func (t *topologyTree) addNode(node *corev1.Node) utiltas.TopologyDomainID {
 	}
 	if _, leafFound := t.leaves[domainID]; !leafFound {
 		leaf := &leafDomain{
-			domain:  domain{id: domainID, levelValues: levelValues},
+			id: domainID, levelValues: levelValues,
 			leafIdx: len(t.leaves),
 		}
 		if t.leafIsNode() {
@@ -244,6 +244,18 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 	// connect parent and child
 	dom.parent = parent
 	parent.children = append(parent.children, dom)
+}
+
+// advertisesAll reports whether the leaf's nodes publish every one of the named resources.
+// It reads the static capacity rather than what is left, so a node that publishes a
+// resource still counts as publishing it while the resource is fully in use.
+func (l *leafDomain) advertisesAll(names []corev1.ResourceName) bool {
+	for _, name := range names {
+		if l.capacity.ResourceValue(name) == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (t *topologyTree) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
