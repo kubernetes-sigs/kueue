@@ -61,6 +61,10 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	}
 
 	previousCount := utiltas.CountPodsInAssignment(prevAssignment)
+	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(workers.PodSet.TopologyRequest)
+	if sliceSize > 1 && (previousCount%sliceSize != 0 || workers.Count%sliceSize != 0) {
+		return elasticPlacementResult{applied: false}
+	}
 
 	switch {
 	case workers.Count > previousCount:
