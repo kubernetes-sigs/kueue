@@ -262,23 +262,32 @@ func (a *Assignment) ToAPI(log logr.Logger) []kueue.PodSetAssignment {
 	return psFlavors
 }
 
-// TotalRequestsFor - returns the total quota needs of the wl, taking into account the potential
-// workload slice replacement, or scaling needed in case of partial admission.
-//
-// Note: ElasticJobsViaWorkloadSlices is mutually exclusive with PartialAdmission.
+// TotalRequestsFor returns the quota request used to size the workload for
+// preemption, based on the assigned PodSet counts. For a replacement, it only
+// includes the usage needed on top of the replaced slice.
 func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
 		newCount := a.PodSets[i].Count
 		if a.replaceWorkloadSlice != nil {
-			newCount = ps.Count - a.replaceWorkloadSlice.TotalRequests[i].Count
+			newCount -= a.replaceWorkloadSlice.TotalRequests[i].Count
 		}
 		ps = *ps.ScaledTo(newCount)
+
+		podsFlavor := a.PodSets[i].Flavors[corev1.ResourcePods]
+		if podsFlavor != nil && newCount != 0 {
+			fr := resources.FlavorResource{Flavor: podsFlavor.Name, Resource: corev1.ResourcePods}
+			usage[fr] = usage[fr].AddInt64(int64(newCount))
+		}
 
 		if ps.Requests == nil {
 			continue
 		}
 		ps.Requests.ForEach(func(res corev1.ResourceName, q int64) {
+			// Requests taken from an admission already count Pods.
+			if res == corev1.ResourcePods && podsFlavor != nil {
+				return
+			}
 			// zero-quantity request may have no flavor (#8079), and is irrelevant for
 			// later calculations
 			if q == 0 {
