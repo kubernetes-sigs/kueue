@@ -4948,3 +4948,96 @@ func TestPriorityInfo(t *testing.T) {
 		})
 	}
 }
+
+// TestGetTargetsWithPodsQuota pins that target selection counts Pods when the
+// ClusterQueue has quota for them: a 7-Pod workload needs both lower-priority
+// workloads, and one victim alone is not enough.
+func TestGetTargetsWithPodsQuota(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		quota     corev1.ResourceName
+		resources map[corev1.ResourceName]string
+	}{
+		"pods is the binding quota": {
+			quota: corev1.ResourcePods,
+			resources: map[corev1.ResourceName]string{
+				corev1.ResourcePods: "7",
+				corev1.ResourceCPU:  "100",
+			},
+		},
+		"control: cpu is the binding quota": {
+			quota: corev1.ResourceCPU,
+			resources: map[corev1.ResourceName]string{
+				corev1.ResourceCPU: "7",
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			flavorQuotas := utiltestingapi.MakeFlavorQuotas("default")
+			for res, q := range tc.resources {
+				flavorQuotas.Resource(res, q)
+			}
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*flavorQuotas.Obj()).
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				Obj()
+			admitted := func(name string, pods int32) kueue.Workload {
+				assignment := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", fmt.Sprint(pods)).
+					Count(pods)
+				if _, ok := tc.resources[corev1.ResourcePods]; ok {
+					assignment = assignment.Assignment(corev1.ResourcePods, "default", fmt.Sprint(pods))
+				}
+				return *utiltestingapi.MakeWorkload(name, "").
+					Priority(-1).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, int(pods)).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(assignment.Obj()).Obj(), now).
+					Obj()
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithLists(&kueue.WorkloadList{Items: []kueue.Workload{admitted("va", 4), admitted("vb", 3)}}).
+				Build()
+			cqCache := schdcache.New(cl)
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+			}
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			incoming := utiltestingapi.MakeWorkload("in", "").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			wlInfo := workload.NewInfo(log, incoming)
+			wlInfo.ClusterQueue = "cq"
+			flavors := flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: {Name: "default", Mode: flavorassigner.Fit},
+			}
+			if _, ok := tc.resources[corev1.ResourcePods]; ok {
+				flavors[corev1.ResourcePods] = &flavorassigner.FlavorAssignment{Name: "default", Mode: flavorassigner.Fit}
+			}
+			flavors[tc.quota].Mode = flavorassigner.Preempt
+			assignment := flavorassigner.Assignment{
+				PodSets: []flavorassigner.PodSetAssignment{{
+					Name:    kueue.DefaultPodSetName,
+					Flavors: flavors,
+					Count:   7,
+				}},
+			}
+
+			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			var got []string
+			for _, target := range preemptor.GetTargets(ctx, *wlInfo, assignment, snapshot) {
+				got = append(got, target.WorkloadInfo.Obj.Name)
+			}
+			slices.Sort(got)
+			if diff := cmp.Diff([]string{"va", "vb"}, got); diff != "" {
+				t.Errorf("Unexpected targets (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
