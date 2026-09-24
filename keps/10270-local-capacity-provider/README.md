@@ -112,10 +112,12 @@ which was closed in favour of building on DQO.
    resources.
 3. A new feature gate, `LocalCapacityProvider` (alpha, disabled by default),
    which requires `DynamicQuotaOrchestration`.
-4. A small DQO change, needed for correct zeros (see
-   [Notes](#notesconstraintscaveats)): for a flavor listed in a provider's
-   `orchestratedFlavors`, a resource that the provider does not report counts as
-   `0` instead of falling back to the spec value.
+4. It relies on a small DQO change, proposed separately in
+   [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168) and needed for
+   correct zeros (see [Notes](#notesconstraintscaveats)): a provider orchestrates
+   all resources of the flavors in its `orchestratedFlavors`, so capacity it does
+   not report for such a flavor counts as `0` instead of falling back to the spec
+   value.
 
 ### Who creates what
 
@@ -362,15 +364,22 @@ At every step, each cluster's quota matches the nodes it actually has.
 - **The ResourceFlavor is the node selector.** Which nodes count for a flavor is
   decided entirely by its `nodeLabels`. These are the same labels Kueue uses to
   place workloads, so counting and placement always agree.
-- **Zeros need a DQO change.** Today, if no provider reports a
-  (flavor, resource) pair, DQO keeps the spec value for it. Without a
+- **Zeros need a DQO change.** Before #16168, if no provider reported a
+  (flavor, resource) pair, DQO kept the spec value for it. Without a
   configuration API, the provider only knows the resources that the nodes
   currently advertise. If every GPU node disappears, `nvidia.com/gpu` would
   simply be missing from the report, and quota would silently fall back to the
-  spec value instead of dropping to 0. With the change in Proposal step 4, a
-  missing resource of an orchestrated flavor contributes 0. When a flavor has
-  no eligible nodes at all, the provider omits it, and all of its resources
-  count as 0.
+  spec value instead of dropping to 0. With #16168, DQO adds every orchestrated
+  flavor to `status.effectiveCapacity` (with `resources: {}` when nothing is
+  reported) and distributes 0 for any declared pair missing from it. So when a
+  flavor has no eligible nodes, the provider omits it and all of its resources
+  count as 0; when a resource disappears from all nodes of a flavor, that
+  resource counts as 0.
+- **Only node resources belong on an orchestrated flavor.** Because the provider
+  orchestrates all resources of its flavors, a resource declared for such a
+  flavor in a ClusterQueue or Cohort that nodes do not advertise (for example a
+  license token) is distributed as 0. Keep such resources on a separate flavor
+  that is not orchestrated.
 - **How DQO distributes.** DQO splits capacity in proportion to the
   `nominalQuota` values in spec. For a shared pool, the Cohort has a positive
   spec value and its ClusterQueues have 0, so the Cohort receives 100%.
@@ -490,7 +499,8 @@ For each provider, the reconcile loop:
    local-capacity providers) it matches. A node matching more than one flavor
    makes the provider `Misconfigured`.
 4. Sums `allocatable` over the eligible nodes of each of the provider's flavors.
-   Flavors without eligible nodes are omitted.
+   Flavors without eligible nodes are omitted; DQO treats them as having zero
+   capacity.
 5. Writes `status.capacity` and the `CapacitySynchronized` condition, skipping
    writes that change nothing.
 
@@ -500,16 +510,22 @@ CapacityProviders, which Kueue already has, and `get/update/patch` on
 
 ### DQO change
 
-During discovery, DQO collects the `orchestratedFlavors` of all referenced,
-synchronized providers. During distribution, every (flavor, resource) pair
-declared in the subtree whose flavor is in that set, but which no provider
-reports, is distributed as zero capacity. Pairs of flavors that no provider
-orchestrates keep their spec value, as today.
+Proposed separately in [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168):
 
-This changes behavior for existing DQO users only when a provider lists a flavor
-in `orchestratedFlavors` but omits some of its resources, which is the case the
-change is meant to handle. The DQO API is alpha and the DQO feature gate is
-disabled by default.
+- A provider orchestrates all resources of the flavors in its
+  `spec.orchestratedFlavors`; partial orchestration of a flavor for a subset of
+  its resources is not supported. Empty `orchestratedFlavors` remains rejected.
+- During discovery, DQO adds every orchestrated flavor of the referenced,
+  synchronized providers to `status.effectiveCapacity`, with an empty
+  `resources` map when no capacity is reported for it. The CEL rule on
+  `resources` is relaxed from 1–64 to at most 64 entries to allow this.
+- During distribution, which reads only `status.effectiveCapacity`, every
+  (flavor, resource) pair declared in the subtree for a flavor present there but
+  missing from its `resources` is distributed as zero capacity. Pairs of flavors
+  that no provider orchestrates keep their spec value, as before.
+
+The zero is therefore visible in DQO status. The DQO API is alpha and the DQO
+feature gate is disabled by default.
 
 ### Conditions and observability
 
@@ -554,9 +570,9 @@ None.
   deleting, taints vs. tolerations and nodeTaints, label match), summing
   allocatable, omitted flavors, overlap detection, missing flavors, providers of
   other controllers ignored, feature gate disabled.
-- `pkg/controller/core/dqo`: a missing resource of an orchestrated flavor is
-  distributed as 0, while pairs of non-orchestrated flavors keep their spec
-  value.
+- `pkg/controller/core/dqo` (in #16168): unreported orchestrated flavors appear
+  in `effectiveCapacity` with empty `resources`, their declared pairs are
+  distributed as 0, and pairs of non-orchestrated flavors keep their spec value.
 
 #### Integration tests
 
@@ -576,8 +592,8 @@ None.
 
 #### Alpha
 
-- The controller, the `LocalCapacityProvider` feature gate and the DQO
-  zero-handling change are implemented.
+- The controller and the `LocalCapacityProvider` feature gate are implemented,
+  on top of the DQO zero-handling change from #16168.
 - The tests above are implemented.
 - Documentation describes the shared-Cohort setup and the user stories.
 
@@ -601,7 +617,8 @@ None.
   filter beyond the flavor's labels.
 - The quota in effect is in status rather than spec, which is less obvious to
   administrators. This is inherent to DQO.
-- Requires a small change to how DQO handles unreported resources.
+- Depends on the DQO change in #16168, which also means resources that nodes do
+  not advertise cannot share an orchestrated flavor.
 
 ## Alternatives
 
@@ -610,7 +627,8 @@ None.
 A cluster-scoped `LocalCapacity` object, referenced from
 `CapacityProvider.spec.parameters`, could hold:
 
-- an explicit resource list, which would fix zeros without the DQO change;
+- an explicit resource list, which would let the provider publish explicit zeros
+  per resource;
 - a per-node reserve for DaemonSets;
 - required resources, such as GPUs, before a node counts;
 - a delay before newly Ready nodes count;
@@ -638,6 +656,8 @@ KEP-12382 already uses `kueue.x-k8s.io/local-capacity` as its example of a
 built-in provider.
 
 ### Remember reported resources instead of changing DQO
+
+*Superseded by the DQO change in #16168.*
 
 The provider could keep reporting, with value 0, every resource it has
 previously published, so that DQO never sees a missing pair.
