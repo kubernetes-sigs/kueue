@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/core/dqo"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/core/localcapacity"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -66,5 +67,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 
 	dqoRec := dqo.NewReconciler(mgr.GetClient())
 	err = dqoRec.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	lcRec := localcapacity.NewReconciler(mgr.GetClient())
+	err = lcRec.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

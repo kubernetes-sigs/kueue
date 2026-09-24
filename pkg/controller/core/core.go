@@ -29,6 +29,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/dqo"
+	"sigs.k8s.io/kueue/pkg/controller/core/localcapacity"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -140,6 +141,12 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		dqoRec := dqo.NewReconciler(mgr.GetClient(), dqo.WithRoleTracker(opts.RoleTracker))
 		if err := dqoRec.SetupWithManager(mgr); err != nil {
 			return "DynamicQuotaOrchestrator", err
+		}
+		if features.Enabled(features.LocalCapacityProvider) {
+			lcRec := localcapacity.NewReconciler(mgr.GetClient(), localcapacity.WithRoleTracker(opts.RoleTracker))
+			if err := lcRec.SetupWithManager(mgr); err != nil {
+				return "LocalCapacityProvider", err
+			}
 		}
 	}
 

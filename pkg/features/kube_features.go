@@ -716,6 +716,13 @@ const (
 	// Enables Dynamic Quota Orchestration and respecting Effective Quota in ClusterQueue/Cohort status.
 	DynamicQuotaOrchestration featuregate.Feature = "DynamicQuotaOrchestration"
 
+	// owner: @sumukha-radhakrishna
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10270
+	//
+	// Enables the built-in local-capacity CapacityProvider controller, which publishes node capacity
+	// per ResourceFlavor for Dynamic Quota Orchestration. Requires DynamicQuotaOrchestration.
+	LocalCapacityProvider featuregate.Feature = "LocalCapacityProvider"
+
 	// owner: @alien1403
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/14973
 	//
@@ -1162,6 +1169,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DynamicQuotaOrchestration: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	LocalCapacityProvider: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	MultiKueueReuseClientConnectionConfigForWorkers: {

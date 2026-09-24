@@ -217,6 +217,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: LocalCapacityProvider
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: LocalQueueMetrics
   versionedSpecs:
   - default: false
