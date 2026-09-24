@@ -19,7 +19,6 @@ package pod
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
@@ -323,7 +322,7 @@ func (p *Pod) readPodIndex(labelKey string) (string, error) {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		// Outside a group there is no count to bound the index against.
-		_, err := strconv.ParseUint(index, 10, 0)
+		_, err := utilpod.ReadUIntFromLabel(p.Object(), labelKey)
 		return index, err
 	}
 	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), labelKey, groupTotalCount)

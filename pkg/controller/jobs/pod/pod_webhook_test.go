@@ -48,6 +48,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -913,6 +914,48 @@ func TestGetRoleHash(t *testing.T) {
 				}
 
 				previousHash = hash
+			}
+		})
+	}
+}
+
+func TestReadPodIndex(t *testing.T) {
+	cases := map[string]struct {
+		pod     *corev1.Pod
+		wantErr error
+	}{
+		"outside a group, label absent": {
+			pod:     testingpod.MakePod("test-pod", "test-ns").Obj(),
+			wantErr: utilpod.ErrLabelNotFound,
+		},
+		"outside a group, label holds no index": {
+			pod:     testingpod.MakePod("test-pod", "test-ns").Label("test-label", "test-value").Obj(),
+			wantErr: utilpod.ErrInvalidUInt,
+		},
+		"outside a group, the index is not bounded": {
+			pod: testingpod.MakePod("test-pod", "test-ns").Label("test-label", "9223372036854775807").Obj(),
+		},
+		"in a group, index outside the group": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "2").
+				Obj(),
+			wantErr: utilpod.ErrValidation,
+		},
+		"in a group, index within the group": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "1").
+				Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := FromObject(tc.pod).readPodIndex("test-label"); !errors.Is(err, tc.wantErr) {
+				t.Errorf("Unexpected error: got %v, want %v", err, tc.wantErr)
 			}
 		})
 	}
