@@ -274,6 +274,12 @@ func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	return j
 }
 
+// UpgradeStrategy sets the RayService upgrade strategy.
+func (j *ServiceWrapper) UpgradeStrategy(upgradeType rayv1.RayServiceUpgradeType) *ServiceWrapper {
+	j.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{Type: &upgradeType}
+	return j
+}
+
 // ManagedBy sets the ManagedBy field on the RayService spec.
 func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 	j.Spec.ManagedBy = &c

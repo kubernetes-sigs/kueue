@@ -169,6 +169,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		)
 		rayService := testingrayservice.MakeService("rayservice1", f.managerNs.Name).
 			Queue(f.managerLq.Name).
+			UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 			WithServeConfigV2("serve-config-v1").
 			WithHistoryServerOptions(&rayv1.HistoryServerOptions{
 				CollectorOptions: &rayv1.CollectorOptions{

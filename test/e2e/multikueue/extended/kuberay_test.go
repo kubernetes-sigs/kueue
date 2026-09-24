@@ -291,6 +291,7 @@ app = HelloWorld.bind()`,
 			rayService := testingrayservice.MakeService("rayservice1", managerNs.Name).
 				Suspend(true).
 				Queue(managerLq.Name).
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
 				Image(rayv1.HeadNode, kuberayTestImage).

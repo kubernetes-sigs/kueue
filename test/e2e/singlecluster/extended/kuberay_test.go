@@ -834,6 +834,7 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
+			UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
@@ -923,6 +924,7 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-gcs-ft", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
+			UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 			GCSFaultTolerance("redis:6379").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").

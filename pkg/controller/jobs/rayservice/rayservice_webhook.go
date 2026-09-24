@@ -18,6 +18,7 @@ package rayservice
 
 import (
 	"context"
+	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,6 +44,7 @@ var (
 	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
 	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+	upgradeStrategyPath  = field.NewPath("spec", "upgradeStrategy", "type")
 )
 
 type RayServiceWebhook struct {
@@ -154,6 +156,7 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		if len(rayClusterSpecErrors) > 0 {
 			return allErrors, nil
 		}
+		allErrors = append(allErrors, validateUpgradeStrategy(job)...)
 	}
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
@@ -166,6 +169,24 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 	}
 
 	return allErrors, nil
+}
+
+func validateUpgradeStrategy(job *rayv1.RayService) field.ErrorList {
+	strategy := job.Spec.UpgradeStrategy
+	if strategy != nil && strategy.Type != nil && *strategy.Type == rayv1.RayServiceUpgradeNone {
+		return nil
+	}
+	if isAnElasticJob(job) {
+		return nil
+	}
+	return field.ErrorList{field.Forbidden(
+		upgradeStrategyPath,
+		fmt.Sprintf("zero-downtime upgrades require enabling the %s feature gate and setting the %q annotation to %q, or setting .spec.upgradeStrategy.type to %q to disable zero-downtime upgrades",
+			features.ElasticJobsViaWorkloadSlices,
+			workloadslicing.EnabledAnnotationKey,
+			workloadslicing.EnabledAnnotationValue,
+			rayv1.RayServiceUpgradeNone),
+	)}
 }
 
 func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayService *rayv1.RayService) (field.ErrorList, error) {
