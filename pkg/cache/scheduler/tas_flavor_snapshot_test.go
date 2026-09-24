@@ -1542,7 +1542,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
 		dom := &domain{id: "rack-1", idx: 0}
 		snapshot.domainStateOf(dom).podCount = 1
-		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, 1, false, false)
+		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, sliceShape{size: 1}, false, false)
 	}
 	wantErrorFields := map[string]any{
 		"error":                "code assumptions violated",
@@ -1847,5 +1847,321 @@ func TestMatchingLeavesCacheIsInvisible(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// sliceLevelUsages has to report the domains in the order they appear in the
+// assignment, which is the order the ungater ranks pods in. Both callers depend
+// on it: they single out the last domain as the one allowed to hold a
+// partial slice.
+func TestSliceLevelUsagesPreserveAssignmentOrder(t *testing.T) {
+	const rackLabel = "cloud.provider.com/topology-rack"
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(corev1.LabelHostname, "n1").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n2").Label(corev1.LabelHostname, "n2").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n3").Label(corev1.LabelHostname, "n3").Label(rackLabel, "r2").Obj(),
+		rackNode.Clone().Name("n4").Label(corev1.LabelHostname, "n4").Label(rackLabel, "r2").Obj(),
+		rackNode.Clone().Name("n5").Label(corev1.LabelHostname, "n5").Label(rackLabel, "r3").Obj(),
+	}
+
+	cases := map[string]struct {
+		assignment *tas.TopologyAssignment
+		want       []sliceLevelUsage
+	}{
+		"nodes of one rack are summed into a single entry": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 1}).
+				TopologyAssignment,
+			want: []sliceLevelUsage{
+				{domainID: "r1", count: 2},
+				{domainID: "r2", count: 1},
+			},
+		},
+		"the racks keep the order of the assignment, not their names": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n5"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				TopologyAssignment,
+			want: []sliceLevelUsage{
+				{domainID: "r3", count: 1},
+				{domainID: "r2", count: 1},
+				{domainID: "r1", count: 1},
+			},
+		},
+		"a rack revisited later keeps the position of its first appearance": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				TopologyAssignment,
+			want: []sliceLevelUsage{
+				{domainID: "r1", count: 2},
+				{domainID: "r2", count: 1},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			tree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, nodes, 0)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+
+			// Repeat, so that a map-order dependency cannot pass by chance.
+			for range 20 {
+				got := snapshot.sliceLevelUsages(tc.assignment, 0)
+				if diff := cmp.Diff(tc.want, got, cmp.AllowUnexported(sliceLevelUsage{})); diff != "" {
+					t.Fatalf("sliceLevelUsages() mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}
+
+// TestAssignmentSliceAligned drives the check that refuses to publish an
+// assignment in which a slice is spread over more than one domain. The
+// placement is not expected to produce such an assignment, so the predicate is
+// fed hand-built ones here rather than through a scheduling run.
+func TestAssignmentSliceAligned(t *testing.T) {
+	const (
+		rackLabel = "cloud.provider.com/topology-rack"
+		zoneLabel = "cloud.provider.com/topology-zone"
+	)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(corev1.LabelHostname, "n1").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n2").Label(corev1.LabelHostname, "n2").Label(rackLabel, "r1").Obj(),
+		rackNode.Clone().Name("n3").Label(corev1.LabelHostname, "n3").Label(rackLabel, "r2").Obj(),
+		rackNode.Clone().Name("n4").Label(corev1.LabelHostname, "n4").Label(rackLabel, "r2").Obj(),
+	}
+
+	cases := map[string]struct {
+		disableGate     bool
+		virtualHostname bool
+		assignment      *tas.TopologyAssignment
+		request         *kueue.PodSetTopologyRequest
+		sliceSize       int32
+		want            bool
+	}{
+		"a whole slice per rack": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n2"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"the partial slice is last": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 1}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"the partial slice is not last": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      false,
+		},
+		"a whole slice is split over two racks": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 1}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      false,
+		},
+		"a slice of a single pod is always aligned": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(1).
+				Obj().TopologyRequest,
+			sliceSize: 1,
+			want:      true,
+		},
+		"a PodSet that does not ask for slices is not checked": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request:   nil,
+			sliceSize: 2,
+			want:      true,
+		},
+		"a slice level the topology does not declare is not checked": {
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(zoneLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"the check is skipped while the feature gate is off": {
+			disableGate: true,
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"n3"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"virtual hostname topology with partial slice last": {
+			virtualHostname: true,
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{rackLabel}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"r2"}, Count: 2}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"r1"}, Count: 1}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      true,
+		},
+		"virtual hostname topology with partial slice not last": {
+			virtualHostname: true,
+			assignment: &utiltestingapi.MakeTopologyAssignment([]string{rackLabel}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"r1"}, Count: 1}).
+				Domain(tas.TopologyDomainAssignment{Values: []string{"r2"}, Count: 2}).
+				TopologyAssignment,
+			request: utiltestingapi.MakePodSet("", 0).
+				SliceRequiredTopologyRequest(rackLabel).
+				SliceSizeTopologyRequest(2).
+				Obj().TopologyRequest,
+			sliceSize: 2,
+			want:      false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			features.SetFeatureGateDuringTest(t, features.TASPartialSlices, !tc.disableGate)
+
+			levels := []string{rackLabel, corev1.LabelHostname}
+			if tc.virtualHostname {
+				levels = []string{rackLabel}
+			}
+			tree := newTopologyTree(levels, nodes, 0)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+
+			if got := snapshot.assignmentSliceAligned(tc.assignment, tc.request, tc.sliceSize); got != tc.want {
+				t.Errorf("assignmentSliceAligned() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFillTailCountsWithCapacityBound(t *testing.T) {
+	shape := sliceShape{size: 4, tailSize: 2}
+
+	cases := map[string]struct {
+		child                       domainState
+		hasLeaders                  bool
+		parent                      domainState
+		childrenSliceCapacity       int32
+		wantSliceCountWithTail      int32
+		wantSliceCountLeaderAndTail int32
+	}{
+		"capped domain that still fits the tail is not rejected by child penalty": {
+			child: domainState{
+				podCount:           4,
+				sliceCount:         1,
+				sliceCountWithTail: 0,
+			},
+			parent: domainState{
+				podCount:   2,
+				sliceCount: 0,
+			},
+			childrenSliceCapacity:       1,
+			wantSliceCountWithTail:      0,
+			wantSliceCountLeaderAndTail: noTailFit,
+		},
+		"capped domain with zero capacity stays at noTailFit instead of going below -1": {
+			child: domainState{
+				podCount:                    5,
+				podCountWithLeader:          4,
+				leaderCount:                 1,
+				sliceCount:                  1,
+				sliceCountWithLeader:        1,
+				sliceCountWithTail:          0,
+				sliceCountWithLeaderAndTail: 0,
+			},
+			hasLeaders: true,
+			parent: domainState{
+				podCount:           0,
+				podCountWithLeader: 0,
+				sliceCount:         0,
+			},
+			childrenSliceCapacity:       1,
+			wantSliceCountWithTail:      noTailFit,
+			wantSliceCountLeaderAndTail: noTailFit,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var penalties tailPenaltyTracker
+			child := tc.child
+			penalties.add(0, &child, tc.hasLeaders)
+
+			parent := tc.parent
+			fillTailCounts(&parent, shape, false, tc.childrenSliceCapacity, &penalties)
+			if parent.sliceCountWithTail != tc.wantSliceCountWithTail {
+				t.Errorf("sliceCountWithTail = %d, want %d", parent.sliceCountWithTail, tc.wantSliceCountWithTail)
+			}
+			if parent.sliceCountWithLeaderAndTail != tc.wantSliceCountLeaderAndTail {
+				t.Errorf("sliceCountWithLeaderAndTail = %d, want %d", parent.sliceCountWithLeaderAndTail, tc.wantSliceCountLeaderAndTail)
+			}
+		})
 	}
 }

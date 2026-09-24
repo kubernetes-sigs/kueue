@@ -2148,6 +2148,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASProfileMixed:                  false,
@@ -2226,6 +2227,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
@@ -2274,6 +2276,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASProfileMixed:                     false,
@@ -2415,6 +2418,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TASHandleOverlappingFlavors:      true,
@@ -2457,6 +2461,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2478,6 +2483,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2510,6 +2516,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2542,6 +2549,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2573,6 +2581,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       true,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2605,6 +2614,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2637,12 +2647,35 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "TASGroupedPodSetSlicing requires TopologyAwareScheduling to be enabled",
+				},
+			},
+		},
+		"TASPartialSlices requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TASPartialSlices):                            true,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASPartialSlices requires TopologyAwareScheduling to be enabled",
 				},
 			},
 		},
@@ -2702,6 +2735,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2738,6 +2772,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2774,6 +2809,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRespectNodeAffinityPreferred):  true,
 				string(features.TASHandleOverlappingFlavors):      true,
 				string(features.TASGroupedPodSetSlicing):          true,
+				string(features.TASPartialSlices):                 true,
 			},
 			gatesToRestore: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:          true,
@@ -2794,6 +2830,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:                     true,
 				features.TASRecomputeAssignmentWithinSchedulingCycle: true,
+				features.TASPartialSlices:                            true,
 			})
 			features.SetFeatureGatesDuringTest(t, tc.gatesToRestore)
 			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
