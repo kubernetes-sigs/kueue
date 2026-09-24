@@ -400,6 +400,9 @@ func (c *Cache) snapshotClusterQueue(
 		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
 		draBackedResources:            c.draBackedResources,
 	}
+	if features.Enabled(features.ConfigurablePreemptions) {
+		cc.Labels = maps.Clone(cq.Labels)
+	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
 	}
