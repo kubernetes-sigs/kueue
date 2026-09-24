@@ -105,6 +105,16 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
+		podJobReconciler, err := pod.NewReconciler(
+			ctx,
+			mgr.GetClient(),
+			mgr.GetFieldIndexer(),
+			mgr.GetEventRecorder(constants.JobControllerName),
+			opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = podJobReconciler.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
 
@@ -135,6 +145,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		jobframework.EnableIntegration(statefulset.FrameworkName)
+		jobframework.EnableIntegration(pod.FrameworkName)
 
 		discoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
