@@ -370,10 +370,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 1. Ignore Elastic workloads Finished when:
 	// - Workload is "Finished" as a result workload slice replacement, OR
-	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress.
+	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress,
+	//   unless it was evicted and its remote objects need cleanup.
+	scaleUpInProgress := !group.IsFinished() &&
+		!workload.HasQuotaReservation(group.local) &&
+		workloadslicing.ScaledUp(group.local) &&
+		!workloadevict.IsEvicted(group.local)
 	if group.IsElasticWorkload() &&
 		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			(!group.IsFinished() && !workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
+			scaleUpInProgress) {
 		return reconcile.Result{}, nil
 	}
 
