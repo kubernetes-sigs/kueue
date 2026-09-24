@@ -302,6 +302,23 @@ if [[ "${pull_attempts}" != "2" ]]; then
   exit 1
 fi
 
+# A bare `unauthorized:` is a degraded registry rather than a denial, so it is retried.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=2
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+
+if ! e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v0.94.0"; then
+  echo "expected a bare unauthorized error to be retried until the pull succeeded" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "2" ]]; then
+  echo "expected a bare unauthorized error to be retried; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
 # A missing image is not a transient failure, so it aborts after a single attempt.
 : >"${DOCKER_FAKE_LOG}"
 printf '0' >"${DOCKER_FAKE_STATE}"
@@ -386,6 +403,25 @@ fi
 manifest_attempts=$(grep -c "^manifest inspect " "${DOCKER_FAKE_LOG}" || true)
 if [[ "${manifest_attempts}" != "1" ]]; then
   echo "expected a non-retriable manifest-inspect failure to fail fast without retrying; got ${manifest_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
+# An unauthorized error that names a reason is a genuine denial, so it fails fast.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR="unauthorized: authentication required"
+
+if e2e_docker_manifest_available "registry.example.com/kueue:private"; then
+  echo "expected e2e_docker_manifest_available to fail for a denied manifest" >&2
+  exit 1
+fi
+
+manifest_attempts=$(grep -c "^manifest inspect " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${manifest_attempts}" != "1" ]]; then
+  echo "expected a denied manifest inspect to fail fast without retrying; got ${manifest_attempts} attempt(s)" >&2
   exit 1
 fi
 
