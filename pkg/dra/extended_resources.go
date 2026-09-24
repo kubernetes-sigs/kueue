@@ -215,7 +215,7 @@ func collectContainerExtendedResourceRequests(containers []corev1.Container, con
 	return entries
 }
 
-func chargedContainers(entries []containerExtendedResourceRequests, firstPath map[corev1.ResourceName]*field.Path) []corev1.Container {
+func containersForPodRequests(entries []containerExtendedResourceRequests, firstPath map[corev1.ResourceName]*field.Path) []corev1.Container {
 	containers := make([]corev1.Container, 0, len(entries))
 	for _, entry := range entries {
 		for name := range entry.resources {
@@ -261,11 +261,11 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		// The field path of the first container an original resource name is seen in,
 		// for error reporting once that name is resolved below.
 		firstPath := map[corev1.ResourceName]*field.Path{}
-		initCharged := chargedContainers(initEntries, firstPath)
-		regularCharged := chargedContainers(regularEntries, firstPath)
+		initContainersForPodRequests := containersForPodRequests(initEntries, firstPath)
+		regularContainersForPodRequests := containersForPodRequests(regularEntries, firstPath)
 		// PodRequests adds a sidecar to the regular containers rather than maxing it against them.
 		podRequests := resourcehelpers.PodRequests(
-			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initCharged, Containers: regularCharged}},
+			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initContainersForPodRequests, Containers: regularContainersForPodRequests}},
 			resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 
 		aggregated := corev1.ResourceList{}
