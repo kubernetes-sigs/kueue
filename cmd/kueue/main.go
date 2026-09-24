@@ -374,6 +374,15 @@ func main() {
 		}
 		cacheOptions = append(cacheOptions, schdcache.WithDeviceTaintRules(served))
 	}
+
+	serverVersionFetcher, err := setupServerVersionFetcher(mgr, kubeConfig)
+	if err != nil {
+		setupLog.Error(err, "Unable to setup server version fetcher")
+		os.Exit(1)
+	}
+	cacheOptions = append(cacheOptions, schdcache.WithServerVersionFetcher(serverVersionFetcher))
+	queueOptions = append(queueOptions, qcache.WithServerVersionFetcher(serverVersionFetcher))
+
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 
 	// setup inadmissible workload requeuer
@@ -397,12 +406,6 @@ func main() {
 		os.Exit(1)
 	}
 	debugger.NewDumper(cCache, queues).ListenForSignal(ctx)
-
-	serverVersionFetcher, err := setupServerVersionFetcher(mgr, kubeConfig)
-	if err != nil {
-		setupLog.Error(err, "Unable to setup server version fetcher")
-		os.Exit(1)
-	}
 
 	if metricsCertWatcher != nil {
 		if err := mgr.Add(metricsCertWatcher); err != nil {
@@ -432,6 +435,7 @@ func main() {
 		DRABackedResources:        draBackedResources,
 		ResourceFormatter:         resourceFormatter,
 		ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
+		ServerVersionFetcher:      serverVersionFetcher,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, integrationManager, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -543,7 +547,8 @@ func setupControllers(
 			"Skipping provisioning controller setup: Provisioning Requests not supported (Possible cause: missing or unsupported cluster-autoscaler)",
 		)
 	} else {
-		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), opts.RoleTracker)
+		ctrl, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorder("kueue-provisioning-request-controller"), opts.RoleTracker,
+			provisioning.WithServerVersionFetcher(serverVersionFetcher))
 		if err != nil {
 			return fmt.Errorf("could not create the provisioning controller: %w", err)
 		}

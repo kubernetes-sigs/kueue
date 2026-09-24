@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -41,6 +42,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2845,6 +2847,97 @@ func TestUpdateCheckMessage(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantMessage, checkState.Message); diff != "" {
 				t.Errorf("unexpected message (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+type fakeServerVersionFetcher struct {
+	version versionutil.Version
+}
+
+func (f fakeServerVersionFetcher) GetServerVersion() versionutil.Version {
+	return f.version
+}
+
+// TestBuildPodTemplateResourceDefaults verifies the pod template carries the
+// resource requests the pods of the Workload will run with: the container
+// LimitRange defaults take part in the pod-level request aggregation on API
+// servers 1.37 and newer, while older servers default the pod-level requests
+// first and only when the pod has pod-level limits.
+func TestBuildPodTemplateResourceDefaults(t *testing.T) {
+	limitRange := utiltesting.MakeLimitRange("limits", TestNamespace).
+		WithValue("DefaultRequest", corev1.ResourceCPU, "1").
+		Obj()
+	containers := []corev1.Container{
+		{
+			Name:      "first",
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}},
+		},
+		{Name: "second"},
+	}
+
+	cases := map[string]struct {
+		serverVersion         string
+		wantContainerRequests []corev1.ResourceList
+		wantPodRequests       corev1.ResourceList
+	}{
+		"1.37 aggregates the container LimitRange defaults": {
+			serverVersion: "1.37.0",
+			wantContainerRequests: []corev1.ResourceList{
+				{corev1.ResourceCPU: resource.MustParse("1")},
+				{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+			wantPodRequests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+		},
+		"1.36 defaults the pod-level requests before the container defaults": {
+			serverVersion: "1.36.4",
+			wantContainerRequests: []corev1.ResourceList{
+				{corev1.ResourceCPU: resource.MustParse("1")},
+				{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+			wantPodRequests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(limitRange).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+			controller, err := NewController(cl, &utiltesting.EventRecorder{}, nil,
+				WithServerVersionFetcher(fakeServerVersionFetcher{version: *versionutil.MustParseSemantic(tc.serverVersion)}))
+			if err != nil {
+				t.Fatalf("failed to create the controller: %v", err)
+			}
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Containers(containers...).
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					Obj()).
+				Obj()
+			count := int32(1)
+			psa := &kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: &count}
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			pt, err := controller.buildPodTemplate(ctx, wl, "ppt-1", &wl.Spec.PodSets[0], psa)
+			if err != nil {
+				t.Fatalf("failed to build the pod template: %v", err)
+			}
+
+			gotContainerRequests := make([]corev1.ResourceList, len(pt.Template.Spec.Containers))
+			for i := range pt.Template.Spec.Containers {
+				gotContainerRequests[i] = pt.Template.Spec.Containers[i].Resources.Requests
+			}
+			if diff := cmp.Diff(tc.wantContainerRequests, gotContainerRequests); diff != "" {
+				t.Errorf("Unexpected container requests (-want,+got):\n%s", diff)
+			}
+			if pt.Template.Spec.Resources == nil {
+				t.Fatal("expected pod-level resources on the pod template")
+			}
+			if diff := cmp.Diff(tc.wantPodRequests, pt.Template.Spec.Resources.Requests); diff != "" {
+				t.Errorf("Unexpected pod-level requests (-want,+got):\n%s", diff)
 			}
 		})
 	}

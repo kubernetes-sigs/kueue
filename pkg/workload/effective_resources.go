@@ -24,6 +24,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,6 +48,38 @@ type AdjustmentInputs struct {
 	// LimitRangeSummary is the summarized namespace LimitRange, or nil when
 	// the namespace has no container- or pod-type LimitRange items.
 	LimitRangeSummary limitrange.Summary
+	// LegacyPodLevelDefaulting selects the pod-level defaulting of API servers
+	// before 1.37: it runs before the container LimitRange defaults, and the
+	// requests defaulting only when the pod has pod-level limits (the hugepage
+	// limits defaulted from the container aggregates count as such). Starting
+	// with 1.37, the pod-level defaulting runs after admission and reads the
+	// container defaults.
+	LegacyPodLevelDefaulting bool
+}
+
+// podLevelDefaultingAfterAdmissionMinor is the 1.x API server minor version that
+// moved the pod-level request defaulting after admission
+// (PodLevelResourcesFixDefaulting). The gate is enabled by default and its state
+// is not observable by clients, so the server version decides which defaulting
+// order to mirror.
+const podLevelDefaultingAfterAdmissionMinor = 37
+
+// ServerVersionFetcher provides the version of the API server the effective
+// resources are computed for.
+type ServerVersionFetcher interface {
+	GetServerVersion() versionutil.Version
+}
+
+// UsesLegacyPodLevelDefaulting reports whether the given API server version
+// defaults the pod-level resources before the container LimitRange defaults.
+// An empty version (the fetcher has not reported one yet) is treated as 1.37+.
+func UsesLegacyPodLevelDefaulting(serverVersion versionutil.Version) bool {
+	components := serverVersion.Components()
+	if len(components) < 2 {
+		// The fetcher has not reported a version yet; assume the current behavior.
+		return false
+	}
+	return components[0] < 1 || (components[0] == 1 && components[1] < podLevelDefaultingAfterAdmissionMinor)
 }
 
 // ResolveAdjustmentInputs reads the RuntimeClasses and LimitRanges the
@@ -82,22 +115,36 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 		}
 	}
 
-	var limitRanges corev1.LimitRangeList
-	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+	summary, err := ResolveLimitRangeSummary(ctx, cl, wl.Namespace)
+	if err != nil {
 		errs = append(errs, err)
-	} else if len(limitRanges.Items) > 0 {
-		in.LimitRangeSummary = limitrange.Summarize(limitRanges.Items...)
+	} else {
+		in.LimitRangeSummary = summary
 	}
 
 	return in, errs
 }
 
+// ResolveLimitRangeSummary reads and summarizes the container- and pod-type
+// LimitRange items of a namespace, or returns nil when it has none. It relies
+// on the LimitRange field index the Kueue controllers set up.
+func ResolveLimitRangeSummary(ctx context.Context, cl client.Client, namespace string) (limitrange.Summary, error) {
+	var limitRanges corev1.LimitRangeList
+	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
+		return nil, err
+	}
+	if len(limitRanges.Items) == 0 {
+		return nil, nil
+	}
+	return limitrange.Summarize(limitRanges.Items...), nil
+}
+
 // applyAdjustmentsToPodSpec rewrites the given PodSpec into its effective
 // form: RuntimeClass overhead, limits copied into missing requests (mirroring
-// API-server object defaulting), the container LimitRange defaults (mirroring
-// the LimitRanger admission plugin), the pod-level defaults (mirroring the API
-// server, which defers them until after admission), and finally the pod-level
-// LimitRange defaults.
+// API-server object defaulting), the container LimitRange defaults and the
+// pod-level defaults (mirroring the API server and the LimitRanger admission
+// plugin, in the order the cluster's server applies them), and finally the
+// pod-level LimitRange defaults.
 func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 	if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found {
@@ -107,24 +154,7 @@ func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 
 	UseLimitsAsMissingRequestsInPod(podSpec)
 
-	if in.LimitRangeSummary != nil {
-		if containerLimits, found := in.LimitRangeSummary[corev1.LimitTypeContainer]; found {
-			for ci := range podSpec.InitContainers {
-				res := &podSpec.InitContainers[ci].Resources
-				res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-				res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
-			}
-			for ci := range podSpec.Containers {
-				res := &podSpec.Containers[ci].Resources
-				res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-				res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
-			}
-		}
-	}
-
-	// The API server defers the pod-level defaulting until after admission, so
-	// the container defaults above are part of the aggregate it reads.
-	DefaultPodLevelRequests(podSpec)
+	ApplyLimitRangeAndPodLevelDefaults(podSpec, in)
 
 	// Pod-level resources (KEP-2837) are an optional pointer, only set when
 	// the PodLevelResources feature is enabled and used.
@@ -133,6 +163,53 @@ func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
 			podSpec.Resources.Limits = resource.MergeResourceListKeepFirst(podSpec.Resources.Limits, podLimits.Default)
 			podSpec.Resources.Requests = resource.MergeResourceListKeepFirst(podSpec.Resources.Requests, podLimits.DefaultRequest)
 		}
+	}
+}
+
+// ApplyLimitRangeAndPodLevelDefaults applies the container LimitRange defaults and
+// the pod-level defaulting to the pod spec, mirroring the order the API server
+// applies them in: 1.37 and newer default the pod-level resources after
+// admission, so the aggregates they derive from include the container defaults;
+// the older servers default the pod-level resources first, and only run the
+// pod-level request defaulting when the pod has pod-level limits (the hugepage
+// limits defaulted from the container aggregates count as such).
+func ApplyLimitRangeAndPodLevelDefaults(podSpec *corev1.PodSpec, in AdjustmentInputs) {
+	if in.LegacyPodLevelDefaulting {
+		if podSpec.Resources != nil {
+			DefaultHugePagePodLevelLimits(podSpec)
+			if len(podSpec.Resources.Limits) > 0 {
+				DefaultPodLevelRequests(podSpec)
+			}
+		}
+		applyContainerLimitRangeDefaults(podSpec, in.LimitRangeSummary)
+		return
+	}
+	// The API server defers the pod-level defaulting until after admission, so
+	// the container defaults below are part of the aggregates it reads.
+	applyContainerLimitRangeDefaults(podSpec, in.LimitRangeSummary)
+	DefaultHugePagePodLevelLimits(podSpec)
+	DefaultPodLevelRequests(podSpec)
+}
+
+// applyContainerLimitRangeDefaults applies the container-type LimitRange defaults
+// the LimitRanger admission plugin would set on the pod's (init) containers.
+func applyContainerLimitRangeDefaults(podSpec *corev1.PodSpec, summary limitrange.Summary) {
+	if summary == nil {
+		return
+	}
+	containerLimits, found := summary[corev1.LimitTypeContainer]
+	if !found {
+		return
+	}
+	for ci := range podSpec.InitContainers {
+		res := &podSpec.InitContainers[ci].Resources
+		res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+	}
+	for ci := range podSpec.Containers {
+		res := &podSpec.Containers[ci].Resources
+		res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
 	}
 }
 
@@ -150,6 +227,13 @@ func EffectivePodSpecs(wl *kueue.Workload, in AdjustmentInputs) []corev1.PodSpec
 // WithAdjustmentInputs supplies the external defaults used to derive effective resources.
 func WithAdjustmentInputs(in AdjustmentInputs) InfoOption {
 	return func(o *InfoOptions) { o.adjustmentInputs = in }
+}
+
+// WithServerVersionFetcher makes the effective resources follow the pod-level
+// defaulting of the API server the workload is reconciled against. Without a
+// fetcher the current server behavior is assumed.
+func WithServerVersionFetcher(f ServerVersionFetcher) InfoOption {
+	return func(o *InfoOptions) { o.serverVersionFetcher = f }
 }
 
 // NewInfoFromClient resolves resource defaults before constructing an Info.
@@ -171,6 +255,9 @@ func (i *Info) UpdateFromClient(ctx context.Context, cl client.Client, wl *kueue
 	log := ctrl.LoggerFrom(ctx)
 	if options.effectivePodSpecs == nil {
 		in, errs := ResolveAdjustmentInputs(ctx, cl, wl)
+		if options.serverVersionFetcher != nil {
+			in.LegacyPodLevelDefaulting = UsesLegacyPodLevelDefaulting(options.serverVersionFetcher.GetServerVersion())
+		}
 		for _, err := range errs {
 			log.Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
 		}
