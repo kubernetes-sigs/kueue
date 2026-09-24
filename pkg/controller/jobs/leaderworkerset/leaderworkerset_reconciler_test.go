@@ -1809,8 +1809,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"should sync pods ready min count annotation while ungating current revision pods during a statefulSet rollout": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.WaitForPodsReadyMinPods:       true,
+				features.WorkloadIdentifierAnnotations:    false,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).
@@ -1958,8 +1958,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"should sync pods ready min count annotation on succeeded pod": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.WaitForPodsReadyMinPods:       true,
+				features.WorkloadIdentifierAnnotations:    false,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				UID(testLWS).

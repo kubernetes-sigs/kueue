@@ -245,7 +245,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("2").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: true,
 		},
@@ -256,7 +256,7 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("2").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: true,
 		},
@@ -269,7 +269,7 @@ func TestPodsReady(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.PodIntegrationCountSucceededPodsAsReady: true,
-				features.WaitForPodsReadyMinPods:                 true,
+				features.WaitForPodsReadyMinThresholdPods:        true,
 			},
 			want: true,
 		},
@@ -281,7 +281,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("2").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: false,
+				features.WaitForPodsReadyMinThresholdPods: false,
 			},
 			want: false,
 		},
@@ -293,7 +293,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("2").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: false,
 		},
@@ -305,7 +305,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("3").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: false,
 		},
@@ -317,7 +317,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: false,
 		},
@@ -329,7 +329,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("0").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: false,
 		},
@@ -341,7 +341,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("-1").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: false,
 		},
@@ -353,7 +353,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("5").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: false,
 		},
@@ -365,7 +365,7 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("5").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: true,
 		},
@@ -377,7 +377,7 @@ func TestPodsReady(t *testing.T) {
 				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("invalid").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			want: false,
 		},
@@ -7514,7 +7514,7 @@ func TestReconciler(t *testing.T) {
 		},
 		"pod group with WaitForPodsReady marks workload PodsReady when GroupPodsReadyMinCount is met": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinPods: true,
+				features.WaitForPodsReadyMinThresholdPods: true,
 			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),

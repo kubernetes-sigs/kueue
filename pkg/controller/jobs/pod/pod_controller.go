@@ -542,7 +542,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 		return false
 	}
 	requiredCount := tc
-	if features.Enabled(features.WaitForPodsReadyMinPods) {
+	if features.Enabled(features.WaitForPodsReadyMinThresholdPods) {
 		requiredCount = p.groupPodsReadyMinCount(tc)
 	}
 

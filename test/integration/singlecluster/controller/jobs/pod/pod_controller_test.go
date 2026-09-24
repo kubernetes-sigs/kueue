@@ -3229,7 +3229,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 	})
 
 	ginkgo.It("should mark workload PodsReady when min pods count is reached and only evict on recoveryTimeout when ready pods drop below min count", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinPods, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinThresholdPods, true)
 		podGroupName := "pod-group-min-count"
 		pods := make([]*corev1.Pod, 3)
 		for i := range pods {
