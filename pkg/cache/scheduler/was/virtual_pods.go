@@ -21,6 +21,7 @@ package was
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -28,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -142,7 +142,7 @@ type CandidatePodOptions struct {
 // and any admission check updates.
 func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opts CandidatePodOptions) (*corev1.Pod, error) {
 	if wl == nil || ps == nil {
-		return nil, fmt.Errorf("workload and podset must be non-nil")
+		return nil, errors.New("workload and podset must be non-nil")
 	}
 
 	// get the nodeSelector from the podset
@@ -184,14 +184,12 @@ func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opt
 	// construct the candidate virtual pod
 
 	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        virtualPodName(wl.Name, string(ps.Name), replicaIdx),
-			Namespace:   wl.Namespace,
-			UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, ps.Name, replicaIdx)),
-			Labels:      maps.Clone(ps.Template.Labels),
-			Annotations: maps.Clone(ps.Template.Annotations),
-		},
-		Spec: *ps.Template.Spec.DeepCopy(),
+		Name:        virtualPodName(wl.Name, string(ps.Name), replicaIdx),
+		Namespace:   wl.Namespace,
+		UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, ps.Name, replicaIdx)),
+		Labels:      maps.Clone(ps.Template.Labels),
+		Annotations: maps.Clone(ps.Template.Annotations),
+		Spec:        *ps.Template.Spec.DeepCopy(),
 		Status: corev1.PodStatus{
 			Phase: corev1.PodPending,
 		},
@@ -230,14 +228,13 @@ func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opt
 	pod.Spec.Tolerations = tolerations
 
 	return pod, nil
-
 }
 
 // CandidateVirtualPodsForPodSet returns candidate virtual pods for all pods
 // for the specified PodSet.
 func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, opts CandidatePodOptions) ([]*corev1.Pod, error) {
 	if wl == nil || ps == nil {
-		return nil, fmt.Errorf("workload and podset must be non-nil")
+		return nil, errors.New("workload and podset must be non-nil")
 	}
 
 	pods := make([]*corev1.Pod, 0, ps.Count)
