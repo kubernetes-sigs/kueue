@@ -7281,3 +7281,154 @@ func TestElasticTASDoesNotDoubleCountReplacedSlice(t *testing.T) {
 		})
 	}
 }
+
+func TestCandidateVirtualPods(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+			Request(corev1.ResourceCPU, "1").
+			Labels(map[string]string{"app": "worker"}).
+			Annotations(map[string]string{"meta": "data"}).
+			NodeSelector(map[string]string{"arch": "amd64"}).
+			Toleration(corev1.Toleration{Key: "arch", Value: "amd64", Effect: corev1.TaintEffectNoSchedule}).
+			Obj()).
+		AdmissionChecks(
+			kueue.AdmissionCheckState{
+				Name:  "check-ready-1",
+				State: kueue.CheckStateReady,
+				PodSetUpdates: []kueue.PodSetUpdate{
+					{
+						Name:         kueue.DefaultPodSetName,
+						NodeSelector: map[string]string{"zone": "zone-a"},
+						Labels:       map[string]string{"injected-1": "true"},
+						Annotations:  map[string]string{"injected-ann-1": "val-1"},
+						Tolerations: []corev1.Toleration{
+							{Key: "zone", Value: "zone-a", Effect: corev1.TaintEffectNoSchedule},
+						},
+					},
+				},
+			},
+			kueue.AdmissionCheckState{
+				Name:  "check-ready-2",
+				State: kueue.CheckStateReady,
+				PodSetUpdates: []kueue.PodSetUpdate{
+					{
+						Name:         kueue.DefaultPodSetName,
+						NodeSelector: map[string]string{"region": "us-central1"},
+						Labels:       map[string]string{"injected-2": "true"},
+						Annotations:  map[string]string{"injected-ann-2": "val-2"},
+					},
+				},
+			},
+			kueue.AdmissionCheckState{
+				Name:  "check-pending",
+				State: kueue.CheckStatePending,
+				PodSetUpdates: []kueue.PodSetUpdate{
+					{
+						Name:         kueue.DefaultPodSetName,
+						NodeSelector: map[string]string{"ignored-key": "ignored-val"},
+						Labels:       map[string]string{"ignored-label": "true"},
+					},
+				},
+			},
+		).
+		Obj()
+	wlInfo := workload.NewInfo(log, wl)
+
+	t.Run("creates candidate pods for assigned count with ready updates and flavor labels", func(t *testing.T) {
+		assignment := Assignment{
+			PodSets: []PodSetAssignment{
+				{
+					Name:  kueue.DefaultPodSetName,
+					Count: 2,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
+					},
+					Status: *NewStatus(),
+				},
+			},
+		}
+
+		pods, err := assignment.CandidateVirtualPods(wlInfo, cq)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if len(pods) != 2 {
+			t.Fatalf("expected 2 candidate pods, got %d", len(pods))
+		}
+
+		wantNodeSelector := map[string]string{
+			"arch":   "amd64",
+			"zone":   "zone-a",
+			"region": "us-central1",
+			"flavor": "one",
+		}
+
+		for i, pod := range pods {
+			if diff := cmp.Diff(wantNodeSelector, pod.Spec.NodeSelector); diff != "" {
+				t.Errorf("pod[%d] nodeSelector mismatch (-want +got):\n%s", i, diff)
+			}
+			if pod.Labels["app"] != "worker" || pod.Labels["injected-1"] != "true" || pod.Labels["injected-2"] != "true" {
+				t.Errorf("pod[%d] missing expected labels: %v", i, pod.Labels)
+			}
+			if pod.Labels["ignored-label"] != "" {
+				t.Errorf("pod[%d] should not contain labels from non-ready admission check", i)
+			}
+			if pod.Labels[constants.PodSetLabel] != string(kueue.DefaultPodSetName) {
+				t.Errorf("pod[%d] missing PodSetLabel: %v", i, pod.Labels)
+			}
+			if pod.Annotations["meta"] != "data" || pod.Annotations["injected-ann-1"] != "val-1" || pod.Annotations["injected-ann-2"] != "val-2" {
+				t.Errorf("pod[%d] missing expected annotations: %v", i, pod.Annotations)
+			}
+			if pod.Annotations[kueue.WorkloadAnnotation] != "wl" {
+				t.Errorf("pod[%d] missing WorkloadAnnotation: %v", i, pod.Annotations)
+			}
+			if len(pod.Spec.Tolerations) != 2 {
+				t.Errorf("pod[%d] expected 2 tolerations, got %d", i, len(pod.Spec.Tolerations))
+			}
+		}
+	})
+
+	t.Run("returns conflict error when PodSetUpdate conflicts with PodSet nodeSelector", func(t *testing.T) {
+		conflictWL := utiltestingapi.MakeWorkload("wl-conflict", "default").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector(map[string]string{"arch": "amd64"}).
+				Obj()).
+			AdmissionChecks(
+				kueue.AdmissionCheckState{
+					Name:  "check-conflict",
+					State: kueue.CheckStateReady,
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{
+							Name:         kueue.DefaultPodSetName,
+							NodeSelector: map[string]string{"arch": "arm64"},
+						},
+					},
+				},
+			).
+			Obj()
+		conflictInfo := workload.NewInfo(log, conflictWL)
+
+		assignment := Assignment{
+			PodSets: []PodSetAssignment{
+				{
+					Name:  kueue.DefaultPodSetName,
+					Count: 1,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
+					},
+					Status: *NewStatus(),
+				},
+			},
+		}
+
+		_, err := assignment.CandidateVirtualPods(conflictInfo, cq)
+		if err == nil {
+			t.Fatal("expected error due to nodeSelector conflict, got nil")
+		}
+	})
+}
