@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters & RejectAll boolean (if preemptor doesn't pass).
+// NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters & RejectAll boolean.
 // It returns (CandidateFilters{}, true) if the selector fails to compile and all the candidates should be rejected.
 func NewCandidateFilters(
 	log logr.Logger,

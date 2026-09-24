@@ -174,7 +174,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 			candidate: wlWithLabels(map[string]string{"other": "123"}),
 			wantMatch: false,
 		},
-		"Candidate missing label with nil default is excluded": {
+		"Candidate missing label with nil fallback is excluded": {
 			constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 				Key:        "size",
 				Comparison: ptr.To(kueuealpha.LessThanOrEqual),
@@ -203,7 +203,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 			candidate: wlWithLabels(map[string]string{"size": "invalid-int"}),
 			wantMatch: true,
 		},
-		"Malformed candidate label with nil default is excluded": {
+		"Malformed candidate label with nil fallback is excluded": {
 			constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 				Key:        "size",
 				Comparison: ptr.To(kueuealpha.LessThanOrEqual),
@@ -222,7 +222,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 			candidate: wlWithLabels(nil),
 			wantMatch: true,
 		},
-		"Candidate with nil labels map and nil default is excluded": {
+		"Candidate with nil labels map and nil fallback is excluded": {
 			constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 				Key:        "size",
 				Comparison: ptr.To(kueuealpha.LessThanOrEqual),
@@ -407,7 +407,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 			candidate: wlWithLabels(map[string]string{"size": "8"}),
 			wantMatch: true,
 		},
-		"Unconstrained label: candidate missing label without default rejected": {
+		"Unconstrained label: candidate missing label without fallback rejected": {
 			constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 				Key: "size",
 			},
@@ -415,7 +415,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 			candidate: wlWithLabels(map[string]string{"other": "123"}),
 			wantMatch: false,
 		},
-		"Unconstrained label: candidate missing label with default matches": {
+		"Unconstrained label: candidate missing label with fallback matches": {
 			constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 				Key:           "size",
 				FallbackValue: ptr.To[int32](8),
@@ -436,7 +436,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 			candidate: wlWithLabels(nil),
 			wantMatch: true,
 		},
-		"Malformed label: float string fails integer parsing and falls back to default": {
+		"Malformed label: float string fails integer parsing and falls back to fallback value": {
 			constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 				Key:           "size",
 				FallbackValue: ptr.To[int32](4),
@@ -446,7 +446,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 			candidate: wlWithLabels(map[string]string{"size": "3.14"}),
 			wantMatch: true,
 		},
-		"Malformed label: integer overflow string fails parsing and falls back to default": {
+		"Malformed label: integer overflow string fails parsing and falls back to fallback value": {
 			constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
 				Key:           "size",
 				FallbackValue: ptr.To[int32](4),

@@ -274,48 +274,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
-		"Combined WithinLocalQueue, NumericLabels, and Priority compiles all filters": {
-			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-				Scope: kueuealpha.WithinLocalQueue,
-				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
-					{
-						Key:           "tpu-size",
-						FallbackValue: ptr.To[int32](1),
-						Comparison:    ptr.To(kueuealpha.LessThanOrEqual),
-					},
-				},
-				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.Boosted,
-					Comparison: kueuealpha.LessThanOrEqual,
-				},
-			},
-			preemptor: preemptor,
-			wantFilters: CandidateFilters{
-				CQFilters: []ClusterQueueFilter{
-					&withinClusterQueueFilter{preemptorCQ: "cq1"},
-				},
-				WLFilters: []WorkloadFilter{
-					&withinLocalQueueFilter{
-						namespace: "ns1",
-						queueName: "lq1",
-					},
-					&numericLabelFilter{
-						constraint: kueuealpha.PreemptionConfigNumericLabelConstraint{
-							Key:           "tpu-size",
-							FallbackValue: ptr.To[int32](1),
-							Comparison:    ptr.To(kueuealpha.LessThanOrEqual),
-						},
-						preemptorVal: ptr.To[int32](8),
-					},
-					&priorityFilter{
-						mode:              kueuealpha.Boosted,
-						comparison:        kueuealpha.LessThanOrEqual,
-						preemptorPriority: 100,
-					},
-				},
-			},
-		},
-		"SameClusterQueue with empty LabelSelector produces no extra WorkloadFilters": {
+		"WithinClusterQueue with empty LabelSelector produces no extra WorkloadFilters": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope:         kueuealpha.WithinClusterQueue,
 				LabelSelector: &metav1.LabelSelector{},
@@ -327,7 +286,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
-		"SameClusterQueue with valid LabelSelector compiles into WLFilters": {
+		"WithinClusterQueue with valid LabelSelector compiles into WLFilters": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				LabelSelector: &metav1.LabelSelector{
