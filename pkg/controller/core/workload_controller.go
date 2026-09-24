@@ -1789,6 +1789,9 @@ func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
 	h.handle(ctx, e.Object, q)
+	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
+		h.notifyForLimitRangeSchedulingChange(ctx, nil, lr)
+	}
 }
 
 func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1798,7 +1801,7 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	h.handle(ctx, e.ObjectNew, q)
 	if oldLr, isLr := e.ObjectOld.(*corev1.LimitRange); isLr {
 		if newLr, isNewLr := e.ObjectNew.(*corev1.LimitRange); isNewLr {
-			h.notifyForLimitRangeConstraintsChange(ctx, oldLr, newLr)
+			h.notifyForLimitRangeSchedulingChange(ctx, oldLr, newLr)
 		}
 	}
 }
@@ -1809,37 +1812,43 @@ func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent
 	log.V(5).Info("Delete event")
 	h.handle(ctx, e.Object, q)
 	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
-		h.notifyForLimitRangeConstraintsChange(ctx, lr, nil)
+		h.notifyForLimitRangeSchedulingChange(ctx, lr, nil)
 	}
 }
 
 func (h *resourceUpdatesHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-// notifyForLimitRangeConstraintsChange requeues the inadmissible workloads of
-// the LimitRange's namespace when the constraint fields changed. A deletion is
-// passed as a nil newLr.
-func (h *resourceUpdatesHandler) notifyForLimitRangeConstraintsChange(ctx context.Context, oldLr, newLr *corev1.LimitRange) {
-	if !limitRangeConstraintsChanged(oldLr, newLr) {
+// notifyForLimitRangeSchedulingChange requeues the inadmissible workloads of
+// the LimitRange's namespace when fields used by resource adjustment or
+// admission validation changed. This also records the change for workloads
+// currently checked out by the scheduler, so they return to the active queue
+// instead of becoming inadmissible based on a stale evaluation.
+func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context.Context, oldLr, newLr *corev1.LimitRange) {
+	if !limitRangeSchedulingFieldsChanged(oldLr, newLr) {
 		return
 	}
-	var newLimits []corev1.LimitRangeItem
+	lr := newLr
+	if lr == nil {
+		lr = oldLr
+	}
+	var oldLimits, newLimits []corev1.LimitRangeItem
+	if oldLr != nil {
+		oldLimits = oldLr.Spec.Limits
+	}
 	if newLr != nil {
 		newLimits = newLr.Spec.Limits
 	}
-	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange constraint fields changed",
-		"limitRange", klog.KObj(oldLr),
-		"oldLimits", oldLr.Spec.Limits, "newLimits", newLimits)
-	h.retryInadmissibleForNamespace(ctx, oldLr.Namespace)
+	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange scheduling fields changed",
+		"limitRange", klog.KObj(lr),
+		"oldLimits", oldLimits, "newLimits", newLimits)
+	h.retryInadmissibleForNamespace(ctx, lr.Namespace)
 }
 
-// limitRangeConstraintsChanged reports whether any of the LimitRange spec
-// fields the admission-time validation consults (max, min,
-// maxLimitRequestRatio) changed. Unlike default and defaultRequest, these
-// fields do not alter the workloads' adjusted resources, so a change to them
-// is invisible to the spec-diff based requeue in queueReconcileForPending.
-// A nil LimitRange stands for the object not existing (deletion).
-func limitRangeConstraintsChanged(oldLr, newLr *corev1.LimitRange) bool {
+// limitRangeSchedulingFieldsChanged reports whether any LimitRange field used
+// to compute effective resources or validate admission changed. A nil
+// LimitRange stands for the object not existing (creation or deletion).
+func limitRangeSchedulingFieldsChanged(oldLr, newLr *corev1.LimitRange) bool {
 	var oldItems, newItems []corev1.LimitRangeItem
 	if oldLr != nil {
 		oldItems = oldLr.Spec.Limits
@@ -1854,6 +1863,8 @@ func limitRangeConstraintsChanged(oldLr, newLr *corev1.LimitRange) bool {
 		if oldItems[i].Type != newItems[i].Type ||
 			!equality.Semantic.DeepEqual(oldItems[i].Max, newItems[i].Max) ||
 			!equality.Semantic.DeepEqual(oldItems[i].Min, newItems[i].Min) ||
+			!equality.Semantic.DeepEqual(oldItems[i].Default, newItems[i].Default) ||
+			!equality.Semantic.DeepEqual(oldItems[i].DefaultRequest, newItems[i].DefaultRequest) ||
 			!equality.Semantic.DeepEqual(oldItems[i].MaxLimitRequestRatio, newItems[i].MaxLimitRequestRatio) {
 			return true
 		}
