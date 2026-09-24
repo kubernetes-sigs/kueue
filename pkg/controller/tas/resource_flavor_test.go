@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -32,6 +33,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -362,6 +364,126 @@ func TestRfReconciler_Reconcile(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantInadmissible, queues.DumpInadmissible()); diff != "" {
 				t.Errorf("Unexpected inadmissible workloads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDRADeviceHandler(t *testing.T) {
+	testCases := map[string]struct {
+		event       any
+		wantRequeue []reconcile.Request
+	}{
+		"ResourceSlice created": {
+			event:       event.CreateEvent{Object: utiltesting.MakeResourceSlice("slice", "driver").Obj()},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"DeviceClass created": {
+			event:       event.CreateEvent{Object: testingdra.MakeDeviceClass("class").Obj()},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"ResourceClaim created": {
+			event: event.CreateEvent{Object: utiltesting.MakeResourceClaim("claim", "ns").Obj()},
+		},
+		"DeviceTaintRule created": {
+			event:       event.CreateEvent{Object: utiltesting.MakeDeviceTaintRule("rule", "key").Obj()},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"ResourceSlice updated": {
+			event: event.UpdateEvent{
+				ObjectOld: utiltesting.MakeResourceSlice("slice", "driver").Obj(),
+				ObjectNew: utiltesting.MakeResourceSlice("slice", "driver").Obj(),
+			},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"DeviceClass updated": {
+			event: event.UpdateEvent{
+				ObjectOld: testingdra.MakeDeviceClass("class").Obj(),
+				ObjectNew: testingdra.MakeDeviceClass("class").Obj(),
+			},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"DeviceTaintRule updated": {
+			event: event.UpdateEvent{
+				ObjectOld: utiltesting.MakeDeviceTaintRule("rule", "key").Obj(),
+				ObjectNew: utiltesting.MakeDeviceTaintRule("rule", "key").Obj(),
+			},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"ResourceClaim deallocated": {
+			event: event.UpdateEvent{
+				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+			},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"ResourceClaim allocated": {
+			event: event.UpdateEvent{
+				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+			},
+		},
+		"ResourceClaim updated while allocated": {
+			event: event.UpdateEvent{
+				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj(),
+			},
+		},
+		"ResourceClaim updated while unallocated": {
+			event: event.UpdateEvent{
+				ObjectOld: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+				ObjectNew: utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+			},
+		},
+		"ResourceSlice deleted": {
+			event:       event.DeleteEvent{Object: utiltesting.MakeResourceSlice("slice", "driver").Obj()},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"DeviceClass deleted": {
+			event:       event.DeleteEvent{Object: testingdra.MakeDeviceClass("class").Obj()},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"DeviceTaintRule deleted": {
+			event:       event.DeleteEvent{Object: utiltesting.MakeDeviceTaintRule("rule", "key").Obj()},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"allocated ResourceClaim deleted": {
+			event:       event.DeleteEvent{Object: utiltesting.MakeResourceClaim("claim", "ns").Allocated("gpu", "driver", "pool", "gpu-0").Obj()},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+		"unallocated ResourceClaim deleted": {
+			event: event.DeleteEvent{Object: utiltesting.MakeResourceClaim("claim", "ns").Obj()},
+		},
+		"ResourceClaim deleted with unknown final state": {
+			event: event.DeleteEvent{
+				Object:             utiltesting.MakeResourceClaim("claim", "ns").Obj(),
+				DeleteStateUnknown: true,
+			},
+			wantRequeue: []reconcile.Request{{Name: "tas-flavor"}},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("default").Levels(corev1.LabelHostname).Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName("default").Obj())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default-flavor").Obj())
+			h := &draDeviceHandler{cache: cache}
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			switch e := tc.event.(type) {
+			case event.CreateEvent:
+				h.Create(ctx, e, q)
+			case event.UpdateEvent:
+				h.Update(ctx, e, q)
+			case event.DeleteEvent:
+				h.Delete(ctx, e, q)
+			}
+
+			if diff := cmp.Diff(tc.wantRequeue, q.Items); diff != "" {
+				t.Errorf("Unexpected requeued flavors (-want,+got):\n%s", diff)
 			}
 		})
 	}

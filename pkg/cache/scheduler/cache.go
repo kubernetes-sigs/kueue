@@ -111,7 +111,7 @@ func WithFairSharing(enabled bool) Option {
 
 func WithDeviceTaintRules(served bool) Option {
 	return func(c *Cache) {
-		c.deviceTaintRules = served
+		c.deviceTaintRulesServed = served
 	}
 }
 
@@ -178,8 +178,8 @@ type Cache struct {
 	draBackedResources *dra.ExtendedResourceCache
 	// draSelectorsCache is the Cache's own, built lazily on first use.
 	draSelectorsCache schddra.CELCache
-	// deviceTaintRules is whether the cluster serves DeviceTaintRules, decided at startup.
-	deviceTaintRules bool
+	// deviceTaintRulesServed is whether the cluster serves DeviceTaintRules, decided at startup.
+	deviceTaintRulesServed bool
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -263,6 +263,12 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 			c.podsReadyCond.Wait()
 		}
 	}
+}
+
+// DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
+// once at startup.
+func (c *Cache) DeviceTaintRulesServed() bool {
+	return c.deviceTaintRulesServed
 }
 
 // PodsReadyTracking reports whether the cache maintains each ClusterQueue's
