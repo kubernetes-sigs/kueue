@@ -980,6 +980,10 @@ const (
 	// for previously admitted workloads to reach PodsReady condition under waitForPodsReady configuration.
 	WorkloadQuotaReservedReasonWaitingForPodsReady = "WaitingForPodsReady"
 
+	// WorkloadQuotaReservedReasonDRAResourcesNotResolved indicates that quota reservation
+	// failed because the workload's DRA resources could not be resolved.
+	WorkloadQuotaReservedReasonDRAResourcesNotResolved = "DRAResourcesNotResolved"
+
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 
@@ -1154,6 +1158,10 @@ const (
 	// WorkloadLocalQueueRestarted indicates that the workload was requeued because
 	// local queue was restarted after being stopped.
 	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
+
+	// WorkloadDRAResourcesNotResolved indicates that the workload was not requeued
+	// because its DRA resources could not be resolved.
+	WorkloadDRAResourcesNotResolved = "DRAResourcesNotResolved"
 
 	// WorkloadDRAResourcesResolved indicates that the workload was requeued because
 	// its DRA resources were resolved after a previous inadmissible marking.
