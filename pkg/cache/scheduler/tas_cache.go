@@ -40,12 +40,12 @@ type tasCache struct {
 	flavorCache       map[kueue.ResourceFlavorReference]*TASFlavorCache
 	resourceFormatter *resources.ResourceFormatter
 
-	nonTasUsageCache    *nonTasUsageCache
-	nodesCache          *nodesCache
-	schedulingSimulator simulator.SchedulingSimulator
+	nonTasUsageCache *nonTasUsageCache
+	nodesCache       *nodesCache
+	simulatorFactory simulator.Factory
 }
 
-func NewTASCache(client client.Client, schedulingSimulator simulator.SchedulingSimulator, resourceFormatter *resources.ResourceFormatter) tasCache {
+func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resourceFormatter *resources.ResourceFormatter) tasCache {
 	return tasCache{
 		client:            client,
 		flavors:           make(map[kueue.ResourceFlavorReference]flavorInformation),
@@ -57,8 +57,8 @@ func NewTASCache(client client.Client, schedulingSimulator simulator.SchedulingS
 			nodeUsage: make(map[string]resources.Requests),
 			lock:      sync.RWMutex{},
 		},
-		nodesCache:          newNodesCache(),
-		schedulingSimulator: schedulingSimulator,
+		nodesCache:       newNodesCache(),
+		simulatorFactory: simulatorFactory,
 	}
 }
 

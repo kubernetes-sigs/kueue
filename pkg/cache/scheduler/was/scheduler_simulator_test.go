@@ -78,9 +78,9 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			sim, err := NewWASSimulatorForTest(ctx)
+			simulatorFactory, err := NewWASSimulatorFactoryForTest(ctx)
 			if err != nil {
-				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+				t.Fatalf("NewWASSimulatorFactoryForTest failed: %v", err)
 			}
 
 			candidates := func(yield func(simulator.Candidate) bool) {
@@ -91,13 +91,13 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 				}
 			}
 
-			checker, err := sim.NewFeasibilityChecker(ctx, tc.nodes)
+			schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, tc.nodes)
 			if err != nil {
-				t.Fatalf("NewFeasibilityChecker failed: %v", err)
+				t.Fatalf("NewSimulator failed: %v", err)
 			}
 
 			origSpec := *tc.candidatePod.Spec.DeepCopy()
-			results, err := checker.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+			results, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 				PodTemplate: &tc.candidatePod,
 			}, &simulator.NodeExclusionStats{})
 			if err != nil {

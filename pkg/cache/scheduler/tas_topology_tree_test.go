@@ -176,7 +176,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 			for _, n := range []*corev1.Node{
 				makeTreeTestNode("n1", "b1", "r1"),
 				makeTreeTestNode("n2", "b1", "r1"),
@@ -228,7 +228,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -266,7 +266,7 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, false)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -293,7 +293,7 @@ func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -327,7 +327,7 @@ func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -431,7 +431,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 			tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 			tasCache.SyncNode(makeTreeTestNode("n2", "b2", "r2"))
 			fc := tasCache.NewTASFlavorCache(
@@ -505,7 +505,7 @@ func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
 	_, log := utiltesting.ContextWithLog(t)
 	// Validate each domain's index against the per-snapshot domain state addressed
 	// by domain.idx.
-	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, &defaultChecker{})
+	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, newDefaultSimulator())
 	seen := make(map[int]*domain, tree.domainCount)
 	for _, levelDomains := range tree.domainsPerLevel {
 		for _, dom := range levelDomains {

@@ -4121,11 +4121,11 @@ func TestScheduleForTAS(t *testing.T) {
 					recorder := &utiltesting.EventRecorder{}
 					cacheOptions := []schdcache.Option{schdcache.WithResourceTransformations(tc.resourceTransformations)}
 					if features.Enabled(features.SchedulerLibraryIntegration) {
-						sim, err := was.NewWASSimulatorForTest(ctx)
+						simulatorFactory, err := was.NewWASSimulatorFactoryForTest(ctx)
 						if err != nil {
 							t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
 						}
-						cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(sim))
+						cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(simulatorFactory))
 					}
 					cqCache := schdcache.New(cl, cacheOptions...)
 					fakeClock := testingclock.NewFakeClock(now)
