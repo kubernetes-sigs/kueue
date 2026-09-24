@@ -194,7 +194,9 @@ endef
 
 .PHONY: verify-artifacts
 verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-verify-artifacts: verify-tree-prereqs verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Build artifacts after ensuring generated code is up to date.
+verify-artifacts: verify-tree-prereqs verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after ensuring generated code is up to date.
+	$(_helm_chart_package_recipe)
+	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
 
 .PHONY: verify-ci-lint
