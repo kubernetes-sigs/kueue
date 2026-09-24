@@ -523,7 +523,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 
 	shouldUngate := lws == nil || utilstatefulset.ShouldUngatePod(sts, pod)
 	isActive := !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil
-	canSyncMinCount := lws != nil && pod.DeletionTimestamp == nil && features.Enabled(features.WaitForPodsReadyMinThresholdPods)
+	canSyncMinCount := lws != nil && features.Enabled(features.WaitForPodsReadyMinReadyCount)
 	if !shouldUngate && !isActive && !canSyncMinCount {
 		return nil
 	}

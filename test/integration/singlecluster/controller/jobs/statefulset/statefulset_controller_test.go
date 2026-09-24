@@ -559,7 +559,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 	})
 
 	ginkgo.It("Should propagate and sync GroupPodsReadyMinCountAnnotation from StatefulSet to its Pods when updated", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinThresholdPods, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinReadyCount, true)
 
 		ginkgo.By("Creating a StatefulSet with GroupPodsReadyMinCountAnnotation=2")
 		sts := testingstatefulset.MakeStatefulSet("test-sts-min-pods", ns.Name).
