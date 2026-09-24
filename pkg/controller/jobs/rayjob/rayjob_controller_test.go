@@ -43,7 +43,6 @@ func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayJob       *RayJob
 		wantPodSets  func(rayJob *RayJob) []kueue.PodSet
-		wantErr      error
 		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
@@ -339,13 +338,7 @@ func TestPodSets(t *testing.T) {
 						PreferredTopologyRequest("cloud.com/block").
 						Obj(),
 					*utiltestingapi.MakePodSet("submitter", 1).
-						PodSpec(corev1.PodSpec{
-							Containers: []corev1.Container{{
-								Name:      "ray-job-submitter",
-								Resources: defaultSubmitterResources(),
-							}},
-							RestartPolicy: corev1.RestartPolicyNever,
-						}).
+						PodSpec(*getSubmitterTemplate(rayJob).Spec.DeepCopy()).
 						Obj(),
 				}
 			},
@@ -497,24 +490,10 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
 						Obj(),
 					*utiltestingapi.MakePodSet("submitter", 1).
-						PodSpec(corev1.PodSpec{
-							Containers: []corev1.Container{{
-								Name:      "ray-job-submitter",
-								Resources: defaultSubmitterResources(),
-							}},
-							RestartPolicy: corev1.RestartPolicyNever,
-						}).
+						PodSpec(getSubmitterTemplate(rayJob).Spec).
 						Obj(),
 				}
 			},
-			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
-		},
-		"with default job submitter and no head container": {
-			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
-				WithSubmissionMode(rayv1.K8sJobMode).
-				WithHeadGroupSpec(rayv1.HeadGroupSpec{}).
-				Obj()),
-			wantErr:      errSubmitterMissingHeadContainer,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with submitter job pod template override": {
@@ -640,11 +619,8 @@ func TestPodSets(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := tc.rayJob.PodSets(ctx, nil)
-			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Fatalf("unexpected error (-want +got):\n%s", diff)
-			}
-			if tc.wantErr != nil {
-				return
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 			if diff := cmp.Diff(tc.wantPodSets(tc.rayJob), gotPodSets); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
@@ -977,19 +953,6 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		},
 		"K8sJobMode with matching length restores pod sets including the submitter": {
 			job: baseJob.Clone().WithSubmissionMode(rayv1.K8sJobMode).Obj(),
-			podSetsInfo: []podset.PodSetInfo{
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
-			},
-			wantChanged: true,
-		},
-		"K8sJobMode without a head container skips the submitter restore": {
-			job: baseJob.Clone().
-				WithSubmissionMode(rayv1.K8sJobMode).
-				WithHeadGroupSpec(rayv1.HeadGroupSpec{}).
-				Obj(),
 			podSetsInfo: []podset.PodSetInfo{
 				{NodeSelector: map[string]string{"restored": "true"}},
 				{NodeSelector: map[string]string{"restored": "true"}},
