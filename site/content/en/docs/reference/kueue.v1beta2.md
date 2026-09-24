@@ -2609,17 +2609,20 @@ result in failure during workload admission.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>size indicates the number of pods in each equal group at this slice layer.</p>
+   <p>size indicates the number of pods in each equal chunk at this topology
+level.</p>
 </td>
 </tr>
 <tr><td><code>sizes</code><br/>
 <code>[]int32</code>
 </td>
 <td>
-   <p>sizes indicates the exact pod counts to assign to distinct domains at this
-topology level. Each entry is placed in its own domain, and list order
-defines contiguous pod-rank blocks: entry i owns the next sizes[i] ranks.
-The sum must equal the PodSet count.</p>
+   <p>sizes lists the pod count of each chunk at this topology level, for
+chunks that are not all the same size. Each chunk is placed within one
+domain; chunks may share a domain. The sum must equal the chunk size of
+the layer above, or the PodSet count for the first layer.</p>
+<p>The order of the list carries no meaning, and duplicate values describe
+separate chunks of the same size.</p>
 <p>This field is alpha-level for the TASExactTopologyDistribution feature gate.</p>
 </td>
 </tr>

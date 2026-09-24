@@ -279,8 +279,9 @@ const (
 	// owner: @sumukha-radhakrishna
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13416-exact-topology-distribution
 	//
-	// Enable requesting an exact, potentially uneven distribution of pods across
-	// distinct topology domains via the `sizes` field on a slice constraint.
+	// Enable requesting co-location groups of different sizes via the `sizes`
+	// field on a slice constraint. Each chunk is kept within one topology
+	// domain, and chunks may share a domain, exactly as `size` behaves today.
 	TASExactTopologyDistribution featuregate.Feature = "TASExactTopologyDistribution"
 
 	// owner: @sohankunkerkar

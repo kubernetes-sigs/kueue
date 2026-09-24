@@ -378,6 +378,40 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("size"), nil, ""),
 			}.ToAggregate(),
 		},
+		"should accept podsetSliceRequiredTopologyConstraints that use sizes instead of size": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 8).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Sizes: []int32{1, 3, 4}}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should reject podsetSliceRequiredTopologyConstraints that set both size and sizes": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 8).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 4, Sizes: []int32{1, 3, 4}}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject a non-positive entry in podsetSliceRequiredTopologyConstraints sizes": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 8).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Sizes: []int32{4, 0, 4}}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("sizes").Index(1), nil, ""),
+			}.ToAggregate(),
+		},
 		"should accept non-positive podSetSliceSize when TASValidateWorkloadSliceSize is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASValidateWorkloadSliceSize: false,

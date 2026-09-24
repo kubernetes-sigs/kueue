@@ -31,10 +31,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
-// maxExactDistributionEntries mirrors the MaxItems marker on
+// maxSliceSizesEntries mirrors the MaxItems marker on
 // PodsetSliceRequiredTopologyConstraint.Sizes. The CRD enforces it for direct
 // Workload writes; the annotation path needs its own check.
-const maxExactDistributionEntries = 128
+const maxSliceSizesEntries = 128
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	var allErrs field.ErrorList
@@ -210,19 +210,30 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 					fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
 				))
 			}
-			// An exact distribution is the complete distribution: every pod in
-			// the PodSet belongs to exactly one entry, so the entries must sum
-			// to the count. Summed as int64 so a long list cannot overflow.
-			if len(constraints[0].Sizes) > 0 {
+			// A chunk list covers everything the layer above hands down: every
+			// pod in that region belongs to exactly one chunk, so the entries
+			// must sum to the layer above's size, or to the PodSet count when
+			// the chunk list is the first layer.
+			for i, c := range constraints {
+				if len(c.Sizes) == 0 {
+					continue
+				}
+				parent := podSet.Count
+				parentDesc := fmt.Sprintf("pod set count %d", podSet.Count)
+				if i > 0 {
+					parent = constraints[i-1].Size
+					parentDesc = fmt.Sprintf("parent layer size %d", parent)
+				}
+				// Summed as int64 so a long list cannot overflow.
 				var sum int64
-				for _, sz := range constraints[0].Sizes {
+				for _, sz := range c.Sizes {
 					sum += int64(sz)
 				}
-				if sum != int64(podSet.Count) {
+				if sum != int64(parent) {
 					allErrs = append(allErrs, field.Invalid(
 						annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
-						constraints[0].Sizes,
-						fmt.Sprintf("sizes must sum to the pod set count %d, got %d", podSet.Count, sum),
+						c.Sizes,
+						fmt.Sprintf("sizes must sum to the %s, got %d", parentDesc, sum),
 					))
 				}
 			}
@@ -401,8 +412,8 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 				allErrs = append(allErrs, field.Invalid(entryPath.Child("sizes").Index(j), sz, "must be greater than or equal to 1"))
 			}
 		}
-		if len(c.Sizes) > maxExactDistributionEntries {
-			allErrs = append(allErrs, field.TooMany(entryPath.Child("sizes"), len(c.Sizes), maxExactDistributionEntries))
+		if len(c.Sizes) > maxSliceSizesEntries {
+			allErrs = append(allErrs, field.TooMany(entryPath.Child("sizes"), len(c.Sizes), maxSliceSizesEntries))
 		}
 	}
 
@@ -411,11 +422,12 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 			allErrs = append(allErrs, field.Forbidden(fldPath,
 				fmt.Sprintf("the %s feature gate must be enabled to use 'sizes'", features.TASExactTopologyDistribution)))
 		}
-		// At alpha an exact distribution is the whole request: it cannot be
-		// combined with outer scalar layers, and only one entry may use sizes.
-		if len(constraints) > 1 {
+		// Layers above and below a chunk list use size as they do today, but a
+		// second chunk list would have to divide chunks that are already
+		// uneven, which has no well-defined meaning.
+		if exactEntries > 1 {
 			allErrs = append(allErrs, field.Invalid(fldPath, constraintsJSON,
-				"an entry using 'sizes' must be the only entry in the constraints list"))
+				"at most one entry in the constraints list may use 'sizes'"))
 		}
 	}
 
@@ -430,15 +442,33 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 		}
 	}
 
-	// Validate divisibility: each layer's size must evenly divide the layer above
-	// it. Only scalar layers participate; an entry using sizes is always alone.
+	// Validate divisibility: each layer's size must evenly divide the layer
+	// above it. When the layer above lists uneven chunks, the size must divide
+	// every one of them, since each chunk is cut up independently.
 	for i := range len(constraints) - 1 {
-		if constraints[i].Size > 0 && constraints[i+1].Size > 0 && constraints[i].Size%constraints[i+1].Size != 0 {
-			allErrs = append(allErrs, field.Invalid(fldPath.Index(i+1).Child("size"),
-				constraints[i+1].Size,
-				fmt.Sprintf("must evenly divide the parent layer size %d", constraints[i].Size)))
+		child := constraints[i+1].Size
+		if child <= 0 {
+			// The child layer lists chunks of its own; its sum is checked
+			// against the parent size in ValidateSliceSizeAnnotationUpperBound.
+			continue
+		}
+		for _, parentSize := range parentChunkSizes(constraints[i]) {
+			if parentSize > 0 && parentSize%child != 0 {
+				allErrs = append(allErrs, field.Invalid(fldPath.Index(i+1).Child("size"),
+					child,
+					fmt.Sprintf("must evenly divide the parent layer size %d", parentSize)))
+			}
 		}
 	}
 
 	return allErrs
+}
+
+// parentChunkSizes returns the chunk sizes a constraint layer produces: the
+// list itself when it uses sizes, otherwise its single repeated size.
+func parentChunkSizes(c kueue.PodsetSliceRequiredTopologyConstraint) []int32 {
+	if len(c.Sizes) > 0 {
+		return c.Sizes
+	}
+	return []int32{c.Size}
 }

@@ -262,16 +262,20 @@ type PodsetSliceRequiredTopologyConstraint struct {
 	// +kubebuilder:validation:MaxLength=63
 	Topology string `json:"topology,omitempty"`
 
-	// size indicates the number of pods in each equal group at this slice layer.
+	// size indicates the number of pods in each equal chunk at this topology
+	// level.
 	//
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	Size int32 `json:"size,omitempty"`
 
-	// sizes indicates the exact pod counts to assign to distinct domains at this
-	// topology level. Each entry is placed in its own domain, and list order
-	// defines contiguous pod-rank blocks: entry i owns the next sizes[i] ranks.
-	// The sum must equal the PodSet count.
+	// sizes lists the pod count of each chunk at this topology level, for
+	// chunks that are not all the same size. Each chunk is placed within one
+	// domain; chunks may share a domain. The sum must equal the chunk size of
+	// the layer above, or the PodSet count for the first layer.
+	//
+	// The order of the list carries no meaning, and duplicate values describe
+	// separate chunks of the same size.
 	//
 	// This field is alpha-level for the TASExactTopologyDistribution feature gate.
 	//

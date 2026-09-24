@@ -472,7 +472,14 @@ type topologyAssignmentPodRequirements struct {
 // relevant after domain capacities are computed.
 type topologyAssignmentParameters struct {
 	sliceSizeAtLevel      map[int]int32
-	sliceSize             int32
+
+	// sizesAtLevel maps a topology level index to the chunk list that cuts up
+	// each parent domain's pods at that level. It is empty unless an inner
+	// constraint layer uses sizes; a sizes list on the outermost layer is
+	// handled before the level walk starts.
+	sizesAtLevel map[int][]int32
+
+	sliceSize int32
 	count                 int32
 	leaderCount           int32
 	requestedLevelIdx     int
@@ -480,19 +487,6 @@ type topologyAssignmentParameters struct {
 	required              bool
 	unconstrained         bool
 	multiLayerConstraints []kueue.PodsetSliceRequiredTopologyConstraint
-
-	// exactGroupOrder maps a selected exact-level domain to the index of the
-	// sizes entry it holds. It is empty unless the request uses sizes.
-	//
-	// Assignment construction sorts leaves by this index first, so that the
-	// groups appear in the order the entries were written. The ungater hands
-	// out pod ranks in stored order, so group order is what gives each entry
-	// its contiguous rank block.
-	exactGroupOrder map[utiltas.TopologyDomainID]int
-
-	// exactLevelIdx is the topology level the sizes entries apply to. Only
-	// meaningful when exactGroupOrder is non-empty.
-	exactLevelIdx int
 }
 
 // findTopologyAssignmentState stores the derived state for a single run of the
@@ -961,11 +955,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("podset slice topology %s is above the podset topology %s", sliceTopologyKey, *topologyKey)
 	}
 
-	sliceSizeAtLevel, reason := s.buildSliceSizeAtLevel(workersTasPodSetRequests, state.sliceSize, state.sliceLevelIdx)
+	sliceSizeAtLevel, sizesAtLevel, reason := s.buildSliceSizeAtLevel(workersTasPodSetRequests, state.sliceSize, state.sliceLevelIdx)
 	if len(reason) > 0 {
 		return nil, reason
 	}
 	state.sliceSizeAtLevel = sliceSizeAtLevel
+	state.sizesAtLevel = sizesAtLevel
 
 	if len(sliceSizeAtLevel) > 0 {
 		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
@@ -1017,17 +1012,17 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
 
-	// phase 2a (exact): when the request carries a sizes list, match the entries
-	// to distinct domains at the exact level and skip the ordinary search. The
-	// domains chosen here become the assignment, and their order is recorded so
-	// that construction can lay out rank blocks in sizes order.
-	if exactSizes := exactDistributionSizes(workersTasPodSetRequests.PodSet.TopologyRequest); len(exactSizes) > 0 {
-		fitDomains, reason := s.findExactDistributionDomains(exactSizes, state)
+	// phase 2a (uneven chunks): when the outermost constraint layer lists chunk
+	// sizes, the ordinary search has no single slice size to work with, so the
+	// chunks are placed directly at that layer's level and the result is
+	// expanded down to the leaves by the existing placement.
+	if sizes := outermostSliceSizes(workersTasPodSetRequests.PodSet.TopologyRequest); len(sizes) > 0 {
+		fitDomains, reason := s.findSliceSizesDomains(sizes, state)
 		if len(reason) > 0 {
 			return nil, reason
 		}
 		assignments := make(map[kueue.PodSetReference]*utiltas.TopologyAssignment, 1)
-		assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(fitDomains, &state.topologyAssignmentParameters)
+		assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(fitDomains)
 		return assignments, ""
 	}
 
@@ -1082,6 +1077,22 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 				sliceSizeOnLevel = sz
 			}
 		}
+		// An inner layer listing uneven chunk sizes cuts each parent domain's
+		// pods into those chunks instead of into equal slices, so it replaces
+		// the uniform distribution for this level.
+		if chunks, ok := state.sizesAtLevel[currentLevelIdx+1]; ok {
+			newCurrFitDomain := make([]*domain, 0, len(currFitDomain))
+			for _, domain := range currFitDomain {
+				selected, reason := s.placeChunksInChildren(domain, chunks, state)
+				if len(reason) > 0 {
+					return nil, reason
+				}
+				newCurrFitDomain = append(newCurrFitDomain, selected...)
+			}
+			currFitDomain = newCurrFitDomain
+			continue
+		}
+
 		newCurrFitDomain := make([]*domain, 0)
 		for _, domain := range currFitDomain {
 			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained)
@@ -1124,11 +1135,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			}
 		}
 
-		assignments[leaderTasPodSetRequests.PodSet.Name] = s.buildAssignment(leaderFitDomains, &state.topologyAssignmentParameters)
+		assignments[leaderTasPodSetRequests.PodSet.Name] = s.buildAssignment(leaderFitDomains)
 		currFitDomain = workerFitDomains
 	}
 
-	assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(currFitDomain, &state.topologyAssignmentParameters)
+	assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(currFitDomain)
 
 	return assignments, ""
 }
@@ -1147,17 +1158,27 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 //  3. Fills all intermediate levels between the previous and current layer with
 //     this layer's size, ensuring that intermediate levels also distribute in
 //     multiples of the inner layer's size.
+//
+// A layer may instead list uneven chunk sizes. Such a layer has no single size
+// for the steps above, so it is recorded separately in the returned chunk map
+// and its entries must sum to the chunk size of the layer above.
 func (s *TASFlavorSnapshot) buildSliceSizeAtLevel(
 	workersTasPodSetRequests TASPodSetRequests,
 	sliceSize int32,
 	sliceLevelIdx int,
-) (map[int]int32, string) {
+) (map[int]int32, map[int][]int32, string) {
 	sliceSizeAtLevel := make(map[int]int32)
+	sizesAtLevel := make(map[int][]int32)
 	if workersTasPodSetRequests.PodSet.TopologyRequest == nil {
-		return sliceSizeAtLevel, ""
+		return sliceSizeAtLevel, sizesAtLevel, ""
 	}
 
-	prevSize := sliceSize
+	// prevSizes holds the chunk sizes produced by the layer above. A scalar
+	// layer produces one repeated size, so it is a single-entry list.
+	prevSizes := []int32{sliceSize}
+	if outer := utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest); len(outer) > 0 && len(outer[0].Sizes) > 0 {
+		prevSizes = outer[0].Sizes
+	}
 	prevLevelIdx := sliceLevelIdx
 
 	// Skip the first (outermost) constraint layer — it is already represented
@@ -1173,13 +1194,44 @@ func (s *TASFlavorSnapshot) buildSliceSizeAtLevel(
 	for _, layer := range innerLayers {
 		innerLevelIdx, innerFound := s.resolveLevelIdx(layer.Topology)
 		if !innerFound {
-			return nil, fmt.Sprintf("no requested topology level for additional slice layer: %s", layer.Topology)
+			return nil, nil, fmt.Sprintf("no requested topology level for additional slice layer: %s", layer.Topology)
 		}
 		if innerLevelIdx <= prevLevelIdx {
-			return nil, fmt.Sprintf("additional slice layer topology %s must be at a lower level than %s", layer.Topology, s.levelKeys[prevLevelIdx])
+			return nil, nil, fmt.Sprintf("additional slice layer topology %s must be at a lower level than %s", layer.Topology, s.levelKeys[prevLevelIdx])
 		}
-		if prevSize%layer.Size != 0 {
-			return nil, fmt.Sprintf("additional slice layer size %d must evenly divide parent layer size %d", layer.Size, prevSize)
+
+		if len(layer.Sizes) > 0 {
+			// The chunks are placed directly in the children of each domain at
+			// the layer above, so an intervening level would have to split a
+			// parent's pods before the chunks are formed, and a chunk could end
+			// up straddling two of those domains.
+			if innerLevelIdx != prevLevelIdx+1 {
+				return nil, nil, fmt.Sprintf("slice layer sizes at topology %s must be one level below %s, but %s is in between",
+					layer.Topology, s.levelKeys[prevLevelIdx], s.levelKeys[prevLevelIdx+1])
+			}
+			if len(prevSizes) != 1 {
+				return nil, nil, "only one slice layer may use sizes"
+			}
+			var sum int64
+			for _, sz := range layer.Sizes {
+				sum += int64(sz)
+			}
+			if sum != int64(prevSizes[0]) {
+				return nil, nil, fmt.Sprintf("slice layer sizes %v must sum to the parent layer size %d, got %d",
+					layer.Sizes, prevSizes[0], sum)
+			}
+			sizesAtLevel[innerLevelIdx] = layer.Sizes
+			prevSizes = layer.Sizes
+			prevLevelIdx = innerLevelIdx
+			continue
+		}
+
+		// A scalar layer must cut every chunk the layer above produced, which
+		// for a chunk list means dividing each entry evenly.
+		for _, parentSize := range prevSizes {
+			if parentSize%layer.Size != 0 {
+				return nil, nil, fmt.Sprintf("additional slice layer size %d must evenly divide parent layer size %d", layer.Size, parentSize)
+			}
 		}
 		// Fill all levels from prevLevelIdx+1 through innerLevelIdx
 		// so that intermediate levels also distribute in multiples
@@ -1187,11 +1239,11 @@ func (s *TASFlavorSnapshot) buildSliceSizeAtLevel(
 		for lvl := prevLevelIdx + 1; lvl <= innerLevelIdx; lvl++ {
 			sliceSizeAtLevel[lvl] = layer.Size
 		}
-		prevSize = layer.Size
+		prevSizes = []int32{layer.Size}
 		prevLevelIdx = innerLevelIdx
 	}
 
-	return sliceSizeAtLevel, ""
+	return sliceSizeAtLevel, sizesAtLevel, ""
 }
 
 func (s *TASFlavorSnapshot) HasLevel(r *kueue.PodSetTopologyRequest) bool {
@@ -1289,8 +1341,9 @@ func getSliceSizeWithSinglePodAsDefault(tr *kueue.PodSetTopologyRequest) (int32,
 		return 1, ""
 	}
 	if len(constraints[0].Sizes) > 0 {
-		// An exact distribution does not slice: each entry is placed whole in
-		// its own domain, and below that level pods are assigned individually.
+		// Uneven chunks have no single slice size. Placement for this layer
+		// happens in findSliceSizesDomains, which does not read this value, so
+		// report the neutral one rather than failing here.
 		return 1, ""
 	}
 	size := constraints[0].Size
@@ -1730,44 +1783,15 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 	return assignment
 }
 
-func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, params *topologyAssignmentParameters) *utiltas.TopologyAssignment {
-	if len(params.exactGroupOrder) > 0 {
-		// An exact distribution needs its groups emitted in sizes order, so the
-		// plain lexicographic sort would scramble the rank blocks. Order by
-		// group first and fall back to the usual comparison within a group,
-		// where all pods share a domain and the order carries no meaning.
-		slices.SortStableFunc(domains, func(a, b *domain) int {
-			ga, gb := s.exactGroupOf(a, params), s.exactGroupOf(b, params)
-			if ga != gb {
-				return cmp.Compare(ga, gb)
-			}
-			return s.compareDomainLevelValues(a, b)
-		})
-	} else {
-		// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
-		slices.SortFunc(domains, s.compareDomainLevelValues)
-	}
+func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *utiltas.TopologyAssignment {
+	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
+	slices.SortFunc(domains, s.compareDomainLevelValues)
 	levelIdx := 0
 	// assign only hostname values if topology defines it
 	if s.isLowestLevelNode {
 		levelIdx = len(s.levelKeys) - 1
 	}
 	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
-}
-
-// exactGroupOf reports the index of the sizes entry that owns the given domain,
-// found by truncating its level values at the exact level to identify its
-// ancestor. Domains outside any group sort last so a partial assignment cannot
-// silently interleave with the groups.
-func (s *TASFlavorSnapshot) exactGroupOf(d *domain, params *topologyAssignmentParameters) int {
-	if params.exactLevelIdx >= len(d.levelValues) {
-		return len(params.exactGroupOrder)
-	}
-	ancestor := utiltas.DomainID(d.levelValues[:params.exactLevelIdx+1])
-	if group, ok := params.exactGroupOrder[ancestor]; ok {
-		return group
-	}
-	return len(params.exactGroupOrder)
 }
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {

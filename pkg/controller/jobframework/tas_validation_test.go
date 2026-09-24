@@ -128,6 +128,94 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			},
 			wantErrNum: 1, // feature gate not enabled
 		},
+		"valid: sizes as the only layer": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[1,3,4]}]`,
+			},
+			wantErrNum: 0,
+		},
+		"valid: an outer size layer above a sizes layer": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/block","size":8},{"topology":"cloud.com/rack","sizes":[1,3,4]}]`,
+			},
+			wantErrNum: 0,
+		},
+		"valid: a size layer below a sizes layer that divides every chunk": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[4,2]},{"topology":"kubernetes.io/hostname","size":2}]`,
+			},
+			wantErrNum: 0,
+		},
+		"invalid: sizes without the TASExactTopologyDistribution gate": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: false,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[1,3,4]}]`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: an entry setting both size and sizes": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":4,"sizes":[1,3]}]`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: two layers using sizes": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[4,4]},{"topology":"kubernetes.io/hostname","sizes":[2,2]}]`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: a sizes entry with a non-positive value": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[4,0,4]}]`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: a size layer below a sizes layer that does not divide every chunk": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[4,3]},{"topology":"kubernetes.io/hostname","size":2}]`,
+			},
+			wantErrNum: 1,
+		},
 		"invalid: duplicate topology labels": {
 			featureGates: map[featuregate.Feature]bool{features.TASMultiLayerTopology: true},
 			annotations: map[string]string{
@@ -194,6 +282,38 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 			},
 			podSetCount: 20,
 			wantErrNum:  0,
+		},
+		"valid: sizes sum to the pod set count": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[1,3,4]}]`,
+			},
+			podSetCount: 8,
+			wantErrNum:  0,
+		},
+		"invalid: sizes do not sum to the pod set count": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","sizes":[1,3,4]}]`,
+			},
+			podSetCount: 9,
+			wantErrNum:  1,
+		},
+		"valid: inner sizes sum to the layer above": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/block","size":8},{"topology":"cloud.com/rack","sizes":[1,3,4]}]`,
+			},
+			podSetCount: 16,
+			wantErrNum:  0,
+		},
+		"invalid: inner sizes do not sum to the layer above": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/block","size":8},{"topology":"cloud.com/rack","sizes":[1,3,5]}]`,
+			},
+			podSetCount: 16,
+			wantErrNum:  1,
 		},
 		"invalid: multi-layer outermost size exceeds pod count": {
 			annotations: map[string]string{

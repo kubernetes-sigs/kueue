@@ -7325,6 +7325,315 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"slice sizes: uneven chunks placed at the rack level": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			//        b1
+			//    /    |    \
+			//   r1    r2    r3
+			//   |     |     |
+			//  x1(1) x2(3) x3(4)
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasRackLabel, Sizes: []int32{1, 3, 4}},
+					},
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    8,
+				// Each rack has room for exactly one chunk, so every chunk
+				// lands in its own rack even though nothing requires it to.
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 3, Values: []string{"x2"}},
+						{Count: 4, Values: []string{"x3"}},
+					},
+				},
+			}},
+		},
+		"slice sizes: two chunks may share one domain": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			//        b1
+			//     /      \
+			//    r1      r2
+			//    |       |
+			//  x1(8)   x2(1)
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasRackLabel, Sizes: []int32{4, 3, 1}},
+					},
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    8,
+				// Chunks of 4 and 3 both fit in r1 and are recorded as a single
+				// combined count; only the chunk of 1 needs r2.
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 7, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"slice sizes: rejected when no domain fits the largest chunk": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			// Eight pods of free capacity in total, but spread three-and-three
+			// -and-two, so neither chunk of four has anywhere to go.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasRackLabel, Sizes: []int32{4, 4}},
+					},
+				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      8,
+				wantReason: `topology slice sizes do not fit: chunk of 4 pods could not be placed, largest free domain holds 3 pods (sizes [4 4], free capacity [2 3 3])`,
+			}},
+		},
+		"slice sizes: an outer size layer shapes each region the same way": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			//            b1                        b2
+			//      /     |     \            /      |      \
+			//     r1     r2     r3         r4      r5      r6
+			//     |      |      |          |       |       |
+			//   x1(1)  x2(3)  x3(4)      x4(1)   x5(3)   x6(4)
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r4-x4").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r4").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r5-x5").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r5").Label(corev1.LabelHostname, "x5").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b2-r6-x6").
+					Label(tasBlockLabel, "b2").Label(tasRackLabel, "r6").Label(corev1.LabelHostname, "x6").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasBlockLabel, Size: 8},
+						{Topology: tasRackLabel, Sizes: []int32{1, 3, 4}},
+					},
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    16,
+				// The outer layer cuts sixteen pods into two chunks of eight,
+				// one per block; the chunk list then cuts each block's eight
+				// pods into one, three and four within racks.
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 3, Values: []string{"x2"}},
+						{Count: 4, Values: []string{"x3"}},
+						{Count: 1, Values: []string{"x4"}},
+						{Count: 3, Values: []string{"x5"}},
+						{Count: 4, Values: []string{"x6"}},
+					},
+				},
+			}},
+		},
+		"slice sizes: the chunk list repeats when one region holds two outer chunks": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			// Only one block, so both of the outer layer's chunks of eight land
+			// in it. The chunk list describes how one chunk of eight is cut up,
+			// so it has to be applied twice to cover all sixteen pods.
+			//            b1
+			//      /     |     \
+			//     r1     r2     r3
+			//     |      |      |
+			//   x1(4)  x2(8)  x3(8)
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasBlockLabel, Size: 8},
+						{Topology: tasRackLabel, Sizes: []int32{1, 3, 4}},
+					},
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    16,
+				// All sixteen pods are placed. Before the list was repeated,
+				// only the first eight were.
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 4, Values: []string{"x1"}},
+						{Count: 8, Values: []string{"x2"}},
+						{Count: 4, Values: []string{"x3"}},
+					},
+				},
+			}},
+		},
+		"slice sizes: greedy placement can miss a valid packing": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			// Capacity is exactly sixteen and a valid packing exists --
+			// {1,1} in r1, {3,3} in r2, {4,4} in r3 -- but largest-first puts
+			// the first chunk of four in r2, and the workload stays pending.
+			// This is the bin-packing limitation the KEP calls out; the scalar
+			// size has the same behavior.
+			//            b1
+			//      /     |     \
+			//     r1     r2     r3
+			//     |      |      |
+			//   x1(2)  x2(6)  x3(8)
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r3-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r3").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasBlockLabel, Size: 8},
+						{Topology: tasRackLabel, Sizes: []int32{1, 3, 4}},
+					},
+				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      16,
+				wantReason: `topology slice sizes do not fit: chunk of 3 pods could not be placed, largest free domain holds 8 pods (sizes [1 3 4 1 3 4], free capacity [2 6 8]) within b1`,
+			}},
+		},
+		"slice sizes: rejected when a level sits between the chunk list and the layer above": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			nodes:  defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasBlockLabel, Size: 8},
+						{Topology: corev1.LabelHostname, Sizes: []int32{4, 4}},
+					},
+				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      8,
+				wantReason: `slice layer sizes at topology kubernetes.io/hostname must be one level below cloud.com/topology-block, but cloud.com/topology-rack is in between`,
+			}},
+		},
+		"slice sizes: rejected when the chunks do not sum to the layer above": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			nodes:  defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasBlockLabel, Size: 8},
+						{Topology: tasRackLabel, Sizes: []int32{1, 3, 5}},
+					},
+				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      8,
+				wantReason: `slice layer sizes [1 3 5] must sum to the parent layer size 8, got 9`,
+			}},
+		},
 		"with preferred affinity": {
 			featureGates: map[featuregate.Feature]bool{features.TASRespectNodeAffinityPreferred: true},
 			levels:       []string{"cloud.com/topology-rack", "kubernetes.io/hostname"},
