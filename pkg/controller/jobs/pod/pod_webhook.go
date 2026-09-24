@@ -51,6 +51,7 @@ var (
 	groupNameAnnotationPath        = annotationsPath.Key(podconstants.GroupNameAnnotation)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
+	podIndexLabelAnnotationPath    = annotationsPath.Key(kueue.PodGroupPodIndexLabelAnnotation)
 )
 
 type PodWebhook struct {
@@ -218,6 +219,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admis
 
 	allErrs := jobframework.ValidateJobOnCreate(pod, w.maxTimeoutOnWorkload)
 	allErrs = append(allErrs, validateCommon(pod)...)
+	allErrs = append(allErrs, validatePodGroupPodIndexLabel(pod)...)
 
 	if warn := warningForPodManagedLabel(w.integrationManager, pod); warn != "" {
 		warnings = append(warnings, warn)
@@ -313,6 +315,27 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 	}
 
 	return allErrs
+}
+
+// validatePodGroupPodIndexLabel checks that the index-label annotation resolves to the Pod's index.
+func validatePodGroupPodIndexLabel(p *Pod) field.ErrorList {
+	// Only on create: a Pod admitted before the gate was turned on must stay updatable.
+	if !features.Enabled(features.TASRejectInvalidPodIndexLabel) {
+		return nil
+	}
+	labelKey, ok := p.pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation]
+	if !ok {
+		return nil
+	}
+	groupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		// A missing or malformed group total count is reported by validatePodGroupMetadata.
+		return nil
+	}
+	if _, err := utilpod.ReadUIntFromLabelBelowBound(p.Object(), labelKey, groupTotalCount); err != nil {
+		return field.ErrorList{field.Invalid(podIndexLabelAnnotationPath, labelKey, err.Error())}
+	}
+	return nil
 }
 
 func validateTopologyRequest(pod *Pod) field.ErrorList {
