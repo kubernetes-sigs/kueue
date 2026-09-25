@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
 
+	ctrl "sigs.k8s.io/controller-runtime"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -291,6 +292,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			log, observed := newObservedLogger(tc.enabledUpToV)
+			ctx := ctrl.LoggerInto(t.Context(), log)
 			fixture := newFsLogFixture(t, log, tc.cqs)
 
 			if tc.wantNoArrayBuilt {
@@ -331,7 +333,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			retryCandidates, cont := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
 				targets = append(targets, t)
 				revertSimulation := fixture.preemptionCtx.preemptorCQ.SimulateUsageRemoval(fixture.preemptionCtx.workloadUsage)
-				fits = workloadFits(fixture.preemptionCtx, true)
+				fits = workloadFits(ctx, fixture.preemptionCtx, true)
 				revertSimulation()
 				return !fits
 			})

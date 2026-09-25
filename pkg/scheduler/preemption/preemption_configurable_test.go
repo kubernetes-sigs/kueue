@@ -1137,9 +1137,7 @@ func TestFindConfigurableCandidates(t *testing.T) {
 				tasRequests = assignment.WorkloadsTopologyRequests(log, wlInfo, preemptorCQ)
 			}
 			preemptionCtx := &preemptionCtx{
-				ctx:               ctx,
 				clock:             clocktesting.NewFakeClock(now),
-				log:               log,
 				preemptor:         *wlInfo,
 				preemptorCQ:       preemptorCQ,
 				snapshot:          snapshot,
@@ -1161,7 +1159,7 @@ func TestFindConfigurableCandidates(t *testing.T) {
 			var gotTargets []*preemptioncommon.Target
 			yield := func(t *preemptioncommon.Target) bool {
 				gotTargets = append(gotTargets, t)
-				return !workloadFits(preemptionCtx, true)
+				return !workloadFits(ctx, preemptionCtx, true)
 			}
 			gotInterrupted := preemptionCtx.configurableEvaluator.FindCandidates(
 				preemptionCtx.snapshot,

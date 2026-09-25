@@ -91,9 +91,7 @@ type PreemptionStrategy struct {
 }
 
 type preemptionCtx struct {
-	ctx                   context.Context
 	clock                 clock.Clock
-	log                   logr.Logger
 	preemptor             workload.Info
 	preemptorCQ           *schdcache.ClusterQueueSnapshot
 	snapshot              *schdcache.Snapshot
@@ -187,9 +185,7 @@ func (p *Preemptor) buildContext(
 		configurableEvaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
 	}
 	return &preemptionCtx{
-		ctx:               ctx,
 		clock:             p.clock,
-		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
@@ -332,7 +328,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 		var targets []*Target
 		for candidate := range strategy.candidates {
 			targets = append(targets, candidate)
-			if workloadFits(strategy.pCtx, strategy.allowBorrowing) {
+			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
 				if logV := log.V(6); logV.Enabled() {
@@ -361,7 +357,7 @@ func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, target
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
-		if workloadFits(preemptionCtx, allowBorrowing) {
+		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
@@ -499,8 +495,8 @@ func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Se
 // of the snapshot: the quota must be available in the ClusterQueue and its cohort, if
 // it belongs to one, and a topology assignment must be found if the workload requires
 // one.
-func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
-	return workloadQuotaFits(preemptionCtx, allowBorrowing) && workloadTopologyFits(preemptionCtx)
+func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
+	return workloadQuotaFits(preemptionCtx, allowBorrowing) && workloadTopologyFits(ctx, preemptionCtx)
 }
 
 // workloadQuotaFits determines if the quota requested by the workload is available in
@@ -520,9 +516,9 @@ func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // workloadTopologyFits determines if a topology assignment can be found for the
 // workload, given the simulated usage of the snapshot. It always succeeds if the
 // workload has no topology requests.
-func workloadTopologyFits(preemptionCtx *preemptionCtx) bool {
+func workloadTopologyFits(ctx context.Context, preemptionCtx *preemptionCtx) bool {
 	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
-		preemptionCtx.ctx,
+		ctx,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkloadInfo(&preemptionCtx.preemptor),
 	)
