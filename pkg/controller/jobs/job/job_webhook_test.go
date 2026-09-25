@@ -693,10 +693,15 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: nil,
 		},
 		{
-			name:               "change queue name with suspend is true, but invalid value",
-			oldJob:             testingutil.MakeJob("job", "default").Obj(),
-			newJob:             testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", utiltesting.InvalidRFC1123Message)},
+			name:   "change queue name with suspend is true, but invalid value",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
+			// The webhook validates the new object on create and update. Both paths
+			// report the same error, so the admission response later aggregates them.
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, "queue name", utiltesting.InvalidRFC1123Message),
+				field.Invalid(queueNameLabelPath, "queue name", utiltesting.InvalidRFC1123Message),
+			},
 		},
 		{
 			name: "immutable parallelism while unsuspended with partial admission enabled",
