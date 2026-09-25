@@ -187,6 +187,29 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, na
 	return latestAdmittedWl, nil
 }
 
+// PreviousAdmittedPodSetCounts returns the effective PodSet counts of the
+// latest admitted, non-evicted slice in wl's chain other than wl itself, or
+// nil when there is none. Finished (replaced) slices are included because
+// their pods remain the running capacity baseline while a successor waits.
+// Counts come from workload.Info.TotalRequests, so reclaimed pods are
+// subtracted the same way quota accounting does: a predecessor admitted for 3
+// with 1 pod reclaimed is a baseline of 2.
+//
+// This is the baseline an incremental scale-up (e.g. a ProvisioningRequest or
+// a partial atomic scale-up) should subtract from wl's own counts.
+func PreviousAdmittedPodSetCounts(ctx context.Context, c client.Client, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+	prev, err := FindLatestAdmittedWorkloadForSlice(ctx, c, wl.Namespace, SliceName(wl), WithFinishedWorkloads())
+	if err != nil || prev == nil || prev.Name == wl.Name {
+		return nil, err
+	}
+	info := workload.NewInfo(ctrl.LoggerFrom(ctx), prev)
+	counts := make(map[kueue.PodSetReference]int32, len(info.TotalRequests))
+	for _, req := range info.TotalRequests {
+		counts[req.Name] = req.Count
+	}
+	return counts, nil
+}
+
 func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 	workloads = slices.Clone(workloads)
 

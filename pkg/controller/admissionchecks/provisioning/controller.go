@@ -1021,25 +1021,14 @@ type MergedPodSet struct {
 	Count            int32
 }
 
-// previousSlicePodSetCounts returns granted counts from the latest admitted
-// non-evicted slice in the same chain. Replaced slices are included because
-// their pods remain the running capacity baseline while a successor waits.
+// previousSlicePodSetCounts returns the admitted baseline an elastic slice's
+// ProvisioningRequest must subtract from its own counts, or nil when elastic
+// ProvisioningRequest support does not apply to wl.
 func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
 	if !workloadslicing.IsEnabledForProvisioningRequests(wl) {
 		return nil, nil
 	}
-	prev, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, c.client, wl.Namespace, workloadslicing.SliceName(wl), workloadslicing.WithFinishedWorkloads())
-	if err != nil || prev == nil || prev.Name == wl.Name {
-		return nil, err
-	}
-	// Info.TotalRequests applies reclaim the same way quota does. A predecessor
-	// admitted for 3 with 1 pod reclaimed is a baseline of 2, not 3.
-	info := workload.NewInfo(ctrl.LoggerFrom(ctx), prev)
-	counts := make(map[kueue.PodSetReference]int32, len(info.TotalRequests))
-	for _, req := range info.TotalRequests {
-		counts[req.Name] = req.Count
-	}
-	return counts, nil
+	return workloadslicing.PreviousAdmittedPodSetCounts(ctx, c.client, wl)
 }
 
 func (c *Controller) mergePodSets(

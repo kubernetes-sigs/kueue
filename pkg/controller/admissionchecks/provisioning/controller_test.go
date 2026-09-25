@@ -246,72 +246,52 @@ func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
 	}
 }
 
+// TestPreviousSlicePodSetCounts covers the gating only; the baseline
+// computation itself is tested in workloadslicing.TestPreviousAdmittedPodSetCounts.
 func TestPreviousSlicePodSetCounts(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
 	now := time.Now()
 	admitted := utiltestingapi.MakeWorkload("admitted", TestNamespace).
 		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
-		PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
+		PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](2)},
 		).Obj(), now).
 		AdmittedAt(true, now).
 		FinishedAt(now).
 		Obj()
-	reclaimed := utiltestingapi.MakeWorkload("reclaimed", TestNamespace).
-		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
-		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
-		).Obj(), now).
-		AdmittedAt(true, now).
-		ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).
-		FinishedAt(now).
-		Obj()
-	intermediate := utiltestingapi.MakeWorkload("intermediate", TestNamespace).
-		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
-		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
-			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
-		).Obj(), now).
-		Obj()
-	current := utiltestingapi.MakeWorkload("current", TestNamespace).
+	elastic := utiltestingapi.MakeWorkload("current", TestNamespace).
 		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
 		Obj()
 
 	cases := map[string]struct {
-		existing   []client.Object
-		current    *kueue.Workload
-		wantCounts map[kueue.PodSetReference]int32
+		featureEnabled bool
+		current        *kueue.Workload
+		wantCounts     map[kueue.PodSetReference]int32
 	}{
-		"uses latest admitted finished slice and skips pending intermediate": {
-			existing:   []client.Object{admitted, intermediate},
-			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+		"elastic workload with the feature enabled gets the admitted baseline": {
+			featureEnabled: true,
+			current:        elastic,
+			wantCounts:     map[kueue.PodSetReference]int32{"workers": 2},
 		},
-		"reclaim reduces the admitted baseline": {
-			existing:   []client.Object{reclaimed},
-			current:    current,
-			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+		"feature disabled requests the full size": {
+			featureEnabled: false,
+			current:        elastic,
 		},
-		"missing predecessor falls back to full request": {
-			current: current,
-		},
-		"non-elastic workload ignores other admitted slices": {
-			existing: []client.Object{admitted},
-			current:  utiltestingapi.MakeWorkload("non-elastic", TestNamespace).Obj(),
+		"non-elastic workload requests the full size": {
+			featureEnabled: true,
+			current:        utiltestingapi.MakeWorkload("non-elastic", TestNamespace).Obj(),
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, tc.featureEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			builder, ctx := getClientBuilder(ctx)
-			c := &Controller{client: builder.WithObjects(tc.existing...).Build()}
+			c := &Controller{client: builder.WithObjects(admitted).Build()}
 			got, err := c.previousSlicePodSetCounts(ctx, tc.current)
 			if err != nil {
 				t.Fatalf("previousSlicePodSetCounts: %v", err)
