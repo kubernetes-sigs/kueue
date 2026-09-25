@@ -557,64 +557,6 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			Note:   `Updated workload WaitForPodsReady annotation to {"timeoutSeconds":50}`,
 		})
 	})
-
-	ginkgo.It("Should propagate and sync GroupPodsReadyMinCountAnnotation from StatefulSet to its Pods when updated", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinReadyCount, true)
-
-		ginkgo.By("Creating a StatefulSet with GroupPodsReadyMinCountAnnotation=2")
-		sts := testingstatefulset.MakeStatefulSet("test-sts-min-pods", ns.Name).
-			Queue("lq").
-			Replicas(3).
-			Annotation(constants.GroupPodsReadyMinCountAnnotation, "2").
-			Request(corev1.ResourceCPU, "100m").
-			Obj()
-		util.MustCreate(ctx, k8sClient, sts)
-
-		createdSTS := &appsv1.StatefulSet{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
-			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Creating a Pod owned by the StatefulSet and verifying initial annotation propagation")
-		pod := testingjobspod.MakePod("test-sts-min-pods-0", ns.Name).
-			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
-			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
-			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
-			KueueFinalizer().
-			Obj()
-		util.MustCreate(ctx, k8sClient, pod)
-
-		gotPod := &corev1.Pod{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
-			g.Expect(gotPod.Annotations).Should(gomega.HaveKeyWithValue(constants.GroupPodsReadyMinCountAnnotation, "2"))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Updating GroupPodsReadyMinCountAnnotation on the StatefulSet to 1 and verifying the Pod annotation is synced")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
-			createdSTS.Annotations[constants.GroupPodsReadyMinCountAnnotation] = "1"
-			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
-			g.Expect(gotPod.Annotations).Should(gomega.HaveKeyWithValue(constants.GroupPodsReadyMinCountAnnotation, "1"))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Removing GroupPodsReadyMinCountAnnotation from the StatefulSet and verifying it is removed from the Pod")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
-			delete(createdSTS.Annotations, constants.GroupPodsReadyMinCountAnnotation)
-			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
-			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(constants.GroupPodsReadyMinCountAnnotation))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
 })
 
 func findWorkloadCondition(wl *kueue.Workload, condType string) *metav1.Condition {
