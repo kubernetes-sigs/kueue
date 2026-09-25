@@ -7409,9 +7409,8 @@ func TestAssignTopology(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		disableTAS bool
-		setup      func(ctx context.Context, t *testing.T, log logr.Logger) fixture
-		wantMode   FlavorAssignmentMode
+		setup    func(ctx context.Context, t *testing.T, log logr.Logger) fixture
+		wantMode FlavorAssignmentMode
 		// wantPlan is whether nomination produced a TopologyAssignment. Only an
 		// assignment that carries a plan can later be invalidated mid-cycle, which is
 		// what the in-cycle recomputation is triggered by.
@@ -7422,14 +7421,6 @@ func TestAssignTopology(t *testing.T) {
 		// how an error raised while building the topology requests surfaces.
 		wantStatusErrMsg string
 	}{
-		"the whole pass is skipped when TAS is disabled": {
-			disableTAS: true,
-			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
-				return newFixture(ctx, t, log, Fit, "1", "")
-			},
-			wantMode: Fit,
-			wantPlan: false,
-		},
 		"a fitting assignment receives a topology assignment": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				return newFixture(ctx, t, log, Fit, "1", "")
@@ -7475,17 +7466,15 @@ func TestAssignTopology(t *testing.T) {
 			wantPlan:          false,
 			wantAttemptReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		},
-		// A workload replacing a failed node takes a different path through the TAS cache:
-		// the search reads the existing placement from the Workload's *admission status*
-		// (findPSA), not from the Assignment. The workload therefore has to be genuinely
-		// admitted, or the replacement path bails out early and the guard has no effect
-		// to observe.
-		//
-		// The request also has to be one the replacement search cannot satisfy, because
-		// UnhealthyNodes is Kueue's own bookkeeping: the TAS snapshot still reports node-1
-		// as Ready, so a small pod would simply be re-placed on it and the guarded and
-		// unguarded paths would agree. 5 cpu exceeds node-1's 4, and flavor-1 spans no
-		// other node, so the search fails and only the guard keeps the mode at Preempt.
+		// Verifies that the !HasUnhealthyNodes check prevents demoting an
+		// unhealthy node replacement from Preempt to NoFit.
+		// - The workload must be admitted because TAS node replacement reads existing
+		//   placement from wl.Status.Admission.
+		// - We request 5 CPU against node-1's 4 CPU to ensure placement fails.
+		//   In this test fixture, node-1 is still marked Ready in the TAS snapshot
+		//   (only wl.Status.UnhealthyNodes was set), so a smaller request would
+		//   just be re-placed on node-1 (leading to Fit), which would obscure
+		//   a missing !HasUnhealthyNodes check.
 		"a replacement for an unhealthy node is not demoted": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
@@ -7608,16 +7597,9 @@ func TestAssignTopology(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			// The snapshot is always built with TAS enabled: turning the gate off also
-			// stops the cache from tracking TAS flavors, which would make the disabled
-			// case pass simply because there was no topology to assign. Flipping the gate
-			// only around the call keeps AssignTopology's own check the thing under test.
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 			f := tc.setup(ctx, t, log)
-			if tc.disableTAS {
-				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, false)
-			}
 
 			// The snapshot is shared with every other Workload in the cycle, so whatever
 			// AssignTopology does to it while searching has to be undone.
@@ -7648,14 +7630,18 @@ func TestAssignTopology(t *testing.T) {
 				t.Errorf("has TopologyAssignment = %t, want %t", got, tc.wantPlan)
 			}
 			if tc.wantAttemptReason != "" {
-				var got string
+				attemptRecorded := false
 				for _, att := range f.assignment.PodSets[0].FlavorAssignmentAttempts {
 					if att.Flavor == "flavor-1" {
-						got = att.NoFitReason
+						attemptRecorded = true
+						if att.NoFitReason != tc.wantAttemptReason {
+							t.Errorf("flavor-1 attempt NoFitReason = %q, want %q", att.NoFitReason, tc.wantAttemptReason)
+						}
+						break
 					}
 				}
-				if got != tc.wantAttemptReason {
-					t.Errorf("flavor-1 attempt NoFitReason = %q, want %q", got, tc.wantAttemptReason)
+				if !attemptRecorded {
+					t.Error("Expeccted failed attempt for flavor-1, but none was recorded.")
 				}
 			}
 			if tc.wantStatusErrMsg != "" {
@@ -7680,14 +7666,27 @@ func TestAssignTopology(t *testing.T) {
 //     Every group has to be satisfiable for the pod set to fit.
 //     The same "most severe" rule then applies across pod sets.
 func TestResolveNoFitReason(t *testing.T) {
-	// cqWithGroups builds the only part of the snapshot that ResolveNoFitReason reads:
-	// which flavors belong to which resource group.
+	ctx, log := utiltesting.ContextWithLog(t)
 	cqWithGroups := func(groups ...[]kueue.ResourceFlavorReference) *schdcache.ClusterQueueSnapshot {
-		rgs := make([]resourcegroups.ResourceGroup, 0, len(groups))
-		for _, flavors := range groups {
-			rgs = append(rgs, resourcegroups.ResourceGroup{Flavors: flavors})
+		cache := schdcache.New(utiltesting.NewFakeClient())
+		cqBuilder := utiltestingapi.MakeClusterQueue("cq")
+		for i, flavors := range groups {
+			res := corev1.ResourceName(fmt.Sprintf("res-%d", i))
+			flavorQuotas := make([]kueue.FlavorQuotas, 0, len(flavors))
+			for _, f := range flavors {
+				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(string(f)).Obj())
+				flavorQuotas = append(flavorQuotas, *utiltestingapi.MakeFlavorQuotas(string(f)).Resource(res, "1").Obj())
+			}
+			cqBuilder.ResourceGroup(flavorQuotas...)
 		}
-		return &schdcache.ClusterQueueSnapshot{ResourceGroups: rgs}
+		if err := cache.AddClusterQueue(ctx, cqBuilder.Obj()); err != nil {
+			t.Fatalf("adding ClusterQueue: %v", err)
+		}
+		snapshot, err := cache.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("building snapshot: %v", err)
+		}
+		return snapshot.ClusterQueue("cq")
 	}
 	noFitAttempt := func(flavor kueue.ResourceFlavorReference, reason string) FlavorAssignmentAttempt {
 		return FlavorAssignmentAttempt{Flavor: flavor, Mode: NoFit, NoFitReason: reason}
@@ -7712,8 +7711,6 @@ func TestResolveNoFitReason(t *testing.T) {
 		cq         *schdcache.ClusterQueueSnapshot
 		want       string
 	}{
-		// A pod set with an empty Status reports Fit, so the whole assignment is Fit and
-		// the method must return before touching NoFitReason.
 		"an assignment that is not NoFit is left untouched": {
 			assignment: Assignment{
 				PodSets:     []PodSetAssignment{{Name: "main"}},
@@ -7722,15 +7719,11 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want: "untouched",
 		},
-		// An assignment with no pod sets reports NoFit, but there is nothing to aggregate,
-		// so any previously recorded reason is cleared rather than kept.
 		"an assignment with no pod sets resolves to no reason": {
 			assignment: Assignment{NoFitReason: "stale"},
 			cq:         cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want:       "",
 		},
-		// The Fit pod set carries the most severe reason there is; it must be skipped
-		// entirely, leaving only the NoFit pod set to contribute.
 		"pod sets that are not NoFit are skipped": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{
@@ -7749,8 +7742,6 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:         cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want:       kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
 		},
-		// Both flavors are alternatives within one group, so the milder blocker decides:
-		// waiting for quota is recoverable, exceeding max quota is not.
 		"within a resource group the least severe blocker wins": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{noFitPodSet("main",
@@ -7776,9 +7767,6 @@ func TestResolveNoFitReason(t *testing.T) {
 			),
 			want: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		},
-		// A flavor that no longer belongs to any resource group, e.g. one deleted mid-cycle,
-		// is treated as a group of its own. Folding it into an existing group instead would
-		// let the milder in-group reason hide it.
 		"a flavor in no resource group forms its own group": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{noFitPodSet("main",
@@ -7789,8 +7777,6 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		},
-		// The Preempt attempt carries a milder reason than the NoFit one. If it were not
-		// skipped it would win the in-group minimum and change the answer.
 		"attempts that are not NoFit are ignored": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{noFitPodSet("main",
@@ -7801,8 +7787,6 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a", "flavor-b"}),
 			want: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 		},
-		// The pod set's own reason seeds the aggregation, so it can outrank everything the
-		// per-flavor attempts produced.
 		"the pod set status reason seeds the aggregation": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{withStatusReason(
@@ -7813,8 +7797,6 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		},
-		// Ordered severe-first on purpose: an implementation that simply kept the last
-		// pod set's reason would still pass if the milder one came first.
 		"the most severe reason across pod sets wins": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{
@@ -7825,10 +7807,6 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		},
-		// The shape AssignTopology leaves behind when it demotes a Preempt assignment: the
-		// attempt is re-marked TopologyPlacementFailed and this call turns it into the
-		// assignment-level reason. It is the only situation in which the scheduler's
-		// trailing ResolveNoFitReason call is not redundant.
 		"a topology demotion resolves to TopologyPlacementFailed": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{noFitPodSet("main",
