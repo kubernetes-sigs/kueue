@@ -140,7 +140,7 @@ spec:
 
 ### API
 
-A new alpha feature gate (disabled by default in v0.20):
+A new alpha feature gate (disabled by default in v0.21):
 
 ```go
 WaitForPodsReadyMinReadyCount featuregate.Feature = "WaitForPodsReadyMinReadyCount"
