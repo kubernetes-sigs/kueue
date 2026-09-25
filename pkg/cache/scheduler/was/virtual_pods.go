@@ -59,6 +59,33 @@ func virtualPodName(wlName, podSetName string, index int) string {
 	return prefix + suffix
 }
 
+func newVirtualPod(wl *kueue.Workload, psName string, replicaIdx int, labels, annotations map[string]string, spec *corev1.PodSpec, phase corev1.PodPhase) *corev1.Pod {
+	pod := &corev1.Pod{
+		Name:        virtualPodName(wl.Name, psName, replicaIdx),
+		Namespace:   wl.Namespace,
+		UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, psName, replicaIdx)),
+		Labels:      maps.Clone(labels),
+		Annotations: maps.Clone(annotations),
+		Spec:        *spec.DeepCopy(),
+		Status: corev1.PodStatus{
+			Phase: phase,
+		},
+	}
+	// Add PodSet label
+	if pod.Labels == nil {
+		pod.Labels = make(map[string]string)
+	}
+	pod.Labels[constants.PodSetLabel] = psName
+
+	// Add Workload annotation
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+	pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
+
+	return pod
+}
+
 func getVirtualPodHash(wlName, podSetName, indexStr string) string {
 	h := sha1.New()
 	h.Write([]byte(wlName))
@@ -97,30 +124,8 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 			}
 
 			for range domain.Count {
-				pod := &corev1.Pod{
-					Name:        virtualPodName(wl.Name, string(psa.Name), replicaIdx),
-					Namespace:   wl.Namespace,
-					UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, psa.Name, replicaIdx)),
-					Labels:      maps.Clone(ps.Template.Labels),
-					Annotations: maps.Clone(ps.Template.Annotations),
-					Spec:        *ps.Template.Spec.DeepCopy(),
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-					},
-				}
-
-				if pod.Labels == nil {
-					pod.Labels = make(map[string]string)
-				}
-				pod.Labels[constants.PodSetLabel] = string(psa.Name)
-
-				if pod.Annotations == nil {
-					pod.Annotations = make(map[string]string)
-				}
-				pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
-
+				pod := newVirtualPod(wl, string(psa.Name), replicaIdx, ps.Template.Labels, ps.Template.Annotations, &ps.Template.Spec, corev1.PodRunning)
 				pod.Spec.NodeName = nodeName
-
 				virtualPods = append(virtualPods, pod)
 				replicaIdx++
 			}
@@ -137,113 +142,64 @@ type CandidatePodOptions struct {
 	PodSetUpdates     []kueue.PodSetUpdate
 }
 
-// BuildCandidatePod builds a candidate pod for the i-th pod of a PodSet.
-// It merges the PodSet template, the assigned Flavor's node labels and tolerations,
-// and any admission check updates.
-func BuildCandidatePod(wl *kueue.Workload, ps *kueue.PodSet, replicaIdx int, opts CandidatePodOptions) (*corev1.Pod, error) {
+// CandidateVirtualPodsForPodSet returns candidate virtual pods for the specified count
+// of replicas for a PodSet, merging PodSet templates, assigned flavor details, and admission check updates.
+func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count int32, opts CandidatePodOptions) ([]*corev1.Pod, error) {
 	if wl == nil || ps == nil {
 		return nil, errors.New("workload and podset must be non-nil")
 	}
 
-	// get the nodeSelector from the podset
 	nodeSelector := maps.Clone(ps.Template.Spec.NodeSelector)
-
-	// merge the nodeSelector from the podset and the podset update, fail if conflict
-	if len(opts.PodSetUpdates) > 0 {
-		for _, u := range opts.PodSetUpdates {
-			if err := utilmaps.HaveConflict(nodeSelector, u.NodeSelector); err != nil {
-				return nil, fmt.Errorf("nodeSelector conflict between PodSet and PodSetUpdate: %w", err)
-			}
-			if nodeSelector == nil {
-				nodeSelector = make(map[string]string, len(u.NodeSelector))
-			}
-			maps.Copy(nodeSelector, u.NodeSelector)
+	for _, u := range opts.PodSetUpdates {
+		var err error
+		if nodeSelector, err = mergeWithConflictCheck(nodeSelector, u.NodeSelector); err != nil {
+			return nil, fmt.Errorf("nodeSelector conflict between PodSet and PodSetUpdate: %w", err)
 		}
 	}
-
-	// merge resourceFlavor nodelabels, checking for conflicts
 	if len(opts.FlavorNodeLabels) > 0 {
-		if err := utilmaps.HaveConflict(nodeSelector, opts.FlavorNodeLabels); err != nil {
+		var err error
+		if nodeSelector, err = mergeWithConflictCheck(nodeSelector, opts.FlavorNodeLabels); err != nil {
 			return nil, fmt.Errorf("nodeSelector conflict between PodSet and ResourceFlavor: %w", err)
 		}
-		if nodeSelector == nil {
-			nodeSelector = make(map[string]string, len(opts.FlavorNodeLabels))
-		}
-		maps.Copy(nodeSelector, opts.FlavorNodeLabels)
 	}
-
-	// merge tolerations from the podset, the assigned flavor, and any podSetUpdate
 
 	tolerations := utiltolerations.Merge(ps.Template.Spec.Tolerations, opts.FlavorTolerations)
-	if len(opts.PodSetUpdates) > 0 {
-		for _, u := range opts.PodSetUpdates {
-			tolerations = utiltolerations.Merge(tolerations, u.Tolerations)
+	for _, u := range opts.PodSetUpdates {
+		tolerations = utiltolerations.Merge(tolerations, u.Tolerations)
+	}
+
+	labels := maps.Clone(ps.Template.Labels)
+	for _, u := range opts.PodSetUpdates {
+		var err error
+		if labels, err = mergeWithConflictCheck(labels, u.Labels); err != nil {
+			return nil, fmt.Errorf("labels conflict between PodSet and PodSetUpdate: %w", err)
 		}
 	}
 
-	// construct the candidate virtual pod
-
-	pod := &corev1.Pod{
-		Name:        virtualPodName(wl.Name, string(ps.Name), replicaIdx),
-		Namespace:   wl.Namespace,
-		UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, ps.Name, replicaIdx)),
-		Labels:      maps.Clone(ps.Template.Labels),
-		Annotations: maps.Clone(ps.Template.Annotations),
-		Spec:        *ps.Template.Spec.DeepCopy(),
-		Status: corev1.PodStatus{
-			Phase: corev1.PodPending,
-		},
-	}
-
-	if pod.Labels == nil {
-		pod.Labels = make(map[string]string)
-	}
-
-	if len(opts.PodSetUpdates) > 0 {
-		for _, u := range opts.PodSetUpdates {
-			if err := utilmaps.HaveConflict(pod.Labels, u.Labels); err != nil {
-				return nil, fmt.Errorf("labels conflict between PodSet and PodSetUpdate: %w", err)
-			}
-			maps.Copy(pod.Labels, u.Labels)
+	annotations := maps.Clone(ps.Template.Annotations)
+	for _, u := range opts.PodSetUpdates {
+		var err error
+		if annotations, err = mergeWithConflictCheck(annotations, u.Annotations); err != nil {
+			return nil, fmt.Errorf("annotations conflict between PodSet and PodSetUpdate: %w", err)
 		}
 	}
 
-	pod.Labels[constants.PodSetLabel] = string(ps.Name)
-	if pod.Annotations == nil {
-		pod.Annotations = make(map[string]string)
-	}
+	spec := ps.Template.Spec.DeepCopy()
+	spec.NodeSelector = nodeSelector
+	spec.Tolerations = tolerations
 
-	if len(opts.PodSetUpdates) > 0 {
-		for _, u := range opts.PodSetUpdates {
-			if err := utilmaps.HaveConflict(pod.Annotations, u.Annotations); err != nil {
-				return nil, fmt.Errorf("annotations conflict between PodSet and PodSetUpdate: %w", err)
-			}
-			maps.Copy(pod.Annotations, u.Annotations)
-		}
-	}
-
-	pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
-
-	pod.Spec.NodeSelector = nodeSelector
-	pod.Spec.Tolerations = tolerations
-
-	return pod, nil
-}
-
-// CandidateVirtualPodsForPodSet returns candidate virtual pods for all pods
-// for the specified PodSet.
-func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, opts CandidatePodOptions) ([]*corev1.Pod, error) {
-	if wl == nil || ps == nil {
-		return nil, errors.New("workload and podset must be non-nil")
-	}
-
-	pods := make([]*corev1.Pod, 0, ps.Count)
-	for i := range int(ps.Count) {
-		pod, err := BuildCandidatePod(wl, ps, i, opts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build candidate pod %d/%d: %w", i, ps.Count, err)
-		}
+	pods := make([]*corev1.Pod, 0, count)
+	for replicaIdx := range int(count) {
+		pod := newVirtualPod(wl, string(ps.Name), replicaIdx, labels, annotations, spec, corev1.PodPending)
 		pods = append(pods, pod)
 	}
 	return pods, nil
+}
+
+func mergeWithConflictCheck(target, source map[string]string) (map[string]string, error) {
+	if err := utilmaps.HaveConflict(target, source); err != nil {
+		return nil, err
+	}
+	utilmaps.Copy(&target, source)
+	return target, nil
 }

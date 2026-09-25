@@ -1582,13 +1582,11 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 			PodSetUpdates:     podSetUpdate,
 		}
 
-		for i := range int(psAssignment.Count) {
-			pod, err := was.BuildCandidatePod(wl.Obj, podSet, i, opts)
-			if err != nil {
-				return nil, fmt.Errorf("failed to build candidate pod %d/%d for PodSet %q: %w", i, psAssignment.Count, podSet.Name, err)
-			}
-			allPods = append(allPods, pod)
+		pods, err := was.CandidateVirtualPodsForPodSet(wl.Obj, podSet, psAssignment.Count, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build candidate pods for PodSet %q: %w", podSet.Name, err)
 		}
+		allPods = append(allPods, pods...)
 	}
 	return allPods, nil
 }
