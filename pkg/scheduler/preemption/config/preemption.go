@@ -107,7 +107,8 @@ func (p *PreemptionEvaluator) OrderedCandidates(
 }
 
 // FindCandidates evaluates candidates across applicable PreemptionConfig
-// triggers and returns (fits, configurableTargets).
+// triggers and yields them.
+// Returns (interrupted = true) if at any point the yield method returns false.
 //
 // Because candidates are removed from the snapshot as they are evaluated, subsequent
 // fit checks observe the updated snapshot state, and the evaluator only returns
