@@ -74,22 +74,6 @@ const (
 	// during the Pod creation.
 	TopologySchedulingGate = "kueue.x-k8s.io/topology"
 
-	// UnhealthyNodesConcurrentEvictionThresholdAnnotation sets the maximum number
-	// of unhealthy nodes retained for replacement without triggering workload eviction.
-	// Valid values are 1-8; absent values default to 1. Invalid values are rejected
-	// on creation or annotation changes. Existing invalid values default to 1.
-	// Set on the Job's metadata to copy it to newly created Workloads.
-	// Later Job annotation changes are not synchronized to existing Workloads.
-	// Ignored unless TASReplaceMultipleFailedNodes is enabled.
-	UnhealthyNodesConcurrentEvictionThresholdAnnotation = "kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold"
-
-	// DefaultUnhealthyNodesEvictionThreshold is used when
-	// UnhealthyNodesConcurrentEvictionThresholdAnnotation is absent or invalid.
-	DefaultUnhealthyNodesEvictionThreshold = 1
-
-	// MaxUnhealthyNodesEvictionThreshold matches the limit on Workload.Status.UnhealthyNodes.
-	MaxUnhealthyNodesEvictionThreshold = 8
-
 	// WorkloadAnnotation is an annotation set on the Job's PodTemplate to
 	// indicate the name of the admitted Workload corresponding to the Job. The
 	// annotation is set when starting the Job, and removed on stopping the Job.

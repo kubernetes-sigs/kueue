@@ -916,7 +916,7 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with unhealthyNode annotation; second pass; preferred; no fit; FailFast above eviction threshold": {
+		"workload with eight unhealthy nodes; second pass; no fit; multi-node replacement suppresses FailFast": {
 			featureGates:    map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
@@ -925,8 +925,7 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
-					Annotation(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, "1").
-					UnhealthyNodes("x0", "x1").
+					UnhealthyNodes("x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7").
 					Queue("tas-main").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -956,8 +955,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0,x1").
+				utiltesting.MakeEventRecord("default", "foo", "SecondPassFailed", corev1.EventTypeWarning).
+					Message(`couldn't assign flavors to pod set one: topology "tas-three-level" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`).
 					Obj(),
 			},
 		},

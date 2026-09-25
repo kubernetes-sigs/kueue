@@ -70,6 +70,9 @@ const (
 	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s"
 	reconcileBatchPeriod                      = 100 * time.Millisecond
 
+	// Matches the API limit on Workload.Status.UnhealthyNodes.
+	maxUnhealthyNodes = 8
+
 	podTerminatedByKueueConditionType    = "TerminatedByKueue"
 	podTerminatedByKueueConditionReason  = "UnschedulableOnAssignedNode"
 	podTerminatedByKueueConditionMessage = "Pod terminated by Kueue NodeController due to node taint"
@@ -503,22 +506,13 @@ func (r *nodeReconciler) checkPodsOnNode(
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
 //
-// When the TASReplaceMultipleFailedNodes feature gate is enabled and the number of unhealthy
-// nodes is below the threshold configured via the kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold
-// annotation (default 1), eviction is suppressed. The new node is appended via addUnhealthyNode
-// and the workload remains admitted; the scheduler will keep attempting head replacement.
+// TASReplaceMultipleFailedNodes allows up to eight unhealthy nodes to wait for replacement.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
-		if features.Enabled(features.TASReplaceMultipleFailedNodes) {
-			threshold, err := workload.UnhealthyNodesEvictionThreshold(wl)
-			if err != nil {
-				log.Error(err, "Invalid unhealthy nodes eviction threshold", "workload", klog.KObj(wl))
-			}
-			if len(wl.Status.UnhealthyNodes) < threshold {
-				log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
-					"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", threshold)
-				return false, nil
-			}
+		if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) < maxUnhealthyNodes {
+			log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
+				"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", maxUnhealthyNodes)
+			return false, nil
 		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)

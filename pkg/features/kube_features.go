@@ -180,10 +180,9 @@ const (
 	// owner: @tg123
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
-	// TASReplaceMultipleFailedNodes enables the
-	// kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold annotation,
-	// which sets the maximum number of unhealthy nodes retained for replacement
-	// without triggering workload eviction.
+	// TASReplaceMultipleFailedNodes allows up to eight unhealthy nodes per Workload
+	// to be replaced incrementally without eviction. While enabled, it suppresses
+	// TASFailedNodeReplacementFailFast; a ninth distinct node failure triggers eviction.
 	TASReplaceMultipleFailedNodes featuregate.Feature = "TASReplaceMultipleFailedNodes"
 
 	// owner: @yakticus

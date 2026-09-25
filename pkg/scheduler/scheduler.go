@@ -495,7 +495,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	if shouldFailFastTASReplacement(log, e.Obj, mode) {
+	if shouldFailFastTASReplacement(e.Obj, mode) {
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}
@@ -596,20 +596,11 @@ func (s *Scheduler) processEntry(
 	}
 }
 
-func shouldFailFastTASReplacement(log logr.Logger, wl *kueue.Workload, mode flavorassigner.FlavorAssignmentMode) bool {
-	if !features.Enabled(features.TASFailedNodeReplacementFailFast) ||
-		!workload.HasTopologyAssignmentWithUnhealthyNode(wl) ||
-		mode == flavorassigner.Fit {
-		return false
-	}
-	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
-		return true
-	}
-	threshold, err := workload.UnhealthyNodesEvictionThreshold(wl)
-	if err != nil {
-		log.Error(err, "Invalid unhealthy nodes eviction threshold")
-	}
-	return len(wl.Status.UnhealthyNodes) > threshold
+func shouldFailFastTASReplacement(wl *kueue.Workload, mode flavorassigner.FlavorAssignmentMode) bool {
+	return features.Enabled(features.TASFailedNodeReplacementFailFast) &&
+		!features.Enabled(features.TASReplaceMultipleFailedNodes) &&
+		workload.HasTopologyAssignmentWithUnhealthyNode(wl) &&
+		mode != flavorassigner.Fit
 }
 
 func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {

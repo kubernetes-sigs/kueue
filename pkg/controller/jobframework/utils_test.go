@@ -27,9 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -38,78 +36,6 @@ import (
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
-
-func TestNewWorkloadUnhealthyNodesEvictionThreshold(t *testing.T) {
-	const annotation = kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation
-	const waitAnnotation = controllerconstants.WaitForPodsReadyAnnotation
-	const waitConfig = `{"timeoutSeconds":30}`
-	provisioningAnnotation := controllerconstants.ProvReqAnnotationPrefix + "test"
-	cases := map[string]struct {
-		enabled     bool
-		annotations map[string]string
-		want        map[string]string
-	}{
-		"copies the threshold when enabled": {
-			enabled:     true,
-			annotations: map[string]string{annotation: "2"},
-			want:        map[string]string{annotation: "2"},
-		},
-		"does not copy the threshold when disabled": {
-			annotations: map[string]string{annotation: "2"},
-			want:        map[string]string{},
-		},
-		"does not add a missing threshold": {
-			enabled: true,
-			want:    map[string]string{},
-		},
-		"preserves an empty threshold for workload validation": {
-			enabled:     true,
-			annotations: map[string]string{annotation: ""},
-			want:        map[string]string{annotation: ""},
-		},
-		"preserves an invalid threshold for workload validation": {
-			enabled:     true,
-			annotations: map[string]string{annotation: "many"},
-			want:        map[string]string{annotation: "many"},
-		},
-		"retains provisioning annotations without copying unrelated annotations": {
-			enabled: true,
-			annotations: map[string]string{
-				annotation:             "8",
-				provisioningAnnotation: "value",
-				"example.com/ignored":  "value",
-			},
-			want: map[string]string{annotation: "8", provisioningAnnotation: "value"},
-		},
-		"copies both threshold and wait for pods ready annotations": {
-			enabled:     true,
-			annotations: map[string]string{annotation: "2", waitAnnotation: waitConfig},
-			want:        map[string]string{annotation: "2", waitAnnotation: waitConfig},
-		},
-		"still copies wait for pods ready when threshold gate is disabled": {
-			annotations: map[string]string{annotation: "2", waitAnnotation: waitConfig},
-			want:        map[string]string{waitAnnotation: waitConfig},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, tc.enabled)
-			features.SetFeatureGateDuringTest(t, features.WorkloadLevelWaitForPodsReady, true)
-			features.SetFeatureGateDuringTest(t, features.DisableWaitForPodsReady, false)
-			job := testingjob.MakeJob("job", "ns").Obj()
-			job.Annotations = tc.annotations
-			originalJob := job.DeepCopy()
-			wl := jobframework.NewWorkload("wl", job, nil, nil, nil)
-			if diff := cmp.Diff(tc.want, wl.Annotations); diff != "" {
-				t.Errorf("unexpected workload annotations (-want,+got):\n%s", diff)
-			}
-			wl.Annotations[annotation] = "3"
-			if diff := cmp.Diff(originalJob, job); diff != "" {
-				t.Errorf("workload annotation update changed the job (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
 
 func TestSanitizePodSets(t *testing.T) {
 	testCases := map[string]struct {

@@ -148,22 +148,6 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(obj)...)
 	}
 
-	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
-		value, present := obj.Annotations[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation]
-		oldValue, oldPresent := "", false
-		if oldObj != nil {
-			oldValue, oldPresent = oldObj.Annotations[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation]
-		}
-		// Unchanged values may predate gate enablement; do not block recovery or cleanup.
-		if present && (!oldPresent || value != oldValue) {
-			if _, err := workload.UnhealthyNodesEvictionThreshold(obj); err != nil {
-				path := field.NewPath("metadata", "annotations").Key(kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation)
-				allErrs = append(allErrs, field.Invalid(path, value, fmt.Sprintf("must be an integer between %d and %d",
-					kueue.DefaultUnhealthyNodesEvictionThreshold, kueue.MaxUnhealthyNodesEvictionThreshold)))
-			}
-		}
-	}
-
 	// KEP-7990: when priority-boost annotation is set, it must be a valid signed integer; invalid values cause rejection.
 	// Missing key is valid (treated as 0). If the key is present, the value must not be empty; use "0" explicitly.
 	if features.Enabled(features.PriorityBoost) {

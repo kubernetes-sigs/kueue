@@ -48,7 +48,6 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 		cq       *kueue.ClusterQueue
 		lq       *kueue.LocalQueue
 	)
-	const annotation = kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
@@ -90,12 +89,11 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 		fwk.StopManager(ctx)
 	})
 
-	ginkgo.It("honors the Job threshold and replaces failed nodes without eviction when the feature is enabled", framework.SlowSpec, func() {
+	ginkgo.It("replaces failed nodes without eviction when the feature is enabled", framework.SlowSpec, func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, true)
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
-			SetAnnotation(annotation, "2").
 			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 			Parallelism(2).Completions(2).CompletionMode(batchv1.IndexedCompletion).
 			Request(corev1.ResourceCPU, "1").Obj()
@@ -106,7 +104,6 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 		ginkgo.By("checking the generated Workload and running Job", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-				g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(annotation, "2"))
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
@@ -132,7 +129,6 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
 				g.Expect(wl.UID).To(gomega.Equal(originalUID))
-				g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(annotation, "2"))
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
 				g.Expect(wl.Status.UnhealthyNodes).To(gomega.BeEmpty())
 				g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
@@ -144,13 +140,12 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 		})
 	})
 
-	ginkgo.It("ignores the Job threshold and evicts after a second node failure when the feature is disabled", framework.SlowSpec, func() {
+	ginkgo.It("evicts after a second node failure when the feature is disabled", framework.SlowSpec, func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, false)
 		// Defer fail-fast eviction to exercise the second-node failure.
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
-			SetAnnotation(annotation, "2").
 			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 			Parallelism(2).Completions(2).CompletionMode(batchv1.IndexedCompletion).
 			Request(corev1.ResourceCPU, "1").Obj()
@@ -161,7 +156,6 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 		ginkgo.By("checking the generated Workload and running Job", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
-				g.Expect(wl.Annotations).NotTo(gomega.HaveKey(annotation))
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))

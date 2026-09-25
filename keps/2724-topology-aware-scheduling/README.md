@@ -1565,21 +1565,16 @@ to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `
 ##### Replacing multiple failed nodes
 
 Without this feature, a second failed node triggers Workload eviction. Since Kueue v0.20,
-the Alpha `TASReplaceMultipleFailedNodes` feature gate (disabled by default) enables the
-per-Workload `kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold` annotation.
-Its value `N` is in `[1, 8]`, matching the API limit on `.status.unhealthyNodes`;
-an absent value defaults to `1`. With the gate enabled, the Workload webhook rejects
-invalid values on creation or annotation changes. Unchanged invalid values on existing
-Workloads remain accepted and default to `1`, so recovery and cleanup are not blocked.
-The threshold does not impose an additional validation limit on `.status.unhealthyNodes`.
+the Alpha `TASReplaceMultipleFailedNodes` feature gate (disabled by default) allows
+up to eight unhealthy nodes per Workload to wait for incremental replacement.
+This fixed limit applies to all TAS Workloads when the gate is enabled and matches
+the API limit on `.status.unhealthyNodes`. No annotation or configuration is required.
 
-Set the annotation on the Job's `metadata.annotations` (not its Pod template) to copy
-it to newly created Workloads when the gate is enabled. Later Job annotation edits or
-removal are not synchronized; update the existing Workload's annotation directly.
-
-With the gate enabled, Kueue keeps up to `N` unhealthy nodes queued for replacement and
-suppresses `TASFailedNodeReplacementFailFast` while within that threshold. A further distinct
-node failure exceeding `N` triggers eviction. Other eviction mechanisms still apply.
+With the gate enabled, Kueue suppresses `TASFailedNodeReplacementFailFast`; a ninth
+distinct node failure while eight are still unhealthy triggers eviction.
+Other eviction mechanisms still apply. With the gate disabled, single-node replacement
+and eviction behavior are unchanged. ConfigAPI configuration of the global limit and
+possible per-Workload overrides are deferred to a future release.
 
 In Alpha, Kueue attempts one failed-node replacement per Workload per scheduling cycle,
 in FIFO order. Successful replacement removes only that node from `.status.unhealthyNodes`.

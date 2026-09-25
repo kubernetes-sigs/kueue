@@ -263,11 +263,6 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
-	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
-		if value, present := obj.GetAnnotations()[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation]; present {
-			annotations[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation] = value
-		}
-	}
 	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
 		if annotation != "" {

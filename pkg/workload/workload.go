@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1592,38 +1591,6 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 		}
 	}
 	return false
-}
-
-// UnhealthyNodesEvictionThreshold returns the maximum number of the Workload's
-// nodes that may be unhealthy at once before the Workload is evicted instead of
-// having its failed nodes replaced in place, as configured by the
-// UnhealthyNodesConcurrentEvictionThresholdAnnotation:
-//   - an integer N in the range [1, kueue.MaxUnhealthyNodesEvictionThreshold]
-//     tolerates up to N unhealthy nodes;
-//   - an absent value returns kueue.DefaultUnhealthyNodesEvictionThreshold (1);
-//   - an invalid value returns kueue.DefaultUnhealthyNodesEvictionThreshold (1)
-//     together with an error.
-func UnhealthyNodesEvictionThreshold(w *kueue.Workload) (int, error) {
-	if w == nil {
-		return kueue.DefaultUnhealthyNodesEvictionThreshold, nil
-	}
-	if v, ok := w.Annotations[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation]; ok {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return kueue.DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: %w", kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation, v, err)
-		}
-		if n >= kueue.DefaultUnhealthyNodesEvictionThreshold && n <= kueue.MaxUnhealthyNodesEvictionThreshold {
-			return n, nil
-		}
-		return kueue.DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf(
-			"invalid %s annotation value %q: must be between %d and %d",
-			kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation,
-			v,
-			kueue.DefaultUnhealthyNodesEvictionThreshold,
-			kueue.MaxUnhealthyNodesEvictionThreshold,
-		)
-	}
-	return kueue.DefaultUnhealthyNodesEvictionThreshold, nil
 }
 
 // IsAdmittedByTAS checks if a workload is admitted by TAS.
