@@ -899,7 +899,7 @@ func TestReconcileRequeue(t *testing.T) {
 				Obj(),
 			cq:                   utiltestingapi.MakeClusterQueue("cq").Obj(),
 			lq:                   utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			wantWorkloadsInQueue: new(int),
+			wantPendingWorkloads: map[kueue.ClusterQueueReference]map[workload.Reference]*workload.Info{},
 		},
 		"shouldn't set the WorkloadRequeued condition when backoff expires and workload finished": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
