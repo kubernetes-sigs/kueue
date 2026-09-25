@@ -1222,7 +1222,10 @@ func (s *Scheduler) patchWorkloadAdmission(
 	admission *kueue.Admission,
 ) error {
 	replacedNodeName := workload.FirstUnhealthyNodeName(wl)
-	patchOptions := []workloadpatching.PatchStatusOption{workloadpatching.WithRetryOnConflict()}
+	patchOptions := []workloadpatching.PatchStatusOption{
+		workloadpatching.WithRetryOnConflict(),
+		workloadpatching.WithLooseOnApply(),
+	}
 	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		s.prepareWorkload(log, wl, cq, admission)
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
