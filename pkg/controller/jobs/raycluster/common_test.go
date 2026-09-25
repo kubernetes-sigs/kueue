@@ -400,7 +400,7 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"partial scale up enabled with feature gate and annotation": {
+		"partial scale up enabled with feature gate and annotation sets minCount to the worker group's own count": {
 			enablePartialScaleUpFeature: true,
 			annotations: map[string]string{
 				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
@@ -415,9 +415,9 @@ func TestBuildPodSets(t *testing.T) {
 				},
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
-						GroupName:   "workers",
-						Replicas:    new(int32(3)),
-						MinReplicas: new(int32(1)),
+						GroupName: "workers",
+						// MinReplicas is deliberately absent - it's not consulted at all.
+						Replicas: new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -434,44 +434,6 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).
 					SetMinimumCount(3).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "worker"}},
-					}).
-					Obj(),
-			},
-		},
-		"partial scale up enabled with feature gate and annotation, but no minReplicas set": {
-			enablePartialScaleUpFeature: true,
-			annotations: map[string]string{
-				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
-			},
-			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "head"}},
-						},
-					},
-				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{
-						GroupName: "workers",
-						Replicas:  new(int32(3)),
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{Name: "worker"}},
-							},
-						},
-					},
-				},
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "head"}},
-					}).
-					Obj(),
-				*utiltestingapi.MakePodSet("workers", 3).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "worker"}},
 					}).

@@ -1964,15 +1964,16 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
 		admitted := int32(0)
 		for i := range podSets {
-			prevAdmittedCount, ok := grantedCounts[podSets[i].Name]
-			if !ok {
-				continue
+			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok {
+				admitted += prevAdmittedCount
 			}
-			admitted += prevAdmittedCount
-			if podSets[i].Count > prevAdmittedCount {
-				// The baseline: what this PodSet already has. A scale-up has to
-				// grow at least one PodSet, not every one, which the scheduler enforces instead.
-				podSets[i].MinCount = new(prevAdmittedCount)
+			// The baseline is copied forward from the predecessor's own floor, not
+			// recomputed from its live grant, so it keeps tracing back to the chain's
+			// origin even once every live predecessor is gone. The scheduler still
+			// enforces that a scale-up must grow at least one PodSet, using the
+			// predecessor's live grant while it's still around (see getInitialAssignments).
+			if prevWl.Spec.PodSets[i].MinCount != nil {
+				podSets[i].MinCount = prevWl.Spec.PodSets[i].MinCount
 			}
 		}
 		if extra != "" {

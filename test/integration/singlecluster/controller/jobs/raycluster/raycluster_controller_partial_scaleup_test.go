@@ -129,7 +129,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			ScaleFirstWorkerGroup(5).
+			FirstWorkerGroupReplicas(5, 10, 10).
 			Obj()
 
 		// -------------------------------------------------------------------------------------
@@ -357,7 +357,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			ScaleFirstWorkerGroup(5).
+			FirstWorkerGroupReplicas(5, 10, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		ginkgo.By("the scale-up probe for the full request is pending")
 		probe := util.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
-		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		ginkgo.By("draining the ClusterQueue to evict the partially-admitted slice")
@@ -408,7 +408,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		ginkgo.By("a new scale-up probe is created for the full request again")
 		newProbe := util.ExpectNewWorkloadSlice(ctx, k8sClient, probe)
-		gomega.Expect(newProbe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
+		gomega.Expect(newProbe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, newProbe)
 
 		ginkgo.By("growing the quota to 10 pods for the new probe to be admitted")
@@ -430,7 +430,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			ScaleFirstWorkerGroup(5).
+			FirstWorkerGroupReplicas(5, 10, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -447,7 +447,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		ginkgo.By("the scale-up probe for the full request is pending")
 		probe := util.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
-		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		// It's a real job-backed workload, so its own RayCluster controller drives eviction to
@@ -484,22 +484,23 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		ginkgo.By("a new scale-up probe is created for the full request again")
 		newProbe := util.ExpectNewWorkloadSlice(ctx, k8sClient, probe)
-		gomega.Expect(newProbe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
+		gomega.Expect(newProbe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, newProbe)
 	})
 
-	ginkgo.It("Should stay pending, not degrade, if a ClusterQueue drain also shrinks the quota below the old baseline", func() {
-		// Known gap, not a regression: the probe's floor is frozen at the old baseline, and
-		// mustGrow=false only decides whether landing on that floor is a fit - it can't lower it.
-		// So the probe recovers once quota returns to that floor, not to any smaller level in
-		// between. Graceful degradation to a smaller floor would need a new mechanism; nothing
-		// in the codebase attempts that today.
+	ginkgo.It("Should stay pending, not degrade, if a ClusterQueue drain also shrinks the quota below the chain's origin", func() {
+		// Known gap, not a regression: the probe's floor is copied forward from its
+		// predecessor's own recorded floor at creation (see the previous spec), tracing back
+		// through the whole chain to the count the job was first admitted at - here, 5. Once
+		// quota shrinks below even that, the probe still can't recover. Reaching lower would
+		// mean recording a floor below what the job has ever actually run at, e.g. after an
+		// explicit scale-down; nothing in the codebase weaves that into the chain's floor today.
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			ScaleFirstWorkerGroup(5).
+			FirstWorkerGroupReplicas(5, 10, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -515,7 +516,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		ginkgo.By("the scale-up probe for the full request is pending")
 		probe := util.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
-		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		ginkgo.By("draining the ClusterQueue to evict the partially-admitted slice")
@@ -532,11 +533,11 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 				kueue.WorkloadEvicted, kueue.WorkloadEvictedByClusterQueueStopped))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("the evicted slice is finished; the probe survives, still pending")
+		ginkgo.By("the evicted slice is finished; the probe survives, its floor already 5")
 		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(partialSlice))
 		expectPodsUsage(0)
 
-		ginkgo.By("resuming the ClusterQueue with the quota shrunk below the probe's floor")
+		ginkgo.By("resuming the ClusterQueue with the quota shrunk below the chain's origin")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
 			clusterQueue.Spec.StopPolicy = new(kueue.None)
@@ -544,7 +545,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("the probe stays pending: 3 workers would fit, but its floor demands 6")
+		ginkgo.By("the probe stays pending: 3 workers would fit, but its floor demands 5")
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 		expectPodsUsage(0)
 
@@ -558,18 +559,18 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		expectPodsUsage(7)
 	})
 
-	ginkgo.It("Should recover at a worker count the job already ran at, even below the probe's frozen floor", func() {
-		// Bug reproduction: the probe's floor (6 workers) is frozen at the count its immediate
-		// predecessor held, not at any point earlier in the job's own history. Once the quota
-		// shrinks to fit only the job's ORIGINAL count (5 workers, proven to have worked earlier
-		// in this same run), the probe should recover there - but nothing lowers its floor, so it
-		// stays pending forever even though the job has already demonstrated it can run this way.
+	ginkgo.It("Should recover at a worker count the job already ran at, even below the probe's predecessor", func() {
+		// The probe's floor (5) is copied forward from its predecessor's own recorded floor at
+		// creation - not recomputed from the predecessor's live grant (6) - so it already traces
+		// back to the job's original, pre-scale-up count before eviction ever happens (see
+		// prepareWorkloadSliceForScaleUp). So once quota shrinks to fit only that original
+		// count, the probe recovers there, even though its predecessor only ever ran at 6.
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			ScaleFirstWorkerGroup(5).
+			FirstWorkerGroupReplicas(5, 10, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -583,9 +584,9 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
 		expectPodsUsage(7)
 
-		ginkgo.By("the scale-up probe for the full request is pending, floored at 6 workers")
+		ginkgo.By("the scale-up probe for the full request is pending, floored at 5 workers")
 		probe := util.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
-		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(6))))
+		gomega.Expect(probe.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
 
 		ginkgo.By("draining the ClusterQueue to evict the partially-admitted slice")
@@ -607,8 +608,8 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		expectPodsUsage(0)
 
 		// 6 pods is exactly 1 head + 5 workers - the level the job was admitted at, and ran at
-		// successfully, before it ever scaled up. It is strictly more than the job started with,
-		// yet still below the probe's frozen floor of 6 workers (7 pods).
+		// successfully, before it ever scaled up. That's exactly the probe's frozen floor,
+		// while its predecessor's own eventual grant (6 workers, 7 pods) is unreachable here.
 		ginkgo.By("resuming the ClusterQueue with just enough quota for the job's original count")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())

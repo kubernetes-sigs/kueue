@@ -2657,8 +2657,8 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	prevWl := utiltestingapi.MakeWorkload("job-multi-prev", "ns").
 		PodSets(
 			kueue.PodSet{Name: kueue.PodSetReference("head"), Count: 1},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 20},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
 		).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("head")).
@@ -2702,7 +2702,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
 		},
-		"scale-up with previous admitted workload sets minCount to the granted baseline and probe extra": {
+		"scale-up with previous admitted workload copies minCount forward from its own recorded floor": {
 			job: job,
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
@@ -2716,11 +2716,12 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        20,
 			},
 			wantMinCounts: map[kueue.PodSetReference]*int32{
-				// head was granted its full count, so it stays fixed; the growing podSets get the
-				// counts granted to them, not those counts plus one.
+				// Copied forward from prevWl's own MinCount, not recomputed from what it was
+				// actually granted (1 and 4 respectively) - the predecessor's own floor traces
+				// back to the chain's origin, which a live grant snapshot wouldn't.
 				kueue.PodSetReference("head"):                nil,
-				kueue.PodSetReference("workers-reservation"): new(int32(1)),
-				kueue.PodSetReference("workers-spot"):        new(int32(4)),
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
 		},
 	}
