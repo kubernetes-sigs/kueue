@@ -15,4 +15,4 @@ RUN npm install
 # Copy source files
 COPY . .
 
-CMD ["npm", "run", "check-unused"]
+RUN npm run check-unused

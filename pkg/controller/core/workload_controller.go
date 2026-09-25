@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utilwfpr "sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -421,6 +422,7 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=devicetaintrules,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -767,8 +769,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		isAdmitted := workload.IsAdmitted(&wl)
 		if isAdmitted {
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
-			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
+			quotaReservedWaitTime := workload.QuotaReservedWaitTime(&wl, r.clock)
 			r.recorder.Eventf(
 				&wl,
 				nil,
@@ -1696,14 +1697,40 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
+// determineTimeouts returns the timeout and recovery timeout for the workload,
+// giving precedence to the per-workload annotation over the cluster-level configuration.
+// It returns ok=false when no timeout and recovery timeout are configured at either level.
+func (r *WorkloadReconciler) determineTimeouts(wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
+	cfg, err := utilwfpr.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
+	if err != nil {
+		r.logger().Error(err, "Failed to unmarshal WaitForPodsReady annotation; falling back to cluster-level configuration", "workload", klog.KObj(wl))
+	}
+	switch {
+	case cfg != nil:
+		timeout = cfg.Timeout
+		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > 0 {
+			recoveryTimeout = cfg.RecoveryTimeout
+		} else if cfg.RecoveryTimeout == nil {
+			recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+		}
+	case r.waitForPodsReady != nil:
+		timeout = r.waitForPodsReady.timeout
+		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+	default:
+		// No timeout configured at either level.
+		return 0, nil, false
+	}
+	return timeout, recoveryTimeout, true
+}
+
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
 // a workload that is admitted but not yet in PodsReady condition.
 //
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	if r.waitForPodsReady == nil {
-		// the timeout is not configured for the workload controller
+	timeout, recoveryTimeout, ok := r.determineTimeouts(wl)
+	if !ok {
 		return "", 0
 	}
 	if !workload.IsAdmitted(wl) {
@@ -1718,23 +1745,23 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 
 	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
 	if r.podsScheduledTrackingEnabled() && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
-		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt, timeout))
 	}
 
 	switch {
 	case podsReadyCond == nil, podsReadyCond.Reason == kueue.WorkloadWaitForStart, podsReadyCond.Reason == kueue.WorkloadPodsReady,
 		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
-		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(r.waitForPodsReady.timeout))
-	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil:
+		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(timeout))
+	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && recoveryTimeout != nil:
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-		return kueue.WorkloadWaitForRecovery, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
+		return kueue.WorkloadWaitForRecovery, max(*recoveryTimeout-elapsedTime, 0)
 	}
 	return "", 0
 }
 
-func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time) time.Time {
-	deadline := metav1.NewTime(admittedAt.Add(r.waitForPodsReady.timeout))
+func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time, timeout time.Duration) time.Time {
+	deadline := metav1.NewTime(admittedAt.Add(timeout))
 	if r.waitForPodsReady.unscheduledTimeout == nil {
 		return deadline.Time
 	}
@@ -1762,6 +1789,9 @@ func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
 	h.handle(ctx, e.Object, q)
+	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
+		h.notifyForLimitRangeSchedulingChange(ctx, nil, lr)
+	}
 }
 
 func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1771,7 +1801,7 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	h.handle(ctx, e.ObjectNew, q)
 	if oldLr, isLr := e.ObjectOld.(*corev1.LimitRange); isLr {
 		if newLr, isNewLr := e.ObjectNew.(*corev1.LimitRange); isNewLr {
-			h.notifyForLimitRangeConstraintsChange(ctx, oldLr, newLr)
+			h.notifyForLimitRangeSchedulingChange(ctx, oldLr, newLr)
 		}
 	}
 }
@@ -1782,37 +1812,43 @@ func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent
 	log.V(5).Info("Delete event")
 	h.handle(ctx, e.Object, q)
 	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
-		h.notifyForLimitRangeConstraintsChange(ctx, lr, nil)
+		h.notifyForLimitRangeSchedulingChange(ctx, lr, nil)
 	}
 }
 
 func (h *resourceUpdatesHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-// notifyForLimitRangeConstraintsChange requeues the inadmissible workloads of
-// the LimitRange's namespace when the constraint fields changed. A deletion is
-// passed as a nil newLr.
-func (h *resourceUpdatesHandler) notifyForLimitRangeConstraintsChange(ctx context.Context, oldLr, newLr *corev1.LimitRange) {
-	if !limitRangeConstraintsChanged(oldLr, newLr) {
+// notifyForLimitRangeSchedulingChange requeues the inadmissible workloads of
+// the LimitRange's namespace when fields used by resource adjustment or
+// admission validation changed. This also records the change for workloads
+// currently checked out by the scheduler, so they return to the active queue
+// instead of becoming inadmissible based on a stale evaluation.
+func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context.Context, oldLr, newLr *corev1.LimitRange) {
+	if !limitRangeSchedulingFieldsChanged(oldLr, newLr) {
 		return
 	}
-	var newLimits []corev1.LimitRangeItem
+	lr := newLr
+	if lr == nil {
+		lr = oldLr
+	}
+	var oldLimits, newLimits []corev1.LimitRangeItem
+	if oldLr != nil {
+		oldLimits = oldLr.Spec.Limits
+	}
 	if newLr != nil {
 		newLimits = newLr.Spec.Limits
 	}
-	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange constraint fields changed",
-		"limitRange", klog.KObj(oldLr),
-		"oldLimits", oldLr.Spec.Limits, "newLimits", newLimits)
-	h.retryInadmissibleForNamespace(ctx, oldLr.Namespace)
+	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange scheduling fields changed",
+		"limitRange", klog.KObj(lr),
+		"oldLimits", oldLimits, "newLimits", newLimits)
+	h.retryInadmissibleForNamespace(ctx, lr.Namespace)
 }
 
-// limitRangeConstraintsChanged reports whether any of the LimitRange spec
-// fields the admission-time validation consults (max, min,
-// maxLimitRequestRatio) changed. Unlike default and defaultRequest, these
-// fields do not alter the workloads' adjusted resources, so a change to them
-// is invisible to the spec-diff based requeue in queueReconcileForPending.
-// A nil LimitRange stands for the object not existing (deletion).
-func limitRangeConstraintsChanged(oldLr, newLr *corev1.LimitRange) bool {
+// limitRangeSchedulingFieldsChanged reports whether any LimitRange field used
+// to compute effective resources or validate admission changed. A nil
+// LimitRange stands for the object not existing (creation or deletion).
+func limitRangeSchedulingFieldsChanged(oldLr, newLr *corev1.LimitRange) bool {
 	var oldItems, newItems []corev1.LimitRangeItem
 	if oldLr != nil {
 		oldItems = oldLr.Spec.Limits
@@ -1827,6 +1863,8 @@ func limitRangeConstraintsChanged(oldLr, newLr *corev1.LimitRange) bool {
 		if oldItems[i].Type != newItems[i].Type ||
 			!equality.Semantic.DeepEqual(oldItems[i].Max, newItems[i].Max) ||
 			!equality.Semantic.DeepEqual(oldItems[i].Min, newItems[i].Min) ||
+			!equality.Semantic.DeepEqual(oldItems[i].Default, newItems[i].Default) ||
+			!equality.Semantic.DeepEqual(oldItems[i].DefaultRequest, newItems[i].DefaultRequest) ||
 			!equality.Semantic.DeepEqual(oldItems[i].MaxLimitRequestRatio, newItems[i].MaxLimitRequestRatio) {
 			return true
 		}

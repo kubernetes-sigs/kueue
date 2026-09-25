@@ -147,6 +147,7 @@ type Options struct {
 	CustomLabels                 *metrics.CustomLabels
 	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
+	MaxTimeoutOnWorkload         *metav1.Duration
 }
 
 // Option configures the reconciler.
@@ -182,6 +183,9 @@ func WithWaitForPodsReady(cfg *configapi.WaitForPodsReady) Option {
 	return func(o *Options) {
 		o.WaitForPodsReady = waitforpodsready.Enabled(cfg)
 		o.WaitForPodsReadyConfig = cfg
+		if cfg != nil && cfg.MaxTimeoutOnWorkload != nil {
+			o.MaxTimeoutOnWorkload = cfg.MaxTimeoutOnWorkload
+		}
 	}
 }
 
@@ -572,7 +576,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 5. handle WaitForPodsReady only for a standalone job.
 	// handle a job when waitForPodsReady is enabled, and it is the main job
-	if r.waitForPodsReady {
+	if r.waitForPodsReady || waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
 		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
@@ -688,8 +692,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// workload is admitted and job is running, nothing to do.
-	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
+	// Workload is admitted and job is running, nothing to do. For elastic jobs,
+	// pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
 }
@@ -1158,6 +1162,11 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
 				return nil, err
 			}
+			if wl != nil {
+				if err := UpdateWaitForPodsReady(ctx, r.client, r.record, job.Object(), wl); err != nil {
+					return nil, err
+				}
+			}
 			return wl, nil
 		}
 		// Fallback.
@@ -1248,6 +1257,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), match); err != nil {
 			return nil, err
 		}
+
+		if err := UpdateWaitForPodsReady(ctx, r.client, r.record, job.Object(), match); err != nil {
+			return nil, err
+		}
 	}
 
 	return match, nil
@@ -1316,6 +1329,64 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 	}
 
 	return false
+}
+
+// UpdateWaitForPodsReady propagates the WaitForPodsReady annotation from the job object
+// to its associated workload. Emits an event only if the annotation was actually changed
+// and the update succeeded.
+// The function returnes immediately if the WorkloadLevelWaitForPodsReady feature is not enabled.
+func UpdateWaitForPodsReady(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload) error {
+	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		return nil
+	}
+
+	var propagated bool
+	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
+		var err error
+		propagated, err = PropagateWaitForPodsReadyAnnotation(obj, wl)
+		return propagated, err
+	}); err != nil {
+		return fmt.Errorf("updating the WaitForPodsReady of existing workload: %w", err)
+	}
+
+	if propagated {
+		RecordWaitForPodsReadyUpdateEvent(r, obj)
+	}
+
+	return nil
+}
+
+// PropagateWaitForPodsReadyAnnotation copies the WaitForPodsReady annotation from the given object to
+// workload object but only in memory. It does not persist the changes to the API server.
+func PropagateWaitForPodsReadyAnnotation(obj client.Object, wl *kueue.Workload) (bool, error) {
+	jobCfg, err := waitforpodsready.ParseAnnotation(obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation])
+	if err != nil {
+		return false, err
+	}
+
+	wlCfg, err := waitforpodsready.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
+
+	if err == nil && apiequality.Semantic.DeepEqual(wlCfg, jobCfg) {
+		return false, nil
+	}
+
+	if wl.Annotations == nil {
+		wl.Annotations = make(map[string]string)
+	}
+	if jobCfg == nil {
+		delete(wl.Annotations, controllerconsts.WaitForPodsReadyAnnotation)
+	} else {
+		wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation]
+	}
+	return true, nil
+}
+
+// RecordWaitForPodsReadyUpdateEvent records a successful WaitForPodsReady annotation
+// update to a workload.
+func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object) {
+	r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+		"Updated workload WaitForPodsReady annotation to %s", obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation],
+	)
 }
 
 // UpdateWorkloadPriority reconciles the priority of each workload that still
@@ -1656,6 +1727,11 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	if err != nil {
 		return err
 	}
+	if workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		if err := deferAdmissionCheckNodeSelectorsToPods(ctx, r.client, wl, info); err != nil {
+			return err
+		}
+	}
 	msg := fmt.Sprintf("Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
 	log := ctrl.LoggerFrom(ctx)
@@ -1688,6 +1764,47 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStarted, "Started", msg)
 	}
 
+	return nil
+}
+
+// deferAdmissionCheckNodeSelectorsToPods keeps request-specific placement out
+// of a long-lived elastic job template. A Job template is immutable once
+// created, and the API server only allows *adding* nodeSelector keys to a
+// gated Pod, never changing an existing one; see ValidatePodUpdate:
+// https://github.com/kubernetes/kubernetes/blob/f54c212e3a2f75d674b717a9b29052b20b60aefc/pkg/apis/core/validation/validation.go#L5952-L5954
+// If the first ProvisioningRequest's selector were baked into the template,
+// every later slice's pods would inherit it and the ElasticJobUngater could
+// not retarget them to the new request. So the selectors are added to each
+// gated Pod by the ungater instead, while stable selectors supplied by
+// ResourceFlavors stay on the template.
+func deferAdmissionCheckNodeSelectorsToPods(ctx context.Context, c client.Client, wl *kueue.Workload, info []podset.PodSetInfo) error {
+	infoByName := make(map[kueue.PodSetReference]*podset.PodSetInfo, len(info))
+	for i := range info {
+		infoByName[info[i].Name] = &info[i]
+	}
+	baseByName := make(map[kueue.PodSetReference]podset.PodSetInfo, len(wl.Status.Admission.PodSetAssignments))
+	for i := range wl.Status.Admission.PodSetAssignments {
+		base, err := podset.FromAssignment(ctx, c, &wl.Status.Admission.PodSetAssignments[i], &wl.Spec.PodSets[i])
+		if err != nil {
+			return err
+		}
+		baseByName[base.Name] = base
+	}
+	for _, check := range wl.Status.AdmissionChecks {
+		for _, update := range check.PodSetUpdates {
+			podSetInfo := infoByName[update.Name]
+			if podSetInfo == nil {
+				continue
+			}
+			for key := range update.NodeSelector {
+				if stableValue, stable := baseByName[update.Name].NodeSelector[key]; stable {
+					podSetInfo.NodeSelector[key] = stableValue
+				} else {
+					delete(podSetInfo.NodeSelector, key)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -1847,15 +1964,16 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
 		admitted := int32(0)
 		for i := range podSets {
-			prevAdmittedCount, ok := grantedCounts[podSets[i].Name]
-			if !ok {
-				continue
+			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok {
+				admitted += prevAdmittedCount
 			}
-			admitted += prevAdmittedCount
-			if podSets[i].Count > prevAdmittedCount {
-				// The baseline: what this PodSet already has. A scale-up has to
-				// grow at least one PodSet, not every one, which the scheduler enforces instead.
-				podSets[i].MinCount = new(prevAdmittedCount)
+			// The baseline is copied forward from the predecessor's own floor, not
+			// recomputed from its live grant, so it keeps tracing back to the chain's
+			// origin even once every live predecessor is gone. The scheduler still
+			// enforces that a scale-up must grow at least one PodSet, using the
+			// predecessor's live grant while it's still around (see getInitialAssignments).
+			if prevWl.Spec.PodSets[i].MinCount != nil {
+				podSets[i].MinCount = prevWl.Spec.PodSets[i].MinCount
 			}
 		}
 		if extra != "" {

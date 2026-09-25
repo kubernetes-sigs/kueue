@@ -45,6 +45,7 @@ var (
 		cmpopts.IgnoreFields(
 			corev1.Pod{}, "ObjectMeta.ResourceVersion", "ObjectMeta.DeletionTimestamp",
 		),
+		cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),
 	}
 )
 
@@ -341,6 +342,108 @@ func TestReconciler(t *testing.T) {
 				StatusConditions(corev1.PodCondition{
 					Type:    KueueFailureRecoveryConditionType,
 					Status:  "True",
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
+					EventType: "Warning",
+					Reason:    KueueForcefulTerminationReason,
+					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				},
+			},
+		},
+		"failure recovery condition already exists": {
+			testPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  corev1.ConditionTrue,
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
+				Obj(),
+			wantResult: ctrl.Result{},
+			wantErr:    nil,
+			wantPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  corev1.ConditionTrue,
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"failure recovery condition already exists but pod is still running": {
+			testPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodRunning).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  corev1.ConditionTrue,
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
+				Obj(),
+			wantResult: ctrl.Result{},
+			wantErr:    nil,
+			wantPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  corev1.ConditionTrue,
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"failure recovery condition is false": {
+			testPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:   KueueFailureRecoveryConditionType,
+					Status: corev1.ConditionFalse,
+				}).
+				Obj(),
+			wantResult: ctrl.Result{},
+			wantErr:    nil,
+			wantPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  corev1.ConditionTrue,
+					Reason:  KueueForcefulTerminationReason,
+					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
+					EventType: "Warning",
+					Reason:    KueueForcefulTerminationReason,
+					Message:   "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+				},
+			},
+		},
+		"failure recovery condition is unknown": {
+			testPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:   KueueFailureRecoveryConditionType,
+					Status: corev1.ConditionUnknown,
+				}).
+				Obj(),
+			wantResult: ctrl.Result{},
+			wantErr:    nil,
+			wantPod: podToForcefullyDelete.Clone().
+				StatusPhase(corev1.PodFailed).
+				StatusConditions(corev1.PodCondition{
+					Type:    KueueFailureRecoveryConditionType,
+					Status:  corev1.ConditionTrue,
 					Reason:  KueueForcefulTerminationReason,
 					Message: "Pod forcefully terminated after 1m0s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
 				}).

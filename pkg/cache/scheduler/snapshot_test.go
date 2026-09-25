@@ -38,6 +38,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -55,7 +57,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot", "hostnameLeafTASFlavors"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -443,6 +445,59 @@ func TestSnapshot(t *testing.T) {
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption:                    defaultPreemption,
 							FairWeight:                    3.0,
+						},
+					},
+				),
+			},
+		},
+		"clusterQueue with labels": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurablePreemptions: true},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("with-labels").
+					Label("env", "prod").
+					Label("tier", "batch").
+					Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						"with-labels": {
+							Name:                          "with-labels",
+							Labels:                        map[string]string{"env": "prod", "tier": "batch"},
+							NamespaceSelector:             labels.Everything(),
+							AllocatableResourceGeneration: 1,
+							Status:                        active,
+							Workloads:                     map[workload.Reference]*workload.Info{},
+							FlavorFungibility:             defaultFlavorFungibility,
+							Preemption:                    defaultPreemption,
+							FairWeight:                    defaultWeight,
+						},
+					},
+				),
+			},
+		},
+		"clusterQueue labels ignored when ConfigurablePreemptions is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurablePreemptions: false},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("with-labels").
+					Label("env", "prod").
+					Label("tier", "batch").
+					Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						"with-labels": {
+							Name:                          "with-labels",
+							NamespaceSelector:             labels.Everything(),
+							AllocatableResourceGeneration: 1,
+							Status:                        active,
+							Workloads:                     map[workload.Reference]*workload.Info{},
+							FlavorFungibility:             defaultFlavorFungibility,
+							Preemption:                    defaultPreemption,
+							FairWeight:                    defaultWeight,
 						},
 					},
 				),
@@ -1746,7 +1801,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2245,7 +2300,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2261,6 +2316,40 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// The device check wraps whichever simulator the cache holds, so it is available to a
+// cluster that does not run the scheduler library. Its gate no longer names that one.
+func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
+	cases := map[string]struct {
+		simulator      simulator.Factory
+		featureEnabled bool
+		wantChecker    bool
+	}{
+		"default simulator, gate on":  {featureEnabled: true, wantChecker: true},
+		"default simulator, gate off": {},
+		"another simulator, gate on":  {simulator: newDefaultSimulatorFactory(), featureEnabled: true, wantChecker: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.featureEnabled)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			opts := []Option{}
+			if tc.simulator != nil {
+				opts = append(opts, WithSimulatorFactory(tc.simulator))
+			}
+			cache := New(utiltesting.NewFakeClient(), opts...)
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() returned error: %v", err)
+			}
+			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
+				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
 			}
 		})
 	}

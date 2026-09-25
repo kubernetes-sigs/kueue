@@ -400,7 +400,7 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"partial scale up enabled with feature gate and annotation": {
+		"partial scale up enabled with feature gate and annotation sets minCount to the worker group's own count": {
 			enablePartialScaleUpFeature: true,
 			annotations: map[string]string{
 				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
@@ -415,9 +415,9 @@ func TestBuildPodSets(t *testing.T) {
 				},
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
-						GroupName:   "workers",
-						Replicas:    new(int32(3)),
-						MinReplicas: new(int32(1)),
+						GroupName: "workers",
+						// MinReplicas is deliberately absent - it's not consulted at all.
+						Replicas: new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -434,44 +434,6 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).
 					SetMinimumCount(3).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "worker"}},
-					}).
-					Obj(),
-			},
-		},
-		"partial scale up enabled with feature gate and annotation, but no minReplicas set": {
-			enablePartialScaleUpFeature: true,
-			annotations: map[string]string{
-				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
-			},
-			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "head"}},
-						},
-					},
-				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{
-						GroupName: "workers",
-						Replicas:  new(int32(3)),
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{Name: "worker"}},
-							},
-						},
-					},
-				},
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "head"}},
-					}).
-					Obj(),
-				*utiltestingapi.MakePodSet("workers", 3).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "worker"}},
 					}).
@@ -1313,6 +1275,11 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 	tooManyWorkerGroups := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
 	tooManyWorkerGroupsWithHead := testingrayutil.MakeWorkerGroups(jobframework.MaxPodSets)
 	tooManyWorkerGroupsWithHead[0] = rayv1.WorkerGroupSpec{GroupName: "head"}
+	validHeadGroupSpec := rayv1.HeadGroupSpec{
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head"}}},
+		},
+	}
 
 	testCases := map[string]struct {
 		object         client.Object
@@ -1322,14 +1289,21 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		"valid spec": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec: validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "workers"},
 				},
 			},
 			wantErrors: nil,
+		},
+		"head pod has no containers": {
+			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "workers"}},
+			},
+			wantErrors: field.ErrorList{
+				field.Required(field.NewPath("spec", "headGroupSpec", "template", "spec", "containers"), "must have at least one container"),
+			},
 		},
 		"autoscaling enabled without workload slicing": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").
@@ -1337,15 +1311,19 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec:           validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "workers"},
 				},
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
+				field.Invalid(
+					field.NewPath("spec", "enableInTreeAutoscaling"),
+					new(true),
+					fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+				),
 			},
 		},
 		"autoscaling enabled with workload slicing": {
@@ -1355,9 +1333,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec:           validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "workers"},
 				},
@@ -1367,9 +1343,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		"too many worker groups": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec:    validHeadGroupSpec,
 				WorkerGroupSpecs: tooManyWorkerGroups,
 			},
 			wantErrors: field.ErrorList{
@@ -1379,9 +1353,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 		"worker group named 'head'": {
 			object: testingrayutil.MakeCluster("raycluster", "ns").Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
+				HeadGroupSpec: validHeadGroupSpec,
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{GroupName: "head"},
 				},
@@ -1396,13 +1368,17 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 				Obj(),
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				EnableInTreeAutoscaling: new(true),
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{},
-				},
-				WorkerGroupSpecs: tooManyWorkerGroupsWithHead,
+				HeadGroupSpec:           validHeadGroupSpec,
+				WorkerGroupSpecs:        tooManyWorkerGroupsWithHead,
 			},
 			wantErrors: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "a kueue managed job should only use autoscaling when workload slicing is enabled"),
+				field.Invalid(
+					field.NewPath("spec", "enableInTreeAutoscaling"),
+					new(true),
+					fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+				),
 				field.TooMany(field.NewPath("spec", "workerGroupSpecs"), jobframework.MaxPodSets+1, jobframework.MaxPodSets),
 				field.Forbidden(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			},
@@ -1414,7 +1390,7 @@ func TestValidateCreateRayClusterSpec(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			gotErrors := ValidateCreate(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
 
-			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("Unexpected errors (-want +got):\n%s", diff)
 			}
 

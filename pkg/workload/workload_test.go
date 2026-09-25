@@ -158,9 +158,36 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						}),
 						Count: 1,
 					},
 				},
+			},
+		},
+		"zero-count PodSet preserves transformed per-pod requests": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 0).
+					Request("example.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/gpu",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"quota.example.com/gpu": resource.MustParse("3")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: kueue.DefaultPodSetName,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"quota.example.com/gpu": 0,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"quota.example.com/gpu": 6,
+					}),
+					Count: 0,
+				}},
 			},
 		},
 		"negative request floored to zero in total requests": {
@@ -179,6 +206,10 @@ func TestNewInfo(t *testing.T) {
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    0,
 							corev1.ResourceMemory: 2 * 512 * 1024,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    0,
+							corev1.ResourceMemory: 512 * 1024,
 						}),
 						Count: 2,
 					},
@@ -208,6 +239,10 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 512 * 1024,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						}),
 						Count: 3,
 					},
 				},
@@ -236,6 +271,10 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    5 * 10,
 							corev1.ResourceMemory: 5 * 512 * 1024,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						}),
 						Count: 5,
 					},
 				},
@@ -257,6 +296,9 @@ func TestNewInfo(t *testing.T) {
 						Count: 2147483647,
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 9223372036854775807,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 4_300_000_000,
 						}),
 					},
 				},
@@ -741,6 +783,10 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						}),
 						Count: 1,
 					},
 				},
@@ -768,6 +814,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("quota.acme.io/total-vgpu-cores"): 40,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.acme.io/total-vgpu-cores"): 40,
+					}),
 					Count: 1,
 				}},
 			},
@@ -792,6 +841,9 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: kueue.DefaultPodSetName,
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"quota.acme.io/total-vgpu-cores": 40,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"quota.acme.io/total-vgpu-cores": 40,
 					}),
 					Count: 1,
@@ -873,6 +925,11 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceName("example.com/accelerator-memory"): 20 * 1024,
 							corev1.ResourceName("example.com/credits"):            35,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 1000,
+							corev1.ResourceName("example.com/accelerator-memory"): 20 * 1024,
+							corev1.ResourceName("example.com/credits"):            35,
+						}),
 						Count: 1,
 					},
 					{
@@ -883,11 +940,22 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceName("example.com/credits"):            200,
 							corev1.ResourceName("nvidia.com/gpu"):                 2,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 2000,
+							corev1.ResourceName("example.com/accelerator-memory"): 40960,
+							corev1.ResourceName("example.com/credits"):            100,
+							corev1.ResourceName("nvidia.com/gpu"):                 1,
+						}),
 						Count: 2,
 					},
 					{
 						Name: "c",
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceName("nvidia.com/vgpu"):            2,
+							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 20,
+							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 1024,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceName("nvidia.com/vgpu"):            2,
 							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 20,
 							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 1024,
@@ -900,6 +968,11 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceName("nvidia.com/vgpu"):            2 * 2,
 							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 2 * 30,
 							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 2 * 2048,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceName("nvidia.com/vgpu"):            2,
+							corev1.ResourceName("nvidia.com/total-vgpucores"): 2 * 30,
+							corev1.ResourceName("nvidia.com/total-vgpumem"):   2 * 2048,
 						}),
 						Count: 2,
 					},
@@ -935,6 +1008,10 @@ func TestNewInfo(t *testing.T) {
 						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 2048,
 						corev1.ResourceName("nvidia.com/gpu"):                       2,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 2048,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
 					Count: 1,
 				}},
 			},
@@ -962,6 +1039,10 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
 						corev1.ResourceName("nvidia.com/gpu"):                       2,
 					}),
@@ -995,6 +1076,10 @@ func TestNewInfo(t *testing.T) {
 						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
 						corev1.ResourceName("nvidia.com/gpu"):                       2,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1017,6 +1102,9 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): 8,
 					}),
 					Count: 1,
@@ -1042,6 +1130,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): 2,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 2,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1062,6 +1153,9 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 6,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): 6,
 					}),
 					Count: 1,
@@ -1094,6 +1188,11 @@ func TestNewInfo(t *testing.T) {
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							// Retain keeps gpumem as requested (1024), not the multiplyBy
 							// product (2048); the multiplier only scales the quota output.
+							corev1.ResourceName("example.com/gpumem"):       1024,
+							corev1.ResourceName("example.com/gpumem-quota"): 2048,
+							corev1.ResourceName("example.com/gpu"):          2,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceName("example.com/gpumem"):       1024,
 							corev1.ResourceName("example.com/gpumem-quota"): 2048,
 							corev1.ResourceName("example.com/gpu"):          2,
@@ -1134,6 +1233,11 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceName("example.com/gpumem-quota"): 512,
 							corev1.ResourceCPU:                              500,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceName("example.com/gpumem"):       1024,
+							corev1.ResourceName("example.com/gpumem-quota"): 512,
+							corev1.ResourceCPU:                              500,
+						}),
 						Count: 1,
 					},
 				},
@@ -1158,6 +1262,10 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  3,
+						corev1.ResourceName("example.com/node"): 2,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"):  3,
 						corev1.ResourceName("example.com/node"): 2,
 					}),
@@ -1188,6 +1296,10 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 5,
+						"gpu":             1,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 5,
 						"gpu":             1,
 					}),
@@ -1223,6 +1335,10 @@ func TestNewInfo(t *testing.T) {
 						"vendor.example/gpu": 1,
 						"gpu":                2,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"vendor.example/gpu": 1,
+						"gpu":                2,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1247,6 +1363,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 2,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 2,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1269,6 +1388,10 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 1,
 						"gpu":             1,
 					}),
@@ -1298,6 +1421,9 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"gpu": 8,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"gpu": 8,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1323,6 +1449,10 @@ func TestNewInfo(t *testing.T) {
 						"example.com/gpu": 1,
 						"gpu":             8,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             8,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1345,6 +1475,9 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 2,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						"example.com/gpu": 2,
 					}),
 					Count: 1,
@@ -1378,6 +1511,10 @@ func TestNewInfo(t *testing.T) {
 						"example.com/gpu": 1,
 						"gpu":             1,
 					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
 					Count: 1,
 				}},
 			},
@@ -1398,6 +1535,9 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): math.MaxInt64,
+					}),
+					PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): math.MaxInt64,
 					}),
 					Count: 1,
@@ -1439,6 +1579,10 @@ func TestNewInfo(t *testing.T) {
 							// 100M * 3m = 300k
 							corev1.ResourceName("example.com/memory-credits"): 300 * 1000,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceName("example.com/cpu-credits"):    300,
+							corev1.ResourceName("example.com/memory-credits"): 300 * 1000,
+						}),
 						Count: 1,
 					},
 				},
@@ -1459,6 +1603,9 @@ func TestNewInfo(t *testing.T) {
 						Name: kueue.DefaultPodSetName,
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 16000,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 8000,
 						}),
 						Count: 2,
 					},
@@ -1481,6 +1628,36 @@ func TestNewInfo(t *testing.T) {
 	}
 }
 
+func TestPodSetResourcesScaledToZeroPreservesPerPodRequests(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
+	info := NewInfo(log, utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+			Request(corev1.ResourceCPU, "2").Obj()).Obj())
+	original := &info.TotalRequests[0]
+	scaled := original.ScaledTo(0)
+	want := &PodSetResources{
+		Name:           kueue.DefaultPodSetName,
+		Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0}),
+		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2_000}),
+		Count:          0,
+	}
+	if diff := cmp.Diff(want, scaled, cmp.Comparer(resources.Equal)); diff != "" {
+		t.Fatalf("ScaledTo(0) (-want,+got):\n%s", diff)
+	}
+
+	// Changing the scaled copy must not change the original PodSet's requests.
+	scaled.PerPodRequests.Set(corev1.ResourceCPU, 1_000)
+	wantOriginal := &PodSetResources{
+		Name:           kueue.DefaultPodSetName,
+		Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 6_000}),
+		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 2_000}),
+		Count:          3,
+	}
+	if diff := cmp.Diff(wantOriginal, original, cmp.Comparer(resources.Equal)); diff != "" {
+		t.Errorf("original PodSet changed after scaling (-want,+got):\n%s", diff)
+	}
+}
+
 func TestUpdateWithRebuild(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
@@ -1496,9 +1673,10 @@ func TestUpdateWithRebuild(t *testing.T) {
 			updated: utiltestingapi.MakeWorkload("wl", "ns").
 				Request(corev1.ResourceCPU, "200m").Obj(),
 			wantRequests: []PodSetResources{{
-				Name:     kueue.DefaultPodSetName,
-				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 200}),
-				Count:    1,
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 200}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 200}),
+				Count:          1,
 			}},
 		},
 		"stale DRA TotalRequests cleared on rebuild": {
@@ -1519,9 +1697,10 @@ func TestUpdateWithRebuild(t *testing.T) {
 			updated: utiltestingapi.MakeWorkload("wl", "ns").
 				Request("example.com/gpu", "1").Obj(),
 			wantRequests: []PodSetResources{{
-				Name:     kueue.DefaultPodSetName,
-				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"example.com/gpu": 1}),
-				Count:    1,
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"example.com/gpu": 1}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"example.com/gpu": 1}),
+				Count:          1,
 			}},
 		},
 		"admitted workload recomputes from admission": {
@@ -1559,9 +1738,10 @@ func TestUpdateWithRebuild(t *testing.T) {
 				Request("example.com/gpu", "1").Obj(),
 			updateOptions: []InfoOption{WithPreserveTotalRequests()},
 			wantRequests: []PodSetResources{{
-				Name:     kueue.DefaultPodSetName,
-				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
-				Count:    1,
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
+				Count:          1,
 			}},
 		},
 	}
@@ -2949,6 +3129,10 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 							corev1.ResourceCPU: 100,
 							"gpus":             2,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						}),
 					},
 				},
 			},
@@ -2981,6 +3165,10 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 							corev1.ResourceCPU: 100,
 							"gpus":             2,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 100,
+							"gpus":             2,
+						}),
 					},
 					{
 						Name:  "worker",
@@ -2988,6 +3176,10 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024,
 							"foo-accelerator":     2,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceMemory: 1024 * 1024 * 1024,
+							"foo-accelerator":     1,
 						}),
 					},
 				},
@@ -3018,11 +3210,18 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 							corev1.ResourceCPU: 100,
 							"gpus":             1,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 100,
+							"gpus":             1,
+						}),
 					},
 					{
 						Name:  "worker",
 						Count: 1,
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceMemory: 512 * 1024 * 1024,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceMemory: 512 * 1024 * 1024,
 						}),
 					},
@@ -3076,6 +3275,10 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 							corev1.ResourceCPU: 100,
 							"gpu":              1,
 						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 100,
+							"gpu":              1,
+						}),
 					},
 				},
 			},
@@ -3106,6 +3309,11 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 							corev1.ResourceCPU: 200,
 							"gpu":              4,
 							"tpu":              2,
+						}),
+						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 100,
+							"gpu":              2,
+							"tpu":              1,
 						}),
 					},
 				},

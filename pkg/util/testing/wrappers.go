@@ -197,6 +197,16 @@ func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, q
 	return c
 }
 
+// Port appends a container port, exposed on the host when host is non-zero.
+func (c *ContainerWrapper) Port(container, host int32, protocol corev1.Protocol) *ContainerWrapper {
+	c.Ports = append(c.Ports, corev1.ContainerPort{
+		ContainerPort: container,
+		HostPort:      host,
+		Protocol:      protocol,
+	})
+	return c
+}
+
 // WithEnvVar appends a env variable to the container.
 func (c *ContainerWrapper) WithEnvVar(envVar corev1.EnvVar) *ContainerWrapper {
 	c.Env = append(c.Env, envVar)
@@ -456,6 +466,16 @@ func (b *ResourceClaimSpecBuilder) WithCELSelectors(expression string) *Resource
 	return b
 }
 
+// WithToleration adds a toleration to the last device request
+func (b *ResourceClaimSpecBuilder) WithToleration(key string, effect resourcev1.DeviceTaintEffect) *ResourceClaimSpecBuilder {
+	if len(b.spec.Devices.Requests) > 0 {
+		lastIdx := len(b.spec.Devices.Requests) - 1
+		wrapper := &testingdra.DeviceRequestWrapper{DeviceRequest: b.spec.Devices.Requests[lastIdx]}
+		b.spec.Devices.Requests[lastIdx] = wrapper.Toleration(key, effect).Obj()
+	}
+	return b
+}
+
 // WithAdminAccess sets AdminAccess on the last device request
 func (b *ResourceClaimSpecBuilder) WithAdminAccess(enabled bool) *ResourceClaimSpecBuilder {
 	if len(b.spec.Devices.Requests) > 0 {
@@ -564,6 +584,15 @@ func (r *ResourceClaimTemplateWrapper) WithCELSelectors(expression string) *Reso
 	builder := NewResourceClaimSpecBuilder()
 	builder.spec = r.Spec.Spec
 	builder.WithCELSelectors(expression)
+	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// WithToleration adds a toleration to the last device request
+func (r *ResourceClaimTemplateWrapper) WithToleration(key string, effect resourcev1.DeviceTaintEffect) *ResourceClaimTemplateWrapper {
+	builder := NewResourceClaimSpecBuilder()
+	builder.spec = r.Spec.Spec
+	builder.WithToleration(key, effect)
 	r.Spec.Spec = builder.Build()
 	return r
 }
@@ -691,6 +720,20 @@ func (r *ResourceClaimWrapper) FirstAvailableRequest(requestName, deviceClassNam
 	builder.spec = r.Spec
 	builder.FirstAvailableRequest(requestName, deviceClassName)
 	r.Spec = builder.Build()
+	return r
+}
+
+// Allocated allocates the given devices of one pool to the named request
+func (r *ResourceClaimWrapper) Allocated(requestName, driver, pool string, devices ...string) *ResourceClaimWrapper {
+	r.Status.Allocation = &resourcev1.AllocationResult{}
+	for _, device := range devices {
+		r.Status.Allocation.Devices.Results = append(r.Status.Allocation.Devices.Results, resourcev1.DeviceRequestAllocationResult{
+			Request: requestName,
+			Driver:  driver,
+			Pool:    pool,
+			Device:  device,
+		})
+	}
 	return r
 }
 
@@ -863,6 +906,56 @@ func (w *NodeSelectorTermsWrapper) Obj() []corev1.NodeSelectorTerm {
 	return w.terms
 }
 
+type DeviceTaintRuleWrapper struct{ resourcev1.DeviceTaintRule }
+
+// MakeDeviceTaintRule creates a rule that taints every device in the cluster NoSchedule
+// with the given key. Narrow it with Driver, Pool and Device.
+func MakeDeviceTaintRule(name, key string) *DeviceTaintRuleWrapper {
+	return &DeviceTaintRuleWrapper{
+		resourcev1.DeviceTaintRule{
+			Name: name,
+			Spec: resourcev1.DeviceTaintRuleSpec{
+				DeviceSelector: &resourcev1.DeviceTaintSelector{},
+				Taint: resourcev1.DeviceTaint{
+					Key:    key,
+					Effect: resourcev1.DeviceTaintEffectNoSchedule,
+				},
+			},
+		},
+	}
+}
+
+func (w *DeviceTaintRuleWrapper) Driver(driver string) *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector.Driver = new(driver)
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Pool(pool string) *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector.Pool = new(pool)
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Device(device string) *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector.Device = new(device)
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Effect(effect resourcev1.DeviceTaintEffect) *DeviceTaintRuleWrapper {
+	w.Spec.Taint.Effect = effect
+	return w
+}
+
+// NoSelector drops the selector entirely, which the API describes as selecting no
+// devices and resourceslice/tracker treats as selecting all of them.
+func (w *DeviceTaintRuleWrapper) NoSelector() *DeviceTaintRuleWrapper {
+	w.Spec.DeviceSelector = nil
+	return w
+}
+
+func (w *DeviceTaintRuleWrapper) Obj() *resourcev1.DeviceTaintRule {
+	return &w.DeviceTaintRule
+}
+
 type ResourceSliceWrapper struct{ resourcev1.ResourceSlice }
 
 func MakeResourceSlice(name, driver string) *ResourceSliceWrapper {
@@ -937,6 +1030,19 @@ func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSli
 		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
 		last.AllowMultipleAllocations = &allow
 	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) DeviceTaint(key string, effect resourcev1.DeviceTaintEffect) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.Taints = append(last.Taints, resourcev1.DeviceTaint{Key: key, Effect: effect})
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) NodeName(name string) *ResourceSliceWrapper {
+	w.Spec.NodeName = &name
 	return w
 }
 

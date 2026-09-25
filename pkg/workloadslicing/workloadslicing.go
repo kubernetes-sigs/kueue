@@ -78,6 +78,13 @@ func IsElasticWorkload(workload *kueue.Workload) bool {
 	return Enabled(workload)
 }
 
+// IsEnabledForProvisioningRequests reports whether wl is an elastic workload
+// and elastic ProvisioningRequest support is enabled. Both feature gates are
+// required: the ProvisioningRequest gate depends on ElasticJobsViaWorkloadSlices.
+func IsEnabledForProvisioningRequests(wl *kueue.Workload) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlicesForProvisioningRequests) && IsElasticWorkload(wl)
+}
+
 const (
 	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
 	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
@@ -122,14 +129,44 @@ func FindActiveWorkload(ctx context.Context, c client.Client, key types.Namespac
 			key.Name = sliceName
 		}
 	}
-	active, err := FindLatestAdmittedWorkloadForSlice(ctx, c, key.Namespace, key.Name, excludeVariants)
+	var opts []FindLatestAdmittedWorkloadSliceOption
+	if excludeVariants {
+		opts = append(opts, WithExcludedConcurrentAdmissionVariants())
+	}
+	active, err := FindLatestAdmittedWorkloadForSlice(ctx, c, key.Namespace, key.Name, opts...)
 	if err != nil || active != nil {
 		return active, err
 	}
 	return wl, nil
 }
 
-func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, namespace, sliceName string, excludeVariants bool) (*kueue.Workload, error) {
+type findLatestAdmittedWorkloadSliceOptions struct {
+	excludeVariants bool
+	includeFinished bool
+}
+
+type FindLatestAdmittedWorkloadSliceOption func(*findLatestAdmittedWorkloadSliceOptions)
+
+// WithExcludedConcurrentAdmissionVariants excludes child variant Workloads
+// when selecting the latest admitted slice.
+func WithExcludedConcurrentAdmissionVariants() FindLatestAdmittedWorkloadSliceOption {
+	return func(opts *findLatestAdmittedWorkloadSliceOptions) {
+		opts.excludeVariants = true
+	}
+}
+
+// WithFinishedWorkloads includes admitted slices that were marked Finished.
+func WithFinishedWorkloads() FindLatestAdmittedWorkloadSliceOption {
+	return func(opts *findLatestAdmittedWorkloadSliceOptions) {
+		opts.includeFinished = true
+	}
+}
+
+func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, namespace, sliceName string, options ...FindLatestAdmittedWorkloadSliceOption) (*kueue.Workload, error) {
+	opts := findLatestAdmittedWorkloadSliceOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
 	wls := &kueue.WorkloadList{}
 	if err := c.List(ctx, wls, client.InNamespace(namespace),
 		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
@@ -138,8 +175,8 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, na
 	var latestAdmittedWl *kueue.Workload
 	for i := range wls.Items {
 		wl := &wls.Items[i]
-		if !workload.IsAdmitted(wl) || workloadfinish.IsFinished(wl) || workloadevict.IsEvicted(wl) ||
-			(excludeVariants && features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
+		if !workload.IsAdmitted(wl) || (!opts.includeFinished && workloadfinish.IsFinished(wl)) || workloadevict.IsEvicted(wl) ||
+			(opts.excludeVariants && features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
 			continue
 		}
 		if latestAdmittedWl == nil || wl.CreationTimestamp.After(latestAdmittedWl.CreationTimestamp.Time) ||
@@ -148,6 +185,29 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, na
 		}
 	}
 	return latestAdmittedWl, nil
+}
+
+// PreviousAdmittedPodSetCounts returns the effective PodSet counts of the
+// latest admitted, non-evicted slice in wl's chain other than wl itself, or
+// nil when there is none. Finished (replaced) slices are included because
+// their pods remain the running capacity baseline while a successor waits.
+// Counts come from workload.Info.TotalRequests, so reclaimed pods are
+// subtracted the same way quota accounting does: a predecessor admitted for 3
+// with 1 pod reclaimed is a baseline of 2.
+//
+// This is the baseline an incremental scale-up (e.g. a ProvisioningRequest or
+// a partial atomic scale-up) should subtract from wl's own counts.
+func PreviousAdmittedPodSetCounts(ctx context.Context, c client.Client, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+	prev, err := FindLatestAdmittedWorkloadForSlice(ctx, c, wl.Namespace, SliceName(wl), WithFinishedWorkloads())
+	if err != nil || prev == nil || prev.Name == wl.Name {
+		return nil, err
+	}
+	info := workload.NewInfo(ctrl.LoggerFrom(ctx), prev)
+	counts := make(map[kueue.PodSetReference]int32, len(info.TotalRequests))
+	for _, req := range info.TotalRequests {
+		counts[req.Name] = req.Count
+	}
+	return counts, nil
 }
 
 func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
@@ -185,7 +245,11 @@ func FindLatestAdmittedWorkload(ctx context.Context, clnt client.Client, wl *kue
 	if wl == nil {
 		return nil, nil
 	}
-	return FindLatestAdmittedWorkloadForSlice(ctx, clnt, wl.Namespace, SliceName(wl), excludeVariants)
+	var opts []FindLatestAdmittedWorkloadSliceOption
+	if excludeVariants {
+		opts = append(opts, WithExcludedConcurrentAdmissionVariants())
+	}
+	return FindLatestAdmittedWorkloadForSlice(ctx, clnt, wl.Namespace, SliceName(wl), opts...)
 }
 
 // FindLatestActiveWorkload returns the newest non-finished, non-evicted workload
