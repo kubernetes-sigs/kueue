@@ -49,6 +49,8 @@ resources:
 - provisioningrequestconfig_viewer_role.yaml
 - workloadpriorityclass_editor_role.yaml
 - workloadpriorityclass_viewer_role.yaml
+- preemptionconfig_editor_role.yaml
+- preemptionconfig_viewer_role.yaml
 
 # ClusterRoles for Kueue integrations
 - job_editor_role.yaml
@@ -79,3 +81,5 @@ resources:
 - leaderworkerset_viewer_role.yaml
 - sparkapplication_editor_role.yaml
 - sparkapplication_viewer_role.yaml
+- appwrapper_editor_role.yaml
+- appwrapper_viewer_role.yaml

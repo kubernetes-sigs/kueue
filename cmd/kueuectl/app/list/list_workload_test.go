@@ -985,6 +985,85 @@ kind: WorkloadList
 metadata: {}
 `,
 		},
+		"should list an owner-referenced workload when the job uid label is missing": {
+			args: []string{"--for", "job.batch/job-test", "-l", "app=foo"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label("app", "foo").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
+					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.Job{
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid"),
+				},
+			},
+			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
+wl1    job.batch   job-test   lq1          cq1            PENDING                                   120m
+`,
+		},
+		"should finish when the selector already contains the job uid label": {
+			args: []string{"--for", "job.batch/job-test", "-l", "app=foo," + constants.JobUIDLabel + "=job-test-uid"},
+			apiResourceLists: []*metav1.APIResourceList{
+				{
+					GroupVersion: "batch/v1",
+					APIResources: []metav1.APIResource{
+						{
+							SingularName: "job",
+							Kind:         "Job",
+							Group:        "batch",
+						},
+					},
+				},
+			},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					Label("app", "foo").
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-test", "job-test-uid").
+					Queue("lq1").
+					Active(true).
+					Admission(utiltestingapi.MakeAdmission("cq1").Obj()).
+					Creation(testStartTime.Add(-1 * time.Hour).Truncate(time.Second)).
+					Obj(),
+			},
+			mapperKinds: []schema.GroupVersionKind{
+				batchv1.SchemeGroupVersion.WithKind("Job"),
+			},
+			job: []runtime.Object{
+				&batchv1.Job{
+					Name:      "job-test",
+					Namespace: "default",
+					UID:       types.UID("job-test-uid"),
+				},
+			},
+			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
+		},
 		"should fail with invalid status value": {
 			args:    []string{"--status", "unknown"},
 			wantErr: `invalid status value (unknown). Must be "all", "pending", "quotareserved", "admitted" or "finished"`,

@@ -300,6 +300,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			return kubeRayTestContext{
 				managerNs:         managerNs,
 				managerLq:         managerLq,
+				managerHighWPC:    managerHighWPC,
+				managerLowWPC:     managerLowWPC,
 				multiKueueAc:      multiKueueAc,
 				kubernetesClients: kubernetesClients,
 			}

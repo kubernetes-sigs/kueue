@@ -25,16 +25,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -42,6 +46,8 @@ import (
 type kubeRayTestContext struct {
 	managerNs         *corev1.Namespace
 	managerLq         *kueue.LocalQueue
+	managerHighWPC    *kueue.WorkloadPriorityClass
+	managerLowWPC     *kueue.WorkloadPriorityClass
 	multiKueueAc      *kueue.AdmissionCheck
 	kubernetesClients kubernetesClientsMap
 }
@@ -51,6 +57,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 		var (
 			managerNs         *corev1.Namespace
 			managerLq         *kueue.LocalQueue
+			managerHighWPC    *kueue.WorkloadPriorityClass
+			managerLowWPC     *kueue.WorkloadPriorityClass
 			multiKueueAc      *kueue.AdmissionCheck
 			kubernetesClients kubernetesClientsMap
 		)
@@ -59,6 +67,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 			tc := contextProvider()
 			managerNs = tc.managerNs
 			managerLq = tc.managerLq
+			managerHighWPC = tc.managerHighWPC
+			managerLowWPC = tc.managerLowWPC
 			multiKueueAc = tc.multiKueueAc
 			kubernetesClients = tc.kubernetesClients
 		})
@@ -208,6 +218,17 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 					g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+
+		ginkgo.It("Should delete a preempted elastic RayCluster from the worker cluster", func() {
+			runElasticRayClusterCleanupAfterPreemptionTest(
+				managerNs,
+				managerLq,
+				managerHighWPC,
+				managerLowWPC,
+				multiKueueAc,
+				kubernetesClients,
+			)
 		})
 
 		ginkgo.It("Should run a RayService on worker if admitted", func() {
@@ -360,5 +381,115 @@ app = HelloWorld.bind()`,
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+	})
+}
+
+func runElasticRayClusterCleanupAfterPreemptionTest(
+	managerNs *corev1.Namespace,
+	managerLq *kueue.LocalQueue,
+	managerHighWPC *kueue.WorkloadPriorityClass,
+	managerLowWPC *kueue.WorkloadPriorityClass,
+	multiKueueAc *kueue.AdmissionCheck,
+	kubernetesClients kubernetesClientsMap,
+) {
+	rayCluster := testingraycluster.MakeCluster("raycluster-elastic-preemption", managerNs.Name).
+		Suspend(true).
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Queue(managerLq.Name).
+		WorkloadPriorityClass(managerLowWPC.Name).
+		ScaleFirstWorkerGroup(1).
+		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "500m").
+		RequestAndLimit(rayv1.HeadNode, corev1.ResourceName(extraResourceGPUHighCost), "2").
+		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Image(rayv1.HeadNode, util.GetKuberayTestImage(), []string{}).
+		Image(rayv1.WorkerNode, util.GetKuberayTestImage(), []string{}).
+		Obj()
+
+	ginkgo.By("Creating the low-priority elastic RayCluster with one worker", func() {
+		util.MustCreate(ctx, k8sManagerClient, rayCluster)
+	})
+
+	gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).To(gomega.Succeed())
+	wlLookupKey := types.NamespacedName{
+		Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(rayCluster.Name, rayCluster.UID, rayv1.GroupVersion.WithKind("RayCluster"), rayCluster.GetGeneration()),
+		Namespace: managerNs.Name,
+	}
+	admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+	// Requesting two units of the virtual high-cost GPU resource forces both the
+	// RayCluster and its preemptor onto worker1 because worker2 has quota for only one.
+	gomega.Expect(admittedWorkerName).To(gomega.HavePrefix("worker1-"))
+	workerClient := kubernetesClients[admittedWorkerName].client
+	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
+
+	var workerRayClusterUID types.UID
+	ginkgo.By("Waiting for the one-worker RayCluster on worker1", func() {
+		workerRayCluster := &rayv1.RayCluster{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, true)).To(gomega.BeFalse())
+			g.Expect(ptr.Deref(workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.Equal(int32(1)))
+			workerRayClusterUID = workerRayCluster.UID
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayCluster did not start on worker1", workerRayCluster))
+	})
+
+	initialSlice := &kueue.Workload{}
+	gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, initialSlice)).To(gomega.Succeed())
+	ginkgo.By("Scaling the RayCluster from one worker to two on the manager", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			createdRayCluster := &rayv1.RayCluster{}
+			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, createdRayCluster)).To(gomega.Succeed())
+			createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+			g.Expect(k8sManagerClient.Update(ctx, createdRayCluster)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	var scaledSlice *kueue.Workload
+	ginkgo.By("Checking the scale-up replacement slice is admitted on worker1", func() {
+		scaledSlice = util.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, initialSlice, util.MediumTimeout)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(scaledSlice), scaledSlice)).To(gomega.Succeed())
+			g.Expect(workload.IsAdmitted(scaledSlice)).To(gomega.BeTrue())
+			g.Expect(workloadslicing.ScaledUp(scaledSlice)).To(gomega.BeTrue())
+
+			workerRayCluster := &rayv1.RayCluster{}
+			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
+			g.Expect(workerRayCluster.UID).To(gomega.Equal(workerRayClusterUID))
+			g.Expect(ptr.Deref(workerRayCluster.Spec.WorkerGroupSpecs[0].Replicas, -1)).To(gomega.Equal(int32(2)))
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	highJob := testingjob.MakeJob("raycluster-elastic-preemptor", managerNs.Name).
+		Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+		WorkloadPriorityClass(managerHighWPC.Name).
+		Queue(kueue.LocalQueueName(managerLq.Name)).
+		RequestAndLimit(corev1.ResourceCPU, "100m").
+		RequestAndLimit(corev1.ResourceName(extraResourceGPUHighCost), "2").
+		TerminationGracePeriod(1).
+		Obj()
+	ginkgo.By("Creating a high-priority Job that preempts the scaled-up RayCluster", func() {
+		util.MustCreate(ctx, k8sManagerClient, highJob)
+	})
+	highWlKey := types.NamespacedName{
+		Name:      workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID),
+		Namespace: managerNs.Name,
+	}
+
+	ginkgo.By("Checking the RayCluster is preempted and the high-priority Job is admitted on worker1", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			createdSlice := &kueue.Workload{}
+			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(scaledSlice), createdSlice)).To(gomega.Succeed())
+			g.Expect(createdSlice.Status.SchedulingStats).NotTo(gomega.BeNil())
+			g.Expect(createdSlice.Status.SchedulingStats.Evictions).To(gomega.ContainElement(gomega.And(
+				gomega.HaveField("Reason", kueue.WorkloadEvictedByPreemption),
+				gomega.HaveField("Count", gomega.BeNumerically(">=", 1)),
+			)))
+		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+
+		highJobWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
+		gomega.Expect(highJobWorkerName).To(gomega.HavePrefix("worker1-"))
+	})
+
+	ginkgo.By("Checking the preempted RayCluster is deleted from worker1", func() {
+		util.ExpectObjectToBeDeletedWithTimeout(ctx, workerClient, rayCluster, false, util.MediumTimeout)
 	})
 }

@@ -41,6 +41,8 @@ import (
 
 func TestNewWorkloadUnhealthyNodesEvictionThreshold(t *testing.T) {
 	const annotation = kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation
+	const waitAnnotation = controllerconstants.WaitForPodsReadyAnnotation
+	const waitConfig = `{"timeoutSeconds":30}`
 	provisioningAnnotation := controllerconstants.ProvReqAnnotationPrefix + "test"
 	cases := map[string]struct {
 		enabled     bool
@@ -79,10 +81,21 @@ func TestNewWorkloadUnhealthyNodesEvictionThreshold(t *testing.T) {
 			},
 			want: map[string]string{annotation: "8", provisioningAnnotation: "value"},
 		},
+		"copies both threshold and wait for pods ready annotations": {
+			enabled:     true,
+			annotations: map[string]string{annotation: "2", waitAnnotation: waitConfig},
+			want:        map[string]string{annotation: "2", waitAnnotation: waitConfig},
+		},
+		"still copies wait for pods ready when threshold gate is disabled": {
+			annotations: map[string]string{annotation: "2", waitAnnotation: waitConfig},
+			want:        map[string]string{waitAnnotation: waitConfig},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, tc.enabled)
+			features.SetFeatureGateDuringTest(t, features.WorkloadLevelWaitForPodsReady, true)
+			features.SetFeatureGateDuringTest(t, features.DisableWaitForPodsReady, false)
 			job := testingjob.MakeJob("job", "ns").Obj()
 			job.Annotations = tc.annotations
 			originalJob := job.DeepCopy()

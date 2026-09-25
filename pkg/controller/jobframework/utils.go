@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -265,6 +266,12 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
 		if value, present := obj.GetAnnotations()[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation]; present {
 			annotations[kueue.UnhealthyNodesConcurrentEvictionThresholdAnnotation] = value
+		}
+	}
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
+		if annotation != "" {
+			annotations[controllerconstants.WaitForPodsReadyAnnotation] = annotation
 		}
 	}
 	if features.Enabled(features.CustomMetricLabels) {

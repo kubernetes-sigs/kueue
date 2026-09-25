@@ -44,6 +44,7 @@ jobs:
             ".github/actions/generate-sbom/action.yml"
             ".github/actions/merge-main-into-website/action.yml"
             ".github/actions/publish-release/action.yml"
+            ".github/actions/update-krew-index/action.yml"
             ".github/actions/report-result/action.yml"
             "hack/releasing/authorize_release_actor.py"
             "hack/releasing/authorize_release_actor_test.py"
@@ -655,6 +656,12 @@ jobs:
           version: ${{ needs.authorize.outputs.version }}
           repo: ${{ github.repository }}
           update-release-issue: true
+
+      - name: Update new version in krew-index
+        uses: $/.github/actions/update-krew-index
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+          repo: ${{ github.repository }}
 
       - name: Report Success
         if: ${{ success() }}
