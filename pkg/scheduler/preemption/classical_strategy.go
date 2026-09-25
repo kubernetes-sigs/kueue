@@ -22,8 +22,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -53,7 +54,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 		preemptionCtx.frsNeedPreemption,
 		preemptionCtx.snapshot,
 		preemptor.clock,
-		preemptioncommon.CandidatesOrdering,
+		common.CandidatesOrdering,
 	)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
@@ -85,7 +86,19 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 		for _, opts := range attemptPossibleOpts {
 			allowBorrowing := opts.borrowing
 			candidateIter := func(yieldCandidate func(*Target) bool) {
-				iterateOverCandidates(ctx, preemptionCtx, candidatesGenerator, allowBorrowing, yieldCandidate)
+				cont := iterateOverCandidates(ctx, preemptionCtx, candidatesGenerator, allowBorrowing, yieldCandidate)
+				if cont && features.Enabled(features.ConfigurablePreemptions) {
+					preemptionCtx.configurableEvaluator.FindCandidates(
+						preemptionCtx.snapshot,
+						&preemptionCtx.preemptor,
+						preemptionCtx.frsNeedPreemption,
+						func(a, b *workload.Info) int {
+							return common.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
+						},
+						func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
+						yieldCandidate,
+					)
+				}
 			}
 			if !yieldStrategy(PreemptionStrategy{candidateIter, allowBorrowing, preemptionCtx}) {
 				return
@@ -94,13 +107,20 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 	}
 }
 
-func iterateOverCandidates(ctx context.Context, preemptionCtx *preemptionCtx, iterator candidateIterator, allowBorrowing bool, yield func(*Target) bool) {
+func iterateOverCandidates(
+	ctx context.Context,
+	preemptionCtx *preemptionCtx,
+	iterator candidateIterator,
+	allowBorrowing bool,
+	yield func(*Target) bool,
+) (cont bool) {
+	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	iterator.Reset()
 	for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
 		candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
-		preemptionCtx.snapshot.RemoveWorkload(candidateWl)
 		if !yield(candidate) {
 			return
 		}
 	}
+	return true
 }

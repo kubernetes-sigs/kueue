@@ -30,7 +30,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -117,59 +117,64 @@ func (p *PreemptionEvaluator) FindCandidates(
 	preemptor *workload.Info,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	candidatesOrdering func(a, b *workload.Info) int,
-	workloadFits func() bool,
 	workloadQuotaFits func() bool,
-) (bool, []*preemptioncommon.Target) {
-	if workloadFits() {
-		return true, nil
-	}
+	yield func(*common.Target) bool,
+) (interrupted bool) {
+	yield = common.YieldFromSnapshot(snapshot, yield)
+
 	if !p.HasRules() {
-		return false, nil
+		return
 	}
-	fits, targets := p.simulateCandidatesPreemption(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, kueuealpha.Always, workloadFits)
-	if !fits && p.HasConditionalRules() {
-		if !workloadQuotaFits() {
-			var moreTargets []*preemptioncommon.Target
-			fits, moreTargets = p.simulateCandidatesPreemption(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, kueuealpha.InsufficientQuota, workloadFits)
-			targets = append(targets, moreTargets...)
-		}
-		if !fits && workloadQuotaFits() {
-			// The topology trigger requires a feasible quota, so it is only applied once
-			// the quota fits while the workload still doesn't fit (meaning topology is
-			// what keeps the workload out).
-			var moreTargets []*preemptioncommon.Target
-			fits, moreTargets = p.simulateCandidatesPreemption(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, kueuealpha.QuotaFeasibleAndInsufficientTopology, workloadFits)
-			targets = append(targets, moreTargets...)
-		}
+
+	if iterateOverCandidates(
+		snapshot,
+		p.OrderedCandidates(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, kueuealpha.Always),
+		yield,
+	) {
+		return true
 	}
-	return fits, targets
+
+	if !p.HasConditionalRules() {
+		// We iterated over all initial candidates.
+		// Without conditional rules no more candidates can be yielded.
+		return
+	}
+
+	if !workloadQuotaFits() && iterateOverCandidates(
+		snapshot,
+		p.OrderedCandidates(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, kueuealpha.InsufficientQuota),
+		yield,
+	) {
+		return true
+	}
+
+	// The topology trigger requires a feasible quota, so it is only applied once
+	// the quota fits while the workload still doesn't fit (meaning topology is
+	// what keeps the workload out).
+	if workloadQuotaFits() && iterateOverCandidates(
+		snapshot,
+		p.OrderedCandidates(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, kueuealpha.QuotaFeasibleAndInsufficientTopology),
+		yield,
+	) {
+		return true
+	}
+
+	return
 }
 
-// simulateCandidatesPreemption removes the candidates selected by the rules of the given
-// trigger from the snapshot and returns them, from the most to the least preferred one,
-// stopping as soon as workloadFits returns true.
-// The candidates are preempted regardless of what the classical or Fair Sharing rules
-// allow, as the PreemptionConfig selects them explicitly, and are thus reported with the
-// ConfigurablePreemption reason.
-func (p *PreemptionEvaluator) simulateCandidatesPreemption(
+func iterateOverCandidates(
 	snapshot *schdcache.Snapshot,
-	preemptor *workload.Info,
-	frsNeedPreemption sets.Set[resources.FlavorResource],
-	candidatesOrdering func(a, b *workload.Info) int,
-	trigger kueuealpha.PreemptionConfigActivationTrigger,
-	workloadFits func() bool,
-) (bool, []*preemptioncommon.Target) {
-	var targets []*preemptioncommon.Target
-	for _, candidate := range p.OrderedCandidates(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, trigger) {
-		snapshot.RemoveWorkload(candidate)
-		targets = append(targets, &preemptioncommon.Target{
+	candidates []*workload.Info,
+	yield func(*common.Target) bool,
+) (interrupted bool) {
+	for _, candidate := range candidates {
+		if !yield(&common.Target{
 			WorkloadInfo: candidate,
 			Reason:       kueue.ConfigurablePreemptionReason,
 			WorkloadCq:   snapshot.ClusterQueue(candidate.ClusterQueue),
-		})
-		if workloadFits() {
-			return true, targets
+		}) {
+			return true
 		}
 	}
-	return false, targets
+	return
 }

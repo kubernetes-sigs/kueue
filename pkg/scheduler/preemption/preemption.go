@@ -134,11 +134,6 @@ type Target = preemptioncommon.Target
 // ensures that Target implements ObjectRefProvider interface at compile time
 var _ logging.ObjectRefProvider = (*Target)(nil)
 
-// GetObject implements the ObjectRefProvider interface.
-func (t *Target) GetObject() client.Object {
-	return t.WorkloadInfo.Obj
-}
-
 func (p *Preemptor) GetPreemptionStrategyIterator(
 	ctx context.Context,
 	wl workload.Info,
@@ -206,24 +201,6 @@ func (p *Preemptor) buildContext(
 		},
 		configurableEvaluator: configurableEvaluator,
 	}
-}
-
-func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
-	if p.enableFairSharing {
-		return p.fairPreemptions(preemptionCtx, p.fsStrategies)
-	}
-	return p.classicalPreemptions(preemptionCtx)
-}
-
-func (p *Preemptor) findConfigurableCandidates(preemptionCtx *preemptionCtx, allowBorrowing bool) (bool, []*Target) {
-	return preemptionCtx.configurableEvaluator.FindCandidates(
-		preemptionCtx.snapshot,
-		&preemptionCtx.preemptor,
-		preemptionCtx.frsNeedPreemption,
-		p.candidatesOrdering(preemptionCtx),
-		func() bool { return workloadFits(preemptionCtx, allowBorrowing) },
-		func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
-	)
 }
 
 var HumanReadablePreemptionReasons = map[string]string{
@@ -353,7 +330,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 		var targets []*Target
 		for candidate := range strategy.candidates {
 			targets = append(targets, candidate)
-			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
+			if workloadFits(strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
 				if logV := log.V(6); logV.Enabled() {
@@ -382,7 +359,7 @@ func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, target
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
-		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
+		if workloadFits(preemptionCtx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
@@ -516,10 +493,17 @@ func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Se
 	return false
 }
 
-// workloadFits determines if the workload requests would fit given the
-// requestable resources and simulated usage of the ClusterQueue and its cohort,
-// if it belongs to one.
-func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
+// workloadFits determines if the workload can be admitted given the simulated usage
+// of the snapshot: the quota must be available in the ClusterQueue and its cohort, if
+// it belongs to one, and a topology assignment must be found if the workload requires
+// one.
+func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
+	return workloadQuotaFits(preemptionCtx, allowBorrowing) && workloadTopologyFits(preemptionCtx)
+}
+
+// workloadQuotaFits determines if the quota requested by the workload is available in
+// the ClusterQueue and its cohort, if it belongs to one.
+func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	for fr, v := range preemptionCtx.workloadUsage.Quota.Assigned {
 		if !allowBorrowing && preemptionCtx.preemptorCQ.BorrowingWith(fr, v) {
 			return false
@@ -536,11 +520,22 @@ func workloadFits(ctx context.Context, preemptionCtx *preemptionCtx, allowBorrow
 // workload has no topology requests.
 func workloadTopologyFits(preemptionCtx *preemptionCtx) bool {
 	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
-		ctx,
+		preemptionCtx.ctx,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkloadInfo(&preemptionCtx.preemptor),
 	)
 	return tasResult.Failure() == nil
+}
+
+// workloadFitsForFairSharing is a lightweight wrapper around
+// workloadFits, as we need to remove, and then add back, the usage of
+// the incoming workload, as FairSharing adds this usage at the start
+// of processing for accurate DominantResourceShare calculations.
+func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
+	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
+	res := workloadFits(preemptionCtx, true)
+	revertSimulation()
+	return res
 }
 
 // queueUnderNominalInResourcesNeedingPreemption checks whether the

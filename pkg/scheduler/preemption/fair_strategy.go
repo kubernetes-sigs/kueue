@@ -28,7 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -44,12 +44,13 @@ func fairPreemptionStrategy(
 	allowBorrowing := true
 
 	candidateWls := preemptor.findCandidates(log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
-	if len(candidateWls) == 0 {
+	if noCandidates(preemptionCtx, candidateWls) {
 		return func(yieldStrategy func(PreemptionStrategy) bool) {}
 	}
-	slices.SortFunc(candidateWls, func(a, b *workload.Info) int {
-		return preemptioncommon.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
-	})
+	orderingFn := func(a, b *workload.Info) int {
+		return common.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
+	}
+	slices.SortFunc(candidateWls, orderingFn)
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info(
 			"Simulating fair preemption",
@@ -67,25 +68,27 @@ func fairPreemptionStrategy(
 		targetsInPreemptorCQ := false
 
 		yieldedCandidates := make([]*Target, 0)
+		yieldAndRecord := func(t *Target) bool {
+			yieldedCandidates = append(yieldedCandidates, t)
+			return yieldCandidate(t)
+		}
 
 		// The incoming Workload's usage stays simulated while the candidates are
 		// picked, because the DominantResourceShare values have to account for it.
 		// This is hidden from the consumer, as we revert the simulated addition for the duration of the yield.
-		wrapperYield := func(t *Target) bool {
-			yieldedCandidates = append(yieldedCandidates, t)
+		yieldWithoutSimulatedUsage := func(t *Target) bool {
 			revert := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
 			defer revert()
-			return yieldCandidate(t)
+			return yieldAndRecord(t)
 		}
 
 		revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
-		defer revertSimulation()
 
 		candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], func(t *Target) bool {
 			if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
 				targetsInPreemptorCQ = true
 			}
-			return wrapperYield(t)
+			return yieldWithoutSimulatedUsage(t)
 		})
 
 		if cont && features.Enabled(features.FairSharingReevaluatePreemptionCandidates) && targetsInPreemptorCQ {
@@ -95,7 +98,7 @@ func fairPreemptionStrategy(
 			// succeed now.
 			// No need to run the strategy a third time as first run already iterated
 			// though whole tree and removed all the preemptor's workloads.
-			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], wrapperYield)
+			candidateWls, cont = iterateWithFirstFsStrategy(log, preemptionCtx, candidateWls, fsStrategies[0], yieldWithoutSimulatedUsage)
 		}
 
 		if cont && len(fsStrategies) > 1 {
@@ -105,7 +108,20 @@ func fairPreemptionStrategy(
 					"targets", logging.GetObjectReferences(yieldedCandidates),
 					"retryCandidates", workload.References(candidateWls))
 			}
-			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, wrapperYield)
+			cont = iterateWithSecondFsStrategy(log, preemptionCtx, candidateWls, yieldWithoutSimulatedUsage)
+		}
+
+		revertSimulation()
+
+		if cont && features.Enabled(features.ConfigurablePreemptions) {
+			cont = !preemptionCtx.configurableEvaluator.FindCandidates(
+				preemptionCtx.snapshot,
+				&preemptionCtx.preemptor,
+				preemptionCtx.frsNeedPreemption,
+				orderingFn,
+				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
+				yieldAndRecord,
+			)
 		}
 
 		if cont && log.V(6).Enabled() {
@@ -120,6 +136,16 @@ func fairPreemptionStrategy(
 	}
 }
 
+func noCandidates(preemptionCtx *preemptionCtx, candidates []*workload.Info) bool {
+	// TODO(#15893): remove the configurable candidates phase from the Fair Sharing
+	// algorithm once ConfigurablePreemption covers Fair Sharing and the two become
+	// mutually exclusive.
+	//
+	// The configurable candidates are only evaluated once the strategies failed, so
+	// their emptiness isn't known here; the presence of a rule is enough to keep going.
+	return len(candidates) == 0 && (!features.Enabled(features.ConfigurablePreemptions) || !preemptionCtx.configurableEvaluator.HasRules())
+}
+
 // iterateWithFirstFsStrategy returns preemption candidates in an order based on
 // the first configured FairSharing strategy,
 // retryCandidates may be used if rule S2-b is configured.
@@ -130,6 +156,7 @@ func iterateWithFirstFsStrategy(
 	fsStrategy fairsharing.Strategy,
 	yield func(*Target) bool,
 ) (retryCandidates []*workload.Info, cont bool) {
+	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, log, preemptionCtx.clock)
 	// If the preemptor CQ stays within nominal quota for the contested
 	// resources (including the incoming workload, already simulated),
@@ -142,7 +169,6 @@ func iterateWithFirstFsStrategy(
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
-			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			if !yield(&Target{candWl, kueue.InClusterQueueReason, candCQ.GetTargetCq()}) {
 				return
 			}
@@ -151,7 +177,6 @@ func iterateWithFirstFsStrategy(
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
-			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			if !yield(&Target{candWl, kueue.InCohortReclamationReason, candCQ.GetTargetCq()}) {
 				return
 			}
@@ -182,7 +207,6 @@ func iterateWithFirstFsStrategy(
 			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				if !yield(&Target{candWl, kueue.InCohortFairSharingReason, candCQ.GetTargetCq()}) {
 					strategyLog.flush()
 					return
@@ -206,6 +230,7 @@ func iterateWithSecondFsStrategy(
 	retryCandidates []*workload.Info,
 	yield func(*Target) bool,
 ) bool {
+	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
@@ -223,7 +248,6 @@ func iterateWithSecondFsStrategy(
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			preemptionCtx.snapshot.RemoveWorkload(candWl)
 			if !yield(&Target{candWl, kueue.InCohortFairSharingReason, candCQ.GetTargetCq()}) {
 				return false
 			}
