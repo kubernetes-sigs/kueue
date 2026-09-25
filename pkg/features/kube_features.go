@@ -63,11 +63,10 @@ const (
 	WaitForPodsReadyUnscheduledTimeout featuregate.Feature = "WaitForPodsReadyUnscheduledTimeout"
 
 	// owner: @j-skiba
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/15423-wait-for-pods-ready-min-ready-count
 	//
-	// Enables an annotation-based minimum-ready-pods threshold for WaitForPodsReady
-	// and RecoveryTimeout on plain Pod groups and pod-group-based integrations
-	// (such as StatefulSet and LeaderWorkerSet).
+	// Enables the kueue.x-k8s.io/pod-group-min-ready-count annotation, which sets the
+	// minimum number of ready Pods required for a Pod group to satisfy PodsReady.
 	WaitForPodsReadyMinReadyCount featuregate.Feature = "WaitForPodsReadyMinReadyCount"
 
 	// owner: @yaroslava-serdiuk

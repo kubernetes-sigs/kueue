@@ -707,29 +707,6 @@ func SetPodGroupName(p *corev1.Pod, groupName string) {
 	}
 }
 
-// SyncGroupPodsReadyMinCountAnnotation propagates or removes the
-// GroupPodsReadyMinCountAnnotation from the parent object onto the pod,
-// returning true if the pod's annotations were modified.
-func SyncGroupPodsReadyMinCountAnnotation(parent client.Object, pod *corev1.Pod) bool {
-	parentMinCount, parentHasMinCount := parent.GetAnnotations()[podconstants.GroupPodsReadyMinCountAnnotation]
-	podMinCount, podHasMinCount := pod.GetAnnotations()[podconstants.GroupPodsReadyMinCountAnnotation]
-	if parentHasMinCount {
-		if podHasMinCount && podMinCount == parentMinCount {
-			return false
-		}
-		if pod.Annotations == nil {
-			pod.Annotations = make(map[string]string, 1)
-		}
-		pod.Annotations[podconstants.GroupPodsReadyMinCountAnnotation] = parentMinCount
-		return true
-	}
-	if podHasMinCount {
-		delete(pod.Annotations, podconstants.GroupPodsReadyMinCountAnnotation)
-		return true
-	}
-	return false
-}
-
 // groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
 // It doesn't check if the whole group has the same total group count annotation value.
 func (p *Pod) groupTotalCount() (int, error) {

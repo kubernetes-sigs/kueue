@@ -149,10 +149,6 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 			log.V(3).Info("Updating pod in group")
 			updated = true
 		}
-		if features.Enabled(features.WaitForPodsReadyMinReadyCount) && r.syncPodsReadyMinCountAnnotation(sts, wlName, pod) {
-			log.V(3).Info("Syncing pod group pods ready min count annotation")
-			updated = true
-		}
 		if utilstatefulset.UngatePod(sts, pod, false) {
 			log.V(3).Info("Ungating pod in group")
 			updated = true
@@ -174,13 +170,6 @@ func (r *Reconciler) syncQueueLabel(sts *appsv1.StatefulSet, pod *corev1.Pod) bo
 	}
 	pod.Labels[controllerconstants.QueueLabel] = queueName
 	return true
-}
-
-func (r *Reconciler) syncPodsReadyMinCountAnnotation(sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) bool {
-	if sts == nil || utilpod.GetPodGroupName(pod) != wlName {
-		return false
-	}
-	return podcontroller.SyncGroupPodsReadyMinCountAnnotation(sts, pod)
 }
 
 func (r *Reconciler) setDefault(sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) bool {

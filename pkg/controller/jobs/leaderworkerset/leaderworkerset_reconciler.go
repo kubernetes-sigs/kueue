@@ -521,45 +521,34 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	}
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	shouldUngate := lws == nil || utilstatefulset.ShouldUngatePod(sts, pod)
-	isActive := !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil
-	canSyncMinCount := lws != nil && features.Enabled(features.WaitForPodsReadyMinReadyCount)
-	if !shouldUngate && !isActive && !canSyncMinCount {
-		return nil
-	}
-
-	err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-		var updated bool
-		if shouldUngate {
+	if lws == nil || utilstatefulset.ShouldUngatePod(sts, pod) {
+		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			if utilstatefulset.UngatePod(sts, pod, lws == nil) {
 				log.V(3).Info("Ungating LeaderWorkerSet Pod")
-				updated = true
-			} else {
-				log.V(3).Info("Skipping ungating LeaderWorkerSet Pod")
+				return true, nil
 			}
-		} else if isActive && r.setDefault(lws, pod) {
-			log.V(3).Info("Setting default values")
-			updated = true
+			log.V(3).Info("Skipping ungating LeaderWorkerSet Pod")
+			return false, nil
+		})
+		if client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Failed to ungate Pod")
+			return err
 		}
-		if canSyncMinCount && r.syncPodsReadyMinCountAnnotation(lws, pod) {
-			log.V(3).Info("Syncing pod group pods ready min count annotation")
-			updated = true
+	} else if !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil {
+		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+			updated := r.setDefault(lws, pod)
+			if updated {
+				log.V(3).Info("Setting default values")
+			}
+			return updated, nil
+		})
+		if client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Failed to set default values")
+			return err
 		}
-		return updated, nil
-	})
-	if client.IgnoreNotFound(err) != nil {
-		log.Error(err, "Failed to patch LeaderWorkerSet Pod")
-		return err
 	}
 
 	return nil
-}
-
-func (r *Reconciler) syncPodsReadyMinCountAnnotation(lws *leaderworkersetv1.LeaderWorkerSet, pod *corev1.Pod) bool {
-	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; !ok {
-		return false
-	}
-	return podcontroller.SyncGroupPodsReadyMinCountAnnotation(lws, pod)
 }
 
 func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *corev1.Pod) bool {

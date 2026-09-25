@@ -43,6 +43,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -3314,6 +3315,106 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 
 		ginkgo.By("updating min count annotation to 3 (while 2 of 3 pods are ready) and verifying workload becomes PodsReady=False and is evicted on recoveryTimeout", func() {
 			setGroupPodsReadyMinCount(ctx, k8sClient, pods, "3")
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+				},
+			)
+		})
+	})
+
+	ginkgo.It("should respect both pod-group-min-ready-count and per-workload wait-for-pods-ready annotation", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinReadyCount, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+		podGroupName := "pod-group-min-count-wfpr"
+		pods := make([]*corev1.Pod, 3)
+		for i := range pods {
+			pods[i] = testingpod.MakePod(fmt.Sprintf("pod-%d", i), ns.Name).
+				GroupNameLabel(podGroupName).
+				GroupTotalCount("3").
+				GroupPodsReadyMinCount("2").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60,"recoveryTimeoutSeconds":300}`).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+		}
+		ginkgo.By("creating the pod group", func() {
+			for _, pod := range pods {
+				util.MustCreate(ctx, k8sClient, pod)
+			}
+		})
+
+		wlKey := types.NamespacedName{Name: podGroupName, Namespace: ns.Name}
+		wl := utiltestingapi.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
+
+		ginkgo.By("ensuring the wait-for-pods-ready annotation is propagated to the workload and admitting it", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue(
+					controllerconstants.WaitForPodsReadyAnnotation,
+					`{"timeoutSeconds":60,"recoveryTimeoutSeconds":300}`,
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "3").
+					Count(wl.Spec.PodSets[0].Count).
+					Obj()).
+				Obj()
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("making 2 of 3 pods ready (>= min ready count of 2) and verifying workload becomes PodsReady", func() {
+			for _, pod := range pods[:2] {
+				util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
+				setPodReady(ctx, k8sClient, pod, corev1.ConditionTrue)
+			}
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
+			})
+		})
+
+		ginkgo.By("making 1 ready pod unready (1 of 3 ready < min ready count of 2) and verifying per-workload recoveryTimeoutSeconds=300 prevents TinyTimeout eviction", func() {
+			setPodReady(ctx, k8sClient, pods[1], corev1.ConditionFalse)
+
+			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForRecovery,
+				Message: "At least one pod has failed, waiting for recovery",
+			})
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("shortening per-workload recoveryTimeoutSeconds to 1 and verifying the workload is evicted", func() {
+			for _, pod := range pods {
+				updatedPod := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), updatedPod)).To(gomega.Succeed())
+					updatedPod.Annotations[controllerconstants.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":60,"recoveryTimeoutSeconds":1}`
+					g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
 
 			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
 				metav1.Condition{
