@@ -435,6 +435,14 @@ const (
 	// Enables Concurrent Admission feature which allows pursuing multiple ResourceFlavors in parallel.
 	ConcurrentAdmission featuregate.Feature = "ConcurrentAdmission"
 
+	// owner: @jang-hs
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/14294
+	//
+	// Resolves a RuntimeClass's scheduling constraints into the PodSet templates used
+	// for ResourceFlavor assignment, so a Workload is not assigned a flavor its Pods
+	// cannot be scheduled on.
+	RuntimeClassScheduling featuregate.Feature = "RuntimeClassScheduling"
+
 	// Enable recording of WorkloadCreationLatency metric.
 	MetricForWorkloadCreationLatency featuregate.Feature = "MetricForWorkloadCreationLatency"
 
@@ -1031,6 +1039,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ConcurrentAdmission: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	RuntimeClassScheduling: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	QuotaCheckStrategy: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},

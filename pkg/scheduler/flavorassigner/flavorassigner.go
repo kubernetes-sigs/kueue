@@ -1159,11 +1159,6 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		probeRequests = filterRequestedResources(probeRequests, resourceGroup.CoveredResources)
 	}
 
-	podSets := make([]*kueue.PodSet, len(psIDs))
-	for idx, psID := range psIDs {
-		podSets[idx] = &a.wl.Obj.Spec.PodSets[psID]
-	}
-
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := worstGranularMode()
 	consideredFlavors := newFlavorAssignmentAttempts(len(resourceGroup.Flavors))
@@ -1183,7 +1178,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			continue
 		}
 
-		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, resourceGroup); !flavorStatus.IsFit() {
+		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, resourceGroup); !flavorStatus.IsFit() {
 			flavorStatus.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
@@ -1310,7 +1305,6 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	log logr.Logger,
 	flavorName kueue.ResourceFlavorReference,
 	psIDs []int,
-	podSets []*kueue.PodSet,
 	rg *resourcegroups.ResourceGroup,
 ) *Status {
 	status := NewStatus()
@@ -1327,7 +1321,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	// flavors are correctly ignored when evaluating this flavor.
 	flavorLabelKeys := sets.KeySet(flavor.Spec.NodeLabels)
 
-	for psIdx, psID := range psIDs {
+	for _, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
 			if message := checkPodSetAndFlavorMatchForTAS(a.cq, a.wl.TopologySpreading, ps, a.wl.PodSpec(psID), flavor, rg); message != nil {
@@ -1336,7 +1330,8 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 				return status
 			}
 		}
-		podSpec := podSets[psIdx].Template.Spec
+		// The effective spec carries the constraints the Pods end up with.
+		podSpec := *a.wl.PodSpec(psID)
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		}, true)

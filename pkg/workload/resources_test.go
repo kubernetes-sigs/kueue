@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -44,6 +45,8 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 		limitranges    []corev1.LimitRange
 		wl             *kueue.Workload
 		wantWl         *kueue.Workload
+		// disableRuntimeClassScheduling turns the RuntimeClassScheduling gate off.
+		disableRuntimeClassScheduling bool
 	}{
 		"Handle runtimeClass with podOverHead": {
 			runtimeClasses: []nodev1.RuntimeClass{
@@ -112,6 +115,132 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 2),
 								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
 							}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"Handle runtimeClass with scheduling": {
+			runtimeClasses: []nodev1.RuntimeClass{
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+					Scheduling(
+						map[string]string{"pool": "gpu"},
+						corev1.Toleration{
+							Key:      "gpu",
+							Operator: corev1.TolerationOpExists,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
+					).
+					RuntimeClass,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 2),
+								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
+							}).
+						NodeSelector(map[string]string{"zone": "z1"}).
+						Toleration(corev1.Toleration{
+							Key:      "gpu",
+							Operator: corev1.TolerationOpExists,
+							Effect:   corev1.TaintEffectNoSchedule,
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("c", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+					*utiltestingapi.MakePodSet("d", 1).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					// Takes both constraints from the class.
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "gpu"}).
+						Toleration(corev1.Toleration{
+							Key:      "gpu",
+							Operator: corev1.TolerationOpExists,
+							Effect:   corev1.TaintEffectNoSchedule,
+						}).
+						Obj(),
+					// Keeps its own overhead and selector, and is not given a duplicate toleration.
+					*utiltestingapi.MakePodSet("b", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 2),
+								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
+							}).
+						NodeSelector(map[string]string{"zone": "z1", "pool": "gpu"}).
+						Toleration(corev1.Toleration{
+							Key:      "gpu",
+							Operator: corev1.TolerationOpExists,
+							Effect:   corev1.TaintEffectNoSchedule,
+						}).
+						Obj(),
+					// Sets the class's key to another value, which the admission
+					// controller refuses, so nothing is merged.
+					*utiltestingapi.MakePodSet("c", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+					// No class named, left alone.
+					*utiltestingapi.MakePodSet("d", 1).
+						Obj(),
+				).
+				Obj(),
+		},
+		"Handle runtimeClass with scheduling when the feature gate is disabled": {
+			disableRuntimeClassScheduling: true,
+			runtimeClasses: []nodev1.RuntimeClass{
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+					Scheduling(map[string]string{"pool": "gpu"}).
+					RuntimeClass,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+				).
+				Obj(),
+		},
+		"Handle runtimeClass with scheduling for a Workload owned by a Pod": {
+			runtimeClasses: []nodev1.RuntimeClass{
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+					Scheduling(map[string]string{"pool": "gpu"}).
+					RuntimeClass,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-a", "uid-a").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+				).
+				Obj(),
+			// The Pod already carries what the class added when it was created,
+			// so its copy is left as it is.
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-a", "uid-a").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
 						Obj(),
 				).
 				Obj(),
@@ -561,6 +690,7 @@ func TestEffectiveResourceDefaults(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RuntimeClassScheduling, !tc.disableRuntimeClassScheduling)
 			cl := utiltesting.NewClientBuilder().WithLists(
 				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
 				&corev1.LimitRangeList{Items: tc.limitranges},
@@ -681,6 +811,92 @@ func TestValidateResources(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := ValidateResources(tc.workloadInfo)
+			if diff := cmp.Diff(tc.wantError, got); len(diff) != 0 {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateRuntimeClassScheduling(t *testing.T) {
+	cases := map[string]struct {
+		runtimeClass *nodev1.RuntimeClass
+		workload     *kueue.Workload
+		wantError    field.ErrorList
+	}{
+		"no RuntimeClass named": {
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet("alpha", 1).Obj()).
+				Obj(),
+		},
+		"class has no scheduling": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"selectors are compatible": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				Scheduling(map[string]string{"pool": "gpu"}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"zone": "z1"}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"the class sets a key the podSet sets differently": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				Scheduling(map[string]string{"pool": "gpu"}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+				).
+				Obj(),
+			wantError: field.ErrorList{
+				field.Invalid(
+					PodSetsPath.Index(0).Child("template").Child("spec").Child("nodeSelector"),
+					map[string]string{"pool": "cpu"},
+					"conflict for key=pool, value1=cpu, value2=gpu",
+				),
+			},
+		},
+		"a Pod-owned Workload already carries what the class added": {
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				Scheduling(map[string]string{"pool": "gpu"}).
+				Obj(),
+			workload: utiltestingapi.MakeWorkload("test", metav1.NamespaceDefault).
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-a", "uid-a").
+				PodSets(
+					*utiltestingapi.MakePodSet("alpha", 1).
+						RuntimeClass("runtime-a").
+						NodeSelector(map[string]string{"pool": "cpu"}).
+						Obj(),
+				).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.RuntimeClassScheduling, true)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cliBuilder := utiltesting.NewClientBuilder()
+			if tc.runtimeClass != nil {
+				cliBuilder.WithObjects(tc.runtimeClass)
+			}
+			got := ValidateRuntimeClassScheduling(ctx, cliBuilder.Build(), &Info{Obj: tc.workload})
 			if diff := cmp.Diff(tc.wantError, got); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
