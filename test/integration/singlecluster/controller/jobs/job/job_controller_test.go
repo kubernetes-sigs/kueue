@@ -2840,6 +2840,67 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		})
 	})
 
+	ginkgo.It("Should keep quota for running Pods when parallelism exceeds completions", framework.SlowSpec, func() {
+		// The PodSet only reserves min(parallelism, completions) Pods, so the
+		// reclaimable count must not release the quota of Pods still running.
+		job1 := testingjob.MakeJob("job1", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(5).
+			Completions(3).
+			Obj()
+		lookupKey1 := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
+
+		ginkgo.By("checking the first job starts", func() {
+			util.MustCreate(ctx, k8sClient, job1)
+			createdJob1 := &batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey1, createdJob1)).Should(gomega.Succeed())
+				g.Expect(createdJob1.Spec.Suspend).Should(gomega.Equal(new(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
+		})
+
+		job2 := testingjob.MakeJob("job2", ns.Name).Queue(kueue.LocalQueueName(prodLocalQ.Name)).Request(corev1.ResourceCPU, "4").Obj()
+		lookupKey2 := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+
+		ginkgo.By("checking a second no-fit job does not start", func() {
+			util.MustCreate(ctx, k8sClient, job2)
+			createdJob2 := &batchv1.Job{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey2, createdJob2)).Should(gomega.Succeed())
+				g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
+		})
+
+		ginkgo.By("checking the second job still does not start once one pod of the first job succeeds", func() {
+			createdJob1 := &batchv1.Job{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey1, createdJob1)).Should(gomega.Succeed())
+				createdJob1.Status.Succeeded = 1
+				g.Expect(k8sClient.Status().Update(ctx, createdJob1)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			wl := &kueue.Workload{}
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID), Namespace: job1.Namespace}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{{
+					Name:  kueue.DefaultPodSetName,
+					Count: 1,
+				}}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			createdJob2 := &batchv1.Job{}
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey2, createdJob2)).Should(gomega.Succeed())
+				g.Expect(createdJob2.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
+		})
+	})
+
 	ginkgo.It("Should reclaim quota for permanently failed indexes", framework.SlowSpec, func() {
 		// Regression for kueue#13482: permanently failed indexes cannot run
 		// again, so retaining their quota over-reserves the ClusterQueue.

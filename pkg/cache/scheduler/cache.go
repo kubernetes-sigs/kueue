@@ -111,7 +111,7 @@ func WithFairSharing(enabled bool) Option {
 
 func WithDeviceTaintRules(served bool) Option {
 	return func(c *Cache) {
-		c.deviceTaintRules = served
+		c.deviceTaintRulesServed = served
 	}
 }
 
@@ -178,8 +178,8 @@ type Cache struct {
 	draBackedResources *dra.ExtendedResourceCache
 	// draSelectorsCache is the Cache's own, built lazily on first use.
 	draSelectorsCache schddra.CELCache
-	// deviceTaintRules is whether the cluster serves DeviceTaintRules, decided at startup.
-	deviceTaintRules bool
+	// deviceTaintRulesServed is whether the cluster serves DeviceTaintRules, decided at startup.
+	deviceTaintRulesServed bool
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -265,6 +265,12 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
+// DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
+// once at startup.
+func (c *Cache) DeviceTaintRulesServed() bool {
+	return c.deviceTaintRulesServed
+}
+
 // PodsReadyTracking reports whether the cache maintains each ClusterQueue's
 // admitted-but-not-ready set.
 func (c *Cache) PodsReadyTracking() bool {
@@ -313,18 +319,6 @@ func (c *Cache) updateClusterQueues(log logr.Logger) sets.Set[kueue.ClusterQueue
 		cq.updateWithAdmissionChecks(log, c.admissionChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
-			cqs.Insert(cq.Name)
-		}
-	}
-	return cqs
-}
-
-func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
-	c.RLock()
-	defer c.RUnlock()
-	cqs := sets.New[kueue.ClusterQueueReference]()
-	for _, cq := range c.hm.ClusterQueues() {
-		if cq.Status == active {
 			cqs.Insert(cq.Name)
 		}
 	}

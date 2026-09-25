@@ -28,9 +28,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationDeviceTaints, true)
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = resourceapi.AddToScheme(scheme)
@@ -95,7 +97,8 @@ func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 	}
 
 	// ResourceSlices, DeviceTaintRules, ResourceClaims and DeviceClasses, once for
-	// the snapshot. The DeviceTaintRule list is skipped when its Kubernetes gate is off.
+	// the snapshot. The DeviceTaintRule list is skipped when KueueDRAIntegrationDeviceTaints or its
+	// Kubernetes gate is off.
 	const wantListCalls = 4
 	if listCalls != wantListCalls {
 		t.Errorf("cluster-wide List calls over %d assignment attempts = %d, want %d", calls, listCalls, wantListCalls)

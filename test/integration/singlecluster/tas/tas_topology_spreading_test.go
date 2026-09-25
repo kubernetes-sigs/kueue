@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -169,6 +170,9 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
 				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
@@ -380,6 +384,86 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 			ginkgo.By("verifying the pending Workload is then admitted into the freed block", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
 				gomega.Expect(blockOf(wl3)).To(gomega.Equal("b1"))
+			})
+		})
+
+		ginkgo.It("should allow a high-priority workload to preempt a lower-priority workload when topology spreading is required", func() {
+			var wl1, wl2, highWl *kueue.Workload
+
+			ginkgo.By("admitting two low-priority workloads across both blocks", func() {
+				// With 2 matching workloads placed (one on each block), each block's
+				// single occupant (50%) exceeds the 40% allowance, banning both blocks
+				// from admitting an additional workload without preemption.
+				wl1 = utiltestingapi.MakeWorkload("low-wl-1", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Priority(10).
+					Label(groupSelectorLabel, groupSelectorValue).
+					PodSets(pinnedGroupPodSet("0.4", utiltas.TopologySpreadingEnforcementModeRequired, "b1")).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl1)
+
+				wl2 = utiltestingapi.MakeWorkload("low-wl-2", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Priority(10).
+					Label(groupSelectorLabel, groupSelectorValue).
+					PodSets(pinnedGroupPodSet("0.4", utiltas.TopologySpreadingEnforcementModeRequired, "b2")).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl2)
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+			})
+			gomega.Expect(blockOf(wl1)).To(gomega.Equal("b1"))
+			gomega.Expect(blockOf(wl2)).To(gomega.Equal("b2"))
+
+			ginkgo.By("creating a high-priority workload requesting the same spread group", func() {
+				highWl = utiltestingapi.MakeWorkload("high-wl", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Priority(100).
+					Label(groupSelectorLabel, groupSelectorValue).
+					PodSets(pinnedGroupPodSet("0.4", utiltas.TopologySpreadingEnforcementModeRequired, "")).
+					Obj()
+				util.MustCreate(ctx, k8sClient, highWl)
+			})
+
+			var victim, survivor *kueue.Workload
+			var vacatedBlock string
+			ginkgo.By("verifying that exactly one of the low-priority workloads is preempted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var w1, w2 kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &w1)).To(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &w2)).To(gomega.Succeed())
+					w1Preempted := apimeta.IsStatusConditionTrue(w1.Status.Conditions, kueue.WorkloadEvicted)
+					w2Preempted := apimeta.IsStatusConditionTrue(w2.Status.Conditions, kueue.WorkloadEvicted)
+					g.Expect(w1Preempted).ToNot(gomega.Equal(w2Preempted), "exactly one low-priority workload should be preempted")
+					if w1Preempted {
+						victim = &w1
+						survivor = &w2
+						vacatedBlock = "b1"
+					} else {
+						victim = &w2
+						survivor = &w1
+						vacatedBlock = "b2"
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("finishing eviction of the preempted workload", func() {
+				util.FinishEvictionForWorkloads(ctx, k8sClient, victim)
+			})
+
+			ginkgo.By("verifying the high-priority workload is admitted into the vacated block", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, highWl)
+				gomega.Expect(blockOf(highWl)).To(gomega.Equal(vacatedBlock))
+				gomega.Expect(blockOf(survivor)).NotTo(gomega.Equal(blockOf(highWl)))
+			})
+
+			ginkgo.By("verifying the surviving low-priority workload is not preempted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, survivor)
+				gomega.Consistently(func(g gomega.Gomega) {
+					var w kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(survivor), &w)).To(gomega.Succeed())
+					g.Expect(apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 

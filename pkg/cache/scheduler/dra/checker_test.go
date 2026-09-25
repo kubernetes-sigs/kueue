@@ -666,6 +666,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			},
 			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
 			wantDRANoFit: 1,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
 		},
 		"a request tolerating the taint still fits": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass, tolerantTemplate,
@@ -682,6 +683,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			},
 			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
 			wantFeasible: []string{"gpu-node"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
 		},
 		"a DeviceTaintRule naming one device leaves the rest allocatable": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaimTemplate,
@@ -698,6 +700,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			},
 			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
 			wantFeasible: []string{"gpu-node"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
 		},
 		"a NoExecute DeviceTaintRule keeps the devices out too": {
 			// The allocator refuses NoExecute and NoSchedule alike, so a rule meant to
@@ -717,6 +720,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			},
 			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
 			wantDRANoFit: 1,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
 		},
 		"DeviceTaintRules do not apply when the Kubernetes gate is off": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaimTemplate,
@@ -733,7 +737,102 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			},
 			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
 			wantFeasible: []string{"gpu-node"},
-			featureGates: map[featuregate.Feature]bool{kubefeatures.DRADeviceTaintRules: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationDeviceTaints: true,
+				kubefeatures.DRADeviceTaintRules:         false,
+			},
+		},
+		"DeviceTaintRules do not apply when KueueDRAIntegrationDeviceTaints is off": {
+			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaimTemplate,
+				utiltesting.MakeDeviceTaintRule("maintenance", "example.com/maintenance").
+					Driver("gpu.example.com").Obj()},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
+					},
+				},
+			},
+			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
+			wantFeasible: []string{"gpu-node"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: false},
+		},
+		"a taint the driver publishes in the ResourceSlice makes the device unusable": {
+			objects: []runtime.Object{gpuDeviceClass, gpuClaimTemplate,
+				utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").Pool("gpu-pool", 1, 1).
+					Device("gpu-0").DeviceTaint("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
+					Obj()},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
+					},
+				},
+			},
+			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
+			wantDRANoFit: 1,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
+		},
+		"a request tolerating a ResourceSlice taint still fits": {
+			objects: []runtime.Object{gpuDeviceClass, tolerantTemplate,
+				utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").Pool("gpu-pool", 1, 1).
+					Device("gpu-0").DeviceTaint("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
+					Obj()},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimTemplateName: new("tolerant-template")},
+					},
+				},
+			},
+			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
+			wantFeasible: []string{"gpu-node"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
+		},
+		"a taint the driver publishes in the ResourceSlice is ignored when KueueDRAIntegrationDeviceTaints is off": {
+			objects: []runtime.Object{gpuDeviceClass, gpuClaimTemplate,
+				utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").Pool("gpu-pool", 1, 1).
+					Device("gpu-0").DeviceTaint("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
+					Obj()},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
+					},
+				},
+			},
+			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
+			wantFeasible: []string{"gpu-node"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: false},
+		},
+		"a None DeviceTaintRule leaves the devices allocatable": {
+			objects: []runtime.Object{gpuSlice, gpuDeviceClass, gpuClaimTemplate,
+				utiltesting.MakeDeviceTaintRule("informational", "example.com/degraded").
+					Driver("gpu.example.com").
+					Effect(resourceapi.DeviceTaintEffectNone).Obj()},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
+					},
+				},
+			},
+			candidates:   []*testCandidate{{node: gpuNode, id: "gpu-node"}},
+			wantFeasible: []string{"gpu-node"},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
 		},
 		"PodResourceClaim with neither name nor template is skipped": {
 			objects: []runtime.Object{gpuSlice, gpuDeviceClass},

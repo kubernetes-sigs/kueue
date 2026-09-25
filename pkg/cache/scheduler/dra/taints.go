@@ -24,13 +24,15 @@ import (
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // applyDeviceTaintRules returns the slices with DeviceTaintRule taints added, matching
 // what resourceslice/tracker gives kube-scheduler. The tracker takes client-go typed
 // informers, so reusing it would mean a second cache of every ResourceSlice.
 func applyDeviceTaintRules(ctx context.Context, cl client.Client, served bool, deviceSlices []*resourceapi.ResourceSlice) ([]*resourceapi.ResourceSlice, error) {
-	if !served || !utilfeature.DefaultFeatureGate.Enabled(kubefeatures.DRADeviceTaintRules) {
+	if !served || !features.Enabled(features.KueueDRAIntegrationDeviceTaints) || !utilfeature.DefaultFeatureGate.Enabled(kubefeatures.DRADeviceTaintRules) {
 		return deviceSlices, nil
 	}
 	rules, err := deviceTaintRules(ctx, cl)

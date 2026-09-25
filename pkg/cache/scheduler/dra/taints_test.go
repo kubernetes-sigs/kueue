@@ -29,12 +29,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/component-base/featuregate"
 	resourceslicetracker "k8s.io/dynamic-resource-allocation/resourceslice/tracker"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -153,9 +155,10 @@ func TestDeviceTaintsMatchUpstreamTracker(t *testing.T) {
 	}
 }
 
-// On Kubernetes 1.36 and older the rules are not served as v1, and listing them would
-// cost a discovery request every cycle, so the check never lists them there.
-func TestDeviceTaintRulesAreNotListedWhenNotServed(t *testing.T) {
+// Rules are never listed where they would not be applied: Kubernetes 1.36 and older do not
+// serve them as v1, where listing costs a discovery request every cycle, and with
+// KueueDRAIntegrationDeviceTaints off Kueue ignores them.
+func TestDeviceTaintRulesAreNotListed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -171,39 +174,57 @@ func TestDeviceTaintRulesAreNotListedWhenNotServed(t *testing.T) {
 	slice := utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
 		NodeName("gpu-node").Pool("gpu-pool", 1, 1).Device("gpu-0").Obj()
 
-	cl := fake.NewClientBuilder().WithScheme(scheme).
-		WithRuntimeObjects(node, deviceClass, claimTemplate, slice).
-		WithInterceptorFuncs(interceptor.Funcs{
-			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				if _, ok := list.(*resourceapi.DeviceTaintRuleList); ok {
-					t.Error("DeviceTaintRules were listed although the cluster does not serve them")
-				}
-				return c.List(ctx, list, opts...)
-			},
-		}).Build()
-
-	checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, false)
-	requirements := &simulator.PodRequirements{
-		PodTemplate: &corev1.PodTemplateSpec{
-			Namespace: "default",
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
-				ResourceClaims: []corev1.PodResourceClaim{
-					{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
-				},
-			},
+	cases := map[string]struct {
+		served       bool
+		featureGates map[featuregate.Feature]bool
+	}{
+		"the cluster does not serve the rules": {
+			served:       false,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: true},
+		},
+		"KueueDRAIntegrationDeviceTaints is off": {
+			served:       true,
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationDeviceTaints: false},
 		},
 	}
-	candidates := func(yield func(simulator.Candidate) bool) {
-		yield(&testCandidate{node: node, id: "gpu-node"})
-	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			cl := fake.NewClientBuilder().WithScheme(scheme).
+				WithRuntimeObjects(node, deviceClass, claimTemplate, slice).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := list.(*resourceapi.DeviceTaintRuleList); ok {
+							t.Error("DeviceTaintRules were listed although Kueue does not apply them")
+						}
+						return c.List(ctx, list, opts...)
+					},
+				}).Build()
 
-	stats := &simulator.NodeExclusionStats{}
-	feasible, err := checker.FindFeasibleNodes(t.Context(), candidates, requirements, stats)
-	if err != nil {
-		t.Fatalf("FindFeasibleNodes returned %v", err)
-	}
-	if len(feasible) != 1 {
-		t.Errorf("got %d feasible nodes, want 1: the node has an untainted device", len(feasible))
+			checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, tc.served)
+			requirements := &simulator.PodRequirements{
+				PodTemplate: &corev1.PodTemplateSpec{
+					Namespace: "default",
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+						ResourceClaims: []corev1.PodResourceClaim{
+							{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")},
+						},
+					},
+				},
+			}
+			candidates := func(yield func(simulator.Candidate) bool) {
+				yield(&testCandidate{node: node, id: "gpu-node"})
+			}
+
+			stats := &simulator.NodeExclusionStats{}
+			feasible, err := checker.FindFeasibleNodes(t.Context(), candidates, requirements, stats)
+			if err != nil {
+				t.Fatalf("FindFeasibleNodes returned %v", err)
+			}
+			if len(feasible) != 1 {
+				t.Errorf("got %d feasible nodes, want 1: the node has an untainted device", len(feasible))
+			}
+		})
 	}
 }

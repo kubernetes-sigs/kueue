@@ -713,6 +713,20 @@ func (r *ResourceClaimWrapper) FirstAvailableRequest(requestName, deviceClassNam
 	return r
 }
 
+// Allocated allocates the given devices of one pool to the named request
+func (r *ResourceClaimWrapper) Allocated(requestName, driver, pool string, devices ...string) *ResourceClaimWrapper {
+	r.Status.Allocation = &resourcev1.AllocationResult{}
+	for _, device := range devices {
+		r.Status.Allocation.Devices.Results = append(r.Status.Allocation.Devices.Results, resourcev1.DeviceRequestAllocationResult{
+			Request: requestName,
+			Driver:  driver,
+			Pool:    pool,
+			Device:  device,
+		})
+	}
+	return r
+}
+
 // Obj returns the underlying ResourceClaim
 func (r *ResourceClaimWrapper) Obj() *resourcev1.ResourceClaim {
 	return &r.ResourceClaim
@@ -1005,6 +1019,14 @@ func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSli
 	if len(w.Spec.Devices) > 0 {
 		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
 		last.AllowMultipleAllocations = &allow
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) DeviceTaint(key string, effect resourcev1.DeviceTaintEffect) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.Taints = append(last.Taints, resourcev1.DeviceTaint{Key: key, Effect: effect})
 	}
 	return w
 }

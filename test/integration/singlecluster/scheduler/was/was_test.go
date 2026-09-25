@@ -342,6 +342,247 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				gomega.Expect(ta.Domains).To(gomega.HaveLen(1))
 				gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
 			})
+
+			ginkgo.It("should admit a pending DRA workload once the rule is deleted", func() {
+				wl := utiltestingapi.MakeWorkload("wl-dra-untainted", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				ginkgo.By("waiting for the devices to reject it", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						read := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, taintRule, true)
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+		})
+
+		// Nothing else changes after the rejection, so only the DRA event can requeue the Workload.
+		ginkgo.When("the devices a pending DRA workload needs become available", func() {
+			var (
+				extraSlice *resourceapi.ResourceSlice
+				heldClaim  *resourceapi.ResourceClaim
+			)
+
+			ginkgo.BeforeEach(func() {
+				extraSlice, heldClaim = nil, nil
+			})
+
+			ginkgo.AfterEach(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, heldClaim, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, extraSlice, true)
+			})
+
+			ginkgo.It("should admit it once a ResourceSlice publishes more devices", func() {
+				wl := utiltestingapi.MakeWorkload("wl-dra-more-devices", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim-too-big").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				ginkgo.By("waiting for the devices to reject it", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						read := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				extraSlice = utiltesting.MakeResourceSlice("was-n2-more-gpus", "gpu.test.com").
+					NodeName("was-n2").
+					Pool("was-n2-more-gpu-pool", 1, 1).
+					Device("gpu-2").
+					Obj()
+				util.MustCreate(ctx, k8sClient, extraSlice)
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.It("should admit it once a ResourceSlice update adds devices", func() {
+				wl := utiltestingapi.MakeWorkload("wl-dra-updated-slice", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim-too-big").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				ginkgo.By("waiting for the devices to reject it", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						read := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gpuSlice), gpuSlice)).To(gomega.Succeed())
+					gpuSlice.Spec.Devices = utiltesting.MakeResourceSlice(gpuSlice.Name, "gpu.test.com").
+						Device("gpu-0").
+						Device("gpu-1").
+						Device("gpu-2").
+						Obj().Spec.Devices
+					g.Expect(k8sClient.Update(ctx, gpuSlice)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.It("should admit it once a ResourceClaim releases its devices", func() {
+				heldClaim = utiltesting.MakeResourceClaim("was-held", ns.Name).DeviceRequest("gpu", "gpu.test.com", 2).Obj()
+				util.MustCreate(ctx, k8sClient, heldClaim)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(heldClaim), heldClaim)).To(gomega.Succeed())
+					heldClaim.Status = utiltesting.MakeResourceClaim("was-held", ns.Name).
+						Allocated("gpu", "gpu.test.com", "was-n2-gpu-pool", "gpu-0", "gpu-1").
+						Obj().Status
+					g.Expect(k8sClient.Status().Update(ctx, heldClaim)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cached resourceapi.ResourceClaim
+					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(heldClaim), &cached)).To(gomega.Succeed())
+					g.Expect(cached.Status.Allocation).NotTo(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				wl := utiltestingapi.MakeWorkload("wl-dra-released", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				ginkgo.By("waiting for the devices to reject it", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						read := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(heldClaim), heldClaim)).To(gomega.Succeed())
+					heldClaim.Status.Allocation = nil
+					g.Expect(k8sClient.Status().Update(ctx, heldClaim)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			ginkgo.It("should admit it once the DeviceClass selects the devices", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deviceClass), deviceClass)).To(gomega.Succeed())
+					deviceClass.Spec.Selectors = testingdra.MakeDeviceClass(deviceClass.Name).CELSelector(`device.driver == "other.test.com"`).Obj().Spec.Selectors
+					g.Expect(k8sClient.Update(ctx, deviceClass)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cached resourceapi.DeviceClass
+					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(deviceClass), &cached)).To(gomega.Succeed())
+					g.Expect(cached.Spec.Selectors).To(gomega.HaveLen(1))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				wl := utiltestingapi.MakeWorkload("wl-dra-reselected", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						ResourceClaimTemplate("gpu", "gpu-claim").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				ginkgo.By("waiting for the devices to reject it", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						read := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deviceClass), deviceClass)).To(gomega.Succeed())
+					deviceClass.Spec.Selectors = nil
+					g.Expect(k8sClient.Update(ctx, deviceClass)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			// Of two DeviceClasses for one extended resource the newer resolves, so deleting it
+			// switches the Workload to the other one.
+			ginkgo.It("should admit it once the DeviceClass it resolved to is deleted", func() {
+				brokenClass := testingdra.MakeDeviceClass("gpu-extended-broken.test.com").
+					ExtendedResourceName("test.com/gpu").
+					CELSelector(`device.driver == "other.test.com"`).
+					Obj()
+				util.MustCreate(ctx, k8sClient, brokenClass)
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cached resourceapi.DeviceClass
+					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(brokenClass), &cached)).To(gomega.Succeed())
+					g.Expect(cached.UID).To(gomega.Equal(brokenClass.UID))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				wl := utiltestingapi.MakeWorkload("wl-dra-ext-reresolved", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				ginkgo.By("waiting for the devices to reject it", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						read := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+						cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
+						g.Expect(cond).NotTo(gomega.BeNil())
+						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				// Creating the class requeues too, a batch period later, so hold on until that
+				// retry has run with the class still there.
+				gomega.Consistently(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+					g.Expect(apimeta.IsStatusConditionTrue(read.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+				}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, brokenClass, true)
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
 		})
 
 		ginkgo.It("should admit non-DRA workloads to any node", func() {

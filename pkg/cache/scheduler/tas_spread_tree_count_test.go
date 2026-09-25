@@ -144,6 +144,21 @@ func TestTopologySpreadCounts(t *testing.T) {
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("topologySpreadCountsForFlavor() mismatch (-want +got):\n%s", diff)
 	}
+
+	gotSimulateEmpty := cq.topologySpreadCountsForFlavor(incoming, spreadCountsTestFlavor, requests[spreadCountsTestFlavor], WithSpreadCountsSimulateEmpty(true))
+	wantSimulateEmpty := PodSetGroupNameToTreeCount{
+		spreadKeyForGroupName("group-a"): {
+			Total:    0,
+			ByDomain: map[utiltas.TopologyDomainID]int32{},
+		},
+		spreadKeyForGroupName("group-b"): {
+			Total:    0,
+			ByDomain: map[utiltas.TopologyDomainID]int32{},
+		},
+	}
+	if diff := cmp.Diff(wantSimulateEmpty, gotSimulateEmpty); diff != "" {
+		t.Errorf("topologySpreadCountsForFlavor(simulateEmpty=true) mismatch (-want +got):\n%s", diff)
+	}
 }
 
 type spreadCountsPodSetPlacement struct {
