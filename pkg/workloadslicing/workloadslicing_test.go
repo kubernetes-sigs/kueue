@@ -2092,6 +2092,35 @@ func TestScaledDown(t *testing.T) {
 	}
 }
 
+func TestFindLatestAdmittedWorkloadForSliceIncludesFinished(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	finished := utiltestingapi.MakeWorkload("finished", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+		Creation(now.Add(-time.Minute)).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now.Add(-time.Minute)).
+		AdmittedAt(true, now.Add(-time.Minute)).
+		FinishedAt(now).
+		Obj()
+	current := utiltestingapi.MakeWorkload("current", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+		Creation(now).
+		Obj()
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(finished, current).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+		Build()
+
+	got, err := FindLatestAdmittedWorkloadForSlice(t.Context(), cl, current.Namespace, SliceName(current), WithFinishedWorkloads())
+	if err != nil {
+		t.Fatalf("FindLatestAdmittedWorkloadForSlice() error: %v", err)
+	}
+	if got == nil || got.Name != finished.Name {
+		t.Fatalf("FindLatestAdmittedWorkloadForSlice() = %v, want %q", got, finished.Name)
+	}
+}
+
 func TestFindLatestActiveWorkload(t *testing.T) {
 	now := time.Now()
 	admission := utiltestingapi.MakeAdmission("cq").Obj()
