@@ -542,6 +542,24 @@ func IsReplaced(status kueue.WorkloadStatus) bool {
 		finishedCondition.Reason == kueue.WorkloadSliceReplaced
 }
 
+// ReplacedSliceTarget finds the workload slice the preemptor replaces among
+// targets. Unlike FindReplacedSliceTarget, it leaves targets untouched.
+func ReplacedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Target) *preemption.Target {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return nil
+	}
+	sliceKey := ReplacementForKey(preemptor)
+	if sliceKey == nil {
+		return nil
+	}
+	for _, target := range targets {
+		if *sliceKey == workload.Key(target.WorkloadInfo.Obj) {
+			return target
+		}
+	}
+	return nil
+}
+
 // FindReplacedSliceTarget identifies and removes a preempted workload slice target from the given list of targets.
 // The function checks if Elastic Jobs via Workload Slices feature is enabled and if so, attempts to find a matching
 // workload slice in the target list for the provided preemptor. If a matching slice is found, it is removed from the list

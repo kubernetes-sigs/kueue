@@ -471,7 +471,7 @@ func (s *Scheduler) processEntry(
 	// We may also recompute in case of overlapping preemption targets with another workload.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
-	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
+	fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
 	// A refilled entry acts only on Fit: capacity reserved mid-cycle for
@@ -535,7 +535,7 @@ func (s *Scheduler) processEntry(
 		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
 		// become available.
 		e.FlavorScanState = nil
-		snapshot.AddUsage(cq, usage)
+		bookUsage(log, snapshot, cq, e)
 		return
 	}
 
@@ -556,7 +556,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 	preemptedWorkloads.Insert(e.preemptionTargets)
-	snapshot.AddUsage(cq, usage)
+	bookUsage(log, snapshot, cq, e)
 
 	// Filter out the old workload slice from the preemption targets.
 	// The old workload slice is initially included in the preemption targets because it is treated
@@ -721,8 +721,50 @@ type entry struct {
 	refilled bool
 }
 
+// assignmentUsage is what admitting the entry adds to the snapshot while any
+// slice it replaces is still counted, which is what fair sharing ranks it by.
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
 	return netUsage(log, e, e.assignment.Usage.Quota.Assigned)
+}
+
+// bookedUsage is the usage the entry takes in the cycle's snapshot. A workload
+// slice replacement counts in full instead, as it already does for TAS, and the
+// slice it replaces is returned so that it is taken out along with it.
+func (e *entry) bookedUsage(log logr.Logger) (workload.Usage, *workload.Info) {
+	usage := e.assignmentUsage(log)
+	target := workloadslicing.ReplacedSliceTarget(e.Obj, e.preemptionTargets)
+	if target == nil || usage.Quota.Assigned == nil {
+		return usage, nil
+	}
+	full := usage.Quota.Assigned.Clone()
+	for fr, q := range target.WorkloadInfo.ResourceUsage().Assigned {
+		full[fr] = full[fr].Add(q)
+	}
+	usage.Quota.Assigned = full
+	return usage, target.WorkloadInfo
+}
+
+func (e *entry) checkFits(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, preemptedWorkloads preemption.PreemptedWorkloads) schdcache.FitsCheck {
+	usage, _ := e.bookedUsage(log)
+	return fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
+}
+
+// bookUsage commits the entry's usage to the cycle's snapshot. For a workload
+// slice replacement this completes the move from the replaced slice, which
+// stays in its ClusterQueue so that another replacement of the same slice
+// still conflicts with this one.
+func bookUsage(log logr.Logger, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, e *entry) {
+	usage, replaced := e.bookedUsage(log)
+	if replaced != nil {
+		snapshot.ReleaseWorkloadUsage(replaced)
+		// Without slice-aware placement the replacement's topology assignment
+		// ignores the Pods the replaced slice keeps running, so they still
+		// occupy their domains.
+		if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
+			snapshot.AddUsage(cq, workload.Usage{TAS: replaced.TASUsage()})
+		}
+	}
+	snapshot.AddUsage(cq, usage)
 }
 
 func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors {
@@ -811,9 +853,8 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e *entry,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
-	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
-	usage := e.assignmentUsage(log)
-	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
+	preemptedWorkloads preemption.PreemptedWorkloads) bool {
+	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
 
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
@@ -826,7 +867,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		// fitting has nothing to gain from it. One that is fitting still needs
 		// it: the rewrite is how refill defers it.
 		if e.refilled && e.assignment.RepresentativeMode() != flavorassigner.Fit {
-			return usage, schdcache.FitsCheckOk == fitsCheck
+			return schdcache.FitsCheckOk == fitsCheck
 		}
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
 		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
@@ -834,7 +875,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
 		// Short-circuit, nothing to recompute.
-		return usage, schdcache.FitsCheckOk == fitsCheck
+		return schdcache.FitsCheckOk == fitsCheck
 	}
 	// Clear the flavor scan state so that we can start from the first flavor again and
 	// reach all flavors from the nomination.
@@ -850,8 +891,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 		}
 	}
-	usage = e.assignmentUsage(log)
-	fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
+	fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
@@ -870,7 +910,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		metrics.ReportPreemptionTargetRecomputation(e.ClusterQueue, overlapRecomputeResult, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
 	}
 
-	return usage, schdcache.FitsCheckOk == fitsCheck
+	return schdcache.FitsCheckOk == fitsCheck
 }
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
