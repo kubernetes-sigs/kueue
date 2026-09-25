@@ -2,14 +2,14 @@
 type: docs
 params:
   docs_minor: v0.19
-  version: v0.19.5
-  chart_version: 0.19.5
+  version: v0.19.6
+  chart_version: 0.19.6
 cascade:
   type: docs
   params:
     docs_minor: v0.19
-    version: v0.19.5
-    chart_version: 0.19.5
+    version: v0.19.6
+    chart_version: 0.19.6
 title: "Documentation"
 linkTitle: "Documentation"
 weight: 20

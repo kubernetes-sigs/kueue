@@ -21,6 +21,7 @@ import (
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/features"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 // Equal reports whether two Requests objects are Equal.
@@ -72,8 +73,22 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
 		return NewRequests()
 	}
-	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	return NewRequestsFromResourceList(rl)
+	return NewRequestsFromResourceList(PodRequests(podSpec))
+}
+
+// PodRequests returns the effective requests for a PodSpec. For malformed specs,
+// it keeps the aggregate container request when a smaller pod-level request would
+// otherwise replace it. Valid PodSpecs are unchanged because Kubernetes requires
+// pod-level requests to cover the aggregate container requests.
+func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	if podSpec == nil {
+		return nil
+	}
+	pod := &corev1.Pod{Spec: *podSpec}
+	requests := resourcehelpers.PodRequests(pod, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+	containerRequests := resourcehelpers.AggregateContainerRequests(pod, resourcehelpers.PodResourcesOptions{})
+	requests = utilresource.MergeResourceListKeepMax(requests, containerRequests)
+	return utilresource.MergeResourceListKeepSum(requests, podSpec.Overhead)
 }
 
 // ToMap converts any Requests instance into a MapRequests map.

@@ -19,6 +19,7 @@ package raycluster
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -152,9 +153,20 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(
 					field.NewPath("spec", "enableInTreeAutoscaling"),
 					new(true),
-					fmt.Sprintf("a kueue-managed RayCluster can use autoscaling only as an elastic job: "+
+					fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
 						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
 						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+				),
+			}.ToAggregate(),
+		},
+		"invalid managed - head pod has no containers": {
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Required(
+					field.NewPath("spec", "headGroupSpec", "template", "spec", "containers"),
+					"must have at least one container",
 				),
 			}.ToAggregate(),
 		},
@@ -225,6 +237,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -263,6 +276,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -304,6 +318,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetSliceSizeAnnotation:             "2",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -355,6 +370,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -383,6 +399,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -483,6 +500,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -524,6 +542,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -565,6 +584,7 @@ func TestValidateCreate(t *testing.T) {
 								kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 							},
 						},
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "ray-head"}}},
 					},
 				}).
 				WithWorkerGroups(
@@ -625,12 +645,13 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob         *rayv1.RayCluster
-		newJob         *rayv1.RayCluster
-		manageAll      bool
-		defaultLqExist bool
-		featureGates   map[featuregate.Feature]bool
-		wantErr        error
+		oldJob               *rayv1.RayCluster
+		newJob               *rayv1.RayCluster
+		manageAll            bool
+		defaultLqExist       bool
+		featureGates         map[featuregate.Feature]bool
+		wantErr              error
+		maxTimeoutOnWorkload *metav1.Duration
 	}{
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
@@ -758,6 +779,34 @@ func TestValidateUpdate(t *testing.T) {
 				WorkloadPriorityClass("test-2").
 				Obj(),
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			wantErr:              nil,
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 	}
 
 	for name, tc := range testcases {
@@ -774,6 +823,7 @@ func TestValidateUpdate(t *testing.T) {
 				}
 			}
 			wh := &RayClusterWebhook{
+				maxTimeoutOnWorkload:       tc.maxTimeoutOnWorkload,
 				manageJobsWithoutQueueName: tc.manageAll,
 				queues:                     queueManager,
 				cache:                      cqCache,

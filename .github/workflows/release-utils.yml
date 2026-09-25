@@ -23,7 +23,8 @@ jobs:
        contains(github.event.comment.body, '/create-draft-release') ||
        contains(github.event.comment.body, '/wait-for-images') ||
        contains(github.event.comment.body, '/wait-for-prod-images') ||
-       contains(github.event.comment.body, '/publish-release'))
+       contains(github.event.comment.body, '/publish-release') ||
+       contains(github.event.comment.body, '/merge-main-into-website'))
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,7 +42,9 @@ jobs:
             ".github/actions/create-release-tag/action.yml"
             ".github/actions/generate-openvex/action.yml"
             ".github/actions/generate-sbom/action.yml"
+            ".github/actions/merge-main-into-website/action.yml"
             ".github/actions/publish-release/action.yml"
+            ".github/actions/update-krew-index/action.yml"
             ".github/actions/report-result/action.yml"
             "hack/releasing/authorize_release_actor.py"
             "hack/releasing/authorize_release_actor_test.py"
@@ -139,6 +142,8 @@ jobs:
             COMMAND="wait-for-prod-images"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/merge-main-into-website[[:space:]]*$'; then
+            COMMAND="merge-main-into-website"
           else
             echo "error_message=❌ Invalid command format in comment: $COMMENT." >> "$GITHUB_OUTPUT"
             exit 1
@@ -159,12 +164,24 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.parse.outputs.version }}
           TARGET_REPO: ${{ github.repository }}
+          COMMAND: ${{ steps.parse.outputs.command }}
         run: |
           RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
 
-          if [ "$RELEASE_STATE" = "published" ]; then
+          if [ "$RELEASE_STATE" = "published" ] && [ "$COMMAND" != "merge-main-into-website" ]; then
             echo "error_message=❌ Release \`$VERSION\` has already been published. No further commands are allowed." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          if [ "$RELEASE_STATE" != "published" ] && [ "$COMMAND" = "merge-main-into-website" ]; then
+            echo "error_message=❌ Release \`$VERSION\` must be published before running \`/merge-main-into-website\`." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          PATCH=$(echo "$VERSION" | grep -oE '[0-9]+$')
+          if [ "$COMMAND" = "merge-main-into-website" ] && [ "$PATCH" != "0" ]; then
+            echo "error_message=❌ \`/merge-main-into-website\` is only applicable for major and minor releases, not patch releases." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -640,6 +657,12 @@ jobs:
           repo: ${{ github.repository }}
           update-release-issue: true
 
+      - name: Update new version in krew-index
+        uses: $/.github/actions/update-krew-index
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+          repo: ${{ github.repository }}
+
       - name: Report Success
         if: ${{ success() }}
         uses: $/.github/actions/report-result
@@ -653,3 +676,38 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message || '❌ Failed to publish release.' }}
+
+  merge-main-into-website:
+    name: Merge main into website
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 10
+    if: ${{ needs.authorize.outputs.command == 'merge-main-into-website' }}
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Merge main into website
+        id: merge-main-into-website
+        uses: ./.github/actions/merge-main-into-website
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.merge-main-into-website.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.merge-main-into-website.outputs.message || '❌ Failed to merge the main branch into the website branch.' }}

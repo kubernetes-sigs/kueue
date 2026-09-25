@@ -11,6 +11,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: AdmissionFairSharingAnchorAtQuotaReservation
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: AdmissionGatedBy
   versionedSpecs:
   - default: false
@@ -167,6 +173,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: KueueDRADeviceFeasibility
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
@@ -179,6 +191,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: KueueDRAIntegrationDeviceTaints
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRAIntegrationExtendedResource
   versionedSpecs:
   - default: false
@@ -545,6 +563,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: TASPartialSlices
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -681,6 +705,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: WorkloadLevelWaitForPodsReady
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WorkloadPriorityClassDefaulting
   versionedSpecs:
   - default: false

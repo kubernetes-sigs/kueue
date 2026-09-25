@@ -25,11 +25,14 @@ import (
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -89,6 +92,27 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 						)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+
+		ginkgo.It("Should reject updates with conflicting TAS annotations", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
+
+			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+				Queue("user-queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj()
+			util.MustCreate(ctx, k8sClient, sts)
+
+			created := &appsv1.StatefulSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), created)).To(gomega.Succeed())
+				created.Spec.Template.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] = "true"
+				g.Expect(k8sClient.Update(ctx, created)).To(gomega.SatisfyAll(
+					utiltesting.BeForbiddenError(),
+					gomega.MatchError(gomega.ContainSubstring("spec.template.metadata.annotations")),
+					gomega.MatchError(gomega.ContainSubstring("must not contain more than one topology annotation")),
+				))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		// Regression test for GC teardown deadlock:

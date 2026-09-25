@@ -50,7 +50,7 @@ type TopologyLevel struct {
 	Capacity  struct {
 		CPU    string `json:"cpu"`
 		Memory string `json:"memory"`
-	} `json:"capacity,omitempty"`
+	} `json:"capacity,omitzero"`
 }
 
 // ResourceFlavorConfig represents the resource flavor configuration

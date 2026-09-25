@@ -56,7 +56,9 @@ var (
 // clusterQueue is the internal implementation of kueue.clusterQueue that
 // holds admitted workloads.
 type clusterQueue struct {
-	Name              kueue.ClusterQueueReference
+	Name kueue.ClusterQueueReference
+	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
+	Labels            map[string]string
 	ResourceGroups    []resourcegroups.ResourceGroup
 	Workloads         map[workload.Reference]*workload.Info
 	WorkloadsNotReady sets.Set[workload.Reference]
@@ -180,6 +182,9 @@ func (c *clusterQueue) updateClusterQueue(
 		}
 	}
 
+	if features.Enabled(features.ConfigurablePreemptions) {
+		c.Labels = maps.Clone(in.Labels)
+	}
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
 	c.AdmissionChecks = admissioncheck.NewAdmissionChecks(in)
@@ -636,7 +641,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
-		updateFlavorUsage(frUsage, lq.totalReserved, op)
+		lq.updateReservedUsage(frUsage, op)
 		lq.reservingWorkloads += op.asSignedOne()
 		if admitted {
 			lq.updateAdmittedUsage(frUsage, op)
@@ -701,7 +706,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qImpl := &LocalQueue{
 		key:                qKey,
 		reservingWorkloads: 0,
-		totalReserved:      make(resources.FlavorResourceQuantities),
+		reservedUsage:      make(resources.FlavorResourceQuantities),
 		customLabels:       c.customLabels,
 		labels:             q.GetLabels(),
 		resourceFormatter:  c.resourceFormatter,
@@ -713,7 +718,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			frq := wl.ResourceUsage().Assigned
-			updateFlavorUsage(frq, qImpl.totalReserved, add)
+			qImpl.updateReservedUsage(frq, add)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
 				qImpl.updateAdmittedUsage(frq, add)

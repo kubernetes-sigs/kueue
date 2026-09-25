@@ -137,6 +137,15 @@ const (
 	// Enable admission fair sharing
 	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
 
+	// owner: @apullo777
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/4136-admission-fair-sharing
+	//
+	// Move the AFS accounting anchor from admission to actively holding a quota
+	// reservation. Entry-penalty settlement and sampled LocalQueue usage move
+	// together, so Workloads waiting on their AdmissionChecks already count
+	// towards AFS usage.
+	AdmissionFairSharingAnchorAtQuotaReservation featuregate.Feature = "AdmissionFairSharingAnchorAtQuotaReservation"
+
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -556,6 +565,22 @@ const (
 	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
 	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
 
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/10548
+	//
+	// Enable per-node DRA device feasibility checking before admission, so a Workload
+	// with ResourceClaims is not admitted when no node can satisfy them.
+	KueueDRADeviceFeasibility featuregate.Feature = "KueueDRADeviceFeasibility"
+
+	// owner: @sohankunkerkar
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/16112
+	//
+	// Enable DRA device taints and tolerations in device feasibility, for taints that drivers
+	// publish in ResourceSlices and taints applied by DeviceTaintRules.
+	KueueDRAIntegrationDeviceTaints featuregate.Feature = "KueueDRAIntegrationDeviceTaints"
+
 	// owner: @j-skiba
 	//
 	// VectorizedResourceRequests enables slice-based indexing for resource requests in TAS snapshots,
@@ -739,6 +764,21 @@ const (
 	// group reports PodsReady=False as soon as any member finishes, which can evict a
 	// healthy group once waitForPodsReady.recoveryTimeout elapses.
 	PodIntegrationCountSucceededPodsAsReady featuregate.Feature = "PodIntegrationCountSucceededPodsAsReady"
+
+	// owner: @MaysaMacedo
+	//
+	// Enables setting a per-workload WaitForPodsReady timeout and recovery timeout via the
+	// kueue.x-k8s.io/wait-for-pods-ready annotation, overriding the cluster-wide
+	// WaitForPodsReady.Timeout and WaitForPodsReady.RecoveryTimeout for that workload.
+	WorkloadLevelWaitForPodsReady featuregate.Feature = "WorkloadLevelWaitForPodsReady"
+
+	// owner: @pajakd
+	//
+	// Allow a PodSet slice size that does not evenly divide the PodSet count.
+	// The trailing pods form one partial slice, which is placed in a single
+	// topology domain just like a full slice. Without this gate the trailing
+	// pods are dropped from the assignment.
+	TASPartialSlices featuregate.Feature = "TASPartialSlices"
 )
 
 func init() {
@@ -772,6 +812,10 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
 	TASTopologySpreading:                            {TopologyAwareScheduling},
+	AdmissionFairSharingAnchorAtQuotaReservation:    {AdmissionFairSharing},
+	KueueDRADeviceFeasibility:                       {KueueDRAIntegration, TopologyAwareScheduling, TASNodeFeasibilityForAllLevels},
+	KueueDRAIntegrationDeviceTaints:                 {KueueDRADeviceFeasibility},
+	TASPartialSlices:                                {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -838,6 +882,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	AdmissionFairSharingAnchorAtQuotaReservation: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
@@ -1058,6 +1105,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
+	KueueDRADeviceFeasibility: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	KueueDRAIntegrationDeviceTaints: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	VectorizedResourceRequests: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -1138,6 +1193,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PodIntegrationCountSucceededPodsAsReady: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WorkloadLevelWaitForPodsReady: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASPartialSlices: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
