@@ -207,7 +207,6 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			},
 			preemptorPriority: ptr.To[int32](100),
 			candidatePriority: ptr.To[int32](50),
-			wantMatch:         false,
 			wantBuildErr:      true,
 		},
 	}

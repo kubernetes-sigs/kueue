@@ -339,9 +339,9 @@ type CandidateSelectorWrapper struct {
 
 // MakeCandidateSelector creates a CandidateSelectorWrapper with the given scope.
 func MakeCandidateSelector(scope kueuealpha.PreemptionConfigPreemptionQueueScope) *CandidateSelectorWrapper {
-	w := &CandidateSelectorWrapper{}
-	w.Scope = scope
-	return w
+	return &CandidateSelectorWrapper{
+		Scope: scope,
+	}
 }
 
 // LabelSelector sets the candidate workload label selector.

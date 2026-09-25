@@ -35,6 +35,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
@@ -546,7 +547,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").
 					Priority(100).
-					Annotation("kueue.x-k8s.io/priority-boost", "-60").
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "-60").
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
 					Priority(60).
@@ -571,7 +572,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").
 					Priority(100).
-					Annotation("kueue.x-k8s.io/priority-boost", "-60").
+					Annotation(controllerconstants.PriorityBoostAnnotationKey, "-60").
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
 					Priority(60).
