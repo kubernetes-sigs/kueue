@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		gomega.Eventually(func(g gomega.Gomega) {
 			local := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 			remote := getWorkload(g, worker1.ctx, worker1.client, newWorkloadKey)
-			g.Expect(remote.Spec).To(gomega.BeComparableTo(local.Spec))
+			util.ExpectRemoteWorkloadSpec(g, remote, local)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("observe: there are no workloads or jobs in the worker2 cluster", func() {
