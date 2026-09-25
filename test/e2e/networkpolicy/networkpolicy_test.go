@@ -202,9 +202,7 @@ func newPolicyCoveredListener() *corev1.Pod {
 		TerminationGracePeriod(1).
 		Obj()
 	listener.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
-		ProbeHandler: corev1.ProbeHandler{
-			Exec: &corev1.ExecAction{Command: []string{"false"}},
-		},
+		Exec: &corev1.ExecAction{Command: []string{"false"}},
 	}
 	listener.Spec.Containers = append(listener.Spec.Containers, corev1.Container{
 		Name:  "unlisted",
