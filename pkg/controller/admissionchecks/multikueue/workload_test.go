@@ -384,7 +384,10 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"wl with reservation, creates remote workloads, worker2 fails": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueOrchestratedPreemption: false,
+				features.WorkloadIdentifierAnnotations:    false,
+			},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{
@@ -414,7 +417,10 @@ func TestWlReconcile(t *testing.T) {
 			wantError: errFake,
 		},
 		"wl with reservation, creates missing workloads": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.MultiKueueOrchestratedPreemption: false,
+				features.WorkloadIdentifierAnnotations:    false,
+			},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
 			managersWorkloads: []kueue.Workload{

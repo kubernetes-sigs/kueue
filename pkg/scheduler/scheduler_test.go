@@ -1981,13 +1981,15 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
-		"preempt workloads in ClusterQueue and cohort": {
+		"preempt workloads in ClusterQueue and cohort when preemption gates are disabled": {
+			featureGates: map[featuregate.Feature]bool{features.MultiKueueOrchestratedPreemption: false},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
 					UID("wl-preemptor").
 					JobUID("job-preemptor").
 					Queue("main").
 					Request(corev1.ResourceCPU, "20").
+					PreemptionGates(kueue.PreemptionGate{Name: "gate"}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("use-all-spot", "eng-alpha").
 					Request(corev1.ResourceCPU, "100").
@@ -2094,6 +2096,7 @@ func TestSchedule(t *testing.T) {
 					JobUID("job-preemptor").
 					Queue("main").
 					Request(corev1.ResourceCPU, "20").
+					PreemptionGates(kueue.PreemptionGate{Name: "gate"}).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,

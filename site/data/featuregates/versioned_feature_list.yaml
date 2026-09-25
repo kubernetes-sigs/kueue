@@ -337,6 +337,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: MultiKueueRayInTreeAutoscaling
   versionedSpecs:
   - default: false
