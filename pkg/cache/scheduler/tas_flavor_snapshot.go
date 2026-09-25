@@ -893,8 +893,6 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 		// Without an admission there is nothing to replace; take the fresh-placement path.
 		if workload.HasUnhealthyNodes(wlObj) && wlObj.Status.Admission != nil {
 			for _, tr := range trs {
-				// In case of looking for Node replacement, TopologyRequest has only
-				// PodSets with the Node to replace, so we match PodSetAssignment
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
@@ -903,6 +901,10 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 					// The pod cannot relocate and the Workload cannot outlive it; keep
 					// the existing assignment so admit clears UnhealthyNodes without
 					// diverging from the node the pod actually runs on.
+					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
+					continue
+				}
+				if !utiltas.HasNodeInPodSetAssignment(psa, workload.FirstUnhealthyNodeName(wlObj)) {
 					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
 					continue
 				}
