@@ -530,7 +530,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		createdTime := createdWorkload.CreationTimestamp
+		createdUID := createdWorkload.UID
 
 		ginkgo.By("updating the annotation on the statefulset to a smaller timeout")
 		createdSTS := &appsv1.StatefulSet{}
@@ -548,7 +548,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("verifying the Workload was updated in place, not recreated", func() {
-			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
+			gomega.Expect(createdWorkload.UID).Should(gomega.Equal(createdUID))
 		})
 
 		util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{

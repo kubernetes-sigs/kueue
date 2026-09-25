@@ -47,10 +47,15 @@ var (
 )
 
 func TestDefault(t *testing.T) {
+	const (
+		staleWFPR = `{"timeoutSeconds":60,"recoveryTimeoutSeconds":40}`
+		validWFPR = `{"timeoutSeconds":20,"recoveryTimeoutSeconds":20}`
+	)
 	testCases := map[string]struct {
 		deployment     *appsv1.Deployment
 		defaultLqExist bool
 		want           *appsv1.Deployment
+		featureGates   map[featuregate.Feature]bool
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -149,10 +154,49 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 		},
+		"shouldn't propagate top-level annotation when no queue is set": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+		},
+		"removes template-only annotation": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("test-queue").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
+		"syncs stale template annotation to updated top-level value": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("test-queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "pod"))
@@ -645,77 +689,6 @@ func TestValidateUpdate(t *testing.T) {
 			}
 			if diff := cmp.Diff(warns, tc.wantWarns); diff != "" {
 				t.Errorf("Expected different list of warnings (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestDefaultWaitForPodsReady(t *testing.T) {
-	const (
-		staleWFPR = `{"timeoutSeconds":60,"recoveryTimeoutSeconds":40}`
-		validWFPR = `{"timeoutSeconds":20,"recoveryTimeoutSeconds":20}`
-	)
-	testCases := map[string]struct {
-		deployment *appsv1.Deployment
-		want       *appsv1.Deployment
-	}{
-		"shouldn't propagate top-level annotation when no queue is set": {
-			deployment: testingdeployment.MakeDeployment("test-pod", "").
-				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
-				Obj(),
-			want: testingdeployment.MakeDeployment("test-pod", "").
-				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
-				Obj(),
-		},
-		"propagates top-level annotation clean up to template": {
-			deployment: testingdeployment.MakeDeployment("test-pod", "").
-				Queue("test-queue").
-				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
-				Obj(),
-			want: testingdeployment.MakeDeployment("test-pod", "").
-				PodTemplateSpecManagedByKueue().
-				Queue("test-queue").
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				Obj(),
-		},
-		"syncs stale template annotation to updated top-level value": {
-			deployment: testingdeployment.MakeDeployment("test-pod", "").
-				Queue("test-queue").
-				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
-				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
-				Obj(),
-			want: testingdeployment.MakeDeployment("test-pod", "").
-				PodTemplateSpecManagedByKueue().
-				Queue("test-queue").
-				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
-				PodTemplateSpecQueue("test-queue").
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
-				Obj(),
-		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true})
-			ctx, _ := utiltesting.ContextWithLog(t)
-			integrationManager := newTestIntegrationManager(t)
-			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "pod"))
-			builder := utiltesting.NewClientBuilder()
-			client := builder.Build()
-			cqCache := schdcache.New(client)
-			queueManager := qcache.NewManagerForUnitTests(client, cqCache)
-			w := &Webhook{
-				integrationManager: integrationManager,
-				client:             client,
-				queues:             queueManager,
-			}
-
-			if err := w.Default(ctx, tc.deployment); err != nil {
-				t.Errorf("failed to set defaults for v1/deployment: %s", err)
-			}
-			if diff := cmp.Diff(tc.want, tc.deployment); diff != "" {
-				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}

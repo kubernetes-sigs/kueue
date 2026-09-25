@@ -233,7 +233,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(kueue.WorkloadAnnotation))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
-	ginkgo.It("Should propagate the wait-for-pods-ready annotation from leaderworkerset to workload on create and update", ginkgo.Label("feature:workloadlevelwaitforpodsready1"), func() {
+	ginkgo.It("Should propagate the wait-for-pods-ready annotation from leaderworkerset to workload on create and update", ginkgo.Label("feature:workloadlevelwaitforpodsready"), func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
 
 		ginkgo.By("creating a leaderworkerset carrying the wait-for-pods-ready annotation")
@@ -253,7 +253,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		createdTime := createdWorkload.CreationTimestamp
+		createdUID := createdWorkload.UID
 
 		ginkgo.By("updating the annotation on the leaderworkerset to a smaller timeout")
 		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
@@ -271,7 +271,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("verifying the Workload was updated in place, not recreated", func() {
-			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
+			gomega.Expect(createdWorkload.UID).Should(gomega.Equal(createdUID))
 		})
 
 		util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{

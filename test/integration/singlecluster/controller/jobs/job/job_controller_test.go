@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		createdTime := createdWorkload.CreationTimestamp
+		createdUID := createdWorkload.UID
 
 		ginkgo.By("updating the annotation on the job to a smaller timeout")
 		createdJob := &batchv1.Job{}
@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("verifying the Workload was updated in place, not recreated", func() {
-			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
+			gomega.Expect(createdWorkload.UID).Should(gomega.Equal(createdUID))
 		})
 		util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
 			Reason: jobframework.ReasonUpdatedWorkload,
@@ -6872,7 +6872,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					gomega.HaveKeyWithValue(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			createdTime := createdWorkload.CreationTimestamp
+			createdUID := createdWorkload.UID
 
 			ginkgo.By("updating the annotation on the elastic job to a smaller timeout")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -6888,8 +6888,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 					gomega.HaveKeyWithValue(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":50}`))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verifying the Workload was updated in place, not recreated")
-			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
+			ginkgo.By("verifying the Workload was updated in place, not recreated", func() {
+				gomega.Expect(createdWorkload.UID).Should(gomega.Equal(createdUID))
+			})
 
 			util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
 				Reason: jobframework.ReasonUpdatedWorkload,

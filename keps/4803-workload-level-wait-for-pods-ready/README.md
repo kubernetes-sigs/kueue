@@ -177,8 +177,10 @@ copied to the resulting workload's annotations. This covers most integrations
   positive integers and does not exceed the maximum value set by the admin in the
   cluster configuration.
 - Setting a recoveryTimeout without timeout set is not supported.
-- The **Deployment** webhook copies the annotation from its metadata to the Template
-  metadata to make sure it's propagated to the Pods and then to the workloads.
+- For Kueue managed Deployment, the **Deployment** webhook copies the annotation
+  from its metadata to the Template metadata to make sure it's propagated to the
+  Pods and then to the workloads. It also removes the annotation from the template
+  if it's only specified there and not on the Deployment annotation.
 - To make the update behavior match all integrations, the annotation is always
   allowed to be updated given it's valid. The annotation is updated in place,
   no delete-and-recreate occurs. Note that for the Deployment, when the annotation
