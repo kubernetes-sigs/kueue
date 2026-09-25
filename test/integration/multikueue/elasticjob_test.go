@@ -120,9 +120,9 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				workload := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
-				g.Expect(workload.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+				util.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
 				workload = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
-				g.Expect(workload.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+				util.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -521,9 +521,9 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
-				g.Expect(wl.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+				util.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
 				wl = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
-				g.Expect(wl.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+				util.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

@@ -163,9 +163,9 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Label("area:multikueue", "fea
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				util.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				util.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -218,9 +218,9 @@ var _ = ginkgo.Describe("MultiKueue no GC", ginkgo.Label("area:multikueue", "fea
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				util.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				util.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
