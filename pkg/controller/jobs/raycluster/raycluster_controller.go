@@ -88,7 +88,8 @@ func (j *RayCluster) IsSuspended() bool {
 }
 
 func (j *RayCluster) IsActive() bool {
-	return j.Status.State == rayv1.Ready
+	// Use State for compatibility with KubeRay v1.1 and v1.2, which don't report the RayClusterSuspended condition.
+	return j.Status.State != rayv1.Suspended
 }
 
 func (j *RayCluster) Suspend() {
