@@ -51,8 +51,9 @@ far more disruptive than running slightly below capacity while those Pods recove
 
 Expressing this tolerance as a maximum number of unavailable Pods aligns with standard
 Kubernetes disruption and rollout primitives (`PodDisruptionBudget`, `StatefulSet`,
-`Deployment`) and remains invariant when a `StatefulSet` or `LeaderWorkerSet` is scaled
-without modifying the Pod template.
+`Deployment`) and remains valid when a `StatefulSet` or `LeaderWorkerSet` is scaled
+(provided the total Pod count stays above the configured limit) without modifying the Pod
+template.
 
 Unlike partial admission (`podSets[].minCount`,
 [KEP-420](../420-partial-admission/README.md)), which shrinks a Workload at admission
@@ -100,8 +101,8 @@ As a user running a 200-replica `StatefulSet` (or `LeaderWorkerSet`) backed by K
 group integration, I want the Workload to tolerate up to 5 unavailable Pods when evaluating
 `PodsReady` (requiring at least 195 ready Pods), so that a few delayed or replacement Pods
 do not trigger `timeout` or `recoveryTimeout` eviction. I set the maximum unavailable count
-directly in the Pod template, which also remains valid if `replicas` is scaled without
-editing the Pod template:
+directly in the Pod template, which remains valid if `replicas` is scaled (with
+`replicas > 5`) without editing the Pod template:
 
 ```yaml
 apiVersion: apps/v1
@@ -152,7 +153,7 @@ spec:
 - **Flat count & strictest value.** Unavailability is evaluated across the full group size
   (`pod-group-total-count - readyCount`) and governed by the lowest (strictest)
   `pod-group-max-unavailable-count` value among its Pods; any Pod with a missing or invalid
-  annotation defaults to `0`.
+  annotation (not an integer in `[0, pod-group-total-count - 1]`) defaults to `0`.
 - **StatefulSet and LeaderWorkerSet.** Because these integrations use Pod groups under the
   hood, the annotation works when set in their Pod template(s) (for `LeaderWorkerSet`, in
   both the leader and worker templates). Kueue does not propagate it from the parent object
@@ -165,9 +166,9 @@ spec:
   *Mitigation:* Opt-in per Pod group; cluster admins can keep the
   `WaitForPodsReadyMaxUnavailable` feature gate disabled or restrict the annotation via a
   ValidatingAdmissionPolicy.
-- **Silent fallback in Alpha:** Invalid values fall back to `0` (requiring all
-  `pod-group-total-count` Pods to be ready), and the annotation is ignored on unsupported
-  integrations.
+- **Silent fallback in Alpha:** Invalid values (non-integers, `M < 0`, or
+  `M >= pod-group-total-count`) fall back to `0` (requiring all `pod-group-total-count`
+  Pods to be ready), and the annotation is ignored on unsupported integrations.
   *Mitigation:* Documented in the annotation reference; admission-time validation/warnings
   are a Beta graduation criterion (see [Validation](#validation)).
 
@@ -222,19 +223,28 @@ In Alpha, no webhook validation is added; invalid values safely fall back to `0`
 unavailable Pods tolerated.
 
 For Beta, admission-time validation or warnings can be added for:
-- malformed or out-of-range values on Pod group Pods,
+- non-integer values or values outside `[0, pod-group-total-count - 1]` on Pod group Pods,
 - annotations placed on unsupported job integrations or their Pod templates.
 
 ### Future work ideas
 
+- **Consolidating under `kueue.x-k8s.io/wait-for-pods-ready`
+  ([KEP-4803](../4803-workload-level-wait-for-pods-ready/README.md)):** Move the
+  unavailability configuration into the per-workload `kueue.x-k8s.io/wait-for-pods-ready`
+  JSON annotation (and eventually `Workload.spec.waitForPodsReady`) alongside
+  `timeoutSeconds` and `recoveryTimeoutSeconds`, unifying per-workload `WaitForPodsReady`
+  settings in one place.
+- **Generalizing to `evictionCriteria`:** Generalize the single integer count into
+  structured `evictionCriteria` where `maxUnavailable` can be specified per PodSet/role
+  within a PodGroup or Workload - for example, tolerating `0` unavailable `leader` Pods
+  while tolerating `1` unavailable `worker` Pod.
 - **Parent-object propagation:** Propagate the annotation from `StatefulSet` and
   `LeaderWorkerSet` objects to their Pods so the budget can be updated without a Pod
   template rollout.
 - **Other integrations:** Support non-Pod-group integrations once ready Pod tracking is
   available ([kubernetes-sigs/kueue#15404](https://github.com/kubernetes-sigs/kueue/issues/15404)).
-- **Further improvements:** Based on user feedback, future versions may consider role-aware
-  thresholds, surfacing ready and unavailable Pod counts in Workload status, and MultiKueue
-  support.
+- **Further improvements:** Based on user feedback, future versions may consider surfacing
+  ready and unavailable Pod counts in Workload status and MultiKueue support.
 
 ### Test Plan
 
@@ -249,8 +259,9 @@ None.
 #### Unit tests
 
 - `pkg/controller/jobs/pod`: Test `PodsReady` with `WaitForPodsReadyMaxUnavailable` enabled
-  and disabled, covering valid budgets, missing or invalid annotations, divergent values
-  across Pods in a group, and `PodIntegrationCountSucceededPodsAsReady`.
+  and disabled, covering valid budgets, missing or invalid annotations (non-integers,
+  `M < 0`, and `M >= totalCount`), divergent values across Pods in a group, and
+  `PodIntegrationCountSucceededPodsAsReady`.
 
 #### Integration tests
 
@@ -277,7 +288,7 @@ None.
 
 - Feature gate enabled by default.
 - Admission-time validation or warnings for invalid values and unsupported integrations.
-- Re-evaluate replacing the annotation with a Workload API field.
+- Re-evaluate replacing the annotation with a Workload API field [KEP-4803](../4803-workload-level-wait-for-pods-ready/README.md).
 
 #### Stable
 
@@ -305,8 +316,14 @@ None.
   template annotation to the total replica count. Scaling a `StatefulSet` or
   `LeaderWorkerSet` would either invalidate the threshold or require modifying the Pod
   template (triggering a Pod rollout). Expressing the budget as
-  `pod-group-max-unavailable-count` is scaling-invariant and symmetric with
-  `pod-group-total-count`.
+  `pod-group-max-unavailable-count` remains valid across replica scaling (as long as
+  `totalCount > maxUnavailable`) and is symmetric with `pod-group-total-count`.
+- **Clamping `M >= pod-group-total-count` to `pod-group-total-count - 1` instead of
+  falling back to `0`:** Clamping values `>= pod-group-total-count` would mark a group
+  `PodsReady=True` as soon as a single Pod is ready (for example if a user accidentally
+  sets `pod-group-max-unavailable-count` equal to `pod-group-total-count`). Treating
+  `M >= pod-group-total-count` as invalid and falling back to `0` fails closed to
+  all-or-nothing behavior.
 - **Reusing `podSets[].minCount` ([KEP-420](../420-partial-admission/README.md)):**
   `minCount` resizes a Workload and reduces its quota at admission time, whereas this
   feature keeps the full admission size and only relaxes `PodsReady`.
