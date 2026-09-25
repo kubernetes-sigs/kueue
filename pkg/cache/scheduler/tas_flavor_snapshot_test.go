@@ -2536,24 +2536,6 @@ func testPodSetUpdatesReachTheTemplate(t *testing.T, gateOn bool) {
 	}
 }
 
-func mustNewNodeSelector(t *testing.T, nodeSelector *corev1.NodeSelector) *nodeaffinity.NodeSelector {
-	t.Helper()
-	selector, err := nodeaffinity.NewNodeSelector(nodeSelector)
-	if err != nil {
-		t.Fatalf("NewNodeSelector() = %v, want no error", err)
-	}
-	return selector
-}
-
-func mustNewPreferredSchedulingTerms(t *testing.T, terms []corev1.PreferredSchedulingTerm) *nodeaffinity.PreferredSchedulingTerms {
-	t.Helper()
-	preferredSchedulingTerms, err := nodeaffinity.NewPreferredSchedulingTerms(terms)
-	if err != nil {
-		t.Fatalf("NewPreferredSchedulingTerms() = %v, want no error", err)
-	}
-	return preferredSchedulingTerms
-}
-
 func TestBuildPodRequirements(t *testing.T) {
 	tolerateGPU := corev1.Toleration{Key: "example.com/gpu", Operator: corev1.TolerationOpExists}
 	tolerateDrain := corev1.Toleration{Key: "example.com/drain", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
@@ -2571,6 +2553,9 @@ func TestBuildPodRequirements(t *testing.T) {
 		podSet *kueue.PodSet
 
 		wantPodRequirements simulator.PodRequirements
+		// wantNodeAffinity is compiled into the AffinitySelector and PreferredSchedulingTerms
+		// of wantPodRequirements, because the nodeaffinity constructors return an error.
+		wantNodeAffinity *corev1.NodeAffinity
 		// wantReasonPrefix is the part of the reason that Kueue words. The rest is
 		// the validation error of apimachinery, which changes with the dependency.
 		wantReasonPrefix string
@@ -2658,13 +2643,15 @@ func TestBuildPodRequirements(t *testing.T) {
 			}}},
 			podSet: basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
 			wantPodRequirements: simulator.PodRequirements{
-				Selector: labels.Everything(),
-				AffinitySelector: mustNewNodeSelector(t, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+			},
+			wantNodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
 					{MatchExpressions: []corev1.NodeSelectorRequirement{
 						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
 					}},
-				}}),
-				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+				}},
 			},
 		},
 		"required node affinity without preferred terms when TASRespectNodeAffinityPreferred is enabled": {
@@ -2678,13 +2665,15 @@ func TestBuildPodRequirements(t *testing.T) {
 			}}},
 			podSet: basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj(),
 			wantPodRequirements: simulator.PodRequirements{
-				Selector: labels.Everything(),
-				AffinitySelector: mustNewNodeSelector(t, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+			},
+			wantNodeAffinity: &corev1.NodeAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
 					{MatchExpressions: []corev1.NodeSelectorRequirement{
 						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
 					}},
-				}}),
-				PodTemplate: &basePodSet.Clone().RequiredNodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+				}},
 			},
 		},
 		"affinity without node affinity is not compiled": {
@@ -2718,13 +2707,15 @@ func TestBuildPodRequirements(t *testing.T) {
 			}}},
 			podSet: basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj(),
 			wantPodRequirements: simulator.PodRequirements{
-				Selector: labels.Everything(),
-				PreferredSchedulingTerms: mustNewPreferredSchedulingTerms(t, []corev1.PreferredSchedulingTerm{
+				Selector:    labels.Everything(),
+				PodTemplate: &basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+			},
+			wantNodeAffinity: &corev1.NodeAffinity{
+				PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{
 					{Weight: 10, Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
 						{Key: "pool", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}},
 					}}},
-				}),
-				PodTemplate: &basePodSet.Clone().PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "a").Obj().Template,
+				},
 			},
 		},
 		"preferred node affinity is ignored when TASRespectNodeAffinityPreferred is disabled": {
@@ -2780,7 +2771,24 @@ func TestBuildPodRequirements(t *testing.T) {
 			if gotReason != "" {
 				t.Errorf("buildPodRequirements() = %q, want no reason", gotReason)
 			}
-			if diff := cmp.Diff(tc.wantPodRequirements, gotPodRequirements,
+			wantPodRequirements := tc.wantPodRequirements
+			if tc.wantNodeAffinity != nil {
+				if required := tc.wantNodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; required != nil {
+					affinitySelector, err := nodeaffinity.NewNodeSelector(required)
+					if err != nil {
+						t.Fatalf("NewNodeSelector() = %v, want no error", err)
+					}
+					wantPodRequirements.AffinitySelector = affinitySelector
+				}
+				if preferred := tc.wantNodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution; len(preferred) != 0 {
+					preferredSchedulingTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferred)
+					if err != nil {
+						t.Fatalf("NewPreferredSchedulingTerms() = %v, want no error", err)
+					}
+					wantPodRequirements.PreferredSchedulingTerms = preferredSchedulingTerms
+				}
+			}
+			if diff := cmp.Diff(wantPodRequirements, gotPodRequirements,
 				// nodeaffinity keeps the compiled terms in unexported fields of unexported
 				// types, which cmp.AllowUnexported cannot name.
 				cmp.Exporter(func(t reflect.Type) bool {
