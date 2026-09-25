@@ -80,6 +80,9 @@ func TestNodesCache(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			// With SchedulerLibraryIntegration enabled, sync keeps unready and
+			// unschedulable nodes in the cache; TestNodesCacheSync covers that path.
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, false)
 			nc := newNodesCache()
 
 			for i := range tc.nodes {
@@ -101,26 +104,29 @@ func TestNodesCache(t *testing.T) {
 }
 
 func TestNodesCacheFind(t *testing.T) {
-	nc := newNodesCache()
-
-	node1 := node.MakeNode("test1").Obj()
-	node2 := node.MakeNode("test2").Label("cloud.provider.com/zone", "us-east-1a").Obj()
+	node1 := node.MakeNode("test1").Ready().Obj()
+	node2 := node.MakeNode("test2").Label("cloud.provider.com/zone", "us-east-1a").Ready().Obj()
 	node3 := node.MakeNode("test3").
 		Label("cloud.provider.com/zone", "us-east-1a").
 		Label("cloud.provider.com/topology-block", "b1").
+		Ready().
 		Obj()
-	node4 := node.MakeNode("test4").Label("cloud.provider.com/zone", "us-east-1").Obj()
+	node4 := node.MakeNode("test4").Label("cloud.provider.com/zone", "us-east-1").Ready().Obj()
+	// notReadyNode is only retained in the cache with SchedulerLibraryIntegration enabled.
+	notReadyNode := node.MakeNode("test5").
+		Label("cloud.provider.com/zone", "us-east-1a").
+		Label("cloud.provider.com/topology-block", "b1").
+		Label(corev1.LabelHostname, "test5").
+		NotReady().
+		Obj()
 
-	nodes := []corev1.Node{*node1, *node2, *node3, *node4}
-
-	for i := range nodes {
-		nc.nodes[nodes[i].Name] = copyAndStripNode(&nodes[i])
-	}
+	nodes := []corev1.Node{*node1, *node2, *node3, *node4, *notReadyNode}
 
 	testCases := map[string]struct {
-		nodeLabels map[string]string
-		levels     []string
-		wantNodes  []*corev1.Node
+		enableSchedulerLibraryIntegration bool
+		nodeLabels                        map[string]string
+		levels                            []string
+		wantNodes                         []*corev1.Node
 	}{
 		"no nodeLabels and levels": {
 			wantNodes: []*corev1.Node{
@@ -143,9 +149,34 @@ func TestNodesCacheFind(t *testing.T) {
 			levels:     []string{"cloud.provider.com/topology-block"},
 			wantNodes:  []*corev1.Node{copyAndStripNode(node3)},
 		},
+		"FG enabled: no levels excludes the not-ready node": {
+			enableSchedulerLibraryIntegration: true,
+			wantNodes: []*corev1.Node{
+				copyAndStripNode(node1),
+				copyAndStripNode(node2),
+				copyAndStripNode(node3),
+				copyAndStripNode(node4),
+			},
+		},
+		"FG enabled: non-hostname lowest level excludes the not-ready node": {
+			enableSchedulerLibraryIntegration: true,
+			levels:                            []string{"cloud.provider.com/topology-block"},
+			wantNodes:                         []*corev1.Node{copyAndStripNode(node3)},
+		},
+		"FG enabled: hostname lowest level keeps the not-ready node for the scheduler library": {
+			enableSchedulerLibraryIntegration: true,
+			levels:                            []string{"cloud.provider.com/topology-block", corev1.LabelHostname},
+			wantNodes:                         []*corev1.Node{copyAndStripNode(notReadyNode)},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, tc.enableSchedulerLibraryIntegration)
+			nc := newNodesCache()
+			for i := range nodes {
+				nc.sync(&nodes[i])
+			}
+
 			gotNodes, _ := nc.find(tc.nodeLabels, tc.levels)
 			if diff := cmp.Diff(tc.wantNodes, gotNodes, cmpopts.SortSlices(func(a, b *corev1.Node) bool {
 				return a.Name < b.Name
@@ -168,9 +199,10 @@ func TestNodesCacheGeneration(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		prime     []*corev1.Node
-		op        func(nc *nodesCache)
-		wantDelta int64
+		enableSchedulerLibraryIntegration bool
+		prime                             []*corev1.Node
+		op                                func(nc *nodesCache)
+		wantDelta                         int64
 	}{
 		"sync of a new ready node bumps": {
 			op: func(nc *nodesCache) {
@@ -245,6 +277,21 @@ func TestNodesCacheGeneration(t *testing.T) {
 			},
 			wantDelta: 0,
 		},
+		"FG enabled: sync of an absent not-ready node adds it and bumps": {
+			enableSchedulerLibraryIntegration: true,
+			op: func(nc *nodesCache) {
+				nc.sync(node.MakeNode("gen-test").Obj())
+			},
+			wantDelta: 1,
+		},
+		"FG enabled: transition to unschedulable keeps the node and bumps": {
+			enableSchedulerLibraryIntegration: true,
+			prime:                             []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Unschedulable().Obj())
+			},
+			wantDelta: 1,
+		},
 		"delete of an existing node bumps": {
 			prime: []*corev1.Node{baseNode().Obj()},
 			op: func(nc *nodesCache) {
@@ -261,6 +308,7 @@ func TestNodesCacheGeneration(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, tc.enableSchedulerLibraryIntegration)
 			nc := newNodesCache()
 			for _, n := range tc.prime {
 				nc.sync(n)
