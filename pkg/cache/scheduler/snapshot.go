@@ -438,3 +438,39 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot](),
 	}
 }
+
+// simulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
+// returns a function that puts them back.
+func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
+	// The default simulator reports the same cluster whatever is running, so there is
+	// nothing to take out of it and nothing cached to drop.
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+		return func() {}
+	}
+	reverts := make([]func() error, 0, len(workloads))
+	for _, w := range workloads {
+		revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		if err != nil {
+			// The simulation still holds this victim's Pods, so it can only be
+			// stricter than reality. Log it and keep scheduling.
+			log.V(2).Info("Could not remove a preempted Workload from the scheduling simulator",
+				"workload", klog.KObj(w.Obj), "error", err)
+			continue
+		}
+		reverts = append(reverts, revert)
+	}
+	if len(reverts) == 0 {
+		return func() {}
+	}
+	// The simulator reports a different cluster now, so results cached before this
+	// no longer hold. The revert changes it back, so they are dropped again there.
+	s.ForgetSimulatedFeasibility()
+	return func() {
+		for _, revert := range reverts {
+			if err := revert(); err != nil {
+				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
+			}
+		}
+		s.ForgetSimulatedFeasibility()
+	}
+}
