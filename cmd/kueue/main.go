@@ -18,13 +18,11 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -45,8 +43,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -124,6 +120,9 @@ func init() {
 }
 
 func main() {
+	var metricsOpts metricsOptions
+	metricsOpts.bindFlags(flag.CommandLine)
+
 	var configFile string
 	flag.StringVar(&configFile, "config", "",
 		"The controller will load its initial configuration from this file. "+
@@ -182,10 +181,10 @@ func main() {
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:    cfg.Metrics.BindAddress,
-		SecureServing:  true,
-		FilterProvider: filters.WithAuthenticationAndAuthorization,
+	metricsServerOptions, err := metricsOpts.serverOptions(cfg.Metrics.BindAddress)
+	if err != nil {
+		setupLog.Error(err, "Unable to configure metrics server")
+		os.Exit(1)
 	}
 
 	parsedTLSConfig := &tlsconfig.TLS{}
@@ -216,18 +215,11 @@ func main() {
 			"metrics-cert-path", metricsCertPath)
 
 		var err error
-		metricsCertWatcher, err = certwatcher.New(
-			filepath.Join(metricsCertPath, "tls.crt"),
-			filepath.Join(metricsCertPath, "tls.key"),
-		)
+		metricsCertWatcher, err = setupMetricsCertWatcher(&metricsServerOptions, metricsCertPath)
 		if err != nil {
 			setupLog.Error(err, "Unable to initialize metrics certificate watcher")
 			os.Exit(1)
 		}
-
-		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
-			config.GetCertificate = metricsCertWatcher.GetCertificate
-		})
 	}
 	options.Metrics = metricsServerOptions
 
