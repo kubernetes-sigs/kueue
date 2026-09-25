@@ -447,18 +447,14 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 	}
 }
 
-func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
+func TestSnapshotOrderingStableOnLocalQueueLookupError(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ctx, log := utiltesting.ContextWithLog(t)
 	lqLookupErr := errors.New("temporary LocalQueue lookup error")
 	cl := utiltesting.NewClientBuilder().
-		WithObjects(
-			utiltestingapi.MakeLocalQueue("higher-usage", defaultNamespace).Obj(),
-			utiltestingapi.MakeLocalQueue("lower-usage", defaultNamespace).Obj(),
-		).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if key.Name == "unavailable" {
+				if _, ok := obj.(*kueue.LocalQueue); ok {
 					return lqLookupErr
 				}
 				return cl.Get(ctx, key, obj, opts...)
@@ -468,6 +464,7 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 	afsUsageLedger := queueafs.NewAfsUsageLedger()
 	afsUsageLedger.SetForTest("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
 	afsUsageLedger.SetForTest("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/unavailable", corev1.ResourceList{resourceGPU: resource.MustParse("8")}, now)
 
 	cq, err := newClusterQueue(
 		ctx,
@@ -482,29 +479,32 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
 
-	// Put the unavailable LocalQueue last so the usage cache is partially
-	// populated before its lookup fails. The priorities reproduce the
-	// contradictory ordering from Kueue#12534: fair sharing puts lower-usage
-	// before higher-usage, while base ordering puts higher-usage before
-	// unavailable and unavailable before lower-usage.
-	elements := []*workload.Info{
-		workload.NewInfo(log, utiltestingapi.MakeWorkload("higher-usage", defaultNamespace).
-			Queue("higher-usage").Priority(3).Creation(now).UID("uid-2").Obj()),
-		workload.NewInfo(log, utiltestingapi.MakeWorkload("lower-usage", defaultNamespace).
-			Queue("lower-usage").Priority(1).Creation(now).UID("uid-1").Obj()),
-		workload.NewInfo(log, utiltestingapi.MakeWorkload("unavailable", defaultNamespace).
-			Queue("unavailable").Priority(2).Creation(now).UID("uid-3").Obj()),
+	// Seed cached weights for higher-usage (weight 1 -> usage 20) and lower-usage
+	// (weight 2 -> usage 5). Leave "unavailable" unseeded so it falls back to the
+	// default weight 1 (usage 8).
+	cq.addLocalQueue("default/higher-usage", 1.0)
+	cq.addLocalQueue("default/lower-usage", 2.0)
+
+	for _, wl := range []*kueue.Workload{
+		utiltestingapi.MakeWorkload("higher-usage", defaultNamespace).
+			Queue("higher-usage").Priority(3).Creation(now).UID("uid-2").Obj(),
+		utiltestingapi.MakeWorkload("lower-usage", defaultNamespace).
+			Queue("lower-usage").Priority(1).Creation(now).UID("uid-1").Obj(),
+		utiltestingapi.MakeWorkload("unavailable", defaultNamespace).
+			Queue("unavailable").Priority(2).Creation(now).UID("uid-3").Obj(),
+	} {
+		cq.PushOrUpdate(workload.NewInfo(log, wl))
 	}
 
-	cq.snapshotSort(elements)
+	snap := cq.Snapshot()
 
-	got := make([]string, len(elements))
-	for i, wInfo := range elements {
+	got := make([]string, len(snap))
+	for i, wInfo := range snap {
 		got[i] = wInfo.Obj.Name
 	}
-	want := []string{"higher-usage", "unavailable", "lower-usage"}
+	want := []string{"lower-usage", "unavailable", "higher-usage"}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("unexpected base ordering (-want,+got):\n%s", diff)
+		t.Errorf("unexpected snapshot ordering (-want,+got):\n%s", diff)
 	}
 }
 
@@ -531,6 +531,8 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
+	cq.addLocalQueue("default/lq1", 1.0)
+	cq.addLocalQueue("default/lq2", 1.0)
 
 	for _, w := range []*kueue.Workload{
 		utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(now).UID("uid-1").Obj(),
@@ -572,6 +574,67 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	}
 }
 
+func TestSnapshotStableWithConcurrentWeightUpdates(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		nil, defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
+		afsUsageLedger)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+	cq.addLocalQueue("default/lq1", 1.0)
+	cq.addLocalQueue("default/lq2", 1.0)
+
+	for _, w := range []*kueue.Workload{
+		utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(now).UID("uid-1").Obj(),
+		utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq2").Creation(now).UID("uid-2").Obj(),
+		utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue("lq1").Creation(now).UID("uid-3").Obj(),
+		utiltestingapi.MakeWorkload("wl4", defaultNamespace).Queue("lq2").Creation(now).UID("uid-4").Obj(),
+	} {
+		cq.PushOrUpdate(workload.NewInfo(log, w))
+	}
+
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				cq.UpdateLocalQueueWeight("default/lq1", 0.1)
+				cq.UpdateLocalQueueWeight("default/lq1", 1.0)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		<-writerDone
+	}()
+
+	validA := []string{"lq1", "lq2", "lq1", "lq2"}
+	validB := []string{"lq2", "lq2", "lq1", "lq1"}
+	for i := range 1000 {
+		snap := cq.Snapshot()
+		got := make([]string, len(snap))
+		for j, wInfo := range snap {
+			got[j] = string(wInfo.Obj.Spec.QueueName)
+		}
+		if !slices.Equal(got, validA) && !slices.Equal(got, validB) {
+			t.Fatalf("call %d: invalid ordering %v (expected %v or %v)", i+1, got, validA, validB)
+		}
+	}
+}
+
 func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -593,6 +656,7 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
+	cq.addLocalQueue("default/existing", 1.0)
 
 	// Base ordering favors the missing queue by priority, while fair sharing with
 	// the default weight favors the existing queue by usage (10 < 15).
