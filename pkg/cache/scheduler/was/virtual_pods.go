@@ -21,6 +21,7 @@ package was
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -30,8 +31,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -54,6 +57,33 @@ func virtualPodName(wlName, podSetName string, index int) string {
 	}
 
 	return prefix + suffix
+}
+
+func newVirtualPod(wl *kueue.Workload, psName string, replicaIdx int, labels, annotations map[string]string, spec *corev1.PodSpec, phase corev1.PodPhase) *corev1.Pod {
+	pod := &corev1.Pod{
+		Name:        virtualPodName(wl.Name, psName, replicaIdx),
+		Namespace:   wl.Namespace,
+		UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, psName, replicaIdx)),
+		Labels:      maps.Clone(labels),
+		Annotations: maps.Clone(annotations),
+		Spec:        *spec.DeepCopy(),
+		Status: corev1.PodStatus{
+			Phase: phase,
+		},
+	}
+	// Add PodSet label
+	if pod.Labels == nil {
+		pod.Labels = make(map[string]string)
+	}
+	pod.Labels[constants.PodSetLabel] = psName
+
+	// Add Workload annotation
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+	pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
+
+	return pod
 }
 
 func getVirtualPodHash(wlName, podSetName, indexStr string) string {
@@ -94,30 +124,8 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 			}
 
 			for range domain.Count {
-				pod := &corev1.Pod{
-					Name:        virtualPodName(wl.Name, string(psa.Name), replicaIdx),
-					Namespace:   wl.Namespace,
-					UID:         types.UID(fmt.Sprintf("virtual-%s-%s-%d", wl.UID, psa.Name, replicaIdx)),
-					Labels:      maps.Clone(ps.Template.Labels),
-					Annotations: maps.Clone(ps.Template.Annotations),
-					Spec:        *ps.Template.Spec.DeepCopy(),
-					Status: corev1.PodStatus{
-						Phase: corev1.PodRunning,
-					},
-				}
-
-				if pod.Labels == nil {
-					pod.Labels = make(map[string]string)
-				}
-				pod.Labels[constants.PodSetLabel] = string(psa.Name)
-
-				if pod.Annotations == nil {
-					pod.Annotations = make(map[string]string)
-				}
-				pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
-
+				pod := newVirtualPod(wl, string(psa.Name), replicaIdx, ps.Template.Labels, ps.Template.Annotations, &ps.Template.Spec, corev1.PodRunning)
 				pod.Spec.NodeName = nodeName
-
 				virtualPods = append(virtualPods, pod)
 				replicaIdx++
 			}
@@ -125,4 +133,73 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 	}
 
 	return virtualPods
+}
+
+// CandidatePodOptions holds the options for creating a candidate pod.
+type CandidatePodOptions struct {
+	FlavorNodeLabels  map[string]string
+	FlavorTolerations []corev1.Toleration
+	PodSetUpdates     []kueue.PodSetUpdate
+}
+
+// CandidateVirtualPodsForPodSet returns candidate virtual pods for the specified count
+// of replicas for a PodSet, merging PodSet templates, assigned flavor details, and admission check updates.
+func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count int32, opts CandidatePodOptions) ([]*corev1.Pod, error) {
+	if wl == nil || ps == nil {
+		return nil, errors.New("workload and podset must be non-nil")
+	}
+
+	nodeSelector := maps.Clone(ps.Template.Spec.NodeSelector)
+	for _, u := range opts.PodSetUpdates {
+		var err error
+		if nodeSelector, err = mergeWithConflictCheck(nodeSelector, u.NodeSelector); err != nil {
+			return nil, fmt.Errorf("nodeSelector conflict between PodSet and PodSetUpdate: %w", err)
+		}
+	}
+	if len(opts.FlavorNodeLabels) > 0 {
+		var err error
+		if nodeSelector, err = mergeWithConflictCheck(nodeSelector, opts.FlavorNodeLabels); err != nil {
+			return nil, fmt.Errorf("nodeSelector conflict between PodSet and ResourceFlavor: %w", err)
+		}
+	}
+
+	tolerations := utiltolerations.Merge(ps.Template.Spec.Tolerations, opts.FlavorTolerations)
+	for _, u := range opts.PodSetUpdates {
+		tolerations = utiltolerations.Merge(tolerations, u.Tolerations)
+	}
+
+	labels := maps.Clone(ps.Template.Labels)
+	for _, u := range opts.PodSetUpdates {
+		var err error
+		if labels, err = mergeWithConflictCheck(labels, u.Labels); err != nil {
+			return nil, fmt.Errorf("labels conflict between PodSet and PodSetUpdate: %w", err)
+		}
+	}
+
+	annotations := maps.Clone(ps.Template.Annotations)
+	for _, u := range opts.PodSetUpdates {
+		var err error
+		if annotations, err = mergeWithConflictCheck(annotations, u.Annotations); err != nil {
+			return nil, fmt.Errorf("annotations conflict between PodSet and PodSetUpdate: %w", err)
+		}
+	}
+
+	spec := ps.Template.Spec.DeepCopy()
+	spec.NodeSelector = nodeSelector
+	spec.Tolerations = tolerations
+
+	pods := make([]*corev1.Pod, 0, count)
+	for replicaIdx := range int(count) {
+		pod := newVirtualPod(wl, string(ps.Name), replicaIdx, labels, annotations, spec, corev1.PodPending)
+		pods = append(pods, pod)
+	}
+	return pods, nil
+}
+
+func mergeWithConflictCheck(target, source map[string]string) (map[string]string, error) {
+	if err := utilmaps.HaveConflict(target, source); err != nil {
+		return nil, err
+	}
+	utilmaps.Copy(&target, source)
+	return target, nil
 }
