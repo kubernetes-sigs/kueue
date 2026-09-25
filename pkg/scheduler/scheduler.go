@@ -1587,10 +1587,10 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 			}
 			return false
 		}
-		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, fitsFn)
-		// Only an admitted predecessor can already be running these MinCounts. A predecessor
+		// Only an admitted predecessor can already be running these PodSets. A predecessor
 		// that only holds quota may still be waiting for admission checks and needs the baseline back.
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
+		reducer := flavorassigner.NewOrderedPodSetReducer(effectiveReducerPodSets(wl.Obj.Spec.PodSets, replaceableWorkloadSlice, mustGrow), fitsFn)
 		if _, found := reducer.Reduce(mustGrow); found {
 			assignment, targets, fits = bestPA.assignment, bestPA.preemptionTargets, true
 		}
@@ -1640,4 +1640,26 @@ func resolveNoFit(assignment *flavorassigner.Assignment, cq *schdcache.ClusterQu
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		assignment.ResolveNoFitReason(cq)
 	}
+}
+
+// effectiveReducerPodSets swaps in the live predecessor's granted count (by PodSet name) as the
+// baseline, in place of the workload's own frozen MinCount, while that predecessor is around.
+func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *workload.Info, mustGrow bool) []kueue.PodSet {
+	if !mustGrow {
+		return podSets
+	}
+	liveGrants := workload.ExtractGrantedPodSetCounts(replaceableWorkloadSlice.Obj)
+	if len(liveGrants) == 0 {
+		return podSets
+	}
+	effective := slices.Clone(podSets)
+	for i := range effective {
+		if effective[i].MinCount == nil {
+			continue
+		}
+		if grant, ok := liveGrants[effective[i].Name]; ok {
+			effective[i].MinCount = &grant
+		}
+	}
+	return effective
 }

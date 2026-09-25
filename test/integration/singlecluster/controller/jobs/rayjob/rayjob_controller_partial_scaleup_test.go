@@ -125,7 +125,8 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 		ginkgo.By("a new workload slice replaces the admitted one, requesting the full 5 workers")
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSet].Count).Should(gomega.Equal(int32(5)))
-		// MinCount is the baseline: the 2 workers already running.
+		// MinCount is copied forward from initialSlice's own floor, which was bootstrapped
+		// to its own request (2) at creation - MinReplicas is not consulted.
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSet].MinCount).Should(gomega.Equal(new(int32(2))))
 
 		ginkgo.By("only 3 of the 5 requested workers fit: 1 head + 3 workers = the whole quota")
