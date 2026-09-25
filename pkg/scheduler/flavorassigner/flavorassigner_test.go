@@ -7303,7 +7303,7 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 // Note that the inputs of the test cases drop details that do not affect the logic
 // of AssignTopology. This means the proposed test case inputs can look similar
 // yet expect the prior AssignFLavor to return a different RepresentativeMode
-// (e.g.FIt vs Preempt). This would be possible via the existence of other
+// (e.g. Fit vs Preempt). This would be possible via the existence of other
 // nodes with pods reserving quota, affecting the free space available
 // on the CQ and thus the initial assignment outcome.
 func TestAssignTopology(t *testing.T) {
@@ -7564,9 +7564,6 @@ func TestAssignTopology(t *testing.T) {
 				Flavors: []kueue.ResourceFlavorReference{"flavor-1", "flavor-2"},
 			}).Error(),
 		},
-		// The mirror image of the case above: a pod set that asked for topology but came
-		// out of the quota stage on no TAS flavor at all. This is how a LeaderWorkerSet
-		// leader with no managed request and no pod set group arrives here.
 		"a pod set left on no TAS flavor is rejected": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				f := newFixture(ctx, t, log, Fit, "1", "")
@@ -7577,11 +7574,7 @@ func TestAssignTopology(t *testing.T) {
 			wantPlan:         false,
 			wantStatusErrMsg: ErrNoTASFlavorAssigned.Error(),
 		},
-		// A bare snapshot stands in for a ClusterQueue that tracks no TAS flavors, which
-		// is what a pod set sees when its group resolved to a non-TAS flavor. The pod set
-		// still requests topology explicitly, so the request is attempted rather than
-		// skipped, and fails on the missing cache before the flavor is even inspected.
-		"a pod set is rejected when the ClusterQueue tracks no TAS flavors": {
+		"a pod set is rejected when the ClusterQueue has no TAS flavors": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				ps := PodSetAssignment{
 					Name:     kueue.DefaultPodSetName,
