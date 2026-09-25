@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -281,6 +282,41 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 		gomega.Expect(createdSparkApplication.Spec.Executor.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+	})
+
+	ginkgo.It("Should suspend a SparkApplication without executor instances when its Workload is deactivated", func() {
+		ginkgo.By("creating localQueue")
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+
+		ginkgo.By("creating a SparkApplication without executor instances")
+		sparkApplication := testingsparkapplication.MakeSparkApplication(jobName, ns.Name).
+			Queue(localQueue.Name).
+			Obj()
+		sparkApplication.Spec.Executor.Instances = nil
+		util.MustCreate(ctx, k8sClient, sparkApplication)
+
+		ginkgo.By("checking the SparkApplication is unsuspended")
+		sparkAppKey := client.ObjectKeyFromObject(sparkApplication)
+		createdSparkApplication := &sparkv1beta2.SparkApplication{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("deactivating the Workload")
+		wlKey := types.NamespacedName{
+			Name:      workloadsparkapplication.GetWorkloadNameForSparkApplication(sparkApplication.Name, sparkApplication.UID),
+			Namespace: ns.Name,
+		}
+		util.DeactivateWorkload(ctx, k8sClient, wlKey)
+
+		ginkgo.By("checking the SparkApplication is suspended and executor instances stay unset")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, false)).Should(gomega.BeTrue())
+			g.Expect(createdSparkApplication.Spec.Executor.Instances).Should(gomega.BeNil())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
 
