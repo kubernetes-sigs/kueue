@@ -529,17 +529,6 @@ func workloadTopologyFits(preemptionCtx *preemptionCtx) bool {
 	return tasResult.Failure() == nil
 }
 
-// workloadFitsForFairSharing is a lightweight wrapper around
-// workloadFits, as we need to remove, and then add back, the usage of
-// the incoming workload, as FairSharing adds this usage at the start
-// of processing for accurate DominantResourceShare calculations.
-func workloadFitsForFairSharing(preemptionCtx *preemptionCtx) bool {
-	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageRemoval(preemptionCtx.workloadUsage)
-	res := workloadFits(preemptionCtx, true)
-	revertSimulation()
-	return res
-}
-
 // queueUnderNominalInResourcesNeedingPreemption checks whether the
 // preemptor CQ's usage is strictly below nominal quota (usage < nominal)
 // for all flavor-resources needing preemption.

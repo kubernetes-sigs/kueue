@@ -114,7 +114,7 @@ func fairPreemptionStrategy(
 		revertSimulation()
 
 		if cont && features.Enabled(features.ConfigurablePreemptions) {
-			cont = !preemptionCtx.configurableEvaluator.FindCandidates(
+			interrupted := preemptionCtx.configurableEvaluator.FindCandidates(
 				preemptionCtx.snapshot,
 				&preemptionCtx.preemptor,
 				preemptionCtx.frsNeedPreemption,
@@ -122,6 +122,7 @@ func fairPreemptionStrategy(
 				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 				yieldAndRecord,
 			)
+			cont = !interrupted
 		}
 
 		if cont && log.V(6).Enabled() {
@@ -169,7 +170,7 @@ func iterateWithFirstFsStrategy(
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{candWl, kueue.InClusterQueueReason, candCQ.GetTargetCq()}) {
+			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InClusterQueueReason, WorkloadCq: candCQ.GetTargetCq()}) {
 				return
 			}
 			continue
@@ -177,7 +178,7 @@ func iterateWithFirstFsStrategy(
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{candWl, kueue.InCohortReclamationReason, candCQ.GetTargetCq()}) {
+			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}) {
 				return
 			}
 			continue
@@ -207,7 +208,7 @@ func iterateWithFirstFsStrategy(
 			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				if !yield(&Target{candWl, kueue.InCohortFairSharingReason, candCQ.GetTargetCq()}) {
+				if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
 					strategyLog.flush()
 					return
 				}
@@ -248,7 +249,7 @@ func iterateWithSecondFsStrategy(
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			if !yield(&Target{candWl, kueue.InCohortFairSharingReason, candCQ.GetTargetCq()}) {
+			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
 				return false
 			}
 		}

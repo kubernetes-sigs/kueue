@@ -117,7 +117,11 @@ func iterateOverCandidates(
 	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	iterator.Reset()
 	for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
-		candidate := &Target{candidateWl, reason, preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue)}
+		candidate := &Target{
+			WorkloadInfo: candidateWl,
+			Reason:       reason,
+			WorkloadCq:   preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue),
+		}
 		if !yield(candidate) {
 			return
 		}
