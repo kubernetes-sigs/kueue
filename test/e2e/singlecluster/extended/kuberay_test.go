@@ -29,7 +29,6 @@ import (
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -71,16 +70,6 @@ const (
 func rayServeCurlCmd(rayServiceName, query string) []string {
 	serveSvcName := rayutils.GenerateServeServiceName(rayServiceName)
 	return []string{"curl", "-sS", "--fail", "--max-time", "60", "--retry", "5", "--retry-connrefused", "--retry-delay", "2", fmt.Sprintf("http://%s:8000/%s", serveSvcName, query)}
-}
-
-func waitForRayServiceReadyToServe(rayService *rayv1.RayService) *rayv1.RayService {
-	createdRayService := &rayv1.RayService{}
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-		g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
-		g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
-	}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayService did not become ready to serve", createdRayService))
-	return createdRayService
 }
 
 func startServeClientPod(ns string) *corev1.Pod {
@@ -436,9 +425,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(4)])
 print(ray.get([my_task.remote(i, 8) for i in range(4)]))
 
 # run tasks in parallel to trigger autoscaling (scaling up)
-# Use longer sleep (8s) to give autoscaler time to detect demand,
+# Use longer sleep (10s) to give autoscaler time to detect demand,
 # create workload slices, and schedule new workers.
-print(ray.get([my_task.remote(i, 8) for i in range(16)]))
+print(ray.get([my_task.remote(i, 10) for i in range(32)]))
 
 # run tasks in sequence to trigger scaling down; 20 tasks (~25s with
 # scheduling overhead) keep the job alive through idle detection
@@ -870,7 +859,7 @@ app = HelloWorld.bind()`,
 		})
 
 		ginkgo.By("Waiting for the RayService to be ready to serve traffic", func() {
-			waitForRayServiceReadyToServe(rayService)
+			util.WaitForRayServiceReadyToServe(ctx, k8sClient, client.ObjectKeyFromObject(rayService))
 		})
 
 		ginkgo.By("Verifying the RayService responds to HTTP requests via the serve service", func() {
@@ -1105,7 +1094,7 @@ app = HelloWorld.bind()`,
 
 		var rayClusterKey client.ObjectKey
 		ginkgo.By("Waiting for the RayService to be ready to serve traffic", func() {
-			createdRayService := waitForRayServiceReadyToServe(rayService)
+			createdRayService := util.WaitForRayServiceReadyToServe(ctx, k8sClient, client.ObjectKeyFromObject(rayService))
 			rayClusterKey = client.ObjectKey{
 				Namespace: createdRayService.Namespace,
 				Name:      createdRayService.Status.ActiveServiceStatus.RayClusterName,

@@ -21,7 +21,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/component-base/featuregate"
@@ -58,27 +57,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 	// declares more than one resource.
 	expectPodsUsage := func(pods int64) {
 		ginkgo.GinkgoHelper()
-		gomega.Eventually(func(g gomega.Gomega) {
-			cq := &kueue.ClusterQueue{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), cq)).Should(gomega.Succeed())
-			g.Expect(cq.Status.FlavorsUsage).Should(gomega.HaveLen(1))
-			resources := cq.Status.FlavorsUsage[0].Resources
-			idx := slices.IndexFunc(resources, func(r kueue.ResourceUsage) bool {
-				return r.Name == corev1.ResourcePods
-			})
-			g.Expect(idx).ShouldNot(gomega.Equal(-1), "ClusterQueue reports no pods usage, only %v", resources)
-			g.Expect(resources[idx].Total.Value()).Should(gomega.Equal(pods))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
-	// scaleFirstWorkerGroup emulates the KubeRay controller, which is what updates .replicas in
-	// production. envtest runs no KubeRay operator, so the spec drives the scale event itself,
-	// exactly like the existing scale-up/scale-down specs in this package do.
-	scaleFirstWorkerGroup := func(rayCluster *rayv1.RayCluster, replicas int32) {
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).Should(gomega.Succeed())
-			rayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(replicas)
-			g.Expect(k8sClient.Update(ctx, rayCluster)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectClusterQueueResourceUsageWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(clusterQueue), corev1.ResourcePods, pods, util.Timeout)
 	}
 
 	ginkgo.BeforeAll(func() {
@@ -155,7 +134,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		// up to the available quota (KEP wl-B).
 		// -------------------------------------------------------------------------------------
 		ginkgo.By("scaling the worker group to 10 replicas")
-		scaleFirstWorkerGroup(testRayCluster, 10)
+		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
 
 		ginkgo.By("a new workload slice replaces the admitted one, requesting the full 10 workers")
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
@@ -193,7 +172,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		probeKey := client.ObjectKeyFromObject(probe)
 
 		ginkgo.By("scaling the worker group to 12 replicas while the probe is pending")
-		scaleFirstWorkerGroup(testRayCluster, 12)
+		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 12, false)
 
 		ginkgo.By("the existing probe workload is updated in place to the full 12 workers")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -327,7 +306,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		// preemption and partial admission together: had the full request been satisfiable by
 		// preemption alone, the scheduler would have admitted it whole and never reduced it.
 		ginkgo.By("scaling the worker group to 10 replicas")
-		scaleFirstWorkerGroup(testRayCluster, 10)
+		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
 
 		ginkgo.By("the lower-priority workload is preempted")
 		util.ExpectWorkloadsToBePreempted(ctx, k8sClient, victim)
@@ -366,7 +345,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("scaling to 10 workers, of which only 6 fit")
-		scaleFirstWorkerGroup(testRayCluster, 10)
+		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
@@ -439,7 +418,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("scaling to 10 workers, of which only 6 fit")
-		scaleFirstWorkerGroup(testRayCluster, 10)
+		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
@@ -509,7 +488,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("scaling to 10 workers, of which only 6 fit")
-		scaleFirstWorkerGroup(testRayCluster, 10)
+		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
 		expectPodsUsage(7)
