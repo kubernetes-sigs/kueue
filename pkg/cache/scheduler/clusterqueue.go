@@ -187,11 +187,11 @@ func (c *clusterQueue) updateClusterQueue(
 
 	if features.Enabled(features.ConfigurablePreemptions) {
 		c.Labels = maps.Clone(in.Labels)
+		c.PreemptionConfigName = getPreemptionConfigName(in)
 	}
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
 	c.AdmissionChecks = admissioncheck.NewAdmissionChecks(in)
-	c.PreemptionConfigName = parsePreemptionConfigName(in)
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
 	} else {
@@ -222,8 +222,8 @@ func (c *clusterQueue) updateClusterQueue(
 	return nil
 }
 
-func parsePreemptionConfigName(in *kueue.ClusterQueue) *string {
-	if !features.Enabled(features.ConfigurablePreemptions) || in.Annotations == nil {
+func getPreemptionConfigName(in *kueue.ClusterQueue) *string {
+	if in.Annotations == nil {
 		return nil
 	}
 	if val, ok := in.Annotations[kueuealpha.PreemptionConfigNameAnnotation]; ok {
