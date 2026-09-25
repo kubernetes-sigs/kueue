@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -147,7 +148,9 @@ func MultiKueueRulesForManager(ctx context.Context, k8sClient client.Client) []r
 func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig *rest.Config, ns string, prefix string, clusterName string, rules []rbacv1.PolicyRule) ([]byte, error) {
 	roleName := prefix + "-role"
 	cr := &rbacv1.ClusterRole{
-		Name:  roleName,
+		ObjectMeta: metav1.ObjectMeta{
+			Name: roleName,
+		},
 		Rules: rules,
 	}
 	err := c.Create(ctx, cr)
@@ -157,8 +160,10 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 
 	saName := prefix + "-sa"
 	sa := &corev1.ServiceAccount{
-		Namespace: ns,
-		Name:      saName,
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: ns,
+			Name:      saName,
+		},
 	}
 	err = c.Create(ctx, sa)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -166,7 +171,9 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 	}
 
 	crb := &rbacv1.ClusterRoleBinding{
-		Name: prefix + "-crb",
+		ObjectMeta: metav1.ObjectMeta{
+			Name: prefix + "-crb",
+		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: rbacv1.SchemeGroupVersion.Group,
 			Kind:     "ClusterRole",
@@ -227,17 +234,17 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 func CleanKubeconfigForMultiKueueSA(ctx context.Context, c client.Client, ns string, prefix string) error {
 	roleName := prefix + "-role"
 
-	err := c.Delete(ctx, &rbacv1.ClusterRole{Name: roleName})
+	err := c.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
 
-	err = c.Delete(ctx, &corev1.ServiceAccount{Namespace: ns, Name: prefix + "-sa"})
+	err = c.Delete(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: prefix + "-sa"}})
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
 
-	err = c.Delete(ctx, &rbacv1.ClusterRoleBinding{Name: prefix + "-crb"})
+	err = c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-crb"}})
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
