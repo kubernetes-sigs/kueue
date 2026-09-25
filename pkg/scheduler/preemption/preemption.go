@@ -245,11 +245,25 @@ func (p *Preemptor) IssuePreemptions(
 
 		p.preemptionExpectations.ExpectUIDs(log, targetKey, []types.UID{target.WorkloadInfo.Obj.UID})
 
-		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+		var evictionReason string
+		var message string
+		if target.Reason == kueue.ConfigurablePreemptionReason {
+			evictionReason = kueue.ConfigurablePreemptionReason
+			if target.ConfigurablePreemptionReasonData != nil {
+				message = target.ConfigurablePreemptionReasonData.EvictionMessage(preemptor.Obj)
+			} else {
+				log.Error(nil, "ConfigurablePreemptionReasonData is nil", "targetWorkload", klog.KObj(target.WorkloadInfo.Obj), "preemptingWorkload", klog.KObj(preemptor.Obj))
+				message = preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+			}
+		} else {
+			evictionReason = kueue.WorkloadEvictedByPreemption
+			message = preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+		}
+
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workloadevict.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, evictionReason, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),

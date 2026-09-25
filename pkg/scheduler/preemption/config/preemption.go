@@ -93,7 +93,7 @@ func (p *PreemptionEvaluator) OrderedCandidates(
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	candidatesOrdering func(a, b *workload.Info) int,
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
-) []*workload.Info {
+) []*Candidate {
 	if p == nil {
 		return nil
 	}
@@ -102,7 +102,9 @@ func (p *PreemptionEvaluator) OrderedCandidates(
 		p.log.Error(err, "Failed to get candidates for preemption", "trigger", trigger)
 		return nil
 	}
-	slices.SortFunc(candidates, candidatesOrdering)
+	slices.SortFunc(candidates, func(a, b *Candidate) int {
+		return candidatesOrdering(a.WlInfo, b.WlInfo)
+	})
 	return candidates
 }
 
@@ -161,11 +163,15 @@ func (p *PreemptionEvaluator) simulateCandidatesPreemption(
 ) (bool, []*preemptioncommon.Target) {
 	var targets []*preemptioncommon.Target
 	for _, candidate := range p.OrderedCandidates(snapshot, preemptor, frsNeedPreemption, candidatesOrdering, trigger) {
-		snapshot.RemoveWorkload(candidate)
+		snapshot.RemoveWorkload(candidate.WlInfo)
 		targets = append(targets, &preemptioncommon.Target{
-			WorkloadInfo: candidate,
+			WorkloadInfo: candidate.WlInfo,
 			Reason:       kueue.ConfigurablePreemptionReason,
-			WorkloadCq:   snapshot.ClusterQueue(candidate.ClusterQueue),
+			WorkloadCq:   snapshot.ClusterQueue(candidate.WlInfo.ClusterQueue),
+			ConfigurablePreemptionReasonData: &preemptioncommon.ConfigurablePreemptionReasonData{
+				ConfigName:                candidate.ConfigName,
+				RuleNameToSelectorIndexes: candidate.RuleNameToSelectorIndexes,
+			},
 		})
 		if workloadFits() {
 			return true, targets
