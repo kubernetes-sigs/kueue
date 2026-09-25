@@ -671,8 +671,9 @@ type FairSharing struct {
 }
 
 type AdmissionFairSharing struct {
-	// usageHalfLifeTime indicates the time after which the current usage will decay by a half
-	// If set to 0, usage will be reset to 0 immediately.
+	// usageHalfLifeTime indicates the time after which the current usage will decay by a half.
+	// Defaults to 1h. Jobs that run for longer are usually better served by a longer
+	// half-life, such as 12h or 24h.
 	UsageHalfLifeTime metav1.Duration `json:"usageHalfLifeTime"`
 
 	// usageSamplingInterval indicates how often Kueue updates consumedResources in FairSharingStatus
