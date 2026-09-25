@@ -353,7 +353,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	rc.StopWatchers()
 
 	hadClientBefore := rc.getClient() != nil
-	isReconnect := hadClientBefore && !connected && !configChanged
+	isReconnect := hadClientBefore && !connected
 
 	if configChanged {
 		rc.config = config

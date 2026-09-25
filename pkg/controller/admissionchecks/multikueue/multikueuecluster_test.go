@@ -930,8 +930,16 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 		ClusterName("worker1").
 		Obj()
 	builder = builder.WithObjects(managerWorkload)
-	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
+	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{}, &kueue.Workload{})
 	c := builder.Build()
+
+	remoteWorkload := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Obj()
+	workerBuilder := getClientBuilder(ctx)
+	workerBuilder = workerBuilder.WithObjects(remoteWorkload)
+	workerBuilder = workerBuilder.WithStatusSubresource(&kueue.Workload{})
+	workerClient := NewNeverCachingClient(workerBuilder.Build())
 
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
@@ -943,10 +951,9 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	reconciler.rootContext = ctx
 
 	var buildCalls int
-	inner := fakeClientBuilder(ctx)
 	reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
 		buildCalls++
-		return inner(builderCtx, cfg, opts)
+		return workerClient, nil
 	}
 
 	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
@@ -973,7 +980,22 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	default:
 	}
 
+	rc.StopWatchers()
 	rc.connState.markDisconnected(time.Now())
+
+	remoteWl := &kueue.Workload{}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remoteWorkload), remoteWl); err != nil {
+		t.Fatalf("failed to get remote workload: %v", err)
+	}
+	remoteWl.Status.Conditions = append(remoteWl.Status.Conditions, metav1.Condition{
+		Type:   kueue.WorkloadFinished,
+		Status: metav1.ConditionTrue,
+		Reason: "ByTest",
+	})
+	if err := workerClient.Status().Update(ctx, remoteWl); err != nil {
+		t.Fatalf("failed to update remote workload: %v", err)
+	}
+
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"})
 	if err != nil {
 		t.Fatalf("unexpected reconnect error: %v", err)
