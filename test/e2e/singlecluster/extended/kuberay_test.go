@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -77,7 +78,7 @@ func waitForRayServiceReadyToServe(rayService *rayv1.RayService) *rayv1.RayServi
 	createdRayService := &rayv1.RayService{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-		g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
+		g.Expect(createdRayService.Spec.Suspend).To(gomega.BeFalse())
 		g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 	}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayService did not become ready to serve", createdRayService))
 	return createdRayService
@@ -1156,6 +1157,244 @@ app = HelloWorld.bind()`,
 				g.Expect(len(runningWorkers)).To(gomega.BeNumerically(">", 1),
 					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", 1))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	// Avoid CPU contention while the active RayService remains running throughout the test.
+	ginkgo.It("Should gate a zero-downtime upgrade's pending RayCluster on queue quota", ginkgo.Serial, func() {
+		kuberayTestImage := util.GetKuberayTestImage()
+
+		childRayClusters := func(g gomega.Gomega) []rayv1.RayCluster {
+			rcList := &rayv1.RayClusterList{}
+			g.Expect(k8sClient.List(ctx, rcList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			return rcList.Items
+		}
+		countElasticGatedPods := func(g gomega.Gomega) int {
+			podList := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			gated := 0
+			for i := range podList.Items {
+				for _, gate := range podList.Items[i].Spec.SchedulingGates {
+					if gate.Name == kueue.ElasticJobSchedulingGate {
+						gated++
+						break
+					}
+				}
+			}
+			return gated
+		}
+		notFinishedWorkloads := func(g gomega.Gomega) []kueue.Workload {
+			wlList := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			var live []kueue.Workload
+			for i := range wlList.Items {
+				if !workloadfinish.IsFinished(&wlList.Items[i]) {
+					live = append(live, wlList.Items[i])
+				}
+			}
+			return live
+		}
+		totalPods := func(wl *kueue.Workload) int32 {
+			var n int32
+			for i := range wl.Spec.PodSets {
+				n += wl.Spec.PodSets[i].Count
+			}
+			return n
+		}
+		headPodSetCount := func(wl *kueue.Workload) int32 {
+			for i := range wl.Spec.PodSets {
+				if wl.Spec.PodSets[i].Name == "head" {
+					return wl.Spec.PodSets[i].Count
+				}
+			}
+			return 0
+		}
+
+		configMap := &corev1.ConfigMap{
+			Name:      "rayservice-upgrade-gate",
+			Namespace: ns.Name,
+			Data: map[string]string{
+				"hello_serve.py": `from ray import serve
+
+@serve.deployment
+class HelloWorld:
+    def __call__(self, request):
+        return "Hello, World!"
+
+app = HelloWorld.bind()`,
+			},
+		}
+
+		serveConfigV2 := `applications:
+  - name: hello_app
+    import_path: hello_serve:app
+    route_prefix: /
+    deployments:
+      - name: HelloWorld
+        num_replicas: 1
+        max_replicas_per_node: 1
+        ray_actor_options:
+          num_cpus: 0.2`
+
+		volumes := []corev1.Volume{
+			{
+				Name: "code-sample",
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					Name:  configMap.Name,
+					Items: []corev1.KeyToPath{{Key: "hello_serve.py", Path: "hello_serve.py"}},
+				},
+			},
+		}
+		volumeMounts := []corev1.VolumeMount{{Name: "code-sample", MountPath: "/home/ray/samples"}}
+		env := []corev1.EnvVar{{Name: "PYTHONPATH", Value: "/home/ray/samples:$PYTHONPATH"}}
+
+		ginkgo.By("Limiting quota to fit one RayCluster but not the upgrade overlap", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedCq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).To(gomega.Succeed())
+				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("3")
+				g.Expect(k8sClient.Update(ctx, updatedCq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		rayService := testingrayservice.MakeService("rayservice-upgrade-gate", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "1").
+			Image(rayv1.HeadNode, kuberayTestImage).
+			Image(rayv1.WorkerNode, kuberayTestImage).
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			WithServeConfigV2(serveConfigV2).
+			Env(rayv1.HeadNode, env).
+			Env(rayv1.WorkerNode, env).
+			Volumes(rayv1.HeadNode, volumes).
+			Volumes(rayv1.WorkerNode, volumes).
+			VolumeMounts(rayv1.HeadNode, volumeMounts).
+			VolumeMounts(rayv1.WorkerNode, volumeMounts).
+			Obj()
+
+		ginkgo.By("Creating the ConfigMap and RayService", func() {
+			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking the initial workload is created and admitted", func() {
+			// Workload slices use generated suffixes, so find the workload by listing.
+			gomega.Eventually(func(g gomega.Gomega) {
+				wls := notFinishedWorkloads(g)
+				g.Expect(wls).To(gomega.HaveLen(1))
+				g.Expect(workload.IsAdmitted(&wls[0])).To(gomega.BeTrue())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		var initialClusterName string
+		ginkgo.By("Waiting for the active RayCluster to run and the RayService to be ready", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := &rayv1.RayService{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
+				rcs := childRayClusters(g)
+				g.Expect(rcs).To(gomega.HaveLen(1))
+				g.Expect(ptr.Deref(rcs[0].Spec.Suspend, false)).To(gomega.BeFalse())
+				g.Expect(countElasticGatedPods(g)).To(gomega.Equal(0))
+				initialClusterName = rcs[0].Name
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Triggering a zero-downtime upgrade by mutating the RayCluster spec", func() {
+			// KubeRay treats an environment change as a zero-downtime upgrade.
+			gomega.Eventually(func(g gomega.Gomega) {
+				upgraded := &rayv1.RayService{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), upgraded)).To(gomega.Succeed())
+				head := &upgraded.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0]
+				head.Env = append(head.Env, corev1.EnvVar{Name: "UPGRADE_TRIGGER", Value: "v2"})
+				g.Expect(k8sClient.Update(ctx, upgraded)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Waiting for KubeRay to create the pending RayCluster with gated Pods", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rcs := childRayClusters(g)
+				g.Expect(rcs).To(gomega.HaveLen(2))
+				for i := range rcs {
+					g.Expect(ptr.Deref(rcs[i].Spec.Suspend, false)).To(gomega.BeFalse())
+				}
+				g.Expect(countElasticGatedPods(g)).To(gomega.Equal(2))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking the upgrade slice accounts for both clusters and stays pending", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wls := notFinishedWorkloads(g)
+				g.Expect(wls).To(gomega.HaveLen(2))
+				var upgradeSlice, activeSlice *kueue.Workload
+				for i := range wls {
+					if totalPods(&wls[i]) == 4 {
+						upgradeSlice = &wls[i]
+					} else {
+						activeSlice = &wls[i]
+					}
+				}
+				g.Expect(upgradeSlice).NotTo(gomega.BeNil(), "expected a slice reserving both clusters (4 pods)")
+				g.Expect(activeSlice).NotTo(gomega.BeNil())
+				g.Expect(headPodSetCount(upgradeSlice)).To(gomega.Equal(int32(2)))
+				g.Expect(workload.IsAdmitted(upgradeSlice)).To(gomega.BeFalse())
+				g.Expect(workload.IsAdmitted(activeSlice)).To(gomega.BeTrue())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the pending RayCluster Pods stay gated while quota is insufficient", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				rcs := childRayClusters(g)
+				g.Expect(rcs).To(gomega.HaveLen(2))
+				g.Expect(countElasticGatedPods(g)).To(gomega.Equal(2))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the active RayCluster keeps serving during the gated upgrade", func() {
+			clientPod := startServeClientPod(ns.Name)
+			cmd := rayServeCurlCmd(rayService.Name, "")
+			stdout, stderr, err := util.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
+			gomega.Expect(string(stdout)).To(gomega.ContainSubstring("Hello, World!"))
+		})
+
+		ginkgo.By("Adding quota so the upgrade slice fits", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				updatedCq := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).To(gomega.Succeed())
+				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("10")
+				g.Expect(k8sClient.Update(ctx, updatedCq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying admission opens the pending RayCluster Pods' scheduling gates", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rcs := childRayClusters(g)
+				g.Expect(rcs).NotTo(gomega.BeEmpty())
+				g.Expect(countElasticGatedPods(g)).To(gomega.Equal(0))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying the old RayCluster is deleted after promotion", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				rcs := childRayClusters(g)
+				g.Expect(rcs).To(gomega.HaveLen(1))
+				g.Expect(rcs[0].Name).NotTo(gomega.Equal(initialClusterName))
+				g.Expect(countElasticGatedPods(g)).To(gomega.Equal(0))
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Verifying quota settles back to a single RayCluster's reservation", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wls := notFinishedWorkloads(g)
+				g.Expect(wls).To(gomega.HaveLen(1))
+				g.Expect(workload.IsAdmitted(&wls[0])).To(gomega.BeTrue())
+				g.Expect(totalPods(&wls[0])).To(gomega.Equal(int32(2)))
+				g.Expect(headPodSetCount(&wls[0])).To(gomega.Equal(int32(1)))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })

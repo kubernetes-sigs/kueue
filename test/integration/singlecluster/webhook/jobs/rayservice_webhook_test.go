@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
 
 				// Simulate an unsuspended service updating other fields while retaining the queue name.
-				createdService.Spec.RayClusterSpec.Suspend = new(false)
+				createdService.Spec.Suspend = false
 				gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
 
 				// Simulate an unsuspended service dropping its queue name to become unmanaged.
@@ -85,7 +85,7 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
 
 				// Simulate an unsuspended service updating other fields while retaining the queue name.
-				createdService.Spec.RayClusterSpec.Suspend = new(false)
+				createdService.Spec.Suspend = false
 				gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
 
 				// Simulate an unsuspended service dropping its queue name to become unmanaged.

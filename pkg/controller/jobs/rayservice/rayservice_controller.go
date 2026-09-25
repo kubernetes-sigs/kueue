@@ -39,7 +39,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -105,6 +107,15 @@ func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return r.jr.ReconcileGenericJob(ctx, req, newJob())
 }
 
+// Matches KubeRay's common.RayServiceRayClustersAssociationOptions in
+// vendor/github.com/ray-project/kuberay/ray-operator/controllers/ray/common/association.go.
+func childRayClusterLabels(rayServiceName string) client.MatchingLabels {
+	return client.MatchingLabels{
+		rayutils.RayOriginatedFromCRNameLabelKey: rayServiceName,
+		rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
+	}
+}
+
 func (r *rayServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	controllerName := strings.ToLower(newJob().GVK().Kind)
 	b := ctrl.NewControllerManagedBy(mgr).
@@ -130,7 +141,7 @@ func (j *RayService) Object() client.Object {
 }
 
 func (j *RayService) IsSuspended() bool {
-	return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	return j.Spec.Suspend
 }
 
 func (j *RayService) IsActive() bool {
@@ -138,7 +149,7 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	j.Spec.RayClusterSpec.Suspend = new(true)
+	j.Spec.Suspend = true
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
@@ -164,18 +175,55 @@ func (j *RayService) PodLabelSelector() string {
 }
 
 func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
-	// Always build PodSets from RayService spec first
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
+	if err != nil || !workloadslicing.Enabled(j.Object()) {
+		return podSets, err
+	}
+
+	var children rayv1.RayClusterList
+	err = c.List(ctx, &children,
+		client.InNamespace(j.GetNamespace()),
+		childRayClusterLabels(j.GetName()),
+	)
 	if err != nil {
 		return nil, err
 	}
-
-	rayClusterName := j.Status.ActiveServiceStatus.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
-	if err != nil {
-		return nil, err
+	if len(children.Items) == 0 {
+		return raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, j.Status.ActiveServiceStatus.RayClusterName)
 	}
 
+	// Stable PodSet names and summed counts let workload slicing reserve quota for
+	// both children during an upgrade. A slice cannot represent different per-Pod
+	// requests under one name, so reject that transition instead of misaccounting it.
+	podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
+	var order []kueue.PodSetReference
+	for i := range children.Items {
+		child := &children.Items[i]
+		childPodSets, err := raycluster.BuildPodSets(&child.Spec, child.Annotations)
+		if err != nil {
+			return nil, err
+		}
+		for k := range childPodSets {
+			name := childPodSets[k].Name
+			if existing, ok := podSetMap[name]; ok {
+				if !resources.Equal(
+					resources.NewRequestsFromPodSpec(&existing.Template.Spec),
+					resources.NewRequestsFromPodSpec(&childPodSets[k].Template.Spec),
+				) {
+					return nil, fmt.Errorf("child RayClusters have incompatible resource requests for PodSet %q during zero-downtime upgrade", name)
+				}
+				existing.Count += childPodSets[k].Count
+				continue
+			}
+			ps := childPodSets[k]
+			podSetMap[name] = &ps
+			order = append(order, name)
+		}
+	}
+	podSets = make([]kueue.PodSet, 0, len(order))
+	for _, n := range order {
+		podSets = append(podSets, *podSetMap[n])
+	}
 	return podSets, nil
 }
 
@@ -185,7 +233,7 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.RayClusterSpec.Suspend = new(false)
+	j.Spec.Suspend = false
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)
