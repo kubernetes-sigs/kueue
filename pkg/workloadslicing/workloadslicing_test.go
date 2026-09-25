@@ -654,12 +654,11 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 
 func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 	now := time.Now()
-	chain := func(name string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, "ns").
-			Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
-			Annotation(kueue.WorkloadSliceNameAnnotation, "chain")
-	}
-	admitted := chain("admitted").
+	errListWorkloads := errors.New("list workloads failed")
+	wl := utiltestingapi.MakeWorkload("", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain")
+	admitted := wl.Clone().Name("admitted").
 		PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](2)},
@@ -667,7 +666,7 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 		AdmittedAt(true, now).
 		FinishedAt(now).
 		Obj()
-	reclaimed := chain("reclaimed").
+	reclaimed := wl.Clone().Name("reclaimed").
 		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
@@ -676,7 +675,7 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 		ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).
 		FinishedAt(now).
 		Obj()
-	shrunk := chain("shrunk").
+	shrunk := wl.Clone().Name("shrunk").
 		// Admitted for 4, then scaled down in place to 2: the assignment still
 		// says 4 but the effective count is the current spec.
 		PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
@@ -685,13 +684,13 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 		).Obj(), now).
 		AdmittedAt(true, now).
 		Obj()
-	pending := chain("pending").
+	pending := wl.Clone().Name("pending").
 		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
 		).Obj(), now).
 		Obj()
-	current := chain("current").
+	current := wl.Clone().Name("current").
 		PodSets(*utiltestingapi.MakePodSet("workers", 5).Obj()).
 		Obj()
 
@@ -699,6 +698,7 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 		existing   []client.Object
 		current    *kueue.Workload
 		wantCounts map[kueue.PodSetReference]int32
+		wantError  error
 	}{
 		"latest admitted finished slice is the baseline; pending intermediate is ignored": {
 			existing:   []client.Object{admitted, pending},
@@ -723,6 +723,11 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 			existing: []client.Object{pending},
 			current:  current,
 		},
+		"listing workloads fails": {
+			existing:  []client.Object{admitted},
+			current:   current,
+			wantError: errListWorkloads,
+		},
 	}
 
 	for name, tc := range cases {
@@ -730,11 +735,19 @@ func TestPreviousAdmittedPodSetCounts(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := utiltesting.NewClientBuilder().
 				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, objs client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := objs.(*kueue.WorkloadList); ok && errors.Is(tc.wantError, errListWorkloads) {
+							return errListWorkloads
+						}
+						return c.List(ctx, objs, opts...)
+					},
+				}).
 				WithObjects(tc.existing...).
 				Build()
 			got, err := PreviousAdmittedPodSetCounts(ctx, c, tc.current)
-			if err != nil {
-				t.Fatalf("PreviousAdmittedPodSetCounts() error: %v", err)
+			if diff := cmp.Diff(tc.wantError, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
 				t.Errorf("unexpected counts (-want,+got):\n%s", diff)
