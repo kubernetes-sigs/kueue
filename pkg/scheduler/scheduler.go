@@ -1083,7 +1083,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 				wl.Status.UnhealthyNodes = nil
 			}
 			return true, nil
-		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
+		}, determinePatchOptions(e)...)
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
@@ -1112,8 +1112,21 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
 		}
-
-		log.Error(err, errCouldNotAdmitWL)
+		if apierrors.IsConflict(err) {
+			// The write raced: the fence caught the drift. Restore what the queue still holds, swap the entry to live, and continue to the shared requeue below.
+			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling", "workload", klog.KObj(e.Obj))
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
+				api.TruncateEventMessage("Skipped admission write: workload state changed while the entry was being scheduled"))
+			liveWl := &kueue.Workload{}
+			if getErr := s.client.Get(ctx, client.ObjectKeyFromObject(e.Obj), liveWl); getErr == nil && workload.HasQuotaReservation(liveWl) {
+				s.cache.AddOrUpdateWorkload(ctx, log, liveWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs))
+				s.queues.NotifyWorkloadUpdateWatchers(nil, liveWl)
+				e.Obj = liveWl
+				e.inadmissibleMsg = "skipped a conflicting admission write computed from an outdated snapshot"
+			}
+		} else {
+			log.Error(err, errCouldNotAdmitWL)
+		}
 		s.requeueAndUpdate(ctx, *e)
 	})
 
@@ -1236,6 +1249,14 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 	return &classicalIterator{
 		entries: entries,
 	}
+}
+
+// determinePatchOptions gates the second pass on the strict precondition flavor (Conflict on drift); first-pass commits keep the loose merge-patch path so routine condition churn doesn't stall.
+func determinePatchOptions(e *entry) []workloadpatching.PatchStatusOption {
+	if workload.NeedsSecondPass(e.Obj) {
+		return nil
+	}
+	return []workloadpatching.PatchStatusOption{workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()}
 }
 
 func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
