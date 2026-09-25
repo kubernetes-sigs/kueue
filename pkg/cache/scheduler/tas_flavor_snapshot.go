@@ -1222,7 +1222,7 @@ func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssign
 // ignoreNodes. Used by the head-of-queue replacement path so that other queued
 // unhealthy nodes (which may also be missing from the snapshot) do not poison
 // the stale-check for the head we are actively replacing.
-func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoring(ta *utiltas.TopologyAssignment, ignoreNodes sets.Set[string]) (bool, string) {
+func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoringNodes(ta *utiltas.TopologyAssignment, ignoreNodes sets.Set[string]) (bool, string) {
 	for _, domain := range ta.Domains {
 		// Node name is the lowest-level value (last entry).
 		nodeName := domain.Values[len(domain.Values)-1]
