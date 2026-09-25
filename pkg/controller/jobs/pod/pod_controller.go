@@ -975,9 +975,17 @@ func constructGroupPodSets(pods []corev1.Pod, referenceOrder []kueue.PodSetRefer
 			if byShape := cmp.Compare(a.shapeHash, b.shapeHash); byShape != 0 {
 				return byShape
 			}
+
+			if byCount := cmp.Compare(a.podSet.Count, b.podSet.Count); byCount != 0 {
+				return byCount
+			}
+
+			return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
 		}
+
 		return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
 	})
+
 	podSets := make([]kueue.PodSet, len(resultPodSets))
 	for i := range resultPodSets {
 		podSets[i] = resultPodSets[i].podSet
