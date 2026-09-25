@@ -598,7 +598,6 @@ func (s *Scheduler) processEntry(
 
 func shouldFailFastTASReplacement(wl *kueue.Workload, mode flavorassigner.FlavorAssignmentMode) bool {
 	return features.Enabled(features.TASFailedNodeReplacementFailFast) &&
-		!features.Enabled(features.TASReplaceMultipleFailedNodes) &&
 		workload.HasTopologyAssignmentWithUnhealthyNode(wl) &&
 		mode != flavorassigner.Fit
 }

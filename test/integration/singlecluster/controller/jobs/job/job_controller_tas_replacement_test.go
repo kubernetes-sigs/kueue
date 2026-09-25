@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 
 	ginkgo.It("replaces failed nodes without eviction when the feature is enabled", framework.SlowSpec, func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
@@ -137,6 +137,42 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("evicts on a failed replacement when both features are enabled", framework.SlowSpec, func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, true)
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			Parallelism(2).Completions(2).CompletionMode(batchv1.IndexedCompletion).
+			Request(corev1.ResourceCPU, "1").Obj()
+		util.MustCreate(ctx, k8sClient, job)
+		wl := &kueue.Workload{}
+		key := client.ObjectKey{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID)}
+
+		ginkgo.By("checking the generated Workload and running Job", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				g.Expect(slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))).
+					To(gomega.ConsistOf("node1", "node2"))
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("failing a node without replacement capacity", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[0], true)
+		})
+
+		ginkgo.By("checking fail-fast eviction and Job suspension", func() {
+			util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, key)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(true)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

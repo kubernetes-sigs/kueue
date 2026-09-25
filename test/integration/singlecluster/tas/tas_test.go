@@ -3617,7 +3617,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.It("should tolerate eight unhealthy nodes and evict on the ninth failure", framework.SlowSpec, func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 
 				ginkgo.By("providing nine nodes and enough quota for all of them", func() {
 					var additionalNodes []corev1.Node
@@ -3760,6 +3760,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.When("replacing multiple failed nodes for a required topology", func() {
 				ginkgo.It("should preserve the rack of a surviving node after two earlier nodes fail", framework.SlowSpec, func() {
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 					var additionalNodes []corev1.Node
 					for _, name := range []string{"x5", "x6", "x7", "x8"} {
 						additionalNodes = append(additionalNodes, *testingnode.MakeNode(name).
@@ -4006,6 +4007,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				// still describe exactly PodSet.Count pods, one per node, with no
 				// node double-booked and no inflated total domain count.
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 
 				var wl1 *kueue.Workload
 				const podCount = 2

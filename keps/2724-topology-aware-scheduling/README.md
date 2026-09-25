@@ -1568,11 +1568,13 @@ Without this feature, a second failed node triggers Workload eviction. Since Kue
 the Alpha `TASReplaceMultipleFailedNodes` feature gate (disabled by default) allows
 up to eight unhealthy nodes per Workload to wait for incremental replacement.
 This fixed limit applies to all TAS Workloads when the gate is enabled and matches
-the API limit on `.status.unhealthyNodes`. No annotation or configuration is required.
+the API limit on `.status.unhealthyNodes`. This limit requires no annotation or configuration.
 
-With the gate enabled, Kueue suppresses `TASFailedNodeReplacementFailFast`; a ninth
-distinct node failure while eight are still unhealthy triggers eviction.
-Other eviction mechanisms still apply. With the gate disabled, single-node replacement
+`TASFailedNodeReplacementFailFast` remains independent and enabled by default: the
+first unsuccessful replacement attempt triggers eviction, even with multiple unhealthy nodes.
+Set it to `false` to keep retrying while replacement capacity is unavailable.
+A ninth distinct node failure while eight are still unhealthy also triggers eviction.
+Other eviction mechanisms still apply. With `TASReplaceMultipleFailedNodes` disabled, single-node replacement
 and eviction behavior are unchanged. ConfigAPI configuration of the global limit and
 possible per-Workload overrides are deferred to a future release.
 

@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -91,6 +92,68 @@ type tasScheduleForTASCase struct {
 	eventCmpOpts cmp.Options
 
 	featureGates map[featuregate.Feature]bool
+}
+
+func TestShouldFailFastTASReplacement(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		UnhealthyNodes("x1", "x2").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").
+				Count(2).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+	cases := map[string]struct {
+		multipleNodes bool
+		failFast      bool
+		mode          flavorassigner.FlavorAssignmentMode
+		wantFailFast  bool
+	}{
+		"both gates disabled": {
+			mode: flavorassigner.NoFit,
+		},
+		"multiple-node replacement enabled and fail-fast disabled": {
+			multipleNodes: true,
+			mode:          flavorassigner.NoFit,
+		},
+		"multiple-node replacement disabled and fail-fast enabled": {
+			failFast:     true,
+			mode:         flavorassigner.NoFit,
+			wantFailFast: true,
+		},
+		"both gates enabled": {
+			multipleNodes: true,
+			failFast:      true,
+			mode:          flavorassigner.NoFit,
+			wantFailFast:  true,
+		},
+		"both gates enabled with a fitting replacement": {
+			multipleNodes: true,
+			failFast:      true,
+			mode:          flavorassigner.Fit,
+		},
+		"both gates enabled with a replacement requiring preemption": {
+			multipleNodes: true,
+			failFast:      true,
+			mode:          flavorassigner.Preempt,
+			wantFailFast:  true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, tc.multipleNodes)
+			features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacementFailFast, tc.failFast)
+			if got := shouldFailFastTASReplacement(wl, tc.mode); got != tc.wantFailFast {
+				t.Errorf("shouldFailFastTASReplacement() = %v, want %v", got, tc.wantFailFast)
+			}
+		})
+	}
 }
 
 func TestScheduleForTAS(t *testing.T) {
@@ -1011,8 +1074,11 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with eight unhealthy nodes; second pass; no fit; multi-node replacement suppresses FailFast": {
-			featureGates:    map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+		"workload with eight unhealthy nodes; second pass; no fit; FailFast disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceMultipleFailedNodes:    true,
+				features.TASFailedNodeReplacementFailFast: false,
+			},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueue.Topology{defaultThreeLevelTopology},
