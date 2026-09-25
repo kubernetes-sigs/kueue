@@ -187,7 +187,9 @@ func (p *Preemptor) buildContext(
 		configurableEvaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
 	}
 	return &preemptionCtx{
+		ctx:               ctx,
 		clock:             p.clock,
+		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
