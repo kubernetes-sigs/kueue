@@ -58,14 +58,14 @@ spec:
           - name: Router
             num_replicas: 1
   rayClusterConfig:
-    rayVersion: '2.52.0'
+    rayVersion: '2.55.1'
     headGroupSpec:
       rayStartParams: {}
       template:
         spec:
           containers:
           - name: ray-head
-            image: rayproject/ray:2.52.0
+            image: rayproject/ray:2.55.1
             resources:
               limits:
                 cpu: "2"
@@ -83,7 +83,7 @@ spec:
         spec:
           containers:
           - name: ray-worker
-            image: rayproject/ray:2.52.0
+            image: rayproject/ray:2.55.1
             resources:
               limits:
                 cpu: "1"

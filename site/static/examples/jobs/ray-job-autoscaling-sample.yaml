@@ -16,7 +16,7 @@ spec:
     env_vars:
       counter_name: "test_counter"
   rayClusterSpec:
-    rayVersion: '2.52.0'
+    rayVersion: '2.55.1'
     autoscalerOptions:
       idleTimeoutSeconds: 30
       upscalingMode: Aggressive
@@ -28,7 +28,7 @@ spec:
         spec:
           containers:
             - name: ray-head
-              image: rayproject/ray:2.52.0
+              image: rayproject/ray:2.55.1
               ports:
                 - containerPort: 6379
                   name: gcs-server
@@ -63,7 +63,7 @@ spec:
           spec:
             containers:
               - name: ray-worker
-                image: rayproject/ray:2.52.0
+                image: rayproject/ray:2.55.1
                 lifecycle:
                   preStop:
                     exec:
