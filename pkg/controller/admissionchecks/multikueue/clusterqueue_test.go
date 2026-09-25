@@ -17,12 +17,13 @@ limitations under the License.
 package multikueue
 
 import (
-	"strings"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
-	"sigs.k8s.io/kueue/pkg/util/api"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -57,9 +57,11 @@ func TestCQReconcile(t *testing.T) {
 		configs []*kueue.MultiKueueConfig
 		workers map[string]workerState
 
-		wantQuotaAutomated bool
-		wantNominalQuotas  map[string]string // Ignored if wantQuotaAutomated == false
-		wantCondition      *metav1.Condition
+		wantQuotaAutomated                 bool
+		wantNominalQuotas                  map[string]string // Ignored if wantQuotaAutomated == false
+		wantCondition                      *metav1.Condition
+		workerResourceCount                int
+		initialConditionObservedGeneration int64
 	}{
 		"multiple resources for single LQs and CQs": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -410,6 +412,38 @@ func TestCQReconcile(t *testing.T) {
 				Message: "manager-side coveredResources is missing resources configured on workers: [gpu memory]",
 			},
 		},
+		"quota automation condition message is truncated": {
+			cq: utiltestingapi.MakeClusterQueue("cq1").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
+				AdmissionChecks("ac1").
+				Obj(),
+			lqs: []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
+			},
+			acs: []*kueue.AdmissionCheck{
+				utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			configs: []*kueue.MultiKueueConfig{
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
+			},
+			workers: map[string]workerState{
+				"worker1": {
+					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
+					cqs: []*kueue.ClusterQueue{
+						utiltestingapi.MakeClusterQueue("w1-cq1").Obj(),
+					},
+				},
+			},
+			wantCondition: &metav1.Condition{
+				Type:   kueue.MultiKueueManagerQuotaAutomation,
+				Status: metav1.ConditionFalse,
+				Reason: "UnsupportedConfiguration",
+			},
+			workerResourceCount: 550, // Enough valid resource names to exceed the 32-KiB condition message limit.
+		},
 		"not a MultiKueue manager ClusterQueue": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
@@ -439,10 +473,44 @@ func TestCQReconcile(t *testing.T) {
 				Message: "The referenced MultiKueueConfig was not found.",
 			},
 		},
+		"stale observed generation with unchanged quota automation condition": {
+			cq: utiltestingapi.MakeClusterQueue("cq1").
+				Generation(2).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "100").Obj()).
+				AdmissionChecks("ac1").
+				Condition(kueue.MultiKueueManagerQuotaAutomation, metav1.ConditionFalse, "UnsupportedConfiguration", "The referenced MultiKueueConfig was not found.").
+				Obj(),
+			acs: []*kueue.AdmissionCheck{
+				utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config-not-found").
+					Obj(),
+			},
+			wantCondition: &metav1.Condition{
+				Type:               kueue.MultiKueueManagerQuotaAutomation,
+				Status:             metav1.ConditionFalse,
+				Reason:             "UnsupportedConfiguration",
+				Message:            "The referenced MultiKueueConfig was not found.",
+				ObservedGeneration: 2,
+			},
+			initialConditionObservedGeneration: 1,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.initialConditionObservedGeneration > 0 {
+				tc.cq.Status.Conditions[0].ObservedGeneration = tc.initialConditionObservedGeneration
+			}
+			if tc.workerResourceCount > 0 {
+				flavor := utiltestingapi.MakeFlavorQuotas("default")
+				for i := range tc.workerResourceCount {
+					flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/r%050d", i)), "1")
+				}
+				workerCQ := tc.workers["worker1"].cqs[0]
+				workerCQ.Spec.ResourceGroups = []kueue.ResourceGroup{utiltestingapi.ResourceGroup(*flavor.Obj())}
+			}
+
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := utiltesting.NewClientBuilder().
 				WithObjects(tc.cq).
@@ -519,61 +587,18 @@ func TestCQReconcile(t *testing.T) {
 
 			// Verify condition state
 			gotCond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-			if diff := cmp.Diff(tc.wantCondition, gotCond, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
+			ignoredConditionFields := []string{"LastTransitionTime"}
+			if tc.workerResourceCount > 0 {
+				// The generated message is checked for size separately.
+				ignoredConditionFields = append(ignoredConditionFields, "Message")
+				if gotCond != nil && len(gotCond.Message) != 32*1024 {
+					t.Errorf("expected stored condition message to be 32 KiB, got %d bytes", len(gotCond.Message))
+				}
+			}
+			if diff := cmp.Diff(tc.wantCondition, gotCond, cmpopts.IgnoreFields(metav1.Condition{}, ignoredConditionFields...)); diff != "" {
 				t.Errorf("Unexpected status condition (-want/+got):\n%s", diff)
 			}
 		})
-	}
-}
-
-func TestCQReconciler_UpdateQuotaAutomationCondition(t *testing.T) {
-	cq := utiltestingapi.MakeClusterQueue("cq1").Obj()
-	c := utiltesting.NewClientBuilder().WithObjects(cq).WithStatusSubresource(cq).Build()
-	reconciler := &cqReconciler{client: c}
-	message := strings.Repeat("a", 32*1024+1)
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	if err := reconciler.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", message); err != nil {
-		t.Fatalf("updating quota automation condition: %v", err)
-	}
-
-	gotCQ := &kueue.ClusterQueue{}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(cq), gotCQ); err != nil {
-		t.Fatalf("getting ClusterQueue: %v", err)
-	}
-	gotCondition := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-	if gotCondition == nil {
-		t.Fatal("expected quota automation condition")
-	}
-	if diff := cmp.Diff(api.TruncateConditionMessage(message), gotCondition.Message); diff != "" {
-		t.Errorf("unexpected condition message (-want/+got):\n%s", diff)
-	}
-}
-
-func TestCQReconciler_UpdateQuotaAutomationConditionUpdatesObservedGeneration(t *testing.T) {
-	cq := utiltestingapi.MakeClusterQueue("cq1").
-		Generation(2).
-		Condition(kueue.MultiKueueManagerQuotaAutomation, metav1.ConditionFalse, "UnsupportedConfiguration", "The referenced MultiKueueConfig was not found.").
-		Obj()
-	cq.Status.Conditions[0].ObservedGeneration = 1
-	c := utiltesting.NewClientBuilder().WithObjects(cq).WithStatusSubresource(cq).Build()
-	reconciler := &cqReconciler{client: c}
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	if err := reconciler.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", "The referenced MultiKueueConfig was not found."); err != nil {
-		t.Fatalf("updating quota automation condition: %v", err)
-	}
-
-	gotCQ := &kueue.ClusterQueue{}
-	if err := c.Get(ctx, client.ObjectKeyFromObject(cq), gotCQ); err != nil {
-		t.Fatalf("getting ClusterQueue: %v", err)
-	}
-	gotCondition := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-	if gotCondition == nil {
-		t.Fatal("expected quota automation condition")
-	}
-	if gotCondition.ObservedGeneration != cq.Generation {
-		t.Errorf("expected observedGeneration %d, got %d", cq.Generation, gotCondition.ObservedGeneration)
 	}
 }
 
