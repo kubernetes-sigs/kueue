@@ -195,6 +195,8 @@ func (p *Preemptor) buildContext(
 	}
 }
 
+// Resolved once per attempt: both algorithms evaluate several triggers, and the
+// PreemptionConfig must not be re-read for each of them.
 func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) (evaluator *configurable.PreemptionEvaluator) {
 	if features.Enabled(features.ConfigurablePreemptions) {
 		evaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
