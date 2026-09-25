@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,6 +29,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -230,5 +232,52 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(kueue.WorkloadAnnotation))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+	ginkgo.It("Should propagate the wait-for-pods-ready annotation from leaderworkerset to workload on create and update", ginkgo.Label("feature:workloadlevelwaitforpodsready"), func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+
+		ginkgo.By("creating a leaderworkerset carrying the wait-for-pods-ready annotation")
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`).
+			Obj()
+		lws.Spec.RolloutStrategy.Type = leaderworkersetv1.RollingUpdateStrategyType
+		util.MustCreate(ctx, k8sClient, lws)
+
+		ginkgo.By("checking the Workload is created with the annotation copied from the leaderworkerset")
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		createdUID := createdWorkload.UID
+
+		ginkgo.By("updating the annotation on the leaderworkerset to a smaller timeout")
+		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+		lwsLookupKey := types.NamespacedName{Name: lws.Name, Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lwsLookupKey, createdLWS)).Should(gomega.Succeed())
+			createdLWS.Annotations[controllerconstants.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":50}`
+			g.Expect(k8sClient.Update(ctx, createdLWS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the existing Workload's annotation is updated in place")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":50}`))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("verifying the Workload was updated in place, not recreated", func() {
+			gomega.Expect(createdWorkload.UID).Should(gomega.Equal(createdUID))
+		})
+
+		util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+			Reason: jobframework.ReasonUpdatedWorkload,
+			Type:   corev1.EventTypeNormal,
+			Note:   `Updated workload WaitForPodsReady annotation to {"timeoutSeconds":50}`,
+		})
 	})
 })
