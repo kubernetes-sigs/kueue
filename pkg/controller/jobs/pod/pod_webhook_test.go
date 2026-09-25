@@ -48,6 +48,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -411,6 +412,85 @@ func TestDefault(t *testing.T) {
 			namespaceSelector: defaultNamespaceSelector,
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
+				Label("test-label", "1").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Label("test-label", "1").
+				Label(kueue.PodGroupPodIndexLabel, "1").
+				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
+		"pod group with TAS and PodGroupPodIndexLabelAnnotation naming an index within the group": {
+			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "1").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Label("test-label", "1").
+				Label(kueue.PodGroupPodIndexLabel, "1").
+				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
+		"pod group with TAS and PodGroupPodIndexLabelAnnotation naming an index outside the group": {
+			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Label("test-label", "2").
+				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
+		"pod with TAS and PodGroupPodIndexLabelAnnotation naming a label that holds no index": {
+			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
 				Label("test-label", "test-value").
 				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
@@ -420,10 +500,70 @@ func TestDefault(t *testing.T) {
 				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				Label("test-label", "test-value").
-				Label(kueue.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
 				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
+		"pod with TAS and PodGroupPodIndexLabelAnnotation naming an absent label": {
+			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
+		"pod with TAS and PodGroupPodIndexLabelAnnotation naming a label with an empty value": {
+			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Label("test-label", "").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Label("test-label", "").
+				ManagedByKueueLabel().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Obj(),
+		},
+		"pod with TAS and PodGroupPodIndexLabelAnnotation carrying no labels at all": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			initObjects:  []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent("test").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
+				RoleHash("a9f06f3a").
 				KueueSchedulingGate().
 				TopologySchedulingGate().
 				Obj(),
@@ -779,6 +919,48 @@ func TestGetRoleHash(t *testing.T) {
 	}
 }
 
+func TestReadPodIndex(t *testing.T) {
+	cases := map[string]struct {
+		pod     *corev1.Pod
+		wantErr error
+	}{
+		"outside a group, label absent": {
+			pod:     testingpod.MakePod("test-pod", "test-ns").Obj(),
+			wantErr: utilpod.ErrLabelNotFound,
+		},
+		"outside a group, label holds no index": {
+			pod:     testingpod.MakePod("test-pod", "test-ns").Label("test-label", "test-value").Obj(),
+			wantErr: utilpod.ErrInvalidUInt,
+		},
+		"outside a group, the index is not bounded": {
+			pod: testingpod.MakePod("test-pod", "test-ns").Label("test-label", "9223372036854775807").Obj(),
+		},
+		"in a group, index outside the group": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "2").
+				Obj(),
+			wantErr: utilpod.ErrValidation,
+		},
+		"in a group, index within the group": {
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "1").
+				Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := FromObject(tc.pod).readPodIndex("test-label"); !errors.Is(err, tc.wantErr) {
+				t.Errorf("Unexpected error: got %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateCreate(t *testing.T) {
 	integrationManager := newTestIntegrationManager(t)
 	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
@@ -1030,6 +1212,82 @@ func TestValidateCreate(t *testing.T) {
 				GroupTotalCount("3").
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"index-label annotation naming an absent label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-pod-index-label]",
+				},
+			}.ToAggregate(),
+		},
+		"index-label annotation naming a label that holds no index": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "test-value").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-pod-index-label]",
+				},
+			}.ToAggregate(),
+		},
+		"index-label annotation naming an index outside the group": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-group-pod-index-label]",
+				},
+			}.ToAggregate(),
+		},
+		"index-label annotation naming a label that holds the index": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: true,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Label("test-label", "1").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
+		},
+		"index-label annotation naming an absent label, rejection disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.TASRejectInvalidPodIndexLabel: false,
+			},
+			pod: testingpod.MakePod("test-pod", "test-ns").
+				GroupNameLabel("test-group").
+				GroupTotalCount("2").
+				Annotation(kueue.PodGroupPodIndexLabelAnnotation, "test-label").
+				Obj(),
 		},
 	}
 
