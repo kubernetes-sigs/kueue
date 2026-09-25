@@ -7685,8 +7685,7 @@ func TestAssignTopology(t *testing.T) {
 //     wins. If one flavor is merely waiting for quota, the group is not permanently blocked.
 //   - Resource groups are co-requisites, so across groups the *most* severe blocker wins.
 //     Every group has to be satisfiable for the pod set to fit.
-//
-// The same "most severe" rule then applies across pod sets.
+//     The same "most severe" rule then applies across pod sets.
 func TestResolveNoFitReason(t *testing.T) {
 	// cqWithGroups builds the only part of the snapshot that ResolveNoFitReason reads:
 	// which flavors belong to which resource group.
