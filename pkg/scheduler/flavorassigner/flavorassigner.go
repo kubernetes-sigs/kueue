@@ -264,14 +264,21 @@ func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
 // includes the usage needed on top of the replaced slice.
 func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resources.FlavorResourceQuantities {
 	usage := make(resources.FlavorResourceQuantities)
-	for i, ps := range wl.TotalRequests {
-		newCount := a.PodSets[i].Count
+	for _, ps := range wl.TotalRequests {
+		// The assignment lists PodSets in group order, which can differ from wl.TotalRequests.
+		psAssignment := a.podSetAssignmentByName(ps.Name)
+		if psAssignment == nil {
+			continue
+		}
+		newCount := psAssignment.Count
 		if a.replaceWorkloadSlice != nil {
-			newCount -= a.replaceWorkloadSlice.TotalRequests[i].Count
+			if old := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, ps.Name); old != nil {
+				newCount -= old.Count
+			}
 		}
 		ps = *ps.ScaledTo(newCount)
 
-		podsFlavor := a.PodSets[i].Flavors[corev1.ResourcePods]
+		podsFlavor := psAssignment.Flavors[corev1.ResourcePods]
 		if podsFlavor != nil && newCount != 0 {
 			fr := resources.FlavorResource{Flavor: podsFlavor.Name, Resource: corev1.ResourcePods}
 			usage[fr] = usage[fr].AddInt64(int64(newCount))
@@ -290,11 +297,11 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 			if q == 0 {
 				return
 			}
-			if IgnoreUndeclaredResources(a.quotaCheckStrategy) && a.PodSets[i].Flavors[res] == nil {
+			if IgnoreUndeclaredResources(a.quotaCheckStrategy) && psAssignment.Flavors[res] == nil {
 				log.V(3).Info("Skipping usage count for resource with undefined flavor", "res", res)
 				return
 			}
-			flv := a.PodSets[i].Flavors[res].Name
+			flv := psAssignment.Flavors[res].Name
 			usage[resources.FlavorResource{Flavor: flv, Resource: res}] = usage[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
 		})
 	}
@@ -1067,6 +1074,13 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 	a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, flavorIdx)
 }
 
+func podSetResourcesByName(podSets []workload.PodSetResources, name kueue.PodSetReference) *workload.PodSetResources {
+	if idx := slices.IndexFunc(podSets, func(ps workload.PodSetResources) bool { return ps.Name == name }); idx != -1 {
+		return &podSets[idx]
+	}
+	return nil
+}
+
 // findOldPodSetRequest returns the resource request from the old workload slice
 // for the given podSet name and resource. Returns 0 if not found.
 func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource corev1.ResourceName) int64 {
@@ -1074,12 +1088,9 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 		return 0
 	}
 
-	for _, oldPS := range a.replaceWorkloadSlice.TotalRequests {
-		if oldPS.Name == psName && oldPS.Requests != nil {
-			return oldPS.Requests.ResourceValue(resource)
-		}
+	if oldPS := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, psName); oldPS != nil && oldPS.Requests != nil {
+		return oldPS.Requests.ResourceValue(resource)
 	}
-
 	return 0
 }
 
@@ -1206,7 +1217,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 				for _, psID := range psIDs {
-					preemptWorkloadRequests := a.replaceWorkloadSlice.TotalRequests[psID]
+					// The replaced slice's requests come from its admission, which is in group order.
+					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.TotalRequests[psID].Name)
+					if preemptWorkloadRequests == nil {
+						continue
+					}
 
 					// Enforce consistent resource flavor assignment between slices.
 					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
