@@ -983,7 +983,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
 	tr.Count = deleteDomain(existingAssignment, headNodeName)
 	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, existingAssignment)
-	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {
+	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
@@ -1217,7 +1217,7 @@ func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssign
 	return false, ""
 }
 
-// isTopologyAssignmentStaleIgnoring returns whether the topologyAssignment contains
+// isTopologyAssignmentStaleIgnoringNodes returns whether the topologyAssignment contains
 // node-level domains missing from the snapshot, ignoring any node names in
 // ignoreNodes. Used by the head-of-queue replacement path so that other queued
 // unhealthy nodes (which may also be missing from the snapshot) do not poison
