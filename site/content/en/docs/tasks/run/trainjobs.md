@@ -24,7 +24,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 2. Install Kubeflow Trainer v2. Check [the Trainer installation guide](https://www.kubeflow.org/docs/components/trainer/operator-guides/installation/).
 
-   **Note**: The minimum required Trainer version is v2.0.0.
+   **Note**: The minimum required Trainer version is v2.2.0. Earlier versions (v2.1 and earlier) do not support the `runtimePatches` field required by Kueue integration.
 
 3. Enable TrainJob integration in Kueue. You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include TrainJobs as an allowed workload.
 
