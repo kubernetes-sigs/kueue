@@ -1847,7 +1847,7 @@ func TestRemoteClientResyncWorkloads(t *testing.T) {
 
 	select {
 	case e := <-workloadEvents:
-		if got := client.ObjectKeyFromObject(e.Object.(client.Object)); got != client.ObjectKeyFromObject(localWorkload) {
+		if got := client.ObjectKeyFromObject(e.Object); got != client.ObjectKeyFromObject(localWorkload) {
 			t.Fatalf("resynchronized unexpected workload: got %v, want %v", got, client.ObjectKeyFromObject(localWorkload))
 		}
 	case <-time.After(time.Second):
