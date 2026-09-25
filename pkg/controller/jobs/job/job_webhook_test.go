@@ -784,10 +784,15 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: nil,
 		},
 		{
-			name:               "change queue name with suspend is true, but invalid value",
-			oldJob:             testingutil.MakeJob("job", "default").Obj(),
-			newJob:             testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
+			name:   "change queue name with suspend is true, but invalid value",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
+			// Reported by both ValidateJobOnCreate and ValidateJobOnUpdate. ToAggregate
+			// deduplicates identical errors, so the admission response contains it once.
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message),
+				field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message),
+			},
 		},
 		{
 			name: "immutable parallelism while unsuspended with partial admission enabled",

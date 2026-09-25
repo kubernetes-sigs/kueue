@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -58,5 +59,17 @@ var _ = ginkgo.Describe("AppWrapper Webhook", func() {
 		err := k8sClient.Create(ctx, appwrapper)
 		gomega.Expect(err).Should(gomega.HaveOccurred())
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+	})
+
+	ginkgo.It("the update doesn't succeed if the queue name is changed to an invalid one", func() {
+		appwrapper := testingaw.MakeAppWrapper("aw-with-queue-name", ns.Name).Queue("default").Obj()
+		util.MustCreate(ctx, k8sClient, appwrapper)
+
+		lookupKey := types.NamespacedName{Name: appwrapper.Name, Namespace: appwrapper.Namespace}
+		createdAppWrapper := &awv1beta2.AppWrapper{}
+		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
+
+		createdAppWrapper.Labels[constants.QueueLabel] = "indexed_job"
+		gomega.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(utiltesting.BeForbiddenError())
 	})
 })

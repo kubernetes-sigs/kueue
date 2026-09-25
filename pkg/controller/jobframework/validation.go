@@ -220,6 +220,11 @@ func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist fun
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(newJob), QueueName(oldJob), queueNameLabelPath)...)
+	} else if newQueueName := QueueName(newJob); newQueueName != "" && newQueueName != QueueName(oldJob) {
+		// Only a changed value is validated, so jobs already persisted with an invalid
+		// queue-name stay updatable, e.g. for finalizer removal. An empty value removes
+		// the queue and is handled below.
+		allErrs = append(allErrs, ValidateQueueName(newJob.Object())...)
 	}
 	if QueueName(newJob) == "" && QueueName(oldJob) != "" && defaultQueueExist(oldJob.Object().GetNamespace()) {
 		allErrs = append(allErrs, field.Invalid(queueNameLabelPath, "", "queue-name must not be empty in namespace with default queue"))
