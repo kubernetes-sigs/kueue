@@ -287,16 +287,16 @@ type PreemptionConfigWrapper struct {
 // MakePreemptionConfig creates a PreemptionConfig wrapper.
 func MakePreemptionConfig(name string) *PreemptionConfigWrapper {
 	return &PreemptionConfigWrapper{
-		PreemptionConfig: kueuealpha.PreemptionConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		Name: name,
 	}
 }
 
 // Rule appends a rule to the PreemptionConfig.
-func (pc *PreemptionConfigWrapper) Rule(name string, trigger kueuealpha.PreemptionConfigActivationTrigger, selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector) *PreemptionConfigWrapper {
+func (pc *PreemptionConfigWrapper) Rule(
+	name string,
+	trigger kueuealpha.PreemptionConfigActivationTrigger,
+	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
+) *PreemptionConfigWrapper {
 	pc.Spec.Rules = append(pc.Spec.Rules, kueuealpha.PreemptionConfigPreemptionRule{
 		Name:               name,
 		ActivationPolicy:   kueuealpha.PreemptionConfigActivationPolicy{Trigger: trigger},
@@ -320,4 +320,3 @@ func (pc *PreemptionConfigWrapper) Clone() *PreemptionConfigWrapper {
 func (pc *PreemptionConfigWrapper) Obj() *kueuealpha.PreemptionConfig {
 	return &pc.PreemptionConfig
 }
-

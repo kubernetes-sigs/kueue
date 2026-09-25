@@ -227,7 +227,7 @@ func getPreemptionConfigName(in *kueue.ClusterQueue) *string {
 		return nil
 	}
 	if val, ok := in.Annotations[kueuealpha.PreemptionConfigNameAnnotation]; ok {
-		return ptr.To(val)
+		return new(val)
 	}
 	return nil
 }

@@ -54,13 +54,13 @@ const (
 type ClusterQueueSnapshot struct {
 	Name kueue.ClusterQueueReference
 	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
-	Labels                    map[string]string
-	draBackedResources        *dra.ExtendedResourceCache
-	ResourceGroups            []resourcegroups.ResourceGroup
-	Workloads                 map[workload.Reference]*workload.Info
-	WorkloadsNotReady         sets.Set[workload.Reference]
-	NamespaceSelector         labels.Selector
-	Preemption                kueue.ClusterQueuePreemption
+	Labels             map[string]string
+	draBackedResources *dra.ExtendedResourceCache
+	ResourceGroups     []resourcegroups.ResourceGroup
+	Workloads          map[workload.Reference]*workload.Info
+	WorkloadsNotReady  sets.Set[workload.Reference]
+	NamespaceSelector  labels.Selector
+	Preemption         kueue.ClusterQueuePreemption
 	// PreemptionConfigName is the name of the PreemptionConfig referenced by the ClusterQueue.
 	// Only present when the ConfigurablePreemptions feature gate is enabled.
 	PreemptionConfigName      *string
