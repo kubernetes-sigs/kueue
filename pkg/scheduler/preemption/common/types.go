@@ -19,7 +19,7 @@ package common
 import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -28,7 +28,18 @@ import (
 type Target struct {
 	WorkloadInfo *workload.Info
 	Reason       string
-	WorkloadCq   *schdcache.ClusterQueueSnapshot
+	WorkloadCq   *scheduler.ClusterQueueSnapshot
+}
+
+type yieldCandidate = func(*Target) bool
+
+// YieldFromSnapshot wraps a candidate (Target) yielder with
+// logic removing the candidate from the provided snapshot.
+func YieldFromSnapshot(snapshot *scheduler.Snapshot, yield yieldCandidate) yieldCandidate {
+	return func(t *Target) bool {
+		snapshot.RemoveWorkload(t.WorkloadInfo)
+		return yield(t)
+	}
 }
 
 // ensures that Target implements ObjectRefProvider interface at compile time

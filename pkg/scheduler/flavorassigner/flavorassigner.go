@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -706,23 +705,17 @@ func New(
 	}
 }
 
-// Assign assigns a flavor to each of the resources requested in each pod set.
-// The result for each pod set is accompanied with reasons why the flavor can't
-// be assigned immediately. Each assigned flavor is accompanied with a
-// FlavorAssignmentMode.
-func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment {
-	log := log.FromContext(ctx)
-
-	return a.assignFlavors(ctx, log, counts)
-}
-
 type indexedPodSet struct {
 	originalIndex    int
 	podSet           *workload.PodSetResources
 	podSetAssignment *PodSetAssignment
 }
 
-func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts []int32) Assignment {
+func (a *FlavorAssigner) AssignFlavors(
+	ctx context.Context,
+	log logr.Logger,
+	counts []int32,
+) Assignment {
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
 		for i, ps := range a.wl.TotalRequests {
@@ -887,68 +880,69 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		}
 		if atLeastOnePodsAssignmentFailed {
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
-				assignment.resolveNoFitReason(a.cq)
+				assignment.ResolveNoFitReason(a.cq)
 			}
 			return assignment
 		}
 	}
 	if assignment.RepresentativeMode() == NoFit {
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
-			assignment.resolveNoFitReason(a.cq)
+			assignment.ResolveNoFitReason(a.cq)
 		}
 		return assignment
 	}
-
-	if features.Enabled(features.TopologyAwareScheduling) {
-		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
-			// Elastic placement accounts for the previous assignment itself.
-			// Remove its cached usage during the search to avoid counting it twice.
-			restore := a.cq.SimulateUsageRemoval(workload.Usage{TAS: a.replaceWorkloadSlice.TASUsage()})
-			defer restore()
-		}
-		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
-		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
-			if failure := result.Failure(); failure != nil {
-				// There is at least one PodSet which does not fit
-				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-				psAssignment.reason(failure.Reason)
-				// update the mode for all flavors and the representative mode
-				assignment.updateMode(failure.PodSetName, Preempt)
-			} else {
-				// All PodSets fit, we just update the TopologyAssignments
-				assignment.UpdateForTASResult(log, a.cq, a.wl, result)
-			}
-		}
-		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
-			// Don't preempt other workloads if looking for a failed node replacement
-			result := a.cq.FindTopologyAssignmentsForWorkload(
-				ctx,
-				tasRequests,
-				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkloadInfo(a.wl),
-			)
-			if failure := result.Failure(); failure != nil {
-				// There is at least one PodSet which does not fit even if
-				// all workloads are preempted.
-				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-				if features.Enabled(features.UnadmittedWorkloadsObservability) {
-					psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
-				}
-				// update the mode for all flavors and the representative mode
-				assignment.updateMode(failure.PodSetName, NoFit)
-			} else {
-				// Update TAS-related assignments to Preempt because preemptions might be needed
-				// in resources in which total unused quota is sufficient (Fit), but the
-				// quota is fragmented.
-				assignment.updateModeForTASRequests(tasRequests, Preempt)
-			}
-		}
-	}
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		assignment.resolveNoFitReason(a.cq)
-	}
 	return assignment
+}
+
+// AssignTopology updates the assignment based on topology requirements.
+func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, assignment *Assignment) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
+		// Elastic placement accounts for the previous assignment itself.
+		// Remove its cached usage during the search to avoid counting it twice.
+		restore := a.cq.SimulateUsageRemoval(workload.Usage{TAS: a.replaceWorkloadSlice.TASUsage()})
+		defer restore()
+	}
+	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
+	if assignment.RepresentativeMode() == Fit {
+		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
+		if failure := result.Failure(); failure != nil {
+			// There is at least one PodSet which does not fit
+			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+			psAssignment.reason(failure.Reason)
+			// update the mode for all flavors and the representative mode
+			assignment.updateMode(failure.PodSetName, Preempt)
+		} else {
+			// All PodSets fit, we just update the TopologyAssignments
+			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
+		}
+	}
+	if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
+		// Don't preempt other workloads if looking for a failed node replacement
+		result := a.cq.FindTopologyAssignmentsForWorkload(
+			ctx,
+			tasRequests,
+			schdcache.WithSimulateEmpty(true),
+			schdcache.WithWorkloadInfo(a.wl),
+		)
+		if failure := result.Failure(); failure != nil {
+			// There is at least one PodSet which does not fit even if
+			// all workloads are preempted.
+			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+			if features.Enabled(features.UnadmittedWorkloadsObservability) {
+				psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+			}
+			// update the mode for all flavors and the representative mode
+			assignment.updateMode(failure.PodSetName, NoFit)
+		} else {
+			// Update TAS-related assignments to Preempt because preemptions might be needed
+			// in resources in which total unused quota is sufficient (Fit), but the
+			// quota is fragmented.
+			assignment.updateModeForTASRequests(tasRequests, Preempt)
+		}
+	}
 }
 
 // resolvePodSetFlavors returns the flavors podSet should be assigned, given the flavors
@@ -988,7 +982,7 @@ func (a *FlavorAssigner) resolvePodSetFlavors(log logr.Logger, idxPodSet indexed
 	return nil
 }
 
-func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
+func (a *Assignment) ResolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 	if a.RepresentativeMode() != NoFit {
 		return
 	}
