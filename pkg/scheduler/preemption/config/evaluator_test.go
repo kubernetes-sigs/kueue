@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -75,11 +76,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 	}{
 		"no candidates for empty config": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{},
-				},
-			},
+			config:        *utiltestingalpha.MakePreemptionConfig("test").Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -90,16 +87,8 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"no candidates for rule without selectors": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -110,24 +99,19 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"returns error for selector with invalid label's operator while matching preemptor's workload": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name: "test",
-							PreemptorSelector: &metav1.LabelSelector{
-								MatchExpressions: []metav1.LabelSelectorRequirement{
-									{
-										Key:      "test",
-										Operator: "invalid",
-									},
-								},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				RuleWithPreemptorSelector(
+					"test",
+					kueuealpha.Always,
+					&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "test",
+								Operator: "invalid",
 							},
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
 						},
 					},
-				},
-			},
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -147,21 +131,10 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 						Resource(corev1.ResourceCPU, "2").Obj()).
 					Obj(),
 			},
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -173,21 +146,10 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"selects candidates for trigger which is present in config": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.InsufficientQuota},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.InsufficientQuota,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -199,21 +161,10 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"returns empty candidates for trigger which is absent in config": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.InsufficientQuota},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.InsufficientQuota,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -223,26 +174,31 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			trigger:        kueuealpha.QuotaFeasibleAndInsufficientTopology,
 			wantCandidates: []string{},
 		},
+		"rule with nil preemptor selector matches any preemptor workload": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Name("a-incoming").Label("arbitrary", "label").Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"a1", "a2"},
+		},
 		"rule with matching preemptor labels selector is triggered for matching workload": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							PreemptorSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"active": "true"},
-							},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				RuleWithPreemptorSelector(
+					"test",
+					kueuealpha.Always,
+					&metav1.LabelSelector{
+						MatchLabels: map[string]string{"active": "true"},
 					},
-				},
-			},
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -253,24 +209,15 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"rule does not apply because of not matching preemptor labels selector": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							PreemptorSelector: &metav1.LabelSelector{
-								MatchLabels: map[string]string{"active": "true"},
-							},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				RuleWithPreemptorSelector(
+					"test",
+					kueuealpha.Always,
+					&metav1.LabelSelector{
+						MatchLabels: map[string]string{"active": "true"},
 					},
-				},
-			},
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -278,6 +225,62 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
 			wantCandidates: []string{},
+		},
+		"WithinClusterQueue selects only candidates in the preemptor's ClusterQueue": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"a1"},
+		},
+		"WithinLocalQueue selects only candidates in the exact same LocalQueue and Namespace": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinLocalQueue).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("same-lq", "ns1").Request(corev1.ResourceCPU, "1").Queue("lq1").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("diff-lq", "ns1").Request(corev1.ResourceCPU, "1").Queue("lq2").SimpleReserveQuota("a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("diff-ns", "ns2").Request(corev1.ResourceCPU, "1").Queue("lq1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl:    utiltestingapi.MakeWorkload("incoming", "ns1").Request(corev1.ResourceCPU, "1").Queue("lq1").Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"same-lq"},
+		},
+		"WithinParentCohort selects candidates from immediate parent cohort only": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("subA").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("subB").Parent("root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a").Cohort("subA").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("a-sibling").Cohort("subA").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("b").Cohort("subB").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinParentCohort).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a-sib1").SimpleReserveQuota("a-sibling", "default", now).Obj(),
+				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Name("incoming").Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"a1", "a-sib1"},
 		},
 		"returns candidates from ClusterQueues not under the same root": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -296,21 +299,10 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.AnyClusterQueue,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
@@ -322,30 +314,13 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"returns non repeating candidates even when the same candidates are matched by several rules of a trigger": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "first-rule",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinClusterQueue,
-								},
-							},
-						},
-						{
-							Name:             "second-rule",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("first-rule", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+				).
+				Rule("second-rule", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
@@ -356,24 +331,13 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"LabelSelector filters candidate workloads matching label selector": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "label-selector-rule",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinClusterQueue,
-									LabelSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{"env": "preemptible"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("label-selector-rule", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						LabelSelector(&metav1.LabelSelector{
+							MatchLabels: map[string]string{"env": "preemptible"},
+						}).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").
 					Label("env", "preemptible").
@@ -401,24 +365,13 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
 			},
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "cq-selector-rule",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-									ClusterQueueSelector: &metav1.LabelSelector{
-										MatchLabels: map[string]string{"tier": "preemptible"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("cq-selector-rule", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).
+						ClusterQueueSelector(&metav1.LabelSelector{
+							MatchLabels: map[string]string{"tier": "preemptible"},
+						}).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
@@ -429,25 +382,11 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"Priority filters candidates with higher priority": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "priority-rule",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinClusterQueue,
-									Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-										Mode:       kueuealpha.Base,
-										Comparison: kueuealpha.LessThan,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("priority-rule", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						Priority(kueuealpha.Base, kueuealpha.LessThan).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").Priority(50).SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").Priority(150).SimpleReserveQuota("a", "default", now).Obj(),
@@ -458,27 +397,14 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		},
 		"NumericLabels filters candidates with numeric label constraint": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "numeric-label-rule",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinClusterQueue,
-									NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
-										{
-											Key:        "tpus",
-											Comparison: ptr.To(kueuealpha.LessThanOrEqual),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("numeric-label-rule", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						NumericLabels(kueuealpha.PreemptionConfigNumericLabelConstraint{
+							Key:        "tpus",
+							Comparison: ptr.To(kueuealpha.LessThanOrEqual),
+						}).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").Label("tpus", "4").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").Label("tpus", "16").SimpleReserveQuota("a", "default", now).Obj(),

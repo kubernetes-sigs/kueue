@@ -36,6 +36,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 		preemptorPriority *int32
 		candidatePriority *int32
 		wantMatch         bool
+		wantBuildErr      bool
 	}{
 		"LessThan: candidate strictly lower matches": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
@@ -181,14 +182,14 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			candidatePriority: ptr.To[int32](-100),
 			wantMatch:         true,
 		},
-		"Negative priorities: candidate -50 is GreaterThan preemptor -100": {
+		"Negative priorities: candidate -150 is not GreaterThan preemptor -100": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
 				Mode:       kueuealpha.Base,
 				Comparison: kueuealpha.GreaterThan,
 			},
 			preemptorPriority: ptr.To[int32](-100),
-			candidatePriority: ptr.To[int32](-50),
-			wantMatch:         true,
+			candidatePriority: ptr.To[int32](-150),
+			wantMatch:         false,
 		},
 		"Unknown/unsupported comparison rejects all candidates": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
@@ -207,6 +208,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			preemptorPriority: ptr.To[int32](100),
 			candidatePriority: ptr.To[int32](50),
 			wantMatch:         false,
+			wantBuildErr:      true,
 		},
 	}
 
@@ -227,10 +229,13 @@ func TestPriorityFilter_Matches(t *testing.T) {
 
 			filter, ok := NewPriorityFilter(log, tc.constraint, preemptor)
 			if !ok {
-				if tc.wantMatch {
+				if !tc.wantBuildErr {
 					t.Fatalf("NewPriorityFilter() failed unexpectedly")
 				}
 				return
+			}
+			if tc.wantBuildErr {
+				t.Fatalf("NewPriorityFilter() succeeded unexpectedly, want build error")
 			}
 			if got := filter.Matches(candidate); got != tc.wantMatch {
 				t.Errorf("Matches(candidate) = %v, want %v", got, tc.wantMatch)
