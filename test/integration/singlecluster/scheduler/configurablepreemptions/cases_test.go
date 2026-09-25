@@ -1,3 +1,19 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package configurablepreemptions
 
 import (
@@ -7,9 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -86,9 +99,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 
 			defragPreemptionConfigName := "preemption-configuration"
 			config = &kueuealpha.PreemptionConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: defragPreemptionConfigName,
-				},
+				Name: defragPreemptionConfigName,
 				Spec: kueuealpha.PreemptionConfigSpec{
 					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
 						{
@@ -104,8 +115,8 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 									NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 										{
 											Key:           extraResource,
-											Comparison:    ptr.To(kueuealpha.LessThan),
-											FallbackValue: ptr.To(int32(0)),
+											Comparison:    new(kueuealpha.LessThan),
+											FallbackValue: new(int32(0)),
 										},
 									},
 								},
@@ -167,7 +178,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).Should(gomega.Succeed())
 			nodesA := slices.Collect(tas.LowestLevelValues(wlA.Status.Admission.PodSetAssignments[0].TopologyAssignment))
-			gomega.Expect(len(nodesA)).To(gomega.Equal(1))
+			gomega.Expect(nodesA).To(gomega.HaveLen(1))
 			wlAHostnameBeforeReschedule := nodesA[0]
 
 			// Simulate already taken topology by requiring workload to schedule on the same node as first workload.
@@ -179,7 +190,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).Should(gomega.Succeed())
 			nodesA = slices.Collect(tas.LowestLevelValues(wlA.Status.Admission.PodSetAssignments[0].TopologyAssignment))
-			gomega.Expect(len(nodesA)).To(gomega.Equal(1))
+			gomega.Expect(nodesA).To(gomega.HaveLen(1))
 			wlAHostnameAfterReschedule := nodesA[0]
 
 			gomega.Expect(wlAHostnameAfterReschedule).ShouldNot(gomega.Equal(wlAHostnameBeforeReschedule))
@@ -202,9 +213,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 		ginkgo.BeforeEach(func() {
 			heroJobConfiguration := "hero-job-preemption-configuration"
 			config = &kueuealpha.PreemptionConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: heroJobConfiguration,
-				},
+				Name: heroJobConfiguration,
 				Spec: kueuealpha.PreemptionConfigSpec{
 					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
 						{
