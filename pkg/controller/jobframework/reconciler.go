@@ -64,6 +64,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1952,27 +1953,25 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 	extra := ""
 	if prevWl != nil {
 		extra = scaleUpProbeExtra
-		if len(prevWl.Spec.PodSets) != len(podSets) {
-			extra = ""
-		} else {
-			for i := range podSets {
-				if prevWl.Spec.PodSets[i].Count != podSets[i].Count {
-					extra = ""
-				}
-			}
-		}
 		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
 		admitted := int32(0)
 		for i := range podSets {
-			prevAdmittedCount, ok := grantedCounts[podSets[i].Name]
-			if !ok {
-				continue
+			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok {
+				admitted += prevAdmittedCount
 			}
-			admitted += prevAdmittedCount
-			if podSets[i].Count > prevAdmittedCount {
-				// The baseline: what this PodSet already has. A scale-up has to
-				// grow at least one PodSet, not every one, which the scheduler enforces instead.
-				podSets[i].MinCount = new(prevAdmittedCount)
+			// Matched by name, not position: predecessor PodSets can be reordered, added,
+			// or removed, so index-aligned comparison (including a same-length check) would misfire.
+			prevPodSet := utilpodset.FindPodSetByName(prevWl.Spec.PodSets, podSets[i].Name)
+			if prevPodSet == nil || prevPodSet.Count != podSets[i].Count {
+				extra = ""
+			}
+			// The baseline is copied forward from the predecessor's own floor, not
+			// recomputed from its live grant, so it keeps tracing back to the chain's
+			// origin even once every live predecessor is gone. The scheduler still
+			// enforces that a scale-up must grow at least one PodSet, using the
+			// predecessor's live grant while it's still around (see getInitialAssignments).
+			if prevPodSet != nil && prevPodSet.MinCount != nil {
+				podSets[i].MinCount = prevPodSet.MinCount
 			}
 		}
 		if extra != "" {

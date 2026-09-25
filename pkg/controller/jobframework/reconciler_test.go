@@ -2657,8 +2657,8 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	prevWl := utiltestingapi.MakeWorkload("job-multi-prev", "ns").
 		PodSets(
 			kueue.PodSet{Name: kueue.PodSetReference("head"), Count: 1},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 20},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
 		).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("head")).
@@ -2702,7 +2702,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
 		},
-		"scale-up with previous admitted workload sets minCount to the granted baseline and probe extra": {
+		"scale-up with previous admitted workload copies minCount forward from its own recorded floor": {
 			job: job,
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
@@ -2716,11 +2716,51 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        20,
 			},
 			wantMinCounts: map[kueue.PodSetReference]*int32{
-				// head was granted its full count, so it stays fixed; the growing podSets get the
-				// counts granted to them, not those counts plus one.
+				// Copied forward from prevWl's own MinCount, not recomputed from what it was
+				// actually granted (1 and 4 respectively) - the predecessor's own floor traces
+				// back to the chain's origin, which a live grant snapshot wouldn't.
 				kueue.PodSetReference("head"):                nil,
-				kueue.PodSetReference("workers-reservation"): new(int32(1)),
-				kueue.PodSetReference("workers-spot"):        new(int32(4)),
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+			},
+		},
+		"scale-up with a reordered, shorter predecessor copies minCount by name, not position": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
+				// New PodSet not present on the predecessor at all - its own initialized
+				// floor must survive untouched rather than reading past the predecessor's
+				// shorter PodSets slice or picking up some other PodSet's floor.
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(9))},
+			},
+			existingObjects: []client.Object{job, utiltestingapi.MakeWorkload("job-multi-prev-reordered", "ns").
+				PodSets(
+					// Reordered relative to podSets above: workers-reservation before head.
+					kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
+					kueue.PodSet{Name: kueue.PodSetReference("head"), Count: 1},
+				).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("workers-reservation")).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(4).
+						Obj(),
+					utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("head")).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(1).
+						Obj(),
+				).Obj(), now).
+				ControllerReference(gvk, "job-multi", "job-uid-multi").
+				Obj()},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 4,
+				kueue.PodSetReference("workers-spot"):        20,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(9)),
 			},
 		},
 	}
