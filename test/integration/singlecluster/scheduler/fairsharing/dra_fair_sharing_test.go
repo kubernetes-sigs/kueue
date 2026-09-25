@@ -33,7 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), func() {
@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 					Obj()).
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 			wls = append(wls, wl)
 			return wl
 		}
@@ -70,7 +70,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				Request(corev1.ResourceCPU, cpuRequests).
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 			wls = append(wls, wl)
 			return wl
 		}
@@ -90,40 +90,40 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			))
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			gpuFlavor = utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj()
-			util.MustCreate(ctx, k8sClient, gpuFlavor)
+			behavioral.MustCreate(ctx, k8sClient, gpuFlavor)
 
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
 			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").Obj()
-			util.MustCreate(ctx, k8sClient, deviceClass)
+			behavioral.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate
 			rct = utiltesting.MakeResourceClaimTemplate("gpu-claim-template", ns.Name).
 				DeviceRequest("gpu", "gpu.example.com", 1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, rct)
+			behavioral.MustCreate(ctx, k8sClient, rct)
 		})
 
 		ginkgo.AfterAll(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 			fwk.StopManager(ctx)
 		})
 
 		ginkgo.AfterEach(func() {
 			for _, wl := range wls {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
 			}
 			for _, lq := range lqs {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			}
 			for _, cq := range cqs {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}
 		})
 
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj()
 			cqs = append(cqs, cq)
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			lqA := utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
 				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
@@ -151,8 +151,8 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqs = append(lqs, lqA, lqB)
-			util.MustCreate(ctx, k8sClient, lqA)
-			util.MustCreate(ctx, k8sClient, lqB)
+			behavioral.MustCreate(ctx, k8sClient, lqA)
+			behavioral.MustCreate(ctx, k8sClient, lqB)
 
 			ginkgo.By("Building usage history: DRA workloads on lq-a (CPU=2,GPU=2), CPU workload on lq-b (CPU=3)")
 			wlA1 := createWorkloadWithDRA("lq-a")
@@ -160,7 +160,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			wlBInit := createWorkloadCPUOnly("lq-b", "3")
 
 			ginkgo.By("Waiting for all initial workloads to be admitted")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1, wlA2, wlBInit)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1, wlA2, wlBInit)
 
 			ginkgo.By("Waiting for AFS ConsumedResources to reflect the admitted workloads")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -193,10 +193,10 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 					"expected lq-a usage (CPU+GPU=%v) > lq-b usage (CPU=%v) before phase 2",
 					lqATotal, lqBTotal,
 				)
-			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing all initial workloads")
-			util.FinishWorkloads(ctx, k8sClient, wlA1, wlA2, wlBInit)
+			behavioral.FinishWorkloads(ctx, k8sClient, wlA1, wlA2, wlBInit)
 
 			ginkgo.By("Verify the usage remains positive after a while since the workloads are finished")
 			gomega.Consistently(func(g gomega.Gomega) {
@@ -227,7 +227,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 
 				g.Expect(lqATotal).To(gomega.BeNumerically(">", 0))
 				g.Expect(lqBTotal).To(gomega.BeNumerically(">", 0))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 
 			// With DRA counted: lq-a=CPU(2)+GPU(2)=4 > lq-b=CPU(3) → lq-b admitted first.
 			// Without DRA: lq-a=CPU(2) < lq-b=CPU(3) → lq-a admitted first (wrong).
@@ -236,13 +236,13 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			wlA3 := createWorkloadCPUOnly("lq-a", "5")
 
 			ginkgo.By("Verifying lq-b workload is admitted first (lq-a has higher total usage including DRA)")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB1)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB1)
 
 			ginkgo.By("Finishing lq-b workload to free quota")
-			util.FinishWorkloads(ctx, k8sClient, wlB1)
+			behavioral.FinishWorkloads(ctx, k8sClient, wlB1)
 
 			ginkgo.By("Verifying lq-a workload is admitted after quota is freed")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA3)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA3)
 		})
 
 		ginkgo.It("LocalQueue status ConsumedResources includes DRA logical resources", framework.SlowSpec, func() {
@@ -260,17 +260,17 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj()
 			cqs = append(cqs, cq)
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			lqA := utiltestingapi.MakeLocalQueue("lq-consumed", ns.Name).
 				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqs = append(lqs, lqA)
-			util.MustCreate(ctx, k8sClient, lqA)
+			behavioral.MustCreate(ctx, k8sClient, lqA)
 
 			ginkgo.By("Creating DRA workload")
 			wl := createWorkloadWithDRA("lq-consumed")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			ginkgo.By("Verifying ConsumedResources includes DRA logical resource")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				gpuQuantity, hasGPU := consumed["whole-gpus"]
 				g.Expect(hasGPU).To(gomega.BeTrue(), "ConsumedResources should include DRA logical resource 'whole-gpus'")
 				g.Expect(gpuQuantity.Cmp(resource.MustParse("0"))).To(gomega.BeNumerically(">", 0), "whole-gpus consumed should be positive")
-			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -319,40 +319,40 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			))
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			gpuFlavor = utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj()
-			util.MustCreate(ctx, k8sClient, gpuFlavor)
+			behavioral.MustCreate(ctx, k8sClient, gpuFlavor)
 
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
 			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").Obj()
-			util.MustCreate(ctx, k8sClient, deviceClass)
+			behavioral.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate
 			rct = utiltesting.MakeResourceClaimTemplate("gpu-claim-template", ns.Name).
 				DeviceRequest("gpu", "gpu.example.com", 1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, rct)
+			behavioral.MustCreate(ctx, k8sClient, rct)
 		})
 
 		ginkgo.AfterAll(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rct, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 			fwk.StopManager(ctx)
 		})
 
 		ginkgo.AfterEach(func() {
 			for _, wl := range wls {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
 			}
 			for _, lq := range lqs {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			}
 			for _, cq := range cqs {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}
 		})
 
@@ -371,7 +371,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Obj()
 			cqs = append(cqs, cq)
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			lqA := utiltestingapi.MakeLocalQueue("lq-a", ns.Name).
 				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
@@ -380,8 +380,8 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
 				ClusterQueue(cq.Name).Obj()
 			lqs = append(lqs, lqA, lqB)
-			util.MustCreate(ctx, k8sClient, lqA)
-			util.MustCreate(ctx, k8sClient, lqB)
+			behavioral.MustCreate(ctx, k8sClient, lqA)
+			behavioral.MustCreate(ctx, k8sClient, lqB)
 
 			ginkgo.By("Building usage history: DRA workload on lq-a (GPU weighted 5.0), CPU workloads on lq-b")
 			wlA1 := utiltestingapi.MakeWorkloadWithGeneratedName("wl-dra-", ns.Name).
@@ -391,35 +391,35 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 					ResourceClaimTemplate("gpu-claim", "gpu-claim-template").
 					Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlA1)
+			behavioral.MustCreate(ctx, k8sClient, wlA1)
 			wls = append(wls, wlA1)
 
 			wlB1 := utiltestingapi.MakeWorkloadWithGeneratedName("wl-cpu-", ns.Name).
 				Queue(kueue.LocalQueueName("lq-b")).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlB1)
+			behavioral.MustCreate(ctx, k8sClient, wlB1)
 			wls = append(wls, wlB1)
 
 			wlB2 := utiltestingapi.MakeWorkloadWithGeneratedName("wl-cpu-", ns.Name).
 				Queue(kueue.LocalQueueName("lq-b")).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlB2)
+			behavioral.MustCreate(ctx, k8sClient, wlB2)
 			wls = append(wls, wlB2)
 
 			wlB3 := utiltestingapi.MakeWorkloadWithGeneratedName("wl-cpu-", ns.Name).
 				Queue(kueue.LocalQueueName("lq-b")).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlB3)
+			behavioral.MustCreate(ctx, k8sClient, wlB3)
 			wls = append(wls, wlB3)
 
 			ginkgo.By("Waiting for all initial workloads to be admitted")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1, wlB1, wlB2, wlB3)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1, wlB1, wlB2, wlB3)
 
 			ginkgo.By("Finishing all initial workloads to build AFS history")
-			util.FinishWorkloads(ctx, k8sClient, wlA1, wlB1, wlB2, wlB3)
+			behavioral.FinishWorkloads(ctx, k8sClient, wlA1, wlB1, wlB2, wlB3)
 
 			// With weight 5.0: lq-a=CPU(1)*1+GPU(1)*5=6 > lq-b=CPU(3)*1=3 → lq-b admitted first.
 			// Without weight: lq-a=CPU(1)+GPU(1)=2 < lq-b=CPU(3)=3 → lq-a admitted first (wrong).
@@ -428,24 +428,24 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 				Queue(kueue.LocalQueueName("lq-b")).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlB4)
+			behavioral.MustCreate(ctx, k8sClient, wlB4)
 			wls = append(wls, wlB4)
 
 			wlA2 := utiltestingapi.MakeWorkloadWithGeneratedName("wl-cpu-", ns.Name).
 				Queue(kueue.LocalQueueName("lq-a")).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlA2)
+			behavioral.MustCreate(ctx, k8sClient, wlA2)
 			wls = append(wls, wlA2)
 
 			ginkgo.By("Verifying lq-b workload is admitted first (lq-a has higher weighted DRA usage)")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB4)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB4)
 
 			ginkgo.By("Finishing lq-b workload to free quota")
-			util.FinishWorkloads(ctx, k8sClient, wlB4)
+			behavioral.FinishWorkloads(ctx, k8sClient, wlB4)
 
 			ginkgo.By("Verifying lq-a workload is admitted after quota is freed")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA2)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA2)
 		})
 	})
 })

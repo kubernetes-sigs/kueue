@@ -37,7 +37,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
-	testutil "sigs.k8s.io/kueue/test/util"
+	testbehavioral "sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -73,7 +73,7 @@ func TestValidateCreate(t *testing.T) {
 		"invalid queue-name label": {
 			clusterTrainingRuntime: testCtr,
 			trainJob:               testTrainJob.Clone().Queue("queue_name").Obj(),
-			wantErr:                field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testutil.InvalidRFC1123Message)}.ToAggregate(),
+			wantErr:                field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testbehavioral.InvalidRFC1123Message)}.ToAggregate(),
 		},
 		"with prebuilt workload": {
 			clusterTrainingRuntime: testCtr,

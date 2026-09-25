@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("RayJob Webhook", func() {
@@ -37,11 +37,11 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(rayjob.SetupRayJobWebhook))
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.StopManager(ctx)
 		})
 
@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 
 			ginkgo.It("should reject removing the queue name from an unsuspended RayJob", func() {
 				job := testingjob.MakeJob("rayjob-queue-removal", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, job)
+				behavioral.MustCreate(ctx, k8sClient, job)
 
 				lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 				createdJob := &rayv1.RayJob{}
@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 
 			ginkgo.It("should allow removing the queue name from an unsuspended RayJob", func() {
 				job := testingjob.MakeJob("rayjob-queue-removal", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, job)
+				behavioral.MustCreate(ctx, k8sClient, job)
 
 				lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 				createdJob := &rayv1.RayJob{}

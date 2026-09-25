@@ -28,7 +28,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // Probe for: when a namespace LimitRange sets defaultRequest and a container
@@ -44,28 +44,28 @@ var _ = ginkgo.Describe("LimitRange default vs limits-only accounting probe", fu
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-order-probe-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-order-probe-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, onDemandFlavor)
+		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-lr-order").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).
 				Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 
 		limitRange := utiltesting.MakeLimitRange("limits", ns.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
-		util.MustCreate(ctx, k8sClient, limitRange)
+		behavioral.MustCreate(ctx, k8sClient, limitRange)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 	})
 
 	ginkgo.It("accounts a limits-only workload by its limits, matching pod semantics", func() {
@@ -73,14 +73,14 @@ var _ = ginkgo.Describe("LimitRange default vs limits-only accounting probe", fu
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			Limit(corev1.ResourceCPU, "3").
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
 		ginkgo.By("waiting for admission", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				read := kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("checking the queue books the limits value, not the LimitRange default", func() {
@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("LimitRange default vs limits-only accounting probe", fu
 						Total: resource.MustParse("3"),
 					}},
 				}}, cmpopts.IgnoreFields(kueue.ResourceUsage{}, "Borrowed")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

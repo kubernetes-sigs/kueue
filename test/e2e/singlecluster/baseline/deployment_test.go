@@ -30,7 +30,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	deploymenttesting "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "feature:deployment"), func() {
@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-e2e-")
 		resourceFlavorName = "deployment-rf-" + ns.Name
 		clusterQueueName = "deployment-cq-" + ns.Name
 		localQueueName = "deployment-lq-" + ns.Name
@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
 			NodeLabel("instance-type", "on-demand").
 			Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
@@ -65,21 +65,21 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.It("should admit workloads that fits", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			TerminationGracePeriod(1).
 			Replicas(3).
@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 			Obj()
 
 		ginkgo.By("Create a deployment", func() {
-			util.MustCreate(ctx, k8sClient, deployment)
+			behavioral.MustCreate(ctx, k8sClient, deployment)
 		})
 
 		ginkgo.By("Wait for replicas ready", func() {
@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 				g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		pods := &corev1.PodList{}
@@ -117,19 +117,19 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 		})
 
 		ginkgo.By("Delete the deployment", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, deployment, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deployment, true)
 		})
 
 		ginkgo.By("Check that workloads are deleted", func() {
 			for _, wl := range createdWorkloads {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, wl, false, util.MediumTimeout)
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, wl, false, behavioral.MediumTimeout)
 			}
 		})
 	})
 
 	ginkgo.It("should admit workloads after change queue-name if AvailableReplicas = 0", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			TerminationGracePeriod(1).
 			Replicas(3).
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 			Obj()
 
 		ginkgo.By("Create a deployment", func() {
-			util.MustCreate(ctx, k8sClient, deployment)
+			behavioral.MustCreate(ctx, k8sClient, deployment)
 		})
 
 		ginkgo.By("Wait for replicas unavailable", func() {
@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 				g.Expect(createdDeployment.Status.Replicas).To(gomega.Equal(int32(3)))
 				g.Expect(createdDeployment.Status.UnavailableReplicas).To(gomega.Equal(int32(3)))
 				g.Expect(createdDeployment.Status.AvailableReplicas).To(gomega.Equal(int32(0)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		pods := &corev1.PodList{}
@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 				for _, wl := range createdWorkloads.Items {
 					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
 				}
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Update queue-name on the deployment", func() {
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 				createdDeployment.Labels[constants.QueueLabel] = lq.Name
 				g.Expect(k8sClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Wait for replicas ready", func() {
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 				g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Check previous pods are deleted", func() {
@@ -188,12 +188,12 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
 					client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 				g.Expect(pods.Items).To(gomega.HaveLen(3))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Check previous workloads are deleted", func() {
 			for _, wl := range createdWorkloads.Items {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, &wl, false, util.MediumTimeout)
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, &wl, false, behavioral.MediumTimeout)
 			}
 		})
 
@@ -204,16 +204,16 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 				for _, wl := range createdWorkloads.Items {
 					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 				}
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Delete the deployment", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, deployment, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deployment, true)
 		})
 
 		ginkgo.By("Check that workloads are deleted", func() {
 			for _, wl := range createdWorkloads.Items {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, &wl, false, util.MediumTimeout)
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, &wl, false, behavioral.MediumTimeout)
 			}
 		})
 	})

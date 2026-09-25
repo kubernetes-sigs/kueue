@@ -28,14 +28,14 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
 	k8sClient   client.WithWatch
 	cfg         *rest.Config
 	ctx         context.Context
-	kueueNS     = util.GetKueueNamespace()
+	kueueNS     = behavioral.GetKueueNamespace()
 	upgradeFrom = os.Getenv("KUEUE_UPGRADE_FROM_VERSION")
 )
 
@@ -44,11 +44,11 @@ func TestUpgrade(t *testing.T) {
 	if upgradeFrom != "" {
 		suiteName = fmt.Sprintf("%s: %s -> current", suiteName, upgradeFrom)
 	}
-	util.RunE2ESuite(t, suiteName)
+	behavioral.RunE2ESuite(t, suiteName)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	util.SetupLogger()
+	behavioral.SetupLogger()
 
 	if upgradeFrom == "" {
 		ginkgo.Fail("KUEUE_UPGRADE_FROM_VERSION environment variable must be set")
@@ -60,13 +60,13 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	var err error
 
-	k8sClient, cfg, err = util.CreateClientUsingCluster("")
+	k8sClient, cfg, err = behavioral.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	ginkgo.GinkgoLogr.Info("Waiting for Kueue to be available", "version", upgradeFrom)
 	waitForAvailableStart := time.Now()
-	util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+	behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue is available",
 		"version", upgradeFrom,

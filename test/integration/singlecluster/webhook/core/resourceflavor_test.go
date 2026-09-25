@@ -29,7 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -40,10 +40,10 @@ const (
 var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
@@ -55,25 +55,25 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 					Value:  "true",
 					Effect: corev1.TaintEffectNoSchedule,
 				}).Obj()
-			util.MustCreate(ctx, k8sClient, resourceFlavor)
+			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
-				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
+				controllerbehavioral.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 		})
 		ginkgo.It("Should have a finalizer", func() {
 			ginkgo.By("Creating a new empty resourceFlavor")
 			resourceFlavor := utiltestingapi.MakeResourceFlavor("resource-flavor").Obj()
-			util.MustCreate(ctx, k8sClient, resourceFlavor)
+			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
-				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
+				controllerbehavioral.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 
 			var created kueue.ResourceFlavor
@@ -103,9 +103,9 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			defer func() {
 				var rf kueue.ResourceFlavor
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
-				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
+				controllerbehavioral.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 		}
 	},
@@ -118,13 +118,13 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		ginkgo.It("Should fail to update", func() {
 			ginkgo.By("Creating a new resourceFlavor")
 			resourceFlavor := utiltestingapi.MakeResourceFlavor("resource-flavor").Obj()
-			util.MustCreate(ctx, k8sClient, resourceFlavor)
+			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 			defer func() {
 				var rf kueue.ResourceFlavor
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
-				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
+				controllerbehavioral.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 
 			var created kueue.ResourceFlavor
@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		err := k8sClient.Create(ctx, rf)
 		if err == nil {
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 			}()
 		}
 		gomega.Expect(err).Should(matcher)

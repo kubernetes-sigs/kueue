@@ -22,7 +22,7 @@ import (
 	"k8s.io/client-go/discovery"
 	"k8s.io/kube-openapi/pkg/util/proto"
 
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // Regression test for OpenAPI aggregation failures.
@@ -43,6 +43,6 @@ var _ = ginkgo.Describe("Aggregated OpenAPI", ginkgo.Label("area:singlecluster",
 			// This is the same reference validation used by kubectl's OpenAPI schema loader.
 			_, err = proto.NewOpenAPIData(doc)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
-		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

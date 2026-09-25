@@ -34,7 +34,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // nodeBlocks maps each fixture node's name to the block it belongs to, for
@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-topology-spreading-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-topology-spreading-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -157,33 +157,33 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					Ready().
 					Obj())
 			}
-			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
-			util.MustCreate(ctx, k8sClient, topology)
+			behavioral.MustCreate(ctx, k8sClient, topology)
 
 			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 				NodeLabel("node-group", "tas").
 				TopologyName(topology.Name).Obj()
-			util.MustCreate(ctx, k8sClient, tasFlavor)
+			behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 			for i := range nodes {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
 			}
 		})
 
@@ -212,13 +212,13 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 				Label(groupSelectorLabel, groupSelectorValue).
 				PodSets(pinnedGroupPodSet(maxShare, enforcementMode, pinToBlock)).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 			return wl
 		}
 
 		admitGroupWorkload := func(name, maxShare string, enforcementMode utiltas.TopologySpreadingEnforcementMode, pinToBlock string) *kueue.Workload {
 			wl := createGroupWorkload(name, maxShare, enforcementMode, pinToBlock)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			return wl
 		}
 
@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				ta := topologyAssignmentByName(g, wl, "main")
 				block = blockFromAssignment(g, ta)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			return block
 		}
 
@@ -244,7 +244,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 				ta := topologyAssignmentByName(g, wl, "main")
 				g.Expect(ta.Domains).To(gomega.HaveLen(1))
 				id = utiltas.DomainID(ta.Domains[0].Values)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			return id
 		}
 
@@ -317,8 +317,8 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					Label(groupSelectorLabel, groupSelectorValue).
 					PodSets(leaderWorkerPodSets(pinToBlock)...).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 				return wl
 			}
 
@@ -330,7 +330,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					workerTA := topologyAssignmentByName(g, wl, "worker")
 					leaderBlock = blockFromAssignment(g, leaderTA)
 					workerBlock = blockFromAssignment(g, workerTA)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				// Required topology at the block level pins the whole group -
 				// leader and worker alike - to the same block.
 				gomega.Expect(workerBlock).To(gomega.Equal(leaderBlock))
@@ -370,15 +370,15 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 			ginkgo.By("verifying it stays pending while every block is over its allowance", func() {
 				// Quota is not the constraint here - the ClusterQueue has room
 				// for ten such Workloads - so only spreading can hold it back.
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
 			})
 
 			ginkgo.By("deleting the Workload occupying the first block", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
 			})
 
 			ginkgo.By("verifying the pending Workload is then admitted into the freed block", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
 				gomega.Expect(blockOf(wl3)).To(gomega.Equal("b1"))
 			})
 		})
@@ -408,7 +408,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 						g.Expect(cond.Reason).NotTo(gomega.ContainSubstring("Spread"), "condition %s", cond.Type)
 						g.Expect(cond.Message).NotTo(gomega.ContainSubstring("spreading"), "condition %s", cond.Type)
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -444,8 +444,8 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl1)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				behavioral.MustCreate(ctx, k8sClient, wl1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 			})
 			gomega.Expect(blockOf(wl1)).To(gomega.Equal("b1"))
 
@@ -486,8 +486,8 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					Label(groupSelectorLabel, groupSelectorValue).
 					PodSets(*ps.Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 				return wl
 			}
 
@@ -545,8 +545,8 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					Label(controllerconstants.JobUIDLabel, jobUID).
 					PodSets(*ps.Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 				return wl
 			}
 
@@ -606,7 +606,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					Queue("not-yet-adopted").
 					PodSets(*ps.Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				return wl
 			}
 			adoptWorkload := func(wl *kueue.Workload) {
@@ -618,8 +618,8 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					wl.Labels[controllerconstants.JobUIDLabel] = jobUID
 					wl.Spec.QueueName = kueue.LocalQueueName(localQueue.Name)
 					g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			}
 
 			var wl1, wl2 *kueue.Workload

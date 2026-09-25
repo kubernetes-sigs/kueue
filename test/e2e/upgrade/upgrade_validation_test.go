@@ -30,7 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
@@ -40,7 +40,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 			lqList := &kueue.LocalQueueList{}
 			g.Expect(k8sClient.List(ctx, lqList)).To(gomega.Succeed(), "Should be able to list LocalQueues (conversion webhook should be ready)")
 			g.Expect(lqList.Items).NotTo(gomega.BeEmpty(), "Should have at least one LocalQueue")
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Waiting for mutating webhook to be ready")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 			for _, webhook := range mwc.Webhooks {
 				g.Expect(webhook.ClientConfig.CABundle).ToNot(gomega.BeEmpty())
 			}
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should have CA bundles injected in all CRD conversion webhooks", func() {
@@ -129,15 +129,15 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 
 		testJob := testingjob.MakeJob("upgrade-validation-job", jobNamespace).
 			Queue(kueue.LocalQueueName(queueName)).
-			Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			RequestAndLimit(corev1.ResourceMemory, "50Mi").
 			Obj()
 
 		ginkgo.By("Creating test job")
-		util.MustCreate(ctx, k8sClient, testJob)
+		behavioral.MustCreate(ctx, k8sClient, testJob)
 		ginkgo.DeferCleanup(func() {
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, testJob)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, testJob)).To(gomega.Succeed())
 		})
 
 		ginkgo.GinkgoLogr.Info("Created test job", "job", testJob.Name, "queue", queueName)
@@ -151,12 +151,12 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Waiting for job to be admitted")
-		util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(testJob), nil)
+		behavioral.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(testJob), nil)
 
 		ginkgo.By("Verifying workload is admitted")
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 	})
 })

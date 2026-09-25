@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
@@ -41,38 +41,38 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 		clusterQ      *kueue.ClusterQueue
 		localQ        *kueue.LocalQueue
 		delayedCheck  *kueue.AdmissionCheck
-		realClock     = util.RealClock
+		realClock     = behavioral.RealClock
 	)
 
 	ginkgo.JustBeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultFlavor)
+		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "delayed-retry-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "delayed-retry-")
 
 		delayedCheck = utiltestingapi.MakeAdmissionCheck("delayed-check").ControllerName("ctrl").Obj()
-		util.MustCreate(ctx, k8sClient, delayedCheck)
-		util.SetAdmissionCheckActive(ctx, k8sClient, delayedCheck, metav1.ConditionTrue)
+		behavioral.MustCreate(ctx, k8sClient, delayedCheck)
+		behavioral.SetAdmissionCheckActive(ctx, k8sClient, delayedCheck, metav1.ConditionTrue)
 
 		clusterQ = utiltestingapi.MakeClusterQueue("dev-cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			AdmissionChecks(kueue.AdmissionCheckReference(delayedCheck.Name)).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQ)
+		behavioral.MustCreate(ctx, k8sClient, clusterQ)
 
 		localQ = utiltestingapi.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(clusterQ.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQ)
+		behavioral.MustCreate(ctx, k8sClient, localQ)
 
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQ)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQ)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQ, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, delayedCheck, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQ, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, delayedCheck, true)
 		fwk.StopManager(ctx)
 	})
 
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 			})
 			wlLookupKey := client.ObjectKeyFromObject(wl)
 			createdWorkload := &kueue.Workload{}
@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Marking AC as Retry to trigger an immediate retry", func() {
@@ -106,11 +106,11 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 						Message: "Retrying admission check",
 					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finish eviction", func() {
-				util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(*ac.RetryCount).To(gomega.Equal(int32(1)))
 
 					g.Expect(createdWorkload.Status.RequeueState).To(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Wait for job to have quota again", func() {
@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Marking AC as Retry to trigger a delayed retry", func() {
@@ -152,11 +152,11 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 						RequeueAfterSeconds: new(int32(5)),
 					}, realClock)
 					g.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finish eviction", func() {
-				util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("Verifying retry counter is incremented after transition to Pending", func() {
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 
 					g.Expect(createdWorkload.Status.RequeueState).ToNot(gomega.BeNil())
 					g.Expect(createdWorkload.Status.RequeueState.RequeueAt).ToNot(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Wait for job to have quota again", func() {
@@ -181,11 +181,11 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Marking AC as Ready", func() {
-				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, createdWorkload, kueue.AdmissionCheckReference(delayedCheck.Name), kueue.CheckStateReady, false)
+				behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, createdWorkload, kueue.AdmissionCheckReference(delayedCheck.Name), kueue.CheckStateReady, false)
 			})
 
 			ginkgo.By("Verifying workload is admitted with retry counter", func() {
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
 					g.Expect(workload.IsAdmitted(createdWorkload)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

@@ -46,7 +46,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:managejobswithoutqueuename"), ginkgo.Ordered, func() {
@@ -58,29 +58,29 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 		})
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultRf)
+		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.MediumTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, behavioral.MediumTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("manageJobsWithoutQueueName=true", func() {
@@ -93,14 +93,14 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						Parallelism(int32(numPods)).
 						Completions(int32(numPods)).
 						Suspend(false).
-						Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+						Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 						SetTypeMeta().Obj(),
 				}).
 				Suspend(false).
 				Obj()
 
 			ginkgo.By("creating an unsuspended appwrapper without a queue name", func() {
-				util.MustCreate(ctx, k8sClient, aw)
+				behavioral.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("verifying that the appwrapper gets suspended", func() {
@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the queue-name label", func() {
@@ -118,7 +118,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.Get(ctx, awLookupKey, createdAppWrapper)).Should(gomega.Succeed())
 					createdAppWrapper.Labels[controllerconstants.QueueLabel] = localQueue.Name
 					g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("wait for appwrapper to be unsuspended", func() {
@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("wait for the wrapped Job to successfully complete", func() {
@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperSucceeded))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -148,8 +148,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 								Replicas:    2,
 								Parallelism: 1,
 								Completions: 1,
-								Image:       util.GetAgnHostImage(),
-								Args:        util.BehaviorExitFast,
+								Image:       behavioral.GetAgnHostImage(),
+								Args:        behavioral.BehaviorExitFast,
 							},
 						).
 						SetTypeMeta().
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				Obj()
 
 			ginkgo.By("creating an unsuspended appwrapper without a queue name", func() {
-				util.MustCreate(ctx, k8sClient, aw)
+				behavioral.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("verifying that the appwrapper gets suspended", func() {
@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the queue-name label", func() {
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.Get(ctx, awLookupKey, createdAppWrapper)).Should(gomega.Succeed())
 					createdAppWrapper.Labels[controllerconstants.QueueLabel] = localQueue.Name
 					g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("wait for appwrapper to be unsuspended", func() {
@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("wait for the wrapped JobSet to successfully complete", func() {
@@ -196,7 +196,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperSucceeded))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -212,8 +212,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 								Replicas:    2,
 								Parallelism: 1,
 								Completions: 1,
-								Image:       util.GetAgnHostImage(),
-								Args:        util.BehaviorExitFast,
+								Image:       behavioral.GetAgnHostImage(),
+								Args:        behavioral.BehaviorExitFast,
 								Labels: map[string]string{
 									controllerconstants.QueueLabel: localQueue.Name,
 								},
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				Obj()
 
 			ginkgo.By("Creating an unsuspended AppWrapper without a queue-name", func() {
-				util.MustCreate(ctx, k8sClient, aw)
+				behavioral.MustCreate(ctx, k8sClient, aw)
 			})
 
 			createdAppWrapper := &awv1beta2.AppWrapper{}
@@ -239,7 +239,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Setting the queue-name label", func() {
@@ -247,14 +247,14 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
 					createdAppWrapper.Labels[controllerconstants.QueueLabel] = localQueue.Name
 					g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the AppWrapper is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			createdJobSet := &v1alpha2.JobSet{}
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
 					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -275,8 +275,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       util.GetAgnHostImage(),
-						Args:        util.BehaviorExitFast,
+						Image:       behavioral.GetAgnHostImage(),
+						Args:        behavioral.BehaviorExitFast,
 						Labels: map[string]string{
 							controllerconstants.QueueLabel: localQueue.Name,
 						},
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				Obj()
 
 			ginkgo.By("Creating an unsuspended JobSet without a queue-name", func() {
-				util.MustCreate(ctx, k8sClient, jobSet)
+				behavioral.MustCreate(ctx, k8sClient, jobSet)
 			})
 
 			createdJobSet := &v1alpha2.JobSet{}
@@ -298,7 +298,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
 					g.Expect(createdJobSet.Spec.Suspend).To(gomega.Equal(new(true)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Setting the queue-name label", func() {
@@ -309,21 +309,21 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					}
 					createdJobSet.Labels[controllerconstants.QueueLabel] = localQueue.Name
 					g.Expect(k8sClient.Update(ctx, createdJobSet)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the JobSet is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).Should(gomega.Succeed())
 					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the JobSet is finished", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).Should(gomega.Succeed())
 					g.Expect(createdJobSet.Status.TerminalState).Should(gomega.Equal(string(v1alpha2.JobSetCompleted)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				Suspend(false).
 				Component(awtesting.Component{
 					Template: testingdeploy.MakeDeployment(deploymentKey.Name, deploymentKey.Namespace).
-						Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+						Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 						RequestAndLimit(corev1.ResourceCPU, "200m").
 						TerminationGracePeriod(1).
 						Replicas(3).
@@ -349,7 +349,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				Obj()
 
 			ginkgo.By("creating an AppWrapper", func() {
-				util.MustCreate(ctx, k8sClient, aw)
+				behavioral.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("verifying that the AppWrapper gets suspended", func() {
@@ -357,14 +357,14 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying that the Deployment doesn't create", func() {
 				createdDeployment := &appsv1.Deployment{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, deploymentKey, createdDeployment)).To(utiltesting.BeNotFoundError())
-				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the queue-name label", func() {
@@ -373,7 +373,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).Should(gomega.Succeed())
 					createdAppWrapper.Labels[controllerconstants.QueueLabel] = localQueue.Name
 					g.Expect(k8sClient.Update(ctx, createdAppWrapper)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("wait for AppWrapper to be unsuspended", func() {
@@ -381,7 +381,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).To(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Check that only one workload is created and admitted", func() {
@@ -391,7 +391,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(appwrapper.GetWorkloadNameForAppWrapper(aw.Name, aw.UID)))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying that the Deployment ready", func() {
@@ -399,13 +399,13 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, deploymentKey, createdDeployment)).To(gomega.Succeed())
 					g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
 		ginkgo.It("should not suspend the pods created by a LeaderWorkerSet in the test namespace with queue-name label", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -413,7 +413,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				Queue(localQueue.Name).
 				Obj()
 			ginkgo.By("Create a LeaderWorkerSet", func() {
-				util.MustCreate(ctx, k8sClient, lws)
+				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
 			ginkgo.By("check that only one workload is created and admitted", func() {
@@ -423,8 +423,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-					util.MustHaveOwnerReference(g, createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					behavioral.MustHaveOwnerReference(g, createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("waiting for replicas is ready", func() {
@@ -433,7 +433,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrue("Available"))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying that pods are running", func() {
@@ -446,31 +446,31 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					for _, pod := range pods.Items {
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
 					}
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("Delete the LeaderWorkerSet", func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
 				})
 
 				ginkgo.By("Check workload is deleted", func() {
 					createdWorkload := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
-					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
+					}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 			})
 		})
 
 		ginkgo.It("should suspend the pods created by a LeaderWorkerSet in the test namespace without queue-name label", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("Create a LeaderWorkerSet", func() {
-				util.MustCreate(ctx, k8sClient, lws)
+				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
 			ginkgo.By("check that only one workload is created and is not admitted", func() {
@@ -480,8 +480,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")))
 					g.Expect(createdWorkloads.Items[0].Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
-					util.MustHaveOwnerReference(g, createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					behavioral.MustHaveOwnerReference(g, createdWorkloads.Items[0].OwnerReferences, lws, k8sClient.Scheme())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify that replicas is not ready", func() {
@@ -489,7 +489,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying that pods are running and gated", func() {
@@ -503,31 +503,31 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).Should(gomega.BeTrue())
 					}
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete the LeaderWorkerSet", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
 				createdWorkload := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					g.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
 		ginkgo.It("should suspend the pods created by a LeaderWorkerSet without queue-name label and unsuspend after set queue-name", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				Size(1).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Obj()
 			ginkgo.By("creating a LeaderWorkerSet", func() {
-				util.MustCreate(ctx, k8sClient, lws)
+				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
 			wlName := leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0")
@@ -538,13 +538,13 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					g.Expect(k8sClient.List(ctx, createdWorkloads, client.InNamespace(lws.Namespace))).To(gomega.Succeed())
 					g.Expect(createdWorkloads.Items).To(gomega.HaveLen(1))
 					g.Expect(createdWorkloads.Items[0].Name).To(gomega.Equal(wlName))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := types.NamespacedName{Name: wlName, Namespace: ns.Name}
 
 			ginkgo.By("checking that workload is inadmissible", func() {
-				util.ExpectWorkloadsToBeInadmissibleByKeys(ctx, k8sClient, wlLookupKey)
+				behavioral.ExpectWorkloadsToBeInadmissibleByKeys(ctx, k8sClient, wlLookupKey)
 			})
 
 			createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
@@ -553,7 +553,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(0)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking that pods are gated", func() {
@@ -567,7 +567,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodPending))
 						g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).Should(gomega.BeTrue())
 					}
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("setting the queue-name label", func() {
@@ -578,7 +578,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					}
 					createdLeaderWorkerSet.Labels[controllerconstants.QueueLabel] = localQueue.Name
 					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking that workload is updated", func() {
@@ -586,18 +586,18 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					createdWorkload := &kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName(localQueue.Name)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking that workload is admitted", func() {
-				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
+				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
 			})
 
 			ginkgo.By("checking that replicas is ready", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying that pods are running and ungated", func() {
@@ -610,7 +610,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 					for _, pod := range pods.Items {
 						g.Expect(pod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
 					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -625,23 +625,23 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultRf)
+		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 		// Unfortunately, we can't move it to BeforeAll, due to we need to know the namespace name.
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 			cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{{
@@ -654,10 +654,10 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.MediumTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, behavioral.MediumTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.It("should not suspend Jobs from unmanaged JobSet", func() {
@@ -669,21 +669,21 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 					Replicas:    1,
 					Parallelism: 1,
 					Completions: 1,
-					Image:       util.GetAgnHostImage(),
-					Args:        util.BehaviorExitFast,
+					Image:       behavioral.GetAgnHostImage(),
+					Args:        behavioral.BehaviorExitFast,
 				},
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "test-job-2",
 					Replicas:    1,
 					Parallelism: 1,
 					Completions: 1,
-					Image:       util.GetAgnHostImage(),
-					Args:        util.BehaviorExitFast,
+					Image:       behavioral.GetAgnHostImage(),
+					Args:        behavioral.BehaviorExitFast,
 				},
 			).Obj()
 
 		ginkgo.By("creating a JobSet", func() {
-			util.MustCreate(ctx, k8sClient, jobSet)
+			behavioral.MustCreate(ctx, k8sClient, jobSet)
 		})
 
 		jobs := &batchv1.JobList{}
@@ -695,7 +695,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 				for _, job := range jobs.Items {
 					g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
 				}
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the jobs are completed", func() {
@@ -706,7 +706,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 					g.Expect(job.Spec.Suspend).To(gomega.HaveValue(gomega.BeFalse()))
 					g.Expect(job.Status.Succeeded).To(gomega.Equal(int32(1)))
 				}
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying that the JobSet is completed", func() {
@@ -714,7 +714,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 				createdJobSet := &v1alpha2.JobSet{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
 				g.Expect(createdJobSet.Status.TerminalState).To(gomega.Equal(string(v1alpha2.JobSetCompleted)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })
@@ -728,7 +728,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(framework string) bool {
 				return framework == jobset.FrameworkName
@@ -737,24 +737,24 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultRf)
+		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.MediumTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, behavioral.MediumTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("manageJobsWithoutQueueName=true", func() {
@@ -771,8 +771,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 								Replicas:    2,
 								Parallelism: 1,
 								Completions: 1,
-								Image:       util.GetAgnHostImage(),
-								Args:        util.BehaviorExitFast,
+								Image:       behavioral.GetAgnHostImage(),
+								Args:        behavioral.BehaviorExitFast,
 							},
 						).
 						SetTypeMeta().
@@ -785,7 +785,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 				Obj()
 
 			ginkgo.By("Creating an unsuspended AppWrapper without a queue-name", func() {
-				util.MustCreate(ctx, k8sClient, aw)
+				behavioral.MustCreate(ctx, k8sClient, aw)
 			})
 
 			ginkgo.By("Checking that the AppWrapper is unsuspended", func() {
@@ -793,7 +793,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 					g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			createdJobSet := &v1alpha2.JobSet{}
@@ -802,14 +802,14 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
 					g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the JobSet is finished", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobSetKey, createdJobSet)).Should(gomega.Succeed())
 					g.Expect(createdJobSet.Status.TerminalState).Should(gomega.Equal(string(v1alpha2.JobSetCompleted)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

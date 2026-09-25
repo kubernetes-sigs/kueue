@@ -31,10 +31,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", util.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", behavioral.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -42,7 +42,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			if cfg.FeatureGates == nil {
 				cfg.FeatureGates = make(map[string]bool)
 			}
@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		})
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("").
 			GeneratedName("test-cq-ignoreundeclared-").
@@ -68,12 +68,12 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, resourceFlavor, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, resourceFlavor, true, behavioral.MediumTimeout)
 	})
 
 	ginkgo.When("Metrics is available", func() {
@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-quota-check-strategy-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-quota-check-strategy-")
 			metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 				Name: "metrics-reader-rolebinding-" + ns.Name,
 				Subjects: []rbacv1.Subject{
@@ -102,49 +102,49 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					Name:     metricsReaderClusterRoleName,
 				},
 			}
-			util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
+			behavioral.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 			curlPod = testingjobspod.MakePod("curl-metrics-"+ns.Name, kueueNS).
 				ServiceAccountName(serviceAccountName).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, curlPod)
+			behavioral.MustCreate(ctx, k8sClient, curlPod)
 
 			ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-				util.WaitForPodRunning(ctx, k8sClient, curlPod)
+				behavioral.WaitForPodRunning(ctx, k8sClient, curlPod)
 			})
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-ignoreundeclared-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
-			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
+			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, behavioral.LongTimeout)
+			behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
 		ginkgo.It("should not report metrics for resource usage for undeclared resources", func() {
 			ginkgo.By("Create a job with undeclared resource", func() {
 				createdJob = testingjob.MakeJob("ignoreundeclared-job", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
 					Obj()
-				util.MustCreate(ctx, k8sClient, createdJob)
+				behavioral.MustCreate(ctx, k8sClient, createdJob)
 				createdJobWLName := job.GetWorkloadNameForJob(createdJob.Name, createdJob.UID)
 				workloadKey := types.NamespacedName{
 					Name:      createdJobWLName,
 					Namespace: ns.Name,
 				}
-				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, workloadKey)
+				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, workloadKey)
 			})
 
 			availableMetrics := [][]string{
@@ -152,14 +152,14 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 			}
 			curlContainerName = curlPod.Spec.Containers[0].Name
 			ginkgo.By("checking that resource usage metrics for declared resources are available", func() {
-				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, availableMetrics)
+				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, availableMetrics)
 			})
 
 			unavailableMetrics := [][]string{
 				{"kueue_cluster_queue_resource_usage", clusterQueue.Name, "memory"},
 			}
 			ginkgo.By("checking that resource usage metrics for undeclared resources are not available", func() {
-				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, unavailableMetrics)
+				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, unavailableMetrics)
 			})
 		})
 	})
@@ -173,26 +173,26 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-preemption-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-preemption-")
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-preemption-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, highWPC, true, util.MediumTimeout)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, lowWPC, true, util.MediumTimeout)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, highWPC, true, behavioral.MediumTimeout)
+			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, lowWPC, true, behavioral.MediumTimeout)
 		})
 
 		ginkgo.It("should preempt workloads with undeclared resource that have lower priority", func() {
 			lowWPC = utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(10).Obj()
 			highWPC = utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj()
-			util.MustCreate(ctx, k8sClient, lowWPC)
-			util.MustCreate(ctx, k8sClient, highWPC)
+			behavioral.MustCreate(ctx, k8sClient, lowWPC)
+			behavioral.MustCreate(ctx, k8sClient, highWPC)
 
 			ginkgo.By("Create a low priority workload with undeclared resource", func() {
 				lowJob := testingjob.MakeJob("low-job", ns.Name).
@@ -200,12 +200,12 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					WorkloadPriorityClass("low").
 					RequestAndLimit(corev1.ResourceCPU, "100").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					Obj()
-				util.MustCreate(ctx, k8sClient, lowJob)
+				behavioral.MustCreate(ctx, k8sClient, lowJob)
 				lowJobKey = types.NamespacedName{Name: job.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: ns.Name}
-				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, lowJobKey)
+				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, lowJobKey)
 			})
 
 			ginkgo.By("Create a high priority workload with undeclared resource", func() {
@@ -214,12 +214,12 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					WorkloadPriorityClass("high").
 					RequestAndLimit(corev1.ResourceCPU, "100").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					Obj()
-				util.MustCreate(ctx, k8sClient, highJob)
+				behavioral.MustCreate(ctx, k8sClient, highJob)
 				highJobKey := types.NamespacedName{Name: job.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: ns.Name}
-				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, highJobKey)
+				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, highJobKey)
 			})
 
 			ginkgo.By("Check the low priority workload is preempted", func() {
@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					g.Expect(k8sClient.Get(ctx, lowJobKey, getworkload)).To(gomega.Succeed())
 					g.Expect(getworkload.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadAdmitted))
 					g.Expect(getworkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPreempted))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

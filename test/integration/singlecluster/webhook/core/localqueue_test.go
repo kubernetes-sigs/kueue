@@ -27,7 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const queueName = "queue-test"
@@ -35,10 +35,10 @@ const queueName = "queue-test"
 var _ = ginkgo.Describe("Queue validating webhook", func() {
 	var _ = ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	var _ = ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 	ginkgo.When("Updating a Queue", func() {
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 		ginkgo.It("Should reject the change of spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := utiltestingapi.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
-			util.MustCreate(ctx, k8sClient, obj)
+			behavioral.MustCreate(ctx, k8sClient, obj)
 
 			ginkgo.By("Updating the Queue")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -58,14 +58,14 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
 				updatedQ.Spec.ClusterQueue = "bar"
 				g.Expect(k8sClient.Update(ctx, &updatedQ)).Should(utiltesting.BeInvalidError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 	ginkgo.When("Updating the status of a Queue", func() {
 		ginkgo.It("Should allow flavors quantity up to the limit in flavorsReservation and flavorsUsage", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := utiltestingapi.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
-			util.MustCreate(ctx, k8sClient, obj)
+			behavioral.MustCreate(ctx, k8sClient, obj)
 
 			ginkgo.By("Updating the Queue status")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -74,12 +74,12 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 				updatedQ.Status.FlavorsReservation = makeLocalQueueFlavorUsage(flavorsMaxItems)
 				updatedQ.Status.FlavorsUsage = makeLocalQueueFlavorUsage(flavorsMaxItems)
 				g.Expect(k8sClient.Status().Update(ctx, &updatedQ)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("Should reject flavors quantity over the limit in flavorsReservation", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := utiltestingapi.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
-			util.MustCreate(ctx, k8sClient, obj)
+			behavioral.MustCreate(ctx, k8sClient, obj)
 
 			ginkgo.By("Updating the Queue status")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -87,12 +87,12 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
 				updatedQ.Status.FlavorsReservation = makeLocalQueueFlavorUsage(flavorsMaxItems + 1)
 				g.Expect(k8sClient.Status().Update(ctx, &updatedQ)).Should(utiltesting.BeInvalidError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("Should reject flavors quantity over the limit in flavorsUsage", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := utiltestingapi.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
-			util.MustCreate(ctx, k8sClient, obj)
+			behavioral.MustCreate(ctx, k8sClient, obj)
 
 			ginkgo.By("Updating the Queue status")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
 				updatedQ.Status.FlavorsUsage = makeLocalQueueFlavorUsage(flavorsMaxItems + 1)
 				g.Expect(k8sClient.Status().Update(ctx, &updatedQ)).Should(utiltesting.BeInvalidError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

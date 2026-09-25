@@ -39,7 +39,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // We test the interoperability of the Cluster Queues, where one is dedicated to manager Non-MultiKueue workloads
@@ -89,9 +89,9 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 	})
 
 	ginkgo.BeforeEach(func() {
-		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
+		worker1Ns = behavioral.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
+		worker2Ns = behavioral.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -100,19 +100,19 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		managerMultiKueueSecret1 = utiltesting.MakeSecret("multikueue1", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
 
 		managerMultiKueueSecret2 = utiltesting.MakeSecret("multikueue2", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w2Kubeconfig).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
 
 		workerCluster2 = utiltestingapi.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret2.Name).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
 
 		managerMultiKueueConfig = utiltestingapi.MakeMultiKueueConfig("multikueueconfig").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig)
 
 		// MultiKueue setup
 		ginkgo.By("Creating and initializing MultiKueue specific resources", func() {
@@ -120,29 +120,29 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				ControllerName(kueue.MultiKueueControllerName).
 				Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 				Obj()
-			util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
+			behavioral.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
 			managerMkFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMkFlavor)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMkFlavor)
 
 			managerMkCq = utiltestingapi.MakeClusterQueue("q1").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
 				AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerMkCq)
+			behavioral.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerMkCq)
 
 			managerMkLq = utiltestingapi.MakeLocalQueue(managerMkCq.Name, managerNs.Name).ClusterQueue(managerMkCq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerMkLq)
+			behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerMkLq)
 
 			worker1MkCq = utiltestingapi.MakeClusterQueue("q1").Obj()
-			util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkCq)
+			behavioral.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkCq)
 			worker1MkLq = utiltestingapi.MakeLocalQueue(worker1MkCq.Name, worker1Ns.Name).ClusterQueue(worker1MkCq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkLq)
+			behavioral.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkLq)
 
 			worker2MkCq = utiltestingapi.MakeClusterQueue("q1").Obj()
-			util.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkCq)
+			behavioral.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkCq)
 			worker2MkLq = utiltestingapi.MakeLocalQueue(worker2MkCq.Name, worker2Ns.Name).ClusterQueue(worker2MkCq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkLq)
+			behavioral.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkLq)
 		})
 
 		// Regular Kueue setup
@@ -150,56 +150,56 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			managerAC = utiltestingapi.MakeAdmissionCheck("manager-ac").
 				ControllerName("kueue-controller").
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerAC)
-			util.SetAdmissionCheckActive(managerTestCluster.ctx, managerTestCluster.client, managerAC, metav1.ConditionTrue)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerAC)
+			behavioral.SetAdmissionCheckActive(managerTestCluster.ctx, managerTestCluster.client, managerAC, metav1.ConditionTrue)
 
 			ginkgo.By("wait for check active", func() {
-				util.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerAC)
+				behavioral.ExpectAdmissionChecksToBeActive(managerTestCluster.ctx, managerTestCluster.client, managerAC)
 			})
 
 			worker1AC = utiltestingapi.MakeAdmissionCheck("worker1-ac").
 				ControllerName("kueue-controller").
 				Obj()
-			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC)
-			util.SetAdmissionCheckActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC, metav1.ConditionTrue)
+			behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC)
+			behavioral.SetAdmissionCheckActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC, metav1.ConditionTrue)
 
 			ginkgo.By("wait for check active", func() {
-				util.ExpectAdmissionChecksToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC)
+				behavioral.ExpectAdmissionChecksToBeActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC)
 			})
 
 			managerCq = utiltestingapi.MakeClusterQueue("q2").Obj()
-			util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
+			behavioral.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 			managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
+			behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
 			worker1Cq = utiltestingapi.MakeClusterQueue("q2").Obj()
-			util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+			behavioral.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 			worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
+			behavioral.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 		})
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, managerNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, managerNs)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerAC, true)
+		behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1AC, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerAC, true)
 
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMkCq, true)
-		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkCq, true)
-		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkCq, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
-		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMkCq, true)
+		behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1MkCq, true)
+		behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2MkCq, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
+		behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
 
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMkFlavor, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMkFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2, true)
 	})
 
 	ginkgo.It("Share worker cluster between MultiKueue and regular Kueue", func() {
@@ -209,12 +209,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				ManagedBy(kueue.MultiKueueControllerName).
 				Queue(kueue.LocalQueueName(managerMkLq.Name)).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobMk)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobMk)
 
 			jobNonMk = testingjob.MakeJob("job-kueue", worker1Ns.Name).
 				Queue(kueue.LocalQueueName(worker1Lq.Name)).
 				Obj()
-			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, jobNonMk)
+			behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, jobNonMk)
 		})
 
 		wlMkLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobMk.Name, jobMk.UID), Namespace: managerNs.Name}
@@ -224,12 +224,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
+			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
 		})
 
 		ginkgo.By("setting non multikueue workload reservation in the worker1 cluster", func() {
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(worker1Cq.Name)).Obj()
-			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlNonMkLookupKey, admission)
+			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlNonMkLookupKey, admission)
 		})
 
 		createdMkWorkload := &kueue.Workload{}
@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("checking the non multikueue workload creation in the worker1 cluster", func() {
@@ -250,23 +250,23 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlNonMkLookupKey, createdNonMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdNonMkWorkload.Status.Conditions).Should(utiltesting.HaveCondition(kueue.WorkloadQuotaReserved))
 				g.Expect(createdNonMkWorkload.Status.Conditions).Should(utiltesting.HaveCondition(kueue.WorkloadAdmitted))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
+			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
-			util.ExpectAdmissionCheckStateWithMessage(
+			behavioral.ExpectAdmissionCheckStateWithMessage(
 				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
 				`The workload was admitted on "worker1"`,
 			)
 
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+			behavioral.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
 				Note:   `The workload was admitted on "worker1"`,
@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(utiltesting.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("updating the multikueue worker job status", func() {
@@ -286,14 +286,14 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Active = 1
 				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(jobMk), &createdJob)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJob.Status.StartTime, metav1.Time{})).To(gomega.Equal(startTime))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("updating the regular worker job status", func() {
@@ -305,7 +305,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Active = 1
 				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		reachedPodsReason := "Reached expected number of succeeded pods"
@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlMkLookupKey, finishJobReason)
 
@@ -370,7 +370,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdWorkload := &kueue.Workload{}
@@ -380,8 +380,8 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 					Status:  metav1.ConditionTrue,
 					Reason:  string(kftraining.JobSucceeded),
 					Message: finishJobReason,
-				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -392,12 +392,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				ManagedBy(kueue.MultiKueueControllerName).
 				Queue(kueue.LocalQueueName(managerMkLq.Name)).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobMk)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobMk)
 
 			jobNonMk = testingjob.MakeJob("job-kueue", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobNonMk)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, jobNonMk)
 		})
 
 		wlMkLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobMk.Name, jobMk.UID), Namespace: managerNs.Name}
@@ -407,12 +407,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
+			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
 		})
 
 		ginkgo.By("setting non multikueue workload reservation in the worker1 cluster", func() {
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).Obj()
-			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlNonMkLookupKey, admission)
+			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlNonMkLookupKey, admission)
 		})
 
 		createdMkWorkload := &kueue.Workload{}
@@ -425,7 +425,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("checking the non multikueue workload creation in the manager cluster", func() {
@@ -433,23 +433,23 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlNonMkLookupKey, createdNonMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdNonMkWorkload.Status.Conditions).Should(utiltesting.HaveCondition(kueue.WorkloadQuotaReserved))
 				g.Expect(createdNonMkWorkload.Status.Conditions).Should(utiltesting.HaveCondition(kueue.WorkloadAdmitted))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
+			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
-			util.ExpectAdmissionCheckStateWithMessage(
+			behavioral.ExpectAdmissionCheckStateWithMessage(
 				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
 				multiKueueAC.Name,
 				kueue.CheckStateReady,
 				`The workload was admitted on "worker1"`,
 			)
 
-			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+			behavioral.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
 				Reason: "MultiKueue",
 				Type:   corev1.EventTypeNormal,
 				Note:   `The workload was admitted on "worker1"`,
@@ -457,7 +457,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(utiltesting.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("updating the multikueue manager job status", func() {
@@ -469,14 +469,14 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Active = 1
 				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJob := batchv1.Job{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(jobMk), &createdJob)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdJob.Status.StartTime, metav1.Time{})).To(gomega.Equal(startTime))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("updating the regular worker job status", func() {
@@ -488,7 +488,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Active = 1
 				createdJob.Status.Ready = new(int32(1))
 				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		reachedPodsReason := "Reached expected number of succeeded pods"
@@ -521,7 +521,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlMkLookupKey, finishJobReason)
 
@@ -553,7 +553,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdWorkload := &kueue.Workload{}
@@ -563,8 +563,8 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 					Status:  metav1.ConditionTrue,
 					Reason:  string(kftraining.JobSucceeded),
 					Message: finishJobReason,
-				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -578,7 +578,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 		var preExistingUID types.UID
 		ginkgo.By("creating a pre-existing Job on worker1 not managed by MultiKueue", func() {
 			preExistingJob := testingjob.MakeJob(jobName, worker1Ns.Name).Obj()
-			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, preExistingJob)
+			behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, preExistingJob)
 			preExistingUID = preExistingJob.UID
 		})
 
@@ -588,7 +588,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				ManagedBy(kueue.MultiKueueControllerName).
 				Queue(kueue.LocalQueueName(managerMkLq.Name)).
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerJob)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerJob)
 		})
 
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(managerJob.Name, managerJob.UID), Namespace: managerNs.Name}
@@ -597,14 +597,14 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
 		ginkgo.By("waiting for the remote workload to appear on worker1, confirming reconcileGroup has run", func() {
 			remoteWl := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying the pre-existing worker-local Job was not deleted by MultiKueue", func() {

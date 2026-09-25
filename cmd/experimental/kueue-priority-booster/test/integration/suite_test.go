@@ -31,7 +31,7 @@ import (
 	boostctrl "sigs.k8s.io/kueue/cmd/experimental/kueue-priority-booster/pkg/controller"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -48,7 +48,7 @@ const integrationNegativeBoost = int32(100000)
 const integrationTimeSharingWindow = 60 * time.Second
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "Kueue priority booster suite")
+	behavioral.RunSuite(t, "Kueue priority booster suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {

@@ -28,7 +28,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Kueue secure visibility server", func() {
@@ -44,9 +44,9 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
-		util.MustCreate(ctx, k8sClient, defaultRF)
+		behavioral.MustCreate(ctx, k8sClient, defaultRF)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -55,17 +55,17 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
 	})
 
 	ginkgo.When("Capacity is maxed by the admitted job", func() {
@@ -73,19 +73,19 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 			ginkgo.By("Schedule a job that maxes out the cluster queue", func() {
 				firstJob = testingjob.MakeJob("job-1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
 					BackoffLimit(0).
 					Obj()
-				util.MustCreate(ctx, k8sClient, firstJob)
+				behavioral.MustCreate(ctx, k8sClient, firstJob)
 			})
 			ginkgo.By("Wait for the job to be unsuspended", func() {
 				job := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstJob), job)).To(gomega.Succeed())
 					g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify there are no pending workloads", func() {
@@ -97,10 +97,10 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 			ginkgo.By("Schedule a job which is pending due to low quota", func() {
 				secondJob = testingjob.MakeJob("job-2", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					Obj()
-				util.MustCreate(ctx, k8sClient, secondJob)
+				behavioral.MustCreate(ctx, k8sClient, secondJob)
 			})
 
 			ginkgo.By("Verify there is one pending workload", func() {
@@ -108,16 +108,16 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.HaveLen(1))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete the first job to release the quota", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, firstJob, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, firstJob, true)
 				firstWl := &kueue.Workload{
 					Namespace: firstJob.Namespace,
 					Name:      workloadjob.GetWorkloadNameForJob(firstJob.Name, firstJob.UID)}
 				// TODO(#1789): this is no longer needed when we fix the --orphan mode for Jobs
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, firstWl, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, firstWl, true)
 			})
 
 			ginkgo.By("verify second job is not suspended", func() {
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondJob), job)).To(gomega.Succeed())
 					g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify there are no pending workloads, once the last workload is admitted", func() {
@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(info.Items).Should(gomega.BeEmpty())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

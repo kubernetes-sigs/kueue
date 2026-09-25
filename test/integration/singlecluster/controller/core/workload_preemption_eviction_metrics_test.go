@@ -26,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -44,9 +44,9 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pe-pending-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pe-pending-metrics-")
 		alphaFlavor = utiltestingapi.MakeResourceFlavor("alpha").Obj()
-		util.MustCreate(ctx, k8sClient, alphaFlavor)
+		behavioral.MustCreate(ctx, k8sClient, alphaFlavor)
 
 		cqName := fmt.Sprintf("cq-pe-%d", time.Now().UnixNano())
 		cq = utiltestingapi.MakeClusterQueue(cqName).
@@ -55,16 +55,16 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 				WithinClusterQueue: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
 			}).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, cq)
 
 		q = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, q)
+		behavioral.MustCreate(ctx, k8sClient, q)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, alphaFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, alphaFlavor, true)
 		fwk.StopManager(ctx)
 	})
 
@@ -74,21 +74,21 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 			Priority(pePendingLowPriority).
 			Request(corev1.ResourceCPU, "1").
 			Obj()
-		util.MustCreate(ctx, k8sClient, lowWl)
-		util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+		behavioral.MustCreate(ctx, k8sClient, lowWl)
+		behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 
 		highWl := utiltestingapi.MakeWorkload("high-wl", ns.Name).
 			Queue(kueue.LocalQueueName(q.Name)).
 			Priority(pePendingHighPriority).
 			Request(corev1.ResourceCPU, "4").
 			Obj()
-		util.MustCreate(ctx, k8sClient, highWl)
+		behavioral.MustCreate(ctx, k8sClient, highWl)
 
-		util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+		behavioral.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
 
-		util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
-		util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
+		behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
 
-		util.ExpectWorkloadEvictionLatencyHistogramMetricAtLeast(kueue.ClusterQueueReference(cq.Name), kueue.WorkloadEvictedByPreemption, 1)
+		behavioral.ExpectWorkloadEvictionLatencyHistogramMetricAtLeast(kueue.ClusterQueueReference(cq.Name), kueue.WorkloadEvictedByPreemption, 1)
 	})
 })

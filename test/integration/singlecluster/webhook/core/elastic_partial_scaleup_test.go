@@ -25,7 +25,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // Regression coverage for the KEP-12100 partial scale-up Workload shapes.
@@ -34,7 +34,7 @@ import (
 // ElasticJobScaleUpStrategy=partial annotation) produce Workloads that carry
 // the workload-slicing enabled annotation together with podSets that set
 // minCount. This suite exercises the real API server with the Workload
-// mutating and validating webhooks installed (see util.WebhookPath in the
+// mutating and validating webhooks installed (see behavioral.WebhookPath in the
 // suite setup): those shapes must be admitted while the partial scale-up
 // feature gate is on, with and without the classic PartialAdmission gate, and
 // must stay rejected while the partial scale-up gate is off.
@@ -46,11 +46,11 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 

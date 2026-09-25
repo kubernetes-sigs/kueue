@@ -33,7 +33,7 @@ import (
 	testinglws "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderworkerset", "area:jobs"), func() {
@@ -49,26 +49,26 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 			jobframework.WithEnabledFrameworks([]string{"leaderworkerset.x-k8s.io/leaderworkerset"}),
 		))
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
-		util.MustCreate(ctx, k8sClient, fl)
+		behavioral.MustCreate(ctx, k8sClient, fl)
 
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
 				Resource(corev1.ResourceCPU, "9").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		behavioral.MustCreate(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 		fwk.StopManager(ctx)
 	})
 
@@ -81,25 +81,25 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			Queue("lq").
 			Obj()
 		lws.Spec.RolloutStrategy.Type = leaderworkersetv1.RollingUpdateStrategyType
-		util.MustCreate(ctx, k8sClient, lws)
+		behavioral.MustCreate(ctx, k8sClient, lws)
 
 		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).Should(gomega.Succeed())
 			g.Expect(createdLWS.UID).ShouldNot(gomega.BeEmpty())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Manually creating the underlying StatefulSet a real LeaderWorkerSet controller would create")
 		sts := testingstatefulset.MakeStatefulSet(createdLWS.Name, ns.Name).
 			Label(leaderworkersetv1.SetNameLabelKey, createdLWS.Name).
 			Obj()
-		util.MustCreate(ctx, k8sClient, sts)
+		behavioral.MustCreate(ctx, k8sClient, sts)
 
 		createdSTS := &appsv1.StatefulSet{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
 			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Manually creating the Pod a real StatefulSet controller would create")
 		workloadName := leaderworkerset.GetWorkloadName(createdLWS.UID, createdLWS.Name, "0")
@@ -110,14 +110,14 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			Gate(constants.SchedulingGateName).
 			KueueFinalizer().
 			Obj()
-		util.MustCreate(ctx, k8sClient, pod)
+		behavioral.MustCreate(ctx, k8sClient, pod)
 
 		ginkgo.By("Verifying the Pod carries WorkloadAnnotation matching its Workload")
 		gotPod := &corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, workloadName))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should not set WorkloadAnnotation on the Pod when both TAS and SchedulerLibraryIntegration are disabled", func() {
@@ -129,25 +129,25 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			Queue("lq").
 			Obj()
 		lws.Spec.RolloutStrategy.Type = leaderworkersetv1.RollingUpdateStrategyType
-		util.MustCreate(ctx, k8sClient, lws)
+		behavioral.MustCreate(ctx, k8sClient, lws)
 
 		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).Should(gomega.Succeed())
 			g.Expect(createdLWS.UID).ShouldNot(gomega.BeEmpty())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Manually creating the underlying StatefulSet a real LeaderWorkerSet controller would create")
 		sts := testingstatefulset.MakeStatefulSet(createdLWS.Name, ns.Name).
 			Label(leaderworkersetv1.SetNameLabelKey, createdLWS.Name).
 			Obj()
-		util.MustCreate(ctx, k8sClient, sts)
+		behavioral.MustCreate(ctx, k8sClient, sts)
 
 		createdSTS := &appsv1.StatefulSet{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
 			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Manually creating the Pod a real StatefulSet controller would create")
 		pod := testingjobspod.MakePod(createdLWS.Name+"-0", ns.Name).
@@ -157,17 +157,17 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 			Gate(constants.SchedulingGateName).
 			KueueFinalizer().
 			Obj()
-		util.MustCreate(ctx, k8sClient, pod)
+		behavioral.MustCreate(ctx, k8sClient, pod)
 
 		ginkgo.By("Verifying the Pod does not carry WorkloadAnnotation")
 		gotPod := &corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Annotations[constants.RoleHashAnnotation]).ShouldNot(gomega.BeEmpty())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(kueue.WorkloadAnnotation))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 })

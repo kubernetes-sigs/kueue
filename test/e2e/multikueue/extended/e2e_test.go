@@ -25,7 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -72,36 +72,36 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = util.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-")
+		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker1-").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
-		util.MustCreate(ctx, k8sManagerClient, workerCluster1)
+		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)
 
 		workerCluster2 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker2-").KubeConfig(kueue.SecretLocationType, "multikueue2").Obj()
-		util.MustCreate(ctx, k8sManagerClient, workerCluster2)
+		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster2)
 
 		multiKueueConfig = utiltestingapi.MakeMultiKueueConfigWithGeneratedName("multikueueconfig-").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
-		util.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
+		behavioral.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
 
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("").
 			GeneratedName("ac1-").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
+		behavioral.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
 		managerHighWPC = utiltestingapi.MakeWorkloadPriorityClass("").
 			GeneratedName("high-workload-").PriorityValue(300).Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerHighWPC)
+		behavioral.MustCreate(ctx, k8sManagerClient, managerHighWPC)
 
 		managerLowWPC = utiltestingapi.MakeWorkloadPriorityClass("").
 			GeneratedName("low-workload-").PriorityValue(100).Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerLowWPC)
+		behavioral.MustCreate(ctx, k8sManagerClient, managerLowWPC)
 
 		managerFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("default-").Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
+		behavioral.MustCreate(ctx, k8sManagerClient, managerFlavor)
 
 		managerCq = utiltestingapi.MakeClusterQueue("").
 			GeneratedName("q1-").
@@ -119,19 +119,19 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
 
 		worker1HighWPC = utiltestingapi.MakeWorkloadPriorityClass(managerHighWPC.Name).PriorityValue(300).Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1HighWPC)
+		behavioral.MustCreate(ctx, k8sWorker1Client, worker1HighWPC)
 
 		worker1LowWPC = utiltestingapi.MakeWorkloadPriorityClass(managerLowWPC.Name).PriorityValue(100).Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1LowWPC)
+		behavioral.MustCreate(ctx, k8sWorker1Client, worker1LowWPC)
 
 		worker1Flavor = utiltestingapi.MakeResourceFlavor(managerFlavor.Name).Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
+		behavioral.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
 
 		worker1Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
 			ResourceGroup(
@@ -147,19 +147,19 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2HighWPC = utiltestingapi.MakeWorkloadPriorityClass(managerHighWPC.Name).PriorityValue(300).Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2HighWPC)
+		behavioral.MustCreate(ctx, k8sWorker2Client, worker2HighWPC)
 
 		worker2LowWPC = utiltestingapi.MakeWorkloadPriorityClass(managerLowWPC.Name).PriorityValue(100).Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2LowWPC)
+		behavioral.MustCreate(ctx, k8sWorker2Client, worker2LowWPC)
 
 		worker2Flavor = utiltestingapi.MakeResourceFlavor(managerFlavor.Name).Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
+		behavioral.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
 
 		worker2Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
 			ResourceGroup(
@@ -175,10 +175,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
 
 		kubernetesClients = kubernetesClientsMap{
 			workerCluster1.Name: {
@@ -202,36 +202,36 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
 
 		// Use the CRD-tolerant helper: shards without KubeRay have no RayService CRD installed.
-		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteAllRayServicesInNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteAllRayServicesInNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteAllRayServicesInNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteAllRayServicesInNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1HighWPC, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1LowWPC, true)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1HighWPC, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sWorker1Client, worker1LowWPC, true)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2HighWPC, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2LowWPC, true)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2HighWPC, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sWorker2Client, worker2LowWPC, true)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerHighWPC, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerLowWPC, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerHighWPC, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerLowWPC, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, behavioral.MediumTimeout)
 
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
 	registerRayAutoscalingTests(func() rayAutoscalingTestContext {

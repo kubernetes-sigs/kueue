@@ -35,7 +35,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
-	testutil "sigs.k8s.io/kueue/test/util"
+	testbehavioral "sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -53,40 +53,40 @@ func TestValidateCreate(t *testing.T) {
 	}{
 		{
 			name:    "simple",
-			job:     testingutil.MakeJobSet("job", "default").Queue("queue").Obj(),
+			job:     testingbehavioral.MakeJobSet("job", "default").Queue("queue").Obj(),
 			wantErr: nil,
 		},
 		{
 			name:    "invalid queue-name label",
-			job:     testingutil.MakeJobSet("job", "default").Queue("queue_name").Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testutil.InvalidRFC1123Message)}.ToAggregate(),
+			job:     testingbehavioral.MakeJobSet("job", "default").Queue("queue_name").Obj(),
+			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testbehavioral.InvalidRFC1123Message)}.ToAggregate(),
 		},
 		{
 			name:    "with prebuilt workload",
-			job:     testingutil.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
+			job:     testingbehavioral.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadLabel("prebuilt-workload").Obj(),
 			wantErr: nil,
 		},
 		{
 			name:         "valid prebuilt workload annotation, WorkloadIdentifierAnnotations enabled",
-			job:          testingutil.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadAnnotation("prebuilt-workload").Obj(),
+			job:          testingbehavioral.MakeJobSet("job", "default").Queue("queue").PrebuiltWorkloadAnnotation("prebuilt-workload").Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			wantErr:      nil,
 		},
 		{
 			name: "different prebuilt workload label and annotation, label ignored, WorkloadIdentifierAnnotations enabled",
-			job: testingutil.MakeJobSet("job", "default").Queue("queue").
+			job: testingbehavioral.MakeJobSet("job", "default").Queue("queue").
 				PrebuiltWorkloadLabel("prebuilt-workload-label").
 				PrebuiltWorkloadAnnotation("prebuilt-workload-annotation").Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
 		{
 			name: "valid topology request",
-			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			job: testingbehavioral.MakeJobSet("job", "default").ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
 					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
-			}, testingutil.ReplicatedJobRequirements{
+			}, testingbehavioral.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
 					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
@@ -96,12 +96,12 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid topology request",
-			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			job: testingbehavioral.MakeJobSet("job", "default").ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 				Name: "launcher",
 				PodAnnotations: map[string]string{
 					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
-			}, testingutil.ReplicatedJobRequirements{
+			}, testingbehavioral.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
 					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
@@ -115,8 +115,8 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid slice topology request - slice size larger than number of podsets",
-			job: testingutil.MakeJobSet("jobset", "default").
-				ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			job: testingbehavioral.MakeJobSet("jobset", "default").
+				ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 					Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 						kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
@@ -132,13 +132,13 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "valid PodSet grouping request",
-			job: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			job: testingbehavioral.MakeJobSet("job", "default").ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 				Name: "launcher", Replicas: 1, Parallelism: 1, Completions: 1,
 				PodAnnotations: map[string]string{
 					kueue.PodSetGroupName:                  "groupname",
 					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
-			}, testingutil.ReplicatedJobRequirements{
+			}, testingbehavioral.ReplicatedJobRequirements{
 				Name: "worker", Replicas: 4, Parallelism: 1, Completions: 1,
 				PodAnnotations: map[string]string{
 					kueue.PodSetGroupName:                  "groupname",
@@ -149,27 +149,27 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid PodSet grouping request - groups of size other than 2",
-			job: testingutil.MakeJobSet("jobset", "default").
+			job: testingbehavioral.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                  "1podset",
 						},
 					},
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job2", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                  "3podsets",
 						},
 					},
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job3", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                  "3podsets",
 						},
 					},
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job4", Replicas: 2, Parallelism: 2, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                  "3podsets",
@@ -191,15 +191,15 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid PodSet grouping request - no leader in group",
-			job: testingutil.MakeJobSet("jobset", "default").
+			job: testingbehavioral.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job1", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                  "groupname",
 						},
 					},
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job2", Replicas: 1, Parallelism: 3, Completions: 3, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                  "groupname",
@@ -217,15 +217,15 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid PodSet grouping request - required topology does not match",
-			job: testingutil.MakeJobSet("jobset", "default").
+			job: testingbehavioral.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 							kueue.PodSetGroupName:                  "groupname",
 						},
 					},
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                  "groupname",
@@ -249,15 +249,15 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid PodSet grouping request - preferred topology does not match",
-			job: testingutil.MakeJobSet("jobset", "default").
+			job: testingbehavioral.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
 							kueue.PodSetGroupName:                   "groupname",
 						},
 					},
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
 							kueue.PodSetGroupName:                   "groupname",
@@ -281,15 +281,15 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid PodSet grouping request - different topology annotations within group",
-			job: testingutil.MakeJobSet("jobset", "default").
+			job: testingbehavioral.MakeJobSet("jobset", "default").
 				ReplicatedJobs(
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job1", Replicas: 1, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack",
 							kueue.PodSetGroupName:                  "groupname",
 						},
 					},
-					testingutil.ReplicatedJobRequirements{
+					testingbehavioral.ReplicatedJobRequirements{
 						Name: "job2", Replicas: 2, Parallelism: 1, Completions: 1, PodAnnotations: map[string]string{
 							kueue.PodSetGroupName:                   "groupname",
 							kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
@@ -342,11 +342,11 @@ func TestValidateUpdate(t *testing.T) {
 	}{
 		{
 			name: "set valid topology request",
-			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			oldJob: testingbehavioral.MakeJobSet("job", "default").ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 				Name:           "worker",
 				PodAnnotations: map[string]string{},
 			}).Obj(),
-			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			newJob: testingbehavioral.MakeJobSet("job", "default").ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
 					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
@@ -356,11 +356,11 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		{
 			name: "attempt to set invalid topology request",
-			oldJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			oldJob: testingbehavioral.MakeJobSet("job", "default").ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 				Name:           "worker",
 				PodAnnotations: map[string]string{},
 			}).Obj(),
-			newJob: testingutil.MakeJobSet("job", "default").ReplicatedJobs(testingutil.ReplicatedJobRequirements{
+			newJob: testingbehavioral.MakeJobSet("job", "default").ReplicatedJobs(testingbehavioral.ReplicatedJobRequirements{
 				Name: "worker",
 				PodAnnotations: map[string]string{
 					kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
@@ -578,20 +578,20 @@ func TestDefault(t *testing.T) {
 		{
 			name:           "default lq is created, job doesn't have queue label",
 			defaultLqExist: true,
-			jobSet:         testingutil.MakeJobSet("test-js", "default").Obj(),
-			want:           testingutil.MakeJobSet("test-js", "default").Queue("default").Obj(),
+			jobSet:         testingbehavioral.MakeJobSet("test-js", "default").Obj(),
+			want:           testingbehavioral.MakeJobSet("test-js", "default").Queue("default").Obj(),
 		},
 		{
 			name:           "default lq is created, job has queue label",
 			defaultLqExist: true,
-			jobSet:         testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
-			want:           testingutil.MakeJobSet("test-js", "default").Queue("queue").Obj(),
+			jobSet:         testingbehavioral.MakeJobSet("test-js", "default").Queue("queue").Obj(),
+			want:           testingbehavioral.MakeJobSet("test-js", "default").Queue("queue").Obj(),
 		},
 		{
 			name:           "default lq isn't created, job doesn't have queue label",
 			defaultLqExist: false,
-			jobSet:         testingutil.MakeJobSet("test-js", "default").Obj(),
-			want:           testingutil.MakeJobSet("test-js", "default").Obj(),
+			jobSet:         testingbehavioral.MakeJobSet("test-js", "default").Obj(),
+			want:           testingbehavioral.MakeJobSet("test-js", "default").Obj(),
 		},
 	}
 

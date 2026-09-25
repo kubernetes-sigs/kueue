@@ -33,17 +33,17 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("area:tas", "feature:trainjob"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-jobset-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-jobset-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a TrainJob", func() {
@@ -55,11 +55,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 		)
 		ginkgo.BeforeEach(func() {
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
-			util.MustCreate(ctx, k8sClient, topology)
+			behavioral.MustCreate(ctx, k8sClient, topology)
 
 			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 				NodeLabel(tasNodeGroupLabel, instanceType).TopologyName(topology.Name).Obj()
-			util.MustCreate(ctx, k8sClient, tasFlavor)
+			behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
@@ -68,21 +68,21 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 						Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllTrainJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteAllTrainingRuntimesInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteAllTrainJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteAllTrainingRuntimesInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
 		ginkgo.It("Should place pods based on the ranks-ordering", func() {
@@ -94,8 +94,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "node",
-						Image:       util.GetAgnHostImage(),
-						Args:        util.BehaviorExitFast,
+						Image:       behavioral.GetAgnHostImage(),
+						Args:        behavioral.BehaviorExitFast,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
@@ -113,14 +113,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				Queue(localQueue.Name).
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
+			behavioral.MustCreate(ctx, k8sClient, trainingRuntime)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
 					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -164,8 +164,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "node",
-						Image:       util.GetAgnHostImage(),
-						Args:        util.BehaviorExitFast,
+						Image:       behavioral.GetAgnHostImage(),
+						Args:        behavioral.BehaviorExitFast,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
@@ -185,14 +185,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				Queue(localQueue.Name).
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
+			behavioral.MustCreate(ctx, k8sClient, trainingRuntime)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
 					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
@@ -210,7 +210,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -236,8 +236,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "node",
-						Image:       util.GetAgnHostImage(),
-						Args:        util.BehaviorExitFast,
+						Image:       behavioral.GetAgnHostImage(),
+						Args:        behavioral.BehaviorExitFast,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
@@ -256,14 +256,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				Queue(localQueue.Name).
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, trainingRuntime)
-			util.MustCreateWithRetry(ctx, k8sClient, trainjob)
+			behavioral.MustCreate(ctx, k8sClient, trainingRuntime)
+			behavioral.MustCreateWithRetry(ctx, k8sClient, trainjob)
 
 			ginkgo.By("TrainJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainjob), trainjob)).To(gomega.Succeed())
 					g.Expect(trainjob.Spec.Suspend).Should(gomega.Equal(new(false)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -271,7 +271,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
@@ -281,7 +281,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {

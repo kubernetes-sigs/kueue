@@ -43,7 +43,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/generator"
 	"sigs.k8s.io/kueue/test/performance/scheduler/runner/recorder"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type reconciler struct {
@@ -161,7 +161,7 @@ func NewReconciler(c client.Client, r *recorder.Recorder) *reconciler {
 		client:        c,
 		admissionTime: map[types.UID]time.Time{},
 		recorder:      r,
-		clock:         util.RealClock,
+		clock:         behavioral.RealClock,
 	}
 }
 

@@ -31,7 +31,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -51,10 +51,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor-" + ns.Name).Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 			Name: "metrics-reader-rolebinding-" + ns.Name,
@@ -71,28 +71,28 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Name:     metricsReaderClusterRoleName,
 			},
 		}
-		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
+		behavioral.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 		curlPod = testingjobspod.MakePod("curl-metrics-"+ns.Name, kueueNS).
 			ServiceAccountName(serviceAccountName).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
-		util.MustCreate(ctx, k8sClient, curlPod)
+		behavioral.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			util.WaitForPodRunning(ctx, k8sClient, curlPod)
+			behavioral.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
 
 		curlContainerName = curlPod.Spec.Containers[0].Name
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, behavioral.LongTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("workload is admitted", func() {
@@ -112,13 +112,13 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 						Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -127,16 +127,16 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, workload)
+			behavioral.MustCreate(ctx, k8sClient, workload)
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
 		ginkgo.It("should ensure the default metrics are available", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 			metrics := [][]string{
 				{"kueue_admission_attempts_total"},
@@ -170,12 +170,12 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that default metrics are available", func() {
-				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			})
 
 			deletedMetrics := [][]string{
@@ -202,7 +202,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
-				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
+				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
 			})
 
 			notDeletedMetrics := [][]string{
@@ -225,11 +225,11 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that metrics that should not have been deleted are still available", func() {
-				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
+				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
 			})
 
 			ginkgo.By("deleting the local queue", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
 			})
 
 			// kueue_local_queue_status is not asserted here: its cleanup is
@@ -243,7 +243,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that LocalQueue metrics are no longer available after deleting the local queue", func() {
-				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
+				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
 			})
 		})
 	})
@@ -260,9 +260,9 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 		ginkgo.BeforeEach(func() {
 			admissionCheck = utiltestingapi.MakeAdmissionCheck("check1-" + ns.Name).ControllerName("ac-controller").Obj()
-			util.MustCreate(ctx, k8sClient, admissionCheck)
+			behavioral.MustCreate(ctx, k8sClient, admissionCheck)
 
-			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("").
 				GeneratedName("test-admission-check-cq-").
@@ -274,21 +274,21 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				).
 				AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-admission-checked-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, createdJob)
+			behavioral.MustCreate(ctx, k8sClient, createdJob)
 
 			admissionCheckedJobWLName := job.GetWorkloadNameForJob(createdJob.Name, createdJob.UID)
 			workloadKey = types.NamespacedName{
@@ -296,12 +296,12 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				Namespace: ns.Name,
 			}
 
-			util.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, clusterQueue.Name, workloadKey)
+			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, clusterQueue.Name, workloadKey)
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
 		})
 
 		ginkgo.It("should ensure the admission check metrics are available", func() {
@@ -309,8 +309,8 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			ginkgo.By("setting the check as successful", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, workloadKey, createdWorkload)).Should(gomega.Succeed())
-					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, createdWorkload, kueue.AdmissionCheckReference(admissionCheck.Name), kueue.CheckStateReady, false)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, createdWorkload, kueue.AdmissionCheckReference(admissionCheck.Name), kueue.CheckStateReady, false)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			metrics := [][]string{
@@ -320,18 +320,18 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that admission check metrics are available", func() {
-				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, createdJob, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, createdJob, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, createdWorkload, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			})
 
 			ginkgo.By("checking that admission check metrics are no longer available", func() {
-				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})
@@ -395,7 +395,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 					},
 				}).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue1, clusterQueue2)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue1, clusterQueue2)
 
 			localQueue1 = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-1-").
@@ -405,18 +405,18 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 				GeneratedName("test-lq-2-").
 				ClusterQueue(clusterQueue2.Name).
 				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue1, localQueue2)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue1, localQueue2)
 
 			highWorkloadPriorityClass = utiltestingapi.MakeWorkloadPriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
-			util.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
+			behavioral.MustCreate(ctx, k8sClient, highWorkloadPriorityClass)
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lowerJob1)
+			behavioral.MustCreate(ctx, k8sClient, lowerJob1)
 
 			lowerWLName1 := job.GetWorkloadNameForJob(lowerJob1.Name, lowerJob1.UID)
 			lowerWorkload1Key = types.NamespacedName{
@@ -427,17 +427,17 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lowerWorkload1Key, lowerWorkload1)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload1)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload1)
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lowerJob2)
+			behavioral.MustCreate(ctx, k8sClient, lowerJob2)
 
 			lowerWLName2 := job.GetWorkloadNameForJob(lowerJob2.Name, lowerJob2.UID)
 			lowerWorkload2Key = types.NamespacedName{
@@ -448,18 +448,18 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lowerWorkload2Key, lowerWorkload2)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload2)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowerWorkload2)
 
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, blockerJob)
+			behavioral.MustCreate(ctx, k8sClient, blockerJob)
 
 			blockerWLName := job.GetWorkloadNameForJob(blockerJob.Name, blockerJob.UID)
 			blockerWorkloadKey = types.NamespacedName{
@@ -470,41 +470,41 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockerWorkload)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockerWorkload)
 
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, higherJob1)
+			behavioral.MustCreate(ctx, k8sClient, higherJob1)
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, higherJob2)
+			behavioral.MustCreate(ctx, k8sClient, higherJob2)
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob2, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, blockerJob, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob2, true)
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, highWorkloadPriorityClass, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, blockerJob, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob2, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, highWorkloadPriorityClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue2, true)
 		})
 
 		ginkgo.It("should ensure the eviction and preemption metrics are available", func() {
@@ -518,14 +518,14 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 						Name:      job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID),
 						Namespace: ns.Name,
 					}, higherWorkload1)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{
 						Name:      job.GetWorkloadNameForJob(higherJob2.Name, higherJob2.UID),
 						Namespace: ns.Name,
 					}, higherWorkload2)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, higherWorkload1, higherWorkload2)
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, higherWorkload1, higherWorkload2)
 			})
 
 			ginkgo.By("Deactivate the blocker workload", func() {
@@ -535,16 +535,16 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 					blockerWorkload.Spec.Active = new(false)
 
 					g.Expect(k8sClient.Update(ctx, blockerWorkload)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, blockerWorkloadKey, blockerWorkload)).To(gomega.Succeed())
 				g.Expect(blockerWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadDeactivated))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Expecting at least one of the high-priority jobs to be admitted", func() {
-				util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1,
+				behavioral.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1,
 					utiltestingapi.MakeWorkload(
 						job.GetWorkloadNameForJob(higherJob1.Name, higherJob1.UID),
 						higherJob1.Namespace,
@@ -568,24 +568,24 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that eviction and preemption metrics are available", func() {
-				util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("delete the cluster queue", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob1, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob2, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, blockerJob, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob1, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob2, true)
-				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue1, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue2, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob1, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, higherJob2, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, blockerJob, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob1, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lowerJob2, true)
+				gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue1, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue2, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue1, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue2, true)
 			})
 
 			ginkgo.By("checking that eviction and preemption metrics are no longer available", func() {
-				util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})

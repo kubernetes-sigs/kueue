@@ -31,7 +31,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -54,10 +54,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 			Name: "metrics-reader-rolebinding",
@@ -74,11 +74,11 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				Name:     metricsReaderClusterRoleName,
 			},
 		}
-		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
+		behavioral.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 		curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 			ServiceAccountName(serviceAccountName).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		curlPod.Spec.Volumes = []corev1.Volume{
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				ReadOnly:  true,
 			},
 		}
-		util.MustCreate(ctx, k8sClient, curlPod)
+		behavioral.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for kueue-metrics-server-cert secret", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -108,22 +108,22 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 					Namespace: kueueNS,
 					Name:      certSecretName,
 				}, secret)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			util.WaitForPodRunning(ctx, k8sClient, curlPod)
+			behavioral.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
 
 		curlContainerName = curlPod.Spec.Containers[0].Name
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, util.LongTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, metricsReaderClusterRoleBinding, true)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, behavioral.LongTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("workload is admitted", func() {
@@ -143,13 +143,13 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 						Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-").
 				ClusterQueue(clusterQueue.Name).
 				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 			workload = utiltestingapi.MakeWorkload("test-workload", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -162,13 +162,13 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
 		ginkgo.It("should expose quota reserved workload metric", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 			ginkgo.By("checking that the quota reserved workload metric is present", func() {
 				expectedMetric := []string{
@@ -180,10 +180,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.It("should scrape metrics via Prometheus with TLS endpoint", ginkgo.Label("feature:prometheus"), func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 			ginkgo.By("Verifying Prometheus discovers and scrapes the Kueue target")
-			util.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
+			behavioral.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
 
 			ginkgo.By("Verifying admission metric is available via PromQL")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -194,10 +194,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				vector, ok := result.(model.Vector)
 				g.Expect(ok).To(gomega.BeTrue())
 				g.Expect(vector).NotTo(gomega.BeEmpty())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("should continue to expose metrics after the secret is re-created", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 			initialSecret := &corev1.Secret{}
 			ginkgo.By("fetching initial secret", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{
@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 			var initialCertContent []byte
 			ginkgo.By("reading initial certificate content from curl-pod", func() {
-				certContent, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+				certContent, _, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
 					[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				initialCertContent = certContent
@@ -225,18 +225,18 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 						Namespace: kueueNS, Name: certSecretName,
 					}, recreatedSecret)).To(gomega.Succeed())
 					g.Expect(recreatedSecret.UID).NotTo(gomega.Equal(initialSecret.UID), "Secret not recreated")
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying certificate content changed in curl-pod", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					newCertContent, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+					newCertContent, _, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
 						[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(initialCertContent).NotTo(gomega.BeEmpty())
 					g.Expect(newCertContent).NotTo(gomega.BeEmpty())
 					g.Expect(newCertContent).NotTo(gomega.Equal(initialCertContent), "Certificate content should have changed after secret recreation")
-				}, util.VeryLongTimeout, util.LongInterval).Should(gomega.Succeed())
+				}, behavioral.VeryLongTimeout, behavioral.LongInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking that the metrics are still available", func() {
@@ -244,14 +244,14 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 					"kueue_quota_reserved_workloads_total",
 					clusterQueue.Name,
 				}
-				expectMetricsToBeAvailableWithTimeout(curlPod.Name, curlContainerName, [][]string{expectedMetric}, util.VeryLongTimeout)
+				expectMetricsToBeAvailableWithTimeout(curlPod.Name, curlContainerName, [][]string{expectedMetric}, behavioral.VeryLongTimeout)
 			})
 		})
 	})
 })
 
 func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error) {
-	metricsOutput, _, err := util.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName,
+	metricsOutput, _, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName,
 		[]string{
 			"/bin/sh",
 			"-c",
@@ -267,7 +267,7 @@ func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error
 }
 
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
-	expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName, metrics, util.Timeout)
+	expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName, metrics, behavioral.Timeout)
 }
 
 func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string, metrics [][]string, timeout time.Duration) {
@@ -276,5 +276,5 @@ func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
 		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
-	}, timeout, util.Interval).Should(gomega.Succeed())
+	}, timeout, behavioral.Interval).Should(gomega.Succeed())
 }

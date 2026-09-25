@@ -38,7 +38,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -49,7 +49,7 @@ var (
 )
 
 func TestScheduler(t *testing.T) {
-	util.RunSuite(t, "Importer Suite")
+	behavioral.RunSuite(t, "Importer Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -69,7 +69,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)

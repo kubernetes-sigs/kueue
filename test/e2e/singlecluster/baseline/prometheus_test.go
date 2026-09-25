@@ -27,7 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -37,7 +37,7 @@ const (
 
 var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:prometheus"), func() {
 	ginkgo.It("should discover Kueue target and report it as up", func() {
-		util.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
+		behavioral.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
 	})
 
 	ginkgo.It("should scrape kueue_build_info metric via PromQL", func() {
@@ -49,19 +49,19 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
 			g.Expect(string(vector[0].Metric[model.MetricNameLabel])).To(gomega.Equal(kueueBuildInfoMetric))
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should report workload admission metrics via PromQL", func() {
-		ns := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prom-")
+		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prom-")
 		ginkgo.DeferCleanup(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 
 		resourceFlavor := utiltestingapi.MakeResourceFlavor("prom-test-flavor-" + ns.Name).Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 		ginkgo.DeferCleanup(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
 		clusterQueue := utiltestingapi.MakeClusterQueue("").
@@ -73,16 +73,16 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 		ginkgo.DeferCleanup(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
 		localQueue := utiltestingapi.MakeLocalQueue("", ns.Name).
 			GeneratedName("prom-test-lq-").
 			ClusterQueue(clusterQueue.Name).
 			Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 		ginkgo.By("Creating and admitting a workload")
 		workload := utiltestingapi.MakeWorkload("prom-test-workload", ns.Name).
@@ -92,11 +92,11 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
-		util.MustCreate(ctx, k8sClient, workload)
+		behavioral.MustCreate(ctx, k8sClient, workload)
 		ginkgo.DeferCleanup(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, workload, true)
 		})
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 		ginkgo.By("Verifying the admission metric is reported")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -108,6 +108,6 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 			vector, ok := result.(model.Vector)
 			g.Expect(ok).To(gomega.BeTrue())
 			g.Expect(vector).NotTo(gomega.BeEmpty())
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

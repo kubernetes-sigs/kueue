@@ -39,7 +39,7 @@ import (
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	testutil "sigs.k8s.io/kueue/test/util"
+	testbehavioral "sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -293,7 +293,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testbehavioral.InvalidPathMessage),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -303,7 +303,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testbehavioral.InvalidRFC1123Message),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -313,7 +313,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testbehavioral.InvalidRFC1123Message),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},

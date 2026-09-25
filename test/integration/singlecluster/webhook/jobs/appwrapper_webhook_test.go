@@ -27,30 +27,30 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("AppWrapper Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(appwrapper.SetupAppWrapperWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "aw-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should suspend an AppWrapper when created in unsuspend state", func() {
 		appwrapper := testingaw.MakeAppWrapper("aw-with-queue-name", ns.Name).Suspend(false).Queue("default").Obj()
-		util.MustCreate(ctx, k8sClient, appwrapper)
+		behavioral.MustCreate(ctx, k8sClient, appwrapper)
 
 		lookupKey := types.NamespacedName{Name: appwrapper.Name, Namespace: appwrapper.Namespace}
 		createdAppWrapper := &awv1beta2.AppWrapper{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdAppWrapper)).Should(gomega.Succeed())
 			g.Expect(createdAppWrapper.Spec.Suspend).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("the creation doesn't succeed if the queue name is invalid", func() {

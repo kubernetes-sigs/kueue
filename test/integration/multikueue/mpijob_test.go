@@ -33,7 +33,7 @@ import (
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("MultiKueue MPIJob", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -79,7 +79,7 @@ var _ = ginkgo.Describe("MultiKueue MPIJob", ginkgo.Label("area:multikueue", "fe
 			).
 			Obj()
 		ginkgo.By("create a mpijob with external managedBy", func() {
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, mpijobNoManagedBy)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, mpijobNoManagedBy)
 		})
 
 		wlLookupKeyNoManagedBy := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijobNoManagedBy.Name, mpijobNoManagedBy.UID), Namespace: f.managerNs.Name}
@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("MultiKueue MPIJob", ginkgo.Label("area:multikueue", "fe
 				},
 			).
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, mpijob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, mpijob)
 		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: f.managerNs.Name}
 		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
 
@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("MultiKueue MPIJob", ginkgo.Label("area:multikueue", "fe
 					},
 				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdMPIJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdMPIJob := kfmpi.MPIJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(mpijob), &createdMPIJob)).To(gomega.Succeed())
@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("MultiKueue MPIJob", ginkgo.Label("area:multikueue", "fe
 							Succeeded: 1,
 						},
 					}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker MPIJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("MultiKueue MPIJob", ginkgo.Label("area:multikueue", "fe
 					Message: finishJobReason,
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdMPIJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})

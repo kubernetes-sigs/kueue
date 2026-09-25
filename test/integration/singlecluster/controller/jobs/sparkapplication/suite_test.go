@@ -41,7 +41,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -52,14 +52,14 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "SparkApplication Controller Suite")
+	behavioral.RunSuite(t, "SparkApplication Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SparkApplicationIntegration, true)
 
 	fwk = &framework.Framework{
-		DepCRDPaths: []string{util.SparkOperatorCrds},
+		DepCRDPaths: []string{behavioral.SparkOperatorCrds},
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -99,7 +99,7 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)

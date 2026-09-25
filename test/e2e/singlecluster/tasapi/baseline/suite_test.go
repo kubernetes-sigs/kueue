@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -37,19 +37,19 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End TAS Baseline Suite")
+	behavioral.RunE2ESuite(t, "End To End TAS Baseline Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	util.SetupLogger()
+	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = util.CreateClientUsingCluster("")
+	k8sClient, _, err = behavioral.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	util.WaitForKueueAvailability(ctx, k8sClient)
+	behavioral.WaitForKueueAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
@@ -65,12 +65,12 @@ var _ = ginkgo.BeforeSuite(func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			node := &corev1.Node{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: n.Name}, node)).To(gomega.Succeed())
-			err := clientutil.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
+			err := clientbehavioral.PatchStatus(ctx, k8sClient, node, func() (bool, error) {
 				node.Status.Capacity[extraResource] = resource.MustParse("1")
 				node.Status.Allocatable[extraResource] = resource.MustParse("1")
 				return true, nil
 			})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 })

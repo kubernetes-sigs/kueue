@@ -33,7 +33,7 @@ import (
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 						Obj(),
 				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("pd-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
@@ -101,10 +101,10 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, migDeviceClass, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, migDeviceClass, true)
 		})
 
 		ginkgo.It("Should admit MIG workload with correct counter-based gpu.memory charge", func() {
@@ -157,7 +157,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("4864Mi"))).To(gomega.Equal(0))
 				g.Expect(memUsage.String()).To(gomega.Equal("4864Mi"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should multiply counter charge by request count", func() {
@@ -206,7 +206,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				expectedBytes := int64(4864 * 1024 * 1024 * 2)
 				g.Expect(memUsage.Value()).To(gomega.Equal(expectedBytes))
 				g.Expect(memUsage.String()).To(gomega.Equal("9728Mi"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should charge MAX when CEL matches multiple profiles", func() {
@@ -253,7 +253,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("20Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should mark workload inadmissible when CEL matches no devices", framework.SlowSpec, func() {
@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should admit workload with unified whole GPU and MIG charges", func() {
@@ -360,7 +360,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				expectedBytes := int64((40320 + 4864) * 1024 * 1024)
 				g.Expect(memUsage.Value()).To(gomega.Equal(expectedBytes))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should mark workload inadmissible with incomplete pool", framework.SlowSpec, func() {
@@ -406,7 +406,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should requeue inadmissible workload when ResourceSlice is created", framework.SlowSpec, func() {
@@ -438,7 +438,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating ResourceSlice — should trigger requeue")
 			slice := utiltesting.MakeResourceSlice("pd-requeue-slice", "gpu.example.com").
@@ -461,7 +461,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should charge consumesCounters for whole GPU request without CEL", func() {
@@ -511,7 +511,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("40320Mi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject extended resource when DeviceClass has counters", framework.SlowSpec, func() {
@@ -545,7 +545,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should write granular conditions and reasons when DRA claim resolution fails under the observability feature gate", func() {
@@ -581,7 +581,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying workload is marked as inadmissible with granular reasons")
-			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(wl),
 				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
@@ -665,7 +665,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, devCQ)).To(gomega.Succeed())
 
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, prodCQ, devCQ)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, prodCQ, devCQ)
 
 			prodLQ = utiltestingapi.MakeLocalQueue("pd-prod-lq", ns.Name).
 				ClusterQueue(prodCQ.Name).Obj()
@@ -677,12 +677,12 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, migDeviceClass, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, slice, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prodCQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, devCQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, migDeviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, slice, true)
 		})
 
 		ginkgo.It("Should borrow counter-based gpu.memory quota from another ClusterQueue in the cohort", func() {
@@ -701,7 +701,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying workload is admitted and borrows from dev-cq")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl)
 
 			ginkgo.By("Verifying correct gpu.memory charge in admission")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -713,7 +713,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("50Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying prod-cq shows borrowed gpu.memory")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -732,7 +732,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 					}
 				}
 				g.Expect(found).To(gomega.BeTrue(), "resource gpu.memory not found in FlavorsUsage")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should not admit PD workload when cohort counter capacity is exhausted", func() {
@@ -759,8 +759,8 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).To(gomega.Succeed())
 
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, prodWl)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, devWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, prodWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, devWl)
 
 			ginkgo.By("Creating a workload that exceeds total cohort counter capacity")
 			overflowWl := utiltestingapi.MakeWorkload("pd-overflow-wl", ns.Name).
@@ -772,7 +772,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			gomega.Expect(k8sClient.Create(ctx, overflowWl)).To(gomega.Succeed())
 
 			ginkgo.By("Verifying overflow workload stays pending")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, overflowWl)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, overflowWl)
 		})
 	})
 })

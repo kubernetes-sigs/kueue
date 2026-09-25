@@ -28,7 +28,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("CapacityProvider Validation", func() {
@@ -47,9 +47,9 @@ var _ = ginkgo.Describe("CapacityProvider Validation", func() {
 				Parameters("example.com", "Config", "my-config").
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, cp)
+			behavioral.MustCreate(ctx, k8sClient, cp)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
 			}()
 		})
 
@@ -88,9 +88,9 @@ var _ = ginkgo.Describe("CapacityProvider Validation", func() {
 				OrchestratedFlavors("flavor-1").
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, cp)
+			behavioral.MustCreate(ctx, k8sClient, cp)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
 			}()
 
 			var fetched kueuealpha.CapacityProvider
@@ -120,9 +120,9 @@ var _ = ginkgo.Describe("CapacityProvider Validation", func() {
 					OrchestratedFlavors("flavor-1").
 					Obj()
 
-				util.MustCreate(ctx, k8sClient, cp)
+				behavioral.MustCreate(ctx, k8sClient, cp)
 				defer func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
 				}()
 
 				resources := corev1.ResourceList{}

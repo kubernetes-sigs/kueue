@@ -31,7 +31,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -78,9 +78,9 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
 	ginkgo.AfterAll(func() {
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying excluded resource is not in admission resource usage")
 		gomega.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying both excluded resources are not in resource usage")
 		gomega.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
 			g.Expect(workload.IsAdmitted(wl1)).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Creating a second workload that would exceed CPU quota")
 		wl2 := utiltestingapi.MakeWorkload("quota-wl-2", ns.Name).
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wl2Key, wl2)).To(gomega.Succeed())
 			g.Expect(workload.IsAdmitted(wl2)).Should(gomega.BeFalse())
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should use exact prefix matching", func() {
@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying non-matching resource is NOT excluded (appears in resource usage)")
 		gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
@@ -248,16 +248,16 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 				Ready().
 				Obj(),
 		}
-		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("tas-topology")
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel("node-group", "tas").
 			TopologyName("tas-topology").
 			Obj()
-		util.MustCreate(ctx, k8sClient, tasFlavor)
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		ns = &corev1.Namespace{
 			GenerateName: "tas-exclude-",
@@ -270,20 +270,20 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 					Resource(corev1.ResourceCPU, "10").
 					Obj(),
 			).Obj()
-		util.MustCreate(ctx, k8sClient, cq)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, cq)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("tas-exclude-lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lq)
+		behavioral.MustCreate(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		for _, node := range nodes {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
 	})
 
@@ -300,9 +300,9 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 				Request("example.com/test-resource", "1").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 		ginkgo.By("verifying pods are spread based on excluded resource", func() {
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wl.Name, Namespace: ns.Name}, wl)).To(gomega.Succeed())
@@ -334,8 +334,8 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 					Request("example.com/test-resource", "1").
 					Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			wls = append(wls, wl)
 		}
 

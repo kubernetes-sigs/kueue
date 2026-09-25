@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Kueuectl Create", func() {
@@ -45,15 +45,15 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		cq = utiltestingapi.MakeClusterQueue("cq").Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, cq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 	})
 
 	ginkgo.When("Creating a LocalQueue", func() {
@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
 					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -104,7 +104,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
 					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cqName)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
 					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 				var createdQueue kueue.LocalQueue
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(utiltesting.BeNotFoundError())
-				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 
@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
 					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -220,7 +220,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
 					g.Expect(createdQueue.Name).Should(gomega.Equal(lqName))
 					g.Expect(createdQueue.Spec.ClusterQueue).Should(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					var createdQueue kueue.LocalQueue
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(utiltesting.BeNotFoundError())
-					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Verify the local queue object is still printed to stdout", func() {
@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)
 			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
 			if !apierrors.IsNotFound(err) {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &createdQueue, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &createdQueue, true)
 			}
 		})
 
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(*createdQueue.Spec.NamespaceSelector).Should(gomega.Equal(metav1.LabelSelector{}))
 					g.Expect(createdQueue.Spec.Preemption.ReclaimWithinCohort).Should(gomega.Equal(kueue.PreemptionPolicyNever))
 					g.Expect(createdQueue.Spec.Preemption.WithinClusterQueue).Should(gomega.Equal(kueue.PreemptionPolicyNever))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 							},
 						},
 					}))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -379,7 +379,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 							},
 						},
 					}))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -428,7 +428,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 							},
 						},
 					}))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 							},
 						},
 					}))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -538,7 +538,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 							},
 						},
 					}))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -551,7 +551,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: rfName}, &resourceFlavor)
 			gomega.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
 			if !apierrors.IsNotFound(err) {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &resourceFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &resourceFlavor, true)
 			}
 		})
 
@@ -580,7 +580,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					g.Expect(resourceFlavor.Spec.NodeLabels).Should(gomega.BeNil())
 					g.Expect(resourceFlavor.Spec.NodeTaints).Should(gomega.BeNil())
 					g.Expect(resourceFlavor.Spec.Tolerations).Should(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -639,7 +639,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 							Effect:   corev1.TaintEffectNoSchedule,
 						},
 					))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -665,7 +665,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					rfKey := types.NamespacedName{Name: rfName, Namespace: ns.Name}
 					g.Expect(k8sClient.Get(ctx, rfKey, &resourceFlavor)).Should(utiltesting.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

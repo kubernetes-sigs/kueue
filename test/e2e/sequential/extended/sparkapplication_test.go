@@ -37,7 +37,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	sparkapplicationtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:spark"), ginkgo.Ordered, func() {
@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.Integrations.Frameworks = append(cfg.Integrations.Frameworks, sparkapplication.FrameworkName)
 			cfg.FeatureGates[string(features.SparkApplicationIntegration)] = true
 			cfg.FeatureGates[string(features.TopologyAwareScheduling)] = true
@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-e2e-")
 
 		resourceFlavorName = "sparkapplication-rf-" + ns.Name
 		clusterQueueName = "sparkapplication-cq-" + ns.Name
@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			Name:      serviceAccountName,
 			Namespace: ns.Name,
 		}
-		util.MustCreate(ctx, k8sClient, sa)
+		behavioral.MustCreate(ctx, k8sClient, sa)
 
 		rb := &rbacv1.RoleBinding{
 			Name:      roleBindingName,
@@ -93,20 +93,20 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				APIGroup: rbacv1.GroupName,
 			},
 		}
-		util.MustCreate(ctx, k8sClient, rb)
+		behavioral.MustCreate(ctx, k8sClient, rb)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllSparkApplicationsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, sa, true)
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteAllSparkApplicationsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, sa, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("SparkApplication created", func() {
 		ginkgo.BeforeEach(func() {
 			rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
-			util.MustCreate(ctx, k8sClient, rf)
+			behavioral.MustCreate(ctx, k8sClient, rf)
 
 			cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
@@ -119,24 +119,24 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
+			behavioral.MustCreate(ctx, k8sClient, lq)
 		})
 		ginkgo.AfterEach(func() {
 			// Force remove workloads to be sure that cluster queue can be removed.
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 		})
 
 		ginkgo.It("should run if admitted", func() {
-			sparkImage := util.GetSparkTestImage()
+			sparkImage := behavioral.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapplication-simple", ns.Name).
 				Image(sparkImage).
-				SparkVersion(util.VersionFromImage(sparkImage)).
+				SparkVersion(behavioral.VersionFromImage(sparkImage)).
 				DriverServiceAccount(sa.Name).
 				DriverCoreRequest("500m").
 				DriverMemoryRequest("512m"). // 512MB
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				Obj()
 
 			ginkgo.By("Create a SparkApplicatioon", func() {
-				util.MustCreate(ctx, k8sClient, sparkApp)
+				behavioral.MustCreate(ctx, k8sClient, sparkApp)
 			})
 
 			ginkgo.By("Waiting for SparkApplication to be Running", func() {
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 
 					// Ensure SparkApplication's AppState.State is Running
 					g.Expect(createdSparkApp.Status.AppState.State).To(gomega.Equal(sparkv1beta2.ApplicationStateRunning))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := types.NamespacedName{
@@ -175,7 +175,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			})
 
 			ginkgo.By("Check workload is admitted", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("Check the workload reserves the resources Spark requests for its Pods", func() {
@@ -189,7 +189,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 							sparkcommon.LabelSparkRole:    string(ps.Name),
 						})).To(gomega.Succeed())
 						g.Expect(pods.Items).To(gomega.HaveLen(int(ps.Count)), "unexpected number of %s pods", ps.Name)
-					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 					want := ps.Template.Spec.Containers[0].Resources.Requests
 					for _, pod := range pods.Items {
 						got := pod.Spec.Containers[0].Resources.Requests
@@ -203,21 +203,21 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			})
 
 			ginkgo.By("Check workload is finished", func() {
-				// Using longer timeout instead of util.ExpectWorkloadToFinish
+				// Using longer timeout instead of behavioral.ExpectWorkloadToFinish
 				// because SparkApplication may take longer time to finish
 				gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 					var wl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, &wl)).To(gomega.Succeed())
 					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete the SparkApplication", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, sparkApp, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, sparkApp, true)
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.LongTimeout)
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, behavioral.LongTimeout)
 			})
 		})
 	})
@@ -229,11 +229,11 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 
 		ginkgo.BeforeEach(func() {
 			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
-			util.MustCreate(ctx, k8sClient, topology)
+			behavioral.MustCreate(ctx, k8sClient, topology)
 
 			rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).
 				NodeLabel("instance-type", "on-demand").TopologyName(topology.Name).Obj()
-			util.MustCreate(ctx, k8sClient, rf)
+			behavioral.MustCreate(ctx, k8sClient, rf)
 			cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(resourceFlavorName).
@@ -242,25 +242,25 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 						Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 			lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(clusterQueueName).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 		ginkgo.AfterEach(func() {
 			// Force remove workloads to be sure that cluster queue can be removed.
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		})
 
 		ginkgo.It("should admit a SparkApplication via TAS", func() {
-			sparkImage := util.GetSparkTestImage()
+			sparkImage := behavioral.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapplication-tas", ns.Name).
 				Image(sparkImage).
-				SparkVersion(util.VersionFromImage(sparkImage)).
+				SparkVersion(behavioral.VersionFromImage(sparkImage)).
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
 				).
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				Obj()
 
 			ginkgo.By("Creating the SparkApplication", func() {
-				util.MustCreate(ctx, k8sClient, sparkApp)
+				behavioral.MustCreate(ctx, k8sClient, sparkApp)
 			})
 
 			ginkgo.By("waiting for the SparkApplication to be running", func() {
@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, sparkAppKey, sparkApp)).To(gomega.Succeed())
 					g.Expect(sparkApp.Status.AppState.State).Should(gomega.Equal(sparkv1beta2.ApplicationStateRunning))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the SparkApplication has nodeSelector set", func() {
@@ -313,7 +313,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
@@ -341,7 +341,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
 					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

@@ -27,7 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type mpiJobTestContext struct {
@@ -51,15 +51,15 @@ func registerMPIJobTests(contextProvider func() mpiJobTestContext) {
 					ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 					ReplicaCount:  1,
 					RestartPolicy: "OnFailure",
-					Image:         util.GetAgnHostImage(),
-					Args:          util.BehaviorExitFast,
+					Image:         behavioral.GetAgnHostImage(),
+					Args:          behavioral.BehaviorExitFast,
 				},
 				testingmpijob.MPIJobReplicaSpecRequirement{
 					ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 					ReplicaCount:  1,
 					RestartPolicy: "OnFailure",
-					Image:         util.GetAgnHostImage(),
-					Args:          util.BehaviorExitFast,
+					Image:         behavioral.GetAgnHostImage(),
+					Args:          behavioral.BehaviorExitFast,
 				},
 			).
 			RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
@@ -69,12 +69,12 @@ func registerMPIJobTests(contextProvider func() mpiJobTestContext) {
 			Obj()
 
 		ginkgo.By("Creating the MPIJob", func() {
-			util.MustCreate(ctx, k8sManagerClient, mpijob)
+			behavioral.MustCreate(ctx, k8sManagerClient, mpijob)
 		})
 
 		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
 
-		admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		ginkgo.GinkgoLogr.Info("MPIJob %s is admitted in worker cluster %s", mpijob.Name, admittedWorker)
 
 		ginkgo.By("Waiting for the MPIJob to finish", func() {
@@ -87,8 +87,8 @@ func registerMPIJobTests(contextProvider func() mpiJobTestContext) {
 						Succeeded: 1,
 					},
 				))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
 		})
 
 		ginkgo.By("Checking no objects are left in the worker clusters and the MPIJob is completed", func() {
@@ -96,8 +96,8 @@ func registerMPIJobTests(contextProvider func() mpiJobTestContext) {
 				Name:      wlLookupKey.Name,
 				Namespace: wlLookupKey.Namespace,
 			}
-			util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
-			util.ExpectObjectToBeDeletedOnClusters(ctx, mpijob, k8sWorker1Client, k8sWorker2Client)
+			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
+			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, mpijob, k8sWorker1Client, k8sWorker2Client)
 		})
 	})
 }

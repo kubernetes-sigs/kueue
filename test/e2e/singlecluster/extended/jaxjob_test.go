@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/jaxjob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jaxjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "feature:jaxjob"), func() {
@@ -44,13 +44,13 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
 		resourceFlavorName = "jax-rf-" + ns.Name
 		clusterQueueName = "jax-cq-" + ns.Name
 		localQueueName = "jax-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
@@ -63,17 +63,17 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllJAXJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteAllJAXJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("JAX created", func() {
@@ -85,13 +85,13 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 				JAXReplicaSpecsDefault().
 				TerminationGracePeriod(kftraining.JAXJobReplicaTypeWorker, 1).
 				Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).
-				Image(kftraining.JAXJobReplicaTypeWorker, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(kftraining.JAXJobReplicaTypeWorker, behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceCPU, "1").
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
 				Obj()
 
 			ginkgo.By("Create a JAX", func() {
-				util.MustCreate(ctx, k8sClient, jax)
+				behavioral.MustCreate(ctx, k8sClient, jax)
 			})
 
 			ginkgo.By("Waiting for replicas to be ready", func() {
@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 							Status: corev1.ConditionTrue,
 						}, cmpopts.IgnoreFields(kftraining.JobCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
 					))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := types.NamespacedName{
@@ -129,22 +129,22 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 			})
 
 			ginkgo.By("Check workload is admitted", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("Check workload is finished", func() {
 				// Wait for active pods and terminate them
-				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
+				behavioral.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
 
-				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})
 
 			ginkgo.By("Delete the JAX", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, jax, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, jax, true)
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, behavioral.MediumTimeout)
 			})
 		})
 	})

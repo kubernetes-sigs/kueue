@@ -28,7 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster", "feature:cohort"), func() {
@@ -38,15 +38,15 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	//      root (1 CPU)
@@ -68,12 +68,12 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, rootCohort)
+			behavioral.MustCreate(ctx, k8sClient, rootCohort)
 
 			childCohort = utiltestingapi.MakeCohort(kueue.CohortReference("child-" + ns.Name)).
 				Parent(kueue.CohortReference("root-" + ns.Name)).
 				Obj()
-			util.MustCreate(ctx, k8sClient, childCohort)
+			behavioral.MustCreate(ctx, k8sClient, childCohort)
 
 			cq = utiltestingapi.MakeClusterQueue("cq-" + ns.Name).
 				Cohort(kueue.CohortReference("child-" + ns.Name)).
@@ -81,19 +81,19 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 					Resource(corev1.ResourceCPU, "0").
 					Obj()).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 			lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, rootCohort, true)
+			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rootCohort, true)
 		})
 
 		ginkgo.It("should admit workloads through hierarchical borrowing", func() {
@@ -101,10 +101,10 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			for i := range 2 {
 				job := testingjob.MakeJob(fmt.Sprintf("job-%d", i+1), ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "500m").
 					TerminationGracePeriod(1).Obj()
-				util.MustCreate(ctx, k8sClient, job)
+				behavioral.MustCreate(ctx, k8sClient, job)
 			}
 
 			ginkgo.By("verifying workloads are admitted and resources are borrowed")
@@ -114,28 +114,28 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("submitting an overflow job that exceeds the root cohort capacity")
 			overflowJob := testingjob.MakeJob("job-overflow", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				TerminationGracePeriod(1).Obj()
-			util.MustCreate(ctx, k8sClient, overflowJob)
+			behavioral.MustCreate(ctx, k8sClient, overflowJob)
 
 			ginkgo.By("verifying the overflow job stays pending")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
 				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
 				g.Expect(cq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
 				g.Expect(cq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Total).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
 				g.Expect(cq.Status.FlavorsUsage[0].Resources[0].Borrowed).Should(gomega.BeEquivalentTo(resource.MustParse("1")))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

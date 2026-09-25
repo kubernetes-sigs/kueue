@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -42,7 +42,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "DynamicQuotaOrchestrator Controller Suite")
+	behavioral.RunSuite(t, "DynamicQuotaOrchestrator Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {

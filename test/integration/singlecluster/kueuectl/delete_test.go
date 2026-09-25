@@ -27,18 +27,18 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Kueuectl Delete", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Deleting a Workload", func() {
@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			wl := utiltestingapi.MakeWorkload(wlName, ns.Name).Obj()
 
 			ginkgo.By("Create a standalone workload (no owner references)", func() {
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("Run kueuectl delete workload with --yes", func() {
@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			})
 
 			ginkgo.By("Verify the workload is removed from the cluster", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
 			})
 		})
 
@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 			wl := utiltestingapi.MakeWorkload(wlName, ns.Name).OwnerReference(jobGVK, "j-protected", "j-protected-uid").Obj()
 
 			ginkgo.By("Create a workload with an owner reference to a Job", func() {
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("Run kueuectl delete workload without --yes (declined confirmation)", func() {

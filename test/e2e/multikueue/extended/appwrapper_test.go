@@ -30,7 +30,7 @@ import (
 	workloadaw "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type appWrapperTestContext struct {
@@ -55,7 +55,7 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 				Template: testingjob.MakeJob(jobName, managerNs.Name).
 					SetTypeMeta().
 					Suspend(false).
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
 					Parallelism(2).
 					RequestAndLimit(corev1.ResourceCPU, "100m").
 					RequestAndLimit(corev1.ResourceMemory, "100M").
@@ -65,12 +65,12 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 			Obj()
 
 		ginkgo.By("Creating the appwrapper", func() {
-			util.MustCreate(ctx, k8sManagerClient, aw)
+			behavioral.MustCreate(ctx, k8sManagerClient, aw)
 		})
 
 		wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: managerNs.Name}
 
-		admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		admittedWorker := kubernetesClients[admittedWorkerName]
 
 		ginkgo.By("Waiting for the appwrapper to get status updates", func() {
@@ -78,23 +78,23 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 				createdAppWrapper := &awv1beta2.AppWrapper{}
 				g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())
 				g.Expect(createdAppWrapper.Status.Phase).To(gomega.Equal(awv1beta2.AppWrapperRunning))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Finishing the wrapped job's pods", func() {
-			listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobName))
-			util.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, aw.Namespace, 2, 0, listOpts)
+			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobName))
+			behavioral.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, aw.Namespace, 2, 0, listOpts)
 		})
 
 		ginkgo.By("Waiting for the appwrapper to finish", func() {
-			util.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
+			behavioral.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
 		})
 
 		ginkgo.By("Checking no objects are left in the worker clusters and the appwrapper is completed", func() {
 			createdWorkload := &kueue.Workload{}
 			gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-			util.ExpectObjectToBeDeletedOnClusters(ctx, aw, k8sWorker1Client, k8sWorker2Client)
+			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, aw, k8sWorker1Client, k8sWorker2Client)
 
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())

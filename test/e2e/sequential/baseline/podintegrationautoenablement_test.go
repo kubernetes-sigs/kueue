@@ -32,10 +32,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingsts "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Frameworks", ginkgo.Label("feature:podintegrationautoenablement", util.Shard1), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Frameworks", ginkgo.Label("feature:podintegrationautoenablement", behavioral.Shard1), ginkgo.Ordered, func() {
 	var (
 		ns           *corev1.Namespace
 		defaultRf    *kueue.ResourceFlavor
@@ -44,11 +44,11 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.Integrations.Frameworks = []string{"statefulset"}
 		})
 
-		currentCfg := util.GetKueueConfiguration(ctx, k8sClient)
+		currentCfg := behavioral.GetKueueConfiguration(ctx, k8sClient)
 		frameworkSet := make(map[string]bool)
 		for _, framework := range currentCfg.Integrations.Frameworks {
 			frameworkSet[framework] = true
@@ -58,36 +58,36 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-disabled-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-disabled-pod-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultRf)
+		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 					Resource(corev1.ResourceCPU, "2").
 					Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.MediumTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, behavioral.MediumTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.It("should successfully run StatefulSets when pod integration is auto-enabled", func() {
 		testSts := testingsts.MakeStatefulSet("test-sts", ns.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			Replicas(2).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			TerminationGracePeriod(1).
 			Queue(localQueue.Name).
 			Obj()
-		util.MustCreate(ctx, k8sClient, testSts)
+		behavioral.MustCreate(ctx, k8sClient, testSts)
 
 		ginkgo.By("verifying StatefulSet workload is created and admitted", func() {
 			wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(testSts.UID, testSts.Name), Namespace: ns.Name}
@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying StatefulSet pods are managed correctly", func() {
@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 				for _, pod := range pods.Items {
 					g.Expect(pod.Annotations).To(gomega.HaveKey(podconstants.SuspendedByParentAnnotation))
 				}
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying StatefulSet becomes ready", func() {
@@ -115,24 +115,24 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 				createdStatefulSet := &appsv1.StatefulSet{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testSts), createdStatefulSet)).To(gomega.Succeed())
 				g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
 	ginkgo.It("should not manage pods without queue names regardless of auto-enablement", func() {
 		testPod := testingpod.MakePod("plain-pod", ns.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			Obj()
-		util.MustCreate(ctx, k8sClient, testPod)
+		behavioral.MustCreate(ctx, k8sClient, testPod)
 
 		ginkgo.By("verifying pod is not managed by Kueue", func() {
 			createdPod := &corev1.Pod{}
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testPod), createdPod)).To(gomega.Succeed())
 				g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying no workload is created for the pod", func() {
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 				for _, wl := range workloads.Items {
 					g.Expect(wl.Name).NotTo(gomega.ContainSubstring("plain-pod"))
 				}
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

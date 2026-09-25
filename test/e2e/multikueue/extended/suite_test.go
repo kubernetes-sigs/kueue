@@ -31,15 +31,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
-	managerK8SVersion  *versionutil.Version
+	managerK8SVersion  *versionbehavioral.Version
 	managerClusterName string
 	worker1ClusterName string
 	worker2ClusterName string
-	kueueNS            = util.GetKueueNamespace()
+	kueueNS            = behavioral.GetKueueNamespace()
 
 	k8sManagerClient client.Client
 	k8sWorker1Client client.Client
@@ -59,62 +59,62 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End Extended MultiKueue Suite")
+	behavioral.RunE2ESuite(t, "End To End Extended MultiKueue Suite")
 }
 
 var _ = ginkgo.SynchronizedBeforeSuite(
 	func() {
-		util.SetupLogger()
+		behavioral.SetupLogger()
 
 		initClusterClients()
 		createSharedMultiKueueSecrets(context.Background())
 	},
 	func() {
-		util.SetupLogger()
+		behavioral.SetupLogger()
 
 		initClusterClients()
 		ctx = ginkgo.GinkgoT().Context()
 
 		waitForAvailableStart := time.Now()
-		util.WaitForKueueAvailability(ctx, k8sManagerClient)
-		util.WaitForKueueAvailability(ctx, k8sWorker1Client)
-		util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+		behavioral.WaitForKueueAvailability(ctx, k8sManagerClient)
+		behavioral.WaitForKueueAvailability(ctx, k8sWorker1Client)
+		behavioral.WaitForKueueAvailability(ctx, k8sWorker2Client)
 
 		labelFilter := ginkgo.GinkgoLabelFilter()
 
 		if ginkgo.Label("feature:jobset", "feature:trainjob").MatchesLabelFilter(labelFilter) {
-			util.WaitForJobSetAvailability(ctx, k8sManagerClient)
-			util.WaitForJobSetAvailability(ctx, k8sWorker1Client)
-			util.WaitForJobSetAvailability(ctx, k8sWorker2Client)
+			behavioral.WaitForJobSetAvailability(ctx, k8sManagerClient)
+			behavioral.WaitForJobSetAvailability(ctx, k8sWorker1Client)
+			behavioral.WaitForJobSetAvailability(ctx, k8sWorker2Client)
 		}
 
 		if ginkgo.Label("feature:pytorchjob").MatchesLabelFilter(labelFilter) {
-			util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sManagerClient)
-			util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
-			util.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
+			behavioral.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sManagerClient)
+			behavioral.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker1Client)
+			behavioral.WaitForKubeFlowTrainingOperatorAvailability(ctx, k8sWorker2Client)
 		}
 
 		if ginkgo.Label("feature:mpijob").MatchesLabelFilter(labelFilter) {
-			util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
-			util.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
+			behavioral.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker1Client)
+			behavioral.WaitForKubeFlowMPIOperatorAvailability(ctx, k8sWorker2Client)
 		}
 
 		if ginkgo.Label("feature:appwrapper").MatchesLabelFilter(labelFilter) {
-			util.WaitForAppWrapperAvailability(ctx, k8sManagerClient)
-			util.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
-			util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
+			behavioral.WaitForAppWrapperAvailability(ctx, k8sManagerClient)
+			behavioral.WaitForAppWrapperAvailability(ctx, k8sWorker1Client)
+			behavioral.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
 		}
 
 		if ginkgo.Label("feature:kuberay", "feature:kuberay-multikueue-autoscaling").MatchesLabelFilter(labelFilter) {
-			util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
-			util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
-			util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
+			behavioral.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
+			behavioral.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
+			behavioral.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)
 		}
 
 		if ginkgo.Label("feature:leaderworkerset").MatchesLabelFilter(labelFilter) {
-			util.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient)
-			util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client)
-			util.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client)
+			behavioral.WaitForLeaderWorkerSetAvailability(ctx, k8sManagerClient)
+			behavioral.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker1Client)
+			behavioral.WaitForLeaderWorkerSetAvailability(ctx, k8sWorker2Client)
 		}
 
 		ginkgo.GinkgoLogr.Info(
@@ -142,35 +142,35 @@ func initClusterClients() {
 	worker2ClusterName = cmp.Or(os.Getenv("WORKER2_KIND_CLUSTER_NAME"), "kind-worker2")
 
 	var err error
-	k8sManagerClient, managerCfg, err = util.CreateClientUsingCluster("kind-" + managerClusterName)
+	k8sManagerClient, managerCfg, err = behavioral.CreateClientUsingCluster("kind-" + managerClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sWorker1Client, worker1Cfg, err = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
+	k8sWorker1Client, worker1Cfg, err = behavioral.CreateClientUsingCluster("kind-" + worker1ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sWorker2Client, worker2Cfg, err = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
+	k8sWorker2Client, worker2Cfg, err = behavioral.CreateClientUsingCluster("kind-" + worker2ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	managerRestClient = util.CreateRestClient(managerCfg)
-	worker1RestClient = util.CreateRestClient(worker1Cfg)
-	worker2RestClient = util.CreateRestClient(worker2Cfg)
+	managerRestClient = behavioral.CreateRestClient(managerCfg)
+	worker1RestClient = behavioral.CreateRestClient(worker1Cfg)
+	worker2RestClient = behavioral.CreateRestClient(worker2Cfg)
 }
 
 func createSharedMultiKueueSecrets(ctx context.Context) {
 	var err error
-	worker1KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	worker1KConfig, err = behavioral.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, behavioral.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).NotTo(gomega.HaveOccurred())
+	gomega.Expect(behavioral.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).NotTo(gomega.HaveOccurred())
 
-	worker2KConfig, err = util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	worker2KConfig, err = behavioral.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, behavioral.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).NotTo(gomega.HaveOccurred())
+	gomega.Expect(behavioral.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).NotTo(gomega.HaveOccurred())
 }
 
 func cleanupSharedMultiKueueSecrets(ctx context.Context) {
 	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
-		g.Expect(util.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
-		g.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
-		g.Expect(util.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		g.Expect(behavioral.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
+		g.Expect(behavioral.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
+		g.Expect(behavioral.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker1Client, kueueNS, "mksa")).To(gomega.Succeed())
+		g.Expect(behavioral.CleanKubeconfigForMultiKueueSA(ctx, k8sWorker2Client, kueueNS, "mksa")).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }

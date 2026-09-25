@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -55,58 +55,58 @@ var (
 	worker1RestClient *rest.RESTClient
 	worker2RestClient *rest.RESTClient
 
-	managerK8SVersion *versionutil.Version
+	managerK8SVersion *versionbehavioral.Version
 
 	ctx context.Context
 )
 
-var kueueNS = util.GetKueueNamespace()
+var kueueNS = behavioral.GetKueueNamespace()
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End MultiKueue DRA Suite")
+	behavioral.RunE2ESuite(t, "End To End MultiKueue DRA Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	util.SetupLogger()
+	behavioral.SetupLogger()
 
 	managerClusterName = cmp.Or(os.Getenv("MANAGER_KIND_CLUSTER_NAME"), "kind-manager")
 	worker1ClusterName = cmp.Or(os.Getenv("WORKER1_KIND_CLUSTER_NAME"), "kind-worker1")
 	worker2ClusterName = cmp.Or(os.Getenv("WORKER2_KIND_CLUSTER_NAME"), "kind-worker2")
 
 	var err error
-	k8sManagerClient, managerCfg, err = util.CreateClientUsingCluster("kind-" + managerClusterName)
+	k8sManagerClient, managerCfg, err = behavioral.CreateClientUsingCluster("kind-" + managerClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sWorker1Client, worker1Cfg, err = util.CreateClientUsingCluster("kind-" + worker1ClusterName)
+	k8sWorker1Client, worker1Cfg, err = behavioral.CreateClientUsingCluster("kind-" + worker1ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	k8sWorker2Client, worker2Cfg, err = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
+	k8sWorker2Client, worker2Cfg, err = behavioral.CreateClientUsingCluster("kind-" + worker2ClusterName)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	managerRestClient = util.CreateRestClient(managerCfg)
-	worker1RestClient = util.CreateRestClient(worker1Cfg)
-	worker2RestClient = util.CreateRestClient(worker2Cfg)
+	managerRestClient = behavioral.CreateRestClient(managerCfg)
+	worker1RestClient = behavioral.CreateRestClient(worker1Cfg)
+	worker2RestClient = behavioral.CreateRestClient(worker2Cfg)
 
 	ctx = ginkgo.GinkgoT().Context()
 
 	// Use MinimalMultiKueueRules for DRA tests - only Jobs, Workloads, Pods
-	worker1KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	worker1KConfig, err := behavioral.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, behavioral.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
+	gomega.Expect(behavioral.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1", worker1KConfig)).To(gomega.Succeed())
 
-	worker2KConfig, err := util.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, util.MultiKueueRulesForManager(ctx, k8sManagerClient))
+	worker2KConfig, err := behavioral.KubeconfigForMultiKueueSA(ctx, k8sWorker2Client, worker2Cfg, kueueNS, "mksa", worker2ClusterName, behavioral.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(util.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
+	gomega.Expect(behavioral.MakeMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2", worker2KConfig)).To(gomega.Succeed())
 
 	waitForAvailableStart := time.Now()
 
 	// Wait for Kueue availability on all clusters
-	util.WaitForKueueAvailability(ctx, k8sManagerClient)
-	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
-	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+	behavioral.WaitForKueueAvailability(ctx, k8sManagerClient)
+	behavioral.WaitForKueueAvailability(ctx, k8sWorker1Client)
+	behavioral.WaitForKueueAvailability(ctx, k8sWorker2Client)
 
 	// Wait for DRA example driver availability on all clusters
-	util.WaitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
-	util.WaitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
-	util.WaitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
+	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
+	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
+	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
 
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and DRA example driver are available in all clusters",

@@ -34,18 +34,18 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Kueuectl List", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		os.Unsetenv(list.KueuectlListRequestLimitEnvName)
 	})
 
@@ -58,13 +58,13 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 
 		ginkgo.JustBeforeEach(func() {
 			lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue("cq1").Obj()
-			util.MustCreate(ctx, k8sClient, lq1)
+			behavioral.MustCreate(ctx, k8sClient, lq1)
 
 			lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue("very-long-cluster-queue-name").Obj()
-			util.MustCreate(ctx, k8sClient, lq2)
+			behavioral.MustCreate(ctx, k8sClient, lq2)
 
 			lq3 = utiltestingapi.MakeLocalQueue("very-long-local-queue-name", ns.Name).ClusterQueue("cq1").Obj()
-			util.MustCreate(ctx, k8sClient, lq3)
+			behavioral.MustCreate(ctx, k8sClient, lq3)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
@@ -90,11 +90,11 @@ lq1    cq1            0                   0                    false    %s
 
 		ginkgo.It("Should print local queues list filtered by active status", func() {
 			cq1 := utiltestingapi.MakeClusterQueue("cq1").Obj()
-			util.MustCreate(ctx, k8sClient, cq1)
+			behavioral.MustCreate(ctx, k8sClient, cq1)
 			ginkgo.DeferCleanup(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
 			})
-			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq1, lq3)
+			behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq1, lq3)
 
 			ginkgo.By("Listing active local queues", func() {
 				streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
@@ -185,17 +185,17 @@ very-long-local-queue-name   cq1                            0                   
 		})
 
 		ginkgo.It("Should list local queues across all namespaces with -A", func() {
-			otherNs := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-other-")
+			otherNs := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-other-")
 			ginkgo.DeferCleanup(func() {
-				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, otherNs)).To(gomega.Succeed())
+				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, otherNs)).To(gomega.Succeed())
 			})
 			otherLq := utiltestingapi.MakeLocalQueue("lq-other", otherNs.Name).ClusterQueue("cq1").Obj()
-			util.MustCreate(ctx, k8sClient, otherLq)
+			behavioral.MustCreate(ctx, k8sClient, otherLq)
 
 			// Create an LQ in the primary namespace so we can assert that both
 			// LQs (primary and other-ns) appear in the cross-namespace list.
 			primaryLq := utiltestingapi.MakeLocalQueue("lq-primary", ns.Name).ClusterQueue("cq1").Obj()
-			util.MustCreate(ctx, k8sClient, primaryLq)
+			behavioral.MustCreate(ctx, k8sClient, primaryLq)
 
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
 			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
@@ -230,17 +230,17 @@ very-long-local-queue-name   cq1                            0                   
 
 		ginkgo.JustBeforeEach(func() {
 			cq1 = utiltestingapi.MakeClusterQueue("cq1").Obj()
-			util.MustCreate(ctx, k8sClient, cq1)
+			behavioral.MustCreate(ctx, k8sClient, cq1)
 
 			cq2 = utiltestingapi.MakeClusterQueue("very-long-cluster-queue-name").Obj()
-			util.MustCreate(ctx, k8sClient, cq2)
+			behavioral.MustCreate(ctx, k8sClient, cq2)
 
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq1, cq2)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq1, cq2)
 		})
 
 		ginkgo.JustAfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
@@ -294,13 +294,13 @@ very-long-cluster-queue-name            0                   0                   
 
 		ginkgo.JustBeforeEach(func() {
 			wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).Queue("lq1").Obj()
-			util.MustCreate(ctx, k8sClient, wl1)
+			behavioral.MustCreate(ctx, k8sClient, wl1)
 
 			wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).Queue("very-long-local-queue-name").Obj()
-			util.MustCreate(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
 
 			wl3 = utiltestingapi.MakeWorkload("very-long-workload-name", ns.Name).Queue("lq1").Obj()
-			util.MustCreate(ctx, k8sClient, wl3)
+			behavioral.MustCreate(ctx, k8sClient, wl3)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.
@@ -349,19 +349,19 @@ wl2                                             very-long-local-queue-name      
 
 		ginkgo.It("Should filter workloads by status.admission.clusterQueue field selector", func() {
 			wlCQ1 := utiltestingapi.MakeWorkload("wl-cq1", ns.Name).Queue("lq1").Obj()
-			util.MustCreate(ctx, k8sClient, wlCQ1)
-			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ1), utiltestingapi.MakeAdmission("cq1").Obj())
+			behavioral.MustCreate(ctx, k8sClient, wlCQ1)
+			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ1), utiltestingapi.MakeAdmission("cq1").Obj())
 
 			wlCQ2a := utiltestingapi.MakeWorkload("wl-cq2a", ns.Name).Queue("lq1").Obj()
-			util.MustCreate(ctx, k8sClient, wlCQ2a)
-			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2a), utiltestingapi.MakeAdmission("cq2").Obj())
+			behavioral.MustCreate(ctx, k8sClient, wlCQ2a)
+			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2a), utiltestingapi.MakeAdmission("cq2").Obj())
 
 			wlCQ2b := utiltestingapi.MakeWorkload("wl-cq2b", ns.Name).Queue("lq1").Obj()
-			util.MustCreate(ctx, k8sClient, wlCQ2b)
-			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2b), utiltestingapi.MakeAdmission("cq2").Obj())
+			behavioral.MustCreate(ctx, k8sClient, wlCQ2b)
+			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2b), utiltestingapi.MakeAdmission("cq2").Obj())
 
 			wlPending := utiltestingapi.MakeWorkload("wl-pending", ns.Name).Queue("lq1").Obj()
-			util.MustCreate(ctx, k8sClient, wlPending)
+			behavioral.MustCreate(ctx, k8sClient, wlPending)
 
 			ginkgo.By("filtering for a specific ClusterQueue")
 			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
@@ -423,15 +423,15 @@ wl2                                             very-long-local-queue-name      
 
 		ginkgo.JustBeforeEach(func() {
 			rf1 = utiltestingapi.MakeResourceFlavor("rf1").Obj()
-			util.MustCreate(ctx, k8sClient, rf1)
+			behavioral.MustCreate(ctx, k8sClient, rf1)
 
 			rf2 = utiltestingapi.MakeResourceFlavor("very-long-resource-flavor-name").Obj()
-			util.MustCreate(ctx, k8sClient, rf2)
+			behavioral.MustCreate(ctx, k8sClient, rf2)
 		})
 
 		ginkgo.JustAfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf2, true)
 		})
 
 		// Simple client set that are using on unit tests not allow to filter by field selector.

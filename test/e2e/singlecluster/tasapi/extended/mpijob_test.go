@@ -34,7 +34,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area:tas", "feature:mpijob"), func() {
@@ -47,16 +47,16 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-mpijob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-mpijob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sClient, tasFlavor)
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -66,18 +66,18 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllMPIJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteAllMPIJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a MPIJob", func() {
@@ -99,8 +99,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
-						Image: util.GetAgnHostImage(),
-						Args:  util.BehaviorExitFast,
+						Image: behavioral.GetAgnHostImage(),
+						Args:  behavioral.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -109,20 +109,20 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
-						Image: util.GetAgnHostImage(),
-						Args:  util.BehaviorExitFast,
+						Image: behavioral.GetAgnHostImage(),
+						Args:  behavioral.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, mpijob)
+			behavioral.MustCreate(ctx, k8sClient, mpijob)
 
 			ginkgo.By("MPIJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mpijob), mpijob)).To(gomega.Succeed())
 					g.Expect(mpijob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -176,8 +176,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
-						Image: util.GetAgnHostImage(),
-						Args:  util.BehaviorExitFast,
+						Image: behavioral.GetAgnHostImage(),
+						Args:  behavioral.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -186,28 +186,28 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
-						Image: util.GetAgnHostImage(),
-						Args:  util.BehaviorExitFast,
+						Image: behavioral.GetAgnHostImage(),
+						Args:  behavioral.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, mpijob)
+			behavioral.MustCreate(ctx, k8sClient, mpijob)
 
 			ginkgo.By("verify the webhook adds pod-index-offset annotation to Worker", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mpijob), mpijob)).To(gomega.Succeed())
 					g.Expect(mpijob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Annotations).Should(
 						gomega.HaveKeyWithValue(kueue.PodIndexOffsetAnnotation, "1"))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("MPIJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mpijob), mpijob)).To(gomega.Succeed())
 					g.Expect(mpijob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -215,7 +215,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
@@ -225,7 +225,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of all pods (launcher + workers) with rank-based ordering", func() {
@@ -262,8 +262,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
-						Image: util.GetAgnHostImage(),
-						Args:  util.BehaviorExitFast,
+						Image: behavioral.GetAgnHostImage(),
+						Args:  behavioral.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -273,20 +273,20 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
-						Image: util.GetAgnHostImage(),
-						Args:  util.BehaviorExitFast,
+						Image: behavioral.GetAgnHostImage(),
+						Args:  behavioral.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, mpiJob)
+			behavioral.MustCreate(ctx, k8sClient, mpiJob)
 
 			ginkgo.By("MPIJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mpiJob), mpiJob)).To(gomega.Succeed())
 					g.Expect(mpiJob.Spec.RunPolicy.Suspend).Should(gomega.Equal(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -294,7 +294,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
@@ -304,7 +304,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of all pods (launcher + workers) with rank-based ordering within the same block", func() {
@@ -332,8 +332,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount:  1,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
-						Image:         util.GetAgnHostImage(),
-						Args:          util.BehaviorExitFast,
+						Image:         behavioral.GetAgnHostImage(),
+						Args:          behavioral.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
@@ -354,8 +354,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Containers: []corev1.Container{
 							{
 								Name:  "mpijob",
-								Image: util.GetAgnHostImage(),
-								Args:  util.BehaviorExitFast,
+								Image: behavioral.GetAgnHostImage(),
+								Args:  behavioral.BehaviorExitFast,
 							},
 						},
 					},
@@ -363,7 +363,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 			}
 
 			ginkgo.By("MPIJob is admitted by the kueue webhook without panicking", func() {
-				util.MustCreate(ctx, k8sClient, mpijob)
+				behavioral.MustCreate(ctx, k8sClient, mpijob)
 			})
 
 			ginkgo.By("the resulting Workload has podsets only for known replica types", func() {
@@ -374,7 +374,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 				wl := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
 				gomega.Expect(wl.Spec.PodSets[0].Name).To(gomega.Equal(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker))))
 			})

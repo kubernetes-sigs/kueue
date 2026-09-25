@@ -72,7 +72,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -99,14 +99,14 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 }
 
 func (c *cluster) stopAndTeardown() {
-	ctx, cancel := context.WithTimeout(c.ctx, util.LongTimeout)
+	ctx, cancel := context.WithTimeout(c.ctx, behavioral.LongTimeout)
 	defer cancel()
 	c.fwk.StopManager(ctx)
 	c.fwk.Teardown()
 }
 
 var (
-	managerK8sVersion       *versionutil.Version
+	managerK8sVersion       *versionbehavioral.Version
 	managerTestCluster      cluster
 	worker1TestCluster      cluster
 	worker2TestCluster      cluster
@@ -119,22 +119,22 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	util.RunSuite(t, "MultiKueue Suite")
+	behavioral.RunSuite(t, "MultiKueue Suite")
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		DepCRDPaths: []string{
-			util.JobsetCrds,
-			util.TrainingOperatorCrds,
-			util.MpiOperatorCrds,
-			util.RayOperatorCrds,
-			util.AppWrapperCrds,
-			util.KfTrainerCrds,
-			util.AutoscalerCrds,
-			util.ClusterProfileCrds,
+			behavioral.JobsetCrds,
+			behavioral.TrainingOperatorCrds,
+			behavioral.MpiOperatorCrds,
+			behavioral.RayOperatorCrds,
+			behavioral.AppWrapperCrds,
+			behavioral.KfTrainerCrds,
+			behavioral.AutoscalerCrds,
+			behavioral.ClusterProfileCrds,
 		},
 		APIServerFeatureGates:     apiFeatureGates,
 		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
@@ -208,7 +208,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 		qcache.WithPreemptionExpectations(preemptionExpecations),
 		qcache.WithResourceFormatter(resourceFormatter),
 	}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 	jobOptions := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithCache(cCache),
@@ -544,10 +544,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
-	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
+	behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
 
 	ginkgo.By("deploying MutatingAdmissionPolicy manifests to manager cluster", func() {
-		mapManifestPath := filepath.Join(util.ProjectBaseDir, "config", "components", "map", "manifests.yaml")
+		mapManifestPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "map", "manifests.yaml")
 		manifestBytes, err := os.ReadFile(mapManifestPath)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -563,7 +563,7 @@ var _ = ginkgo.BeforeSuite(func() {
 			if len(rawObj.Object) == 0 {
 				continue
 			}
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, &rawObj)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, &rawObj)
 		}
 	})
 })
