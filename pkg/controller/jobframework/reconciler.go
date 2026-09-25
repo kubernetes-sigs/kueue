@@ -1953,27 +1953,23 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 	extra := ""
 	if prevWl != nil {
 		extra = scaleUpProbeExtra
-		if len(prevWl.Spec.PodSets) != len(podSets) {
-			extra = ""
-		} else {
-			for i := range podSets {
-				if prevWl.Spec.PodSets[i].Count != podSets[i].Count {
-					extra = ""
-				}
-			}
-		}
 		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
 		admitted := int32(0)
 		for i := range podSets {
 			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok {
 				admitted += prevAdmittedCount
 			}
+			// Matched by name, not position: predecessor PodSets can be reordered, added,
+			// or removed, so index-aligned comparison (including a same-length check) would misfire.
+			prevPodSet := utilpodset.FindPodSetByName(prevWl.Spec.PodSets, podSets[i].Name)
+			if prevPodSet == nil || prevPodSet.Count != podSets[i].Count {
+				extra = ""
+			}
 			// The baseline is copied forward from the predecessor's own floor, not
 			// recomputed from its live grant, so it keeps tracing back to the chain's
 			// origin even once every live predecessor is gone. The scheduler still
 			// enforces that a scale-up must grow at least one PodSet, using the
 			// predecessor's live grant while it's still around (see getInitialAssignments).
-			prevPodSet := utilpodset.FindPodSetByName(prevWl.Spec.PodSets, podSets[i].Name)
 			if prevPodSet != nil && prevPodSet.MinCount != nil {
 				podSets[i].MinCount = prevPodSet.MinCount
 			}
