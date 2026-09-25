@@ -167,7 +167,7 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 
 	remWl := g.remotes[cluster]
 	if remWl == nil {
-		return nil
+		return g.clearStuckQuotaReservation(ctx)
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
@@ -181,7 +181,40 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 		return fmt.Errorf("deleting remote workload: %w", err)
 	}
 	g.remotes[cluster] = nil
-	return nil
+	return g.clearStuckQuotaReservation(ctx)
+}
+
+// clearStuckQuotaReservation releases the local Workload's quota reservation
+// directly, if it is still evicted and reserving quota right after a remote
+// copy was just deleted.
+//
+// A MultiKueue-managed job's manager-side copy has no local operator driving
+// it - its status is populated purely by mirroring the remote. The generic
+// eviction-completion path (jobframework's reconciler) waits for the job's
+// own IsActive() to go false before releasing quota, and that only happens
+// once the mirror catches up. If the remote is deleted before it ever
+// mirrors a status IsActive() treats as inactive, that wait never resolves
+// and the Workload holds its quota forever. This isn't specific to any one
+// job type - whatever a type's own status semantics are, once MultiKueue has
+// deleted its remote copy nothing related to this job is running anywhere,
+// so there is nothing left to wait for. See
+// https://github.com/kubernetes-sigs/kueue/issues/15380.
+//
+// Guarded to the exact stuck shape (evicted, quota still reserved, not
+// finished) so this never touches a Workload outside that scenario - a
+// finished Workload's QuotaReserved condition, in particular, is left to
+// workloadfinish.Finish, not overwritten here.
+func (g *wlGroup) clearStuckQuotaReservation(ctx context.Context) error {
+	if g.IsFinished() || !workloadevict.IsEvicted(g.local) || !workload.HasQuotaReservation(g.local) {
+		return nil
+	}
+	return workloadpatching.PatchAdmissionStatus(ctx, g.localClient, g.local, realClock, func(wl *kueue.Workload) (bool, error) {
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+		)
+		return workload.UnsetQuotaReservationWithCondition(wl, reason, "MultiKueue deleted the remote copy", realClock.Now()), nil
+	})
 }
 
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {

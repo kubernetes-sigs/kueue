@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -3229,5 +3230,112 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	if gotResult.RequeueAfter != syncDeferredRequeueAfter {
 		t.Fatalf("reconcileGroup result has RequeueAfter=%v; want %v (sync was deferred)",
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
+	}
+}
+
+// TestRemoveRemoteObjects_ClearsStuckQuotaReservation is a regression test
+// for https://github.com/kubernetes-sigs/kueue/issues/15380.
+//
+// A MultiKueue-managed job's manager-side status only ever changes because
+// MultiKueue mirrors it from the remote copy - the manager has no local
+// operator driving it. If eviction completion (in the generic job-framework
+// reconciler) is still waiting on that mirrored status to report inactive,
+// and the remote is deleted before it ever does, that wait never resolves
+// and the Workload holds its quota reservation forever. Not specific to any
+// one job type: once MultiKueue has deleted the remote copy, nothing related
+// to the job is running anywhere, whatever that type's own status semantics
+// are - so RemoveRemoteObjects clears the reservation itself rather than
+// leaving every job type to notice on its own.
+func TestRemoveRemoteObjects_ClearsStuckQuotaReservation(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+
+	evictedCond := metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		Reason:             kueue.WorkloadEvictedByAdmissionCheck,
+		LastTransitionTime: metav1.NewTime(now),
+	}
+	finishedCond := metav1.Condition{
+		Type:               kueue.WorkloadFinished,
+		Status:             metav1.ConditionTrue,
+		Reason:             "Succeeded",
+		LastTransitionTime: metav1.NewTime(now),
+	}
+
+	cases := map[string]struct {
+		local            *kueue.Workload
+		wantQuotaCleared bool
+	}{
+		"evicted workload still reserving quota: quota is cleared": {
+			local: utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+				AdmittedAt(true, now).
+				Condition(evictedCond).
+				Obj(),
+			wantQuotaCleared: true,
+		},
+		"not evicted: left alone, some other reconciler owns clearing it": {
+			local: utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+				AdmittedAt(true, now).
+				Obj(),
+			wantQuotaCleared: false,
+		},
+		"evicted but already finished: left to workloadfinish.Finish, not overwritten here": {
+			local: utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+				AdmittedAt(true, now).
+				Condition(evictedCond).
+				Condition(finishedCond).
+				Obj(),
+			wantQuotaCleared: false,
+		},
+		"evicted, no quota reservation to begin with: no-op": {
+			local: utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				Condition(evictedCond).
+				Obj(),
+			wantQuotaCleared: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			managerBuilder := getClientBuilder(ctx).WithObjects(tc.local).WithStatusSubresource(tc.local)
+			managerClient := managerBuilder.Build()
+
+			group := &wlGroup{
+				local:       tc.local,
+				localClient: managerClient,
+				// No remote workload object: RemoveRemoteObjects must still
+				// reach clearStuckQuotaReservation for it - a MultiKueue
+				// reconcile that finds nothing left on the remote cluster is
+				// exactly the case this fix targets.
+				remotes: map[string]*kueue.Workload{"worker1": nil},
+				remoteClients: map[string]*remoteClient{
+					"worker1": {client: NewNeverCachingClient(getClientBuilder(ctx).Build()), origin: defaultOrigin},
+				},
+				jobAdapter:    &deferredSyncStubAdapter{},
+				controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+			}
+
+			if err := group.RemoveRemoteObjects(ctx, "worker1"); err != nil {
+				t.Fatalf("RemoveRemoteObjects returned unexpected error: %v", err)
+			}
+
+			updated := &kueue.Workload{}
+			if err := managerClient.Get(ctx, client.ObjectKeyFromObject(tc.local), updated); err != nil {
+				t.Fatalf("failed to get updated workload: %v", err)
+			}
+
+			// Checking the specific message this fix writes, rather than just
+			// !HasQuotaReservation, so a workload that never held a
+			// reservation to begin with doesn't read as a false positive.
+			cond := apimeta.FindStatusCondition(updated.Status.Conditions, kueue.WorkloadQuotaReserved)
+			gotCleared := cond != nil && cond.Status == metav1.ConditionFalse && cond.Message == "MultiKueue deleted the remote copy"
+			if gotCleared != tc.wantQuotaCleared {
+				t.Errorf("quota reservation cleared by this fix = %v, want %v (conditions: %+v)", gotCleared, tc.wantQuotaCleared, updated.Status.Conditions)
+			}
+		})
 	}
 }
