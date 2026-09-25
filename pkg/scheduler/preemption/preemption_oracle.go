@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -46,10 +47,12 @@ func (p *PreemptionOracle) SimulatePreemption(
 	fr resources.FlavorResource,
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
+	log := log.FromContext(ctx)
+	preemptorCQ := p.snapshot.ClusterQueue(wl.ClusterQueue)
 	pCtx := &preemptionCtx{
 		clock:             p.preemptor.clock,
 		preemptor:         wl,
-		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
+		preemptorCQ:       preemptorCQ,
 		snapshot:          p.snapshot,
 		frsNeedPreemption: sets.New(fr),
 		workloadUsage: workload.Usage{
@@ -57,6 +60,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 				Assigned: resources.FlavorResourceQuantities{fr: quantity},
 			},
 		},
+		configurableEvaluator: p.preemptor.newConfigurableEvaluator(ctx, log, preemptorCQ),
 	}
 	candidates := p.preemptor.getTargets(ctx, p.preemptor.getPreemptionStrategyIterator(ctx, pCtx))
 

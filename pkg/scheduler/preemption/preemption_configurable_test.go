@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
@@ -1181,6 +1182,98 @@ func TestFindConfigurableCandidates(t *testing.T) {
 			})
 			if diff := cmp.Diff(tc.wantTargets, gotTargetKeys, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("FindCandidates() targets (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPreemptionOracleConfigurablePreemptions(t *testing.T) {
+	now := time.Now()
+	defaultConfigName := "default-config"
+	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
+	// The ClusterQueue doesn't allow any classical or Fair Sharing preemption, so the
+	// only candidates are the ones selected by the PreemptionConfig.
+	clusterQueue := utiltestingapi.MakeClusterQueue("a").
+		Cohort("all").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "2").Obj()).
+		Annotation(kueuealpha.PreemptionConfigNameAnnotation, defaultConfigName).
+		Obj()
+	preemptionConfig := *utiltestingalpha.MakePreemptionConfig(defaultConfigName).
+		Rule("within-cluster-queue", kueuealpha.Always, kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+			Scope: kueuealpha.WithinClusterQueue,
+		}).Obj()
+	admitted := []kueue.Workload{
+		*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+		*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+	}
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	cases := map[string]struct {
+		fairSharing                    *config.FairSharing
+		configurablePreemptionDisabled bool
+		want                           preemptioncommon.PreemptionPossibility
+	}{
+		"classical: candidates selected by the PreemptionConfig are considered": {
+			want: preemptioncommon.Preempt,
+		},
+		"classical: no candidates when the ConfigurablePreemptions feature is disabled": {
+			configurablePreemptionDisabled: true,
+			want:                           preemptioncommon.NoCandidates,
+		},
+		"fair sharing: candidates selected by the PreemptionConfig are considered": {
+			fairSharing: &config.FairSharing{},
+			want:        preemptioncommon.Preempt,
+		},
+		"fair sharing: no candidates when the ConfigurablePreemptions feature is disabled": {
+			fairSharing:                    &config.FairSharing{},
+			configurablePreemptionDisabled: true,
+			want:                           preemptioncommon.NoCandidates,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Given
+			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, !tc.configurablePreemptionDisabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+			workloads := make([]kueue.Workload, len(admitted))
+			for i := range admitted {
+				workloads[i] = *admitted[i].DeepCopy()
+				workloads[i].UID = types.UID(workloads[i].Name)
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithLists(&kueue.WorkloadList{Items: workloads}).
+				WithLists(&kueuealpha.PreemptionConfigList{Items: []kueuealpha.PreemptionConfig{preemptionConfig}}).
+				Build()
+
+			cqCache := schdcache.New(cl)
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+			}
+			beforeSnapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, tc.fairSharing, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			wlInfo := workload.NewInfo(log, unitWl.Clone().Name("a_incoming").Obj())
+			wlInfo.ClusterQueue = "a"
+
+			// When
+			got, _ := NewOracle(preemptor, snapshot).SimulatePreemption(ctx, snapshot.ClusterQueue("a"), *wlInfo, fr, resources.NewAmount(1000))
+
+			// Then
+			if got != tc.want {
+				t.Errorf("SimulatePreemption() = %v, want %v", got, tc.want)
+			}
+			if diff := cmp.Diff(beforeSnapshot, snapshot, snapCmpOpts); diff != "" {
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
 	}

@@ -178,12 +178,6 @@ func (p *Preemptor) buildContext(
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
 
-	var configurableEvaluator *configurable.PreemptionEvaluator
-	if features.Enabled(features.ConfigurablePreemptions) {
-		// Resolved once per attempt: both algorithms evaluate several triggers, and the
-		// PreemptionConfig must not be re-read for each of them.
-		configurableEvaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
-	}
 	return &preemptionCtx{
 		clock:             p.clock,
 		preemptor:         wl,
@@ -197,8 +191,15 @@ func (p *Preemptor) buildContext(
 			},
 			TAS: wl.TASUsage(),
 		},
-		configurableEvaluator: configurableEvaluator,
+		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq),
 	}
+}
+
+func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) (evaluator *configurable.PreemptionEvaluator) {
+	if features.Enabled(features.ConfigurablePreemptions) {
+		evaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
+	}
+	return
 }
 
 var HumanReadablePreemptionReasons = map[string]string{
