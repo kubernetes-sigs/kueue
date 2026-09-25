@@ -897,14 +897,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
 				}
-				if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wlObj) {
-					// The pod cannot relocate and the Workload cannot outlive it; keep
-					// the existing assignment so admit clears UnhealthyNodes without
-					// diverging from the node the pod actually runs on.
-					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
-					continue
-				}
-				if !utiltas.HasNodeInPodSetAssignment(psa, workload.FirstUnhealthyNodeName(wlObj)) {
+				if shouldKeepExistingAssignment(wlObj, psa) {
 					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
 					continue
 				}
@@ -951,6 +944,16 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	}
 
 	return result
+}
+
+func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignment) bool {
+	if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+		// The pod cannot relocate and the Workload cannot outlive it; keep
+		// the existing assignment so admit clears UnhealthyNodes without
+		// diverging from the node the pod actually runs on.
+		return true
+	}
+	return !utiltas.HasNodeInPodSetAssignment(psa, workload.FirstUnhealthyNodeName(wl))
 }
 
 func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetRequests) {
