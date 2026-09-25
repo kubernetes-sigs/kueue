@@ -37,6 +37,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -213,6 +214,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 		configurablePreemptionDisabled bool
 		wantPreempted                  sets.Set[string]
 		wantReasons                    map[string]string
+		wantConfigurableReasonsData    map[string]common.ConfigurablePreemptionReasonData
 	}{
 		"no candidates for CQ without config": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -807,6 +809,12 @@ func TestConfigurablePreemptions(t *testing.T) {
 			wantPreempted: sets.New("/a1"),
 			wantReasons: map[string]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
+			},
+			wantConfigurableReasonsData: map[string]common.ConfigurablePreemptionReasonData{
+				"/a1": {
+					ConfigName:                defaultConfigName,
+					RuleNameToSelectorIndexes: map[string][]int{"test-rule-one": {0}},
+				},
 			},
 		},
 		"QuotaFeasibleAndInsufficientTopology trigger is not used when the quota is insufficient": {

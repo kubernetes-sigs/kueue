@@ -17,8 +17,13 @@ limitations under the License.
 package common
 
 import (
+	"fmt"
+	"strconv"
+	"strings"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -29,6 +34,40 @@ type Target struct {
 	WorkloadInfo *workload.Info
 	Reason       string
 	WorkloadCq   *schdcache.ClusterQueueSnapshot
+
+	// ConfigurablePreemptionReasonData stores data which resulted in eviction.
+	// Specified only when eviction is due to configurable preemption.
+	ConfigurablePreemptionReasonData *ConfigurablePreemptionReasonData
+}
+
+type ConfigurablePreemptionReasonData struct {
+	ConfigName                string
+	RuleNameToSelectorIndexes map[string][]int
+}
+
+func (d *ConfigurablePreemptionReasonData) EvictionMessage(preemptor *kueue.Workload) string {
+	joinRules := func(m map[string][]int) string {
+		var builder strings.Builder
+		for key, values := range m {
+			if builder.Len() > 0 {
+				builder.WriteString("; ")
+			}
+			builder.WriteString(key)
+			builder.WriteRune('/')
+			for index, value := range values {
+				if index > 0 {
+					builder.WriteRune(',')
+				}
+				builder.WriteString(strconv.Itoa(value))
+			}
+		}
+		return builder.String()
+	}
+
+	return fmt.Sprintf("Preempted by %s because of preemption config %s rule %s",
+		workload.Key(preemptor),
+		d.ConfigName,
+		joinRules(d.RuleNameToSelectorIndexes))
 }
 
 // ensures that Target implements ObjectRefProvider interface at compile time

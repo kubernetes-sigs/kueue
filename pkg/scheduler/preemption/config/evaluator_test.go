@@ -17,7 +17,6 @@ limitations under the License.
 package config
 
 import (
-	"slices"
 	"testing"
 	"time"
 
@@ -36,7 +35,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -70,7 +68,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		// Default testing value: Always
 		trigger        kueuealpha.PreemptionConfigActivationTrigger
 		client         client.Reader
-		wantCandidates []string
+		wantCandidates []*Candidate
 		wantError      string
 	}{
 		"no candidates for empty config": {
@@ -86,7 +84,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{},
+			wantCandidates: []*Candidate{},
 		},
 		"no candidates for rule without selectors": {
 			clusterQueues: baseCqs,
@@ -106,7 +104,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{},
+			wantCandidates: []*Candidate{},
 		},
 		"returns error for selector with invalid label's operator while matching preemptor's workload": {
 			clusterQueues: baseCqs,
@@ -169,11 +167,14 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1", "a2"},
+			wantCandidates: []*Candidate{candidate("a1", "", "test", 0), candidate("a2", "", "test", 0)},
 		},
 		"selects candidates for trigger which is present in config": {
 			clusterQueues: baseCqs,
 			config: kueuealpha.PreemptionConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-config",
+				},
 				Spec: kueuealpha.PreemptionConfigSpec{
 					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
 						{
@@ -195,7 +196,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
 			trigger:        kueuealpha.InsufficientQuota,
-			wantCandidates: []string{"a1", "a2"},
+			wantCandidates: []*Candidate{candidate("a1", "test-config", "test", 0), candidate("a2", "test-config", "test", 0)},
 		},
 		"returns empty candidates for trigger which is absent in config": {
 			clusterQueues: baseCqs,
@@ -221,7 +222,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
 			trigger:        kueuealpha.QuotaFeasibleAndInsufficientTopology,
-			wantCandidates: []string{},
+			wantCandidates: []*Candidate{},
 		},
 		"rule with matching preemptor labels selector is triggered for matching workload": {
 			clusterQueues: baseCqs,
@@ -249,7 +250,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Label("active", "true").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1", "a2"},
+			wantCandidates: []*Candidate{candidate("a1", "", "test", 0), candidate("a2", "", "test", 0)},
 		},
 		"rule does not apply because of not matching preemptor labels selector": {
 			clusterQueues: baseCqs,
@@ -277,7 +278,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{},
+			wantCandidates: []*Candidate{},
 		},
 		"returns candidates from ClusterQueues not under the same root": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -318,7 +319,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1", "b1", "c1"},
+			wantCandidates: []*Candidate{candidate("a1", "", "test", 0), candidate("b1", "", "test", 0), candidate("c1", "", "test", 0)},
 		},
 		"returns non repeating candidates even when the same candidates are matched by several rules of a trigger": {
 			clusterQueues: baseCqs,
@@ -350,9 +351,20 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
-			preemptorCq:    "a",
-			wantCandidates: []string{"a1", "b1"},
+			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
+			preemptorCq: "a",
+			wantCandidates: []*Candidate{
+				&Candidate{
+					WlInfo:                    wlInfoWithName("a1"),
+					ConfigName:                "",
+					RuleNameToSelectorIndexes: map[string][]int{"first-rule": {0}, "second-rule": {0}},
+				},
+				&Candidate{
+					WlInfo:                    wlInfoWithName("b1"),
+					ConfigName:                "",
+					RuleNameToSelectorIndexes: map[string][]int{"second-rule": {0}},
+				},
+			},
 		},
 		"LabelSelector filters candidate workloads matching label selector": {
 			clusterQueues: baseCqs,
@@ -384,7 +396,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1"},
+			wantCandidates: []*Candidate{candidate("a1", "", "label-selector-rule", 0)},
 		},
 		"ClusterQueueSelector filters candidates by matching ClusterQueue labels": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -425,7 +437,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1"},
+			wantCandidates: []*Candidate{candidate("a1", "", "cq-selector-rule", 0)},
 		},
 		"Priority filters candidates with higher priority": {
 			clusterQueues: baseCqs,
@@ -454,7 +466,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Priority(100).Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1"},
+			wantCandidates: []*Candidate{candidate("a1", "", "priority-rule", 0)},
 		},
 		"NumericLabels filters candidates with numeric label constraint": {
 			clusterQueues: baseCqs,
@@ -485,7 +497,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Label("tpus", "8").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1"},
+			wantCandidates: []*Candidate{candidate("a1", "", "numeric-label-rule", 0)},
 		},
 	}
 
@@ -543,14 +555,36 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 				return
 			}
 
-			// Candidates are not ordered, so compare them as sorted lists.
-			gotCandidates := slices.Sorted(slices.Values(utilslices.Map(candidates, func(wlInfo **workload.Info) string {
-				return (*wlInfo).Obj.Name
-			})))
-			wantCandidates := slices.Sorted(slices.Values(tc.wantCandidates))
-			if diff := cmp.Diff(wantCandidates, gotCandidates, cmpopts.EquateEmpty()); diff != "" {
+			candidateCmpOpts := []cmp.Option{
+				// Compare only names for workload.Info
+				cmpopts.AcyclicTransformer("Info", func(wlInfo *workload.Info) string {
+					return wlInfo.Obj.Name
+				}),
+				// Sort candidates by name to have consistent output
+				cmpopts.SortSlices(func(a, b *Candidate) bool {
+					return a.WlInfo.Obj.Name < b.WlInfo.Obj.Name
+				}),
+				cmpopts.EquateEmpty(),
+			}
+			if diff := cmp.Diff(tc.wantCandidates, candidates, candidateCmpOpts...); diff != "" {
 				t.Errorf("Selected candidates (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func candidate(name string, configName string, ruleName string, indexes ...int) *Candidate {
+	return &Candidate{
+		WlInfo:                    wlInfoWithName(name),
+		ConfigName:                configName,
+		RuleNameToSelectorIndexes: map[string][]int{ruleName: indexes},
+	}
+}
+
+func wlInfoWithName(name string) *workload.Info {
+	return &workload.Info{
+		Obj: &kueue.Workload{
+			Name: name,
+		},
 	}
 }
