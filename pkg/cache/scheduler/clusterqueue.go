@@ -64,8 +64,11 @@ type clusterQueue struct {
 	WorkloadsNotReady sets.Set[workload.Reference]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
-	FairWeight        float64
-	FlavorFungibility kueue.FlavorFungibility
+	// PreemptionConfigName is the name of the PreemptionConfig referenced by the ClusterQueue.
+	// Only present when the ConfigurablePreemptions feature gate is enabled.
+	PreemptionConfigName *string
+	FairWeight           float64
+	FlavorFungibility    kueue.FlavorFungibility
 	// Aggregates AdmissionChecks from both .spec.AdmissionChecks and .spec.AdmissionCheckStrategy
 	// Sets hold ResourceFlavors to which an AdmissionCheck should apply.
 	AdmissionChecks workload.AdmissionChecks
@@ -184,11 +187,11 @@ func (c *clusterQueue) updateClusterQueue(
 
 	if features.Enabled(features.ConfigurablePreemptions) {
 		c.Labels = maps.Clone(in.Labels)
+		c.PreemptionConfigName = getPreemptionConfigName(in)
 	}
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
 	c.AdmissionChecks = admissioncheck.NewAdmissionChecks(in)
-
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
 	} else {
@@ -216,6 +219,16 @@ func (c *clusterQueue) updateClusterQueue(
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
 	c.DynamicQuotaOrchestrator = dqo.EffectiveOrchestrator(in.Status.EffectiveQuotas)
+	return nil
+}
+
+func getPreemptionConfigName(in *kueue.ClusterQueue) *string {
+	if in.Annotations == nil {
+		return nil
+	}
+	if val, ok := in.Annotations[kueuealpha.PreemptionConfigNameAnnotation]; ok {
+		return new(val)
+	}
 	return nil
 }
 

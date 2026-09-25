@@ -34,6 +34,7 @@ import (
 	"k8s.io/component-base/featuregate"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -3525,6 +3526,157 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 				}}},
+			},
+		},
+		"preemption requiring borrowing is not attempted when the ClusterQueue doesn't allow it": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("2").Append().
+						Obj(),
+				).Cohort("test-cohort").
+				Obj(),
+			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("2").Append().
+						Obj(),
+				).
+				Cohort("test-cohort").
+				Obj(),
+			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
+				PodSets: []PodSetAssignment{
+					{
+						Name:   kueue.DefaultPodSetName,
+						Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+						Count: 1,
+					},
+				},
+				NoFitReason: "WaitingForQuota",
+			},
+		},
+		"ClusterQueue referencing a PreemptionConfig and borrowWithinCohort Never may preempt while borrowing": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ConfigurablePreemptions: true,
+			},
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, "test-preemption-config").
+				Preemption(kueue.ClusterQueuePreemption{
+					BorrowWithinCohort: &kueue.BorrowWithinCohort{
+						Policy: kueue.BorrowWithinCohortPolicyNever,
+					},
+				}).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("2").Append().
+						Obj(),
+				).Cohort("test-cohort").
+				Obj(),
+			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("2").Append().
+						Obj(),
+				).
+				Cohort("test-cohort").
+				Obj(),
+			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			// The int is the height of the lowest cohort subtree that fits the request
+			// after preemption, as returned by FindHeightOfLowestSubtreeThatFits: 0
+			// means the ClusterQueue fits it on its own nominal quota, anything greater
+			// means it only fits by borrowing from an ancestor. Here it is 1 because
+			// the ClusterQueue has no nominal quota of its own, so the 2 CPU can only
+			// come from test-cohort. That is what makes this case exercise the
+			// borrowing relaxation granted by the PreemptionConfig.
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Reclaim, 1},
+			},
+			wantRepMode: Preempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					},
+					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
+					Count:  1,
+				}},
+				Borrowing: 1,
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+				}}},
+			},
+		},
+		"ClusterQueue referencing a PreemptionConfig and borrowWithinCohort Never may not preempt while borrowing when ConfigurablePreemptions is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ConfigurablePreemptions: false,
+			},
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, "test-preemption-config").
+				Preemption(kueue.ClusterQueuePreemption{
+					BorrowWithinCohort: &kueue.BorrowWithinCohort{
+						Policy: kueue.BorrowWithinCohortPolicyNever,
+					},
+				}).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("0").BorrowingLimit("2").Append().
+						Obj(),
+				).Cohort("test-cohort").
+				Obj(),
+			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						ResourceQuotaWrapper(corev1.ResourceCPU).NominalQuota("2").Append().
+						Obj(),
+				).
+				Cohort("test-cohort").
+				Obj(),
+			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
+				PodSets: []PodSetAssignment{
+					{
+						Name:   kueue.DefaultPodSetName,
+						Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+						Count: 1,
+					},
+				},
+				NoFitReason: "WaitingForQuota",
 			},
 		},
 		"quota exhausted, but can preempt in cohort and ClusterQueue": {

@@ -402,6 +402,7 @@ func (c *Cache) snapshotClusterQueue(
 	}
 	if features.Enabled(features.ConfigurablePreemptions) {
 		cc.Labels = maps.Clone(cq.Labels)
+		cc.PreemptionConfigName = cq.PreemptionConfigName
 	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
