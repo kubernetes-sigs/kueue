@@ -62,6 +62,13 @@ const (
 	// Tracks Pod scheduling and enables a separate timeout for unscheduled Pods.
 	WaitForPodsReadyUnscheduledTimeout featuregate.Feature = "WaitForPodsReadyUnscheduledTimeout"
 
+	// owner: @j-skiba
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/15423-wait-for-pods-ready-min-ready-count
+	//
+	// Enables the kueue.x-k8s.io/pod-group-min-ready-count annotation, which sets the
+	// minimum number of ready Pods required for a Pod group to satisfy PodsReady.
+	WaitForPodsReadyMinReadyCount featuregate.Feature = "WaitForPodsReadyMinReadyCount"
+
 	// owner: @yaroslava-serdiuk
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
 	//
@@ -1202,6 +1209,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASPartialSlices: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	WaitForPodsReadyMinReadyCount: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

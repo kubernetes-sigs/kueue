@@ -21,6 +21,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -32,10 +33,14 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -236,6 +241,10 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		util.MustCreate(ctx, k8sClient, metricsReaderClusterRoleBinding)
 
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+			if cfg.FeatureGates == nil {
+				cfg.FeatureGates = make(map[string]bool)
+			}
+			cfg.FeatureGates[string(features.WaitForPodsReadyMinReadyCount)] = true
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  new(true),
@@ -344,6 +353,73 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
 				{"kueue_evicted_workloads_once_total", cq.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForRecovery, "1"},
 			})
+		})
+	})
+
+	ginkgo.It("should keep StatefulSet workload PodsReady when ready pods stay above min count and evict when dropping below min count", func() {
+		var sts *appsv1.StatefulSet
+		ginkgo.By("creating a StatefulSet with 3 replicas and pod-group-min-ready-count=2 in the Pod template", func() {
+			sts = statefulsettesting.MakeStatefulSet("sts-min-pods", ns.Name).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				TerminationGracePeriod(1).
+				Replicas(3).
+				Queue(lq.Name).
+				PodTemplateAnnotation(podconstants.GroupPodsReadyMinCountAnnotation, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, sts)
+		})
+
+		wlKey = types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(sts.UID, sts.Name),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("waiting for the StatefulSet workload to become PodsReady and all 3 replicas to be ready", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+				createdSts := &appsv1.StatefulSet{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSts)).To(gomega.Succeed())
+				g.Expect(createdSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("terminating 1 pod (sts-min-pods-2) while 2 pods remain ready (>= min count of 2)", func() {
+			util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 1, client.MatchingLabels{appsv1.PodIndexLabel: "2"})
+		})
+
+		ginkgo.By("verifying the workload stays PodsReady without eviction while the 3rd pod recovers", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+				g.Expect(wl.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+				if wl.Status.SchedulingStats != nil {
+					g.Expect(wl.Status.SchedulingStats.Evictions).To(gomega.BeEmpty())
+				}
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdSts := &appsv1.StatefulSet{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSts)).To(gomega.Succeed())
+				g.Expect(createdSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("deleting 2 pods (sts-min-pods-1 and sts-min-pods-2) so ready pods drop to 1 (< min count of 2)", func() {
+			for _, podName := range []string{sts.Name + "-1", sts.Name + "-2"} {
+				gomega.Expect(k8sClient.Delete(ctx, testingjobspod.MakePod(podName, ns.Name).Obj())).To(gomega.Succeed())
+			}
+		})
+
+		ginkgo.By("verifying that the workload is evicted due to recovery timeout", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.SchedulingStats).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.SchedulingStats.Evictions).NotTo(gomega.BeEmpty())
+				g.Expect(wl.Status.SchedulingStats.Evictions[0].Reason).To(gomega.Equal(kueue.WorkloadEvictedByPodsReadyTimeout))
+				g.Expect(string(wl.Status.SchedulingStats.Evictions[0].UnderlyingCause)).To(gomega.Equal(kueue.WorkloadWaitForRecovery))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
