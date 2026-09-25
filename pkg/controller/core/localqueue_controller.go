@@ -237,6 +237,10 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
 	log.V(2).Info("LocalQueue create event")
 
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
+
 	if ptr.Deref(e.Object.Spec.StopPolicy, kueue.None) == kueue.None {
 		ctx := logr.NewContext(context.Background(), log)
 		if err := r.queues.AddLocalQueue(ctx, e.Object); err != nil {
@@ -246,10 +250,6 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 
 	if err := r.cache.AddLocalQueue(e.Object); err != nil {
 		log.Error(err, "Failed to add localQueue to the cache")
-	}
-
-	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
 	}
 
 	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.Object.GetLabels()) {
