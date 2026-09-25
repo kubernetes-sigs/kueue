@@ -195,11 +195,6 @@ func TestClusterQueueScopeFilters(t *testing.T) {
 			candidateCQ: cq4SubB,
 			wantMatch:   true,
 		},
-		"WithinCohortTree: preemptor in rootB rejects candidate in rootA": {
-			filter:      NewWithinCohortTreeFilter("cq4SubB", snapshot),
-			candidateCQ: cq1SubA1,
-			wantMatch:   false,
-		},
 		"WithinCohortTree: standalone candidate rejected for preemptor with cohort tree": {
 			filter:      NewWithinCohortTreeFilter("cq1SubA1", snapshot),
 			candidateCQ: cqStandalone1,

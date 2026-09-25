@@ -297,9 +297,20 @@ func (pc *PreemptionConfigWrapper) Rule(
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 ) *PreemptionConfigWrapper {
+	return pc.RuleWithPreemptorSelector(name, trigger, nil, selectors...)
+}
+
+// RuleWithPreemptorSelector appends a rule with a custom PreemptorSelector to the PreemptionConfig.
+func (pc *PreemptionConfigWrapper) RuleWithPreemptorSelector(
+	name string,
+	trigger kueuealpha.PreemptionConfigActivationTrigger,
+	preemptorSelector *metav1.LabelSelector,
+	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
+) *PreemptionConfigWrapper {
 	pc.Spec.Rules = append(pc.Spec.Rules, kueuealpha.PreemptionConfigPreemptionRule{
 		Name:               name,
 		ActivationPolicy:   kueuealpha.PreemptionConfigActivationPolicy{Trigger: trigger},
+		PreemptorSelector:  preemptorSelector,
 		CandidateSelectors: selectors,
 	})
 	return pc
@@ -319,4 +330,48 @@ func (pc *PreemptionConfigWrapper) Clone() *PreemptionConfigWrapper {
 // Obj returns the inner PreemptionConfig.
 func (pc *PreemptionConfigWrapper) Obj() *kueuealpha.PreemptionConfig {
 	return &pc.PreemptionConfig
+}
+
+// CandidateSelectorWrapper wraps a PreemptionConfigPreemptionCandidateSelector.
+type CandidateSelectorWrapper struct {
+	kueuealpha.PreemptionConfigPreemptionCandidateSelector
+}
+
+// MakeCandidateSelector creates a CandidateSelectorWrapper with the given scope.
+func MakeCandidateSelector(scope kueuealpha.PreemptionConfigPreemptionQueueScope) *CandidateSelectorWrapper {
+	return &CandidateSelectorWrapper{
+		Scope: scope,
+	}
+}
+
+// LabelSelector sets the candidate workload label selector.
+func (w *CandidateSelectorWrapper) LabelSelector(ls *metav1.LabelSelector) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.LabelSelector = ls
+	return w
+}
+
+// ClusterQueueSelector sets the candidate ClusterQueue label selector.
+func (w *CandidateSelectorWrapper) ClusterQueueSelector(cqs *metav1.LabelSelector) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.ClusterQueueSelector = cqs
+	return w
+}
+
+// Priority sets the priority constraint for preemption candidates.
+func (w *CandidateSelectorWrapper) Priority(mode kueuealpha.PreemptionConfigPriorityMode, cmp kueuealpha.NumericComparison) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{
+		Mode:       mode,
+		Comparison: cmp,
+	}
+	return w
+}
+
+// NumericLabels sets the numeric label constraints for preemption candidates.
+func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.PreemptionConfigNumericLabelConstraint) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.NumericLabels = constraints
+	return w
+}
+
+// Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
+func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
+	return w.PreemptionConfigPreemptionCandidateSelector
 }
