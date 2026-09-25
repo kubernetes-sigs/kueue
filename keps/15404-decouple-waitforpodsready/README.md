@@ -340,10 +340,14 @@ The two failure directions carry distinct operational consequences:
 `workload.status.expectedActivePods` follows strict lifecycle and staleness mitigation rules across admission cycles and dynamic scaling:
 
 1. **Ownership & Refresh Triggers**:
-   `expectedActivePods` is owned exclusively by the managing framework adapter. It is updated whenever the framework reconciles changes in desired pod counts (e.g., initial launch, pod completion, or elastic re-configuration).
+   `expectedActivePods` is owned exclusively by the managing framework adapter while the workload is admitted (`Admitted = True`). It is updated whenever the framework reconciles changes in desired pod counts (e.g., initial launch, pod completion, or elastic re-configuration).
+   * **Admission Boundary Lifecycle Exception**: As an explicit lifecycle exception to single-controller ownership, Kueue's admission teardown helper (`workload.UnsetQuotaReservationWithCondition`) clears `workload.status.expectedActivePods = nil` whenever a workload transitions to un-admitted (`Admitted = False`). In the eviction flow, this is invoked by `jobframework.Reconciler` once the evicted job's pods are terminated (`!job.IsActive()`), and symmetrically by `WorkloadController` or `scheduler` when revoking admission (e.g. queue stopped or deleted). This guarantees that idle workloads carry no active pod expectations while waiting in queue.
+   * **Stale-Write Ordering & In-Flight Protection**: If an in-flight status update from the framework adapter arrives concurrently with or shortly after un-admission:
+     1. *Optimistic Concurrency Control (OCC)*: Any status update predicated on an older `resourceVersion` (prior to admission being cleared) is rejected by the API server with `409 Conflict`.
+     2. *Admission Webhook Invariant Enforcement*: In `ValidateWorkloadUpdate`, the admission webhook strictly rejects updates that introduce or mutate non-empty `expectedActivePods` on any workload where `Admitted = False` (`field.Forbidden(status.expectedActivePods, "cannot be populated on an unadmitted workload")`). This ensures that even if a framework issues a late reconcile after admission teardown, the stale write is rejected and cannot repopulate the field prior to re-admission.
 2. **Workload Re-Admission (Preemption $\rightarrow$ Re-Admission Cycle)**:
    When a workload is evicted or preempted (`Admitted = False`), all in-flight pods are terminated. Upon subsequent re-admission (`Admitted = True`), the workload starts a new scheduling cycle from scratch.
-   * **Stale Count Invalidation via Admission Boundary Reset**: To prevent stale values from a prior partial run (e.g., `count: 2` left over after 6 pods had finished prior to preemption) from corrupting the new run, Kueue's core admission controller (`WorkloadController`) explicitly clears `workload.status.expectedActivePods = nil` whenever a workload transitions to un-admitted (`Admitted = False`). Upon subsequent re-admission (`Admitted = True`), the field is physically empty in etcd. Consequently, `PodsReadyController` observes an uninitialized `expectedActivePods` state and naturally evaluates the remaining fallback chain:
+   * **Stale Count Invalidation via Admission Boundary Reset**: Because `workload.status.expectedActivePods` was cleared to `nil` upon un-admission and protected against stale in-flight writes while unadmitted, `PodsReadyController` observes an uninitialized `expectedActivePods` state upon re-admission (`Admitted = True`). It naturally evaluates the remaining fallback chain:
      1. If `reclaimablePods` is present (Level 2), the target active count resolves to $\max(ps.\text{count} - \text{reclaimablePods}[ps], 0)$, accurately accounting for pods that previously finished and released quota (e.g., in standard `batch/v1.Job`).
      2. If `reclaimablePods` is absent (Level 3, standard for all-or-nothing and gang ML workloads), the target active count defaults to the full declared size ($ps.\text{count}$), ensuring complete gang readiness is required until the managing framework explicitly publishes fresh active targets for the new execution.
    * **In-Memory Debounce & Deficit State Reset**: Any internal debounce tracking state (including `firstDeficitTime` and pending grace deadlines) is strictly scoped to the workload's current admission cycle (keyed by admission transition timestamp). On preemption or re-admission, all internal deficit timers are cleared, preventing deadlines computed against a prior run's pods from leaking into the new cycle.
@@ -731,7 +735,8 @@ Per Kubernetes API conventions for feature-gated status fields and ratcheting va
      - **Field Clearing Permitted**: An update that clears `expectedActivePods` (`len(newObj.Status.ExpectedActivePods) == 0`) is permitted.
    - **Downgrade Persistence & Inert Data**: When the gate is disabled, legacy reconcilers ignore `expectedActivePods`, falling back entirely to `job.PodsReady()`. The persisted field remains inert until cleared or overwritten.
 2. **Gate Enabled (`DecoupledWaitForPodsReady=true`)**:
-   - The webhook permits mutations and new introductions conforming to standard bounds rules ($0 \le \text{count} \le ps.\text{count}$).
+   - The webhook permits mutations and new introductions conforming to standard bounds rules ($0 \le \text{count} \le ps.\text{count}$) on admitted workloads (`Admitted = True`).
+   - On unadmitted workloads (`Admitted = False`), the webhook rejects introducing or mutating non-empty `expectedActivePods` (`field.Forbidden`), preventing in-flight stale framework status updates from repopulating the field after eviction or prior to re-admission.
 
 No new condition types or condition reasons are introduced. The dedicated controller emits the standard `WorkloadPodsReady` condition using existing API reasons (`kueue.WorkloadWaitForStart`, `kueue.WorkloadStarted`, `kueue.WorkloadWaitForRecovery`, `kueue.WorkloadRecovered`), guaranteeing zero breaking changes or schema drift for metrics and monitoring tools.
 
@@ -816,18 +821,23 @@ No new condition types or condition reasons are introduced. The dedicated contro
   Evaluate a workload with multiple PodSets (`head` count=1, `workers` count=8):
   1. `workers` ready (8/8) but `head` not ready (0/1) $\rightarrow$ evaluates to `False` (`WaitForStart`).
   2. Both `head` (1/1) and `workers` (8/8) ready $\rightarrow$ evaluates to `True` (`WorkloadStarted`).
-- **Workload Preemption and Re-Admission State Reset**:
+- **Workload Preemption, Stale In-Flight Write Invalidation, and Re-Admission State Reset**:
   Simulate a workload admitted with a reduced target (`expectedActivePods = 4` of 8), which is preempted (`Admitted = False`) and subsequently re-admitted (`Admitted = True`):
-  1. Verify that `WorkloadController` clears `status.expectedActivePods = nil` on un-admission (`Admitted = False`).
-  2. For a gang workload without `reclaimablePods`, verify target active count falls back to Level 3 (`ps.count = 8`).
-  3. For a workload with `reclaimablePods = 2`, verify target active count falls back to Level 2 ($\max(8 - 2, 0) = 6$).
-  4. Verify all internal debounce timers reset cleanly across admission cycles.
+  1. Job is evicted; verify that once the job is stopped and inactive (`!job.IsActive()`), admission teardown (`workload.UnsetQuotaReservationWithCondition`) clears `status.expectedActivePods = nil` alongside `Admitted = False`.
+  2. **In-Flight Stale Status Update Invalidation**: Simulate a concurrent or delayed status update from the managing framework adapter attempting to write `expectedActivePods = 4` after un-admission:
+     - If predicated on the pre-eviction `resourceVersion`, verify rejection via API server optimistic locking (`409 Conflict`).
+     - If predicated on the post-eviction `resourceVersion`, verify rejection via the `ValidateWorkloadUpdate` webhook (`field.Forbidden`), preventing stale field repopulation while unadmitted.
+  3. Verify that upon re-admission (`Admitted = True`), `status.expectedActivePods` remains uninitialized (`nil`).
+  4. For a gang workload without `reclaimablePods`, verify target active count falls back to Level 3 (`ps.count = 8`).
+  5. For a workload with `reclaimablePods = 2`, verify target active count falls back to Level 2 ($\max(8 - 2, 0) = 6$).
+  6. Verify all internal debounce timers reset cleanly across admission cycles.
 - **ExpectedActivePods Webhook & CEL Validation Test**:
   Verify admission webhook enforcement in `ValidateWorkloadUpdate`:
   1. Rejects negative counts (`count < 0`).
   2. Rejects counts exceeding declared podSet size (`count > ps.count`).
   3. Rejects entries referencing non-existent podSet names or duplicate entries.
-  4. Accepts valid updates where `0 <= count <= ps.count`.
+  4. Rejects populating or mutating non-empty `expectedActivePods` on unadmitted workloads (`Admitted = False`).
+  5. Accepts valid updates where `0 <= count <= ps.count` on admitted workloads (`Admitted = True`).
 - **Conversion Webhook Parity Test (v1beta1 <-> v1beta2)**:
   Verify lossless bidirectional conversion of `ExpectedActivePods` between `v1beta1` and `v1beta2` Workloads.
 - **Ratcheting Webhook Validation on Downgrade Test**:
