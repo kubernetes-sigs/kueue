@@ -443,7 +443,7 @@ func TestNumericLabelFilterMatches(t *testing.T) {
 				Comparison:    ptr.To(kueuealpha.LessThanOrEqual),
 			},
 			preemptor: wlWithLabels(map[string]string{"size": "8"}),
-			candidate: wlWithLabels(map[string]string{"size": "3.14"}),
+			candidate: wlWithLabels(map[string]string{"size": "9.14"}),
 			wantMatch: true,
 		},
 		"Malformed label: integer overflow string fails parsing and falls back to fallback value": {

@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+	"slices"
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,14 +39,14 @@ import (
 type PreemptionEvaluator struct {
 	ctx    context.Context
 	log    logr.Logger
-	clock  clock.RealClock
+	clock  clock.Clock
 	config kueuealpha.PreemptionConfig
 }
 
 func NewPreemptionEvaluator(
 	ctx context.Context,
 	log logr.Logger,
-	clock clock.RealClock,
+	clock clock.Clock,
 	config kueuealpha.PreemptionConfig,
 ) *PreemptionEvaluator {
 	return &PreemptionEvaluator{
@@ -54,6 +55,18 @@ func NewPreemptionEvaluator(
 		clock:  clock,
 		config: config,
 	}
+}
+
+// HasRulesFor returns whether any rule of the PreemptionConfig is activated by one of
+// the given triggers. It only inspects the configuration, never the snapshot, and is
+// therefore cheap enough to guard the candidate evaluation.
+func (p *PreemptionEvaluator) HasRulesFor(triggers ...kueuealpha.PreemptionConfigActivationTrigger) bool {
+	for _, rule := range p.config.Spec.Rules {
+		if slices.Contains(triggers, rule.ActivationPolicy.Trigger) {
+			return true
+		}
+	}
+	return false
 }
 
 // Candidates returns the workloads selected as preemption candidates by the rules of the

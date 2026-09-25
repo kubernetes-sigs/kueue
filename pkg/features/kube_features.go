@@ -158,6 +158,12 @@ const (
 	// ElasticJobsViaWorkloadSlices enables workload-slices support.
 	ElasticJobsViaWorkloadSlices featuregate.Feature = "ElasticJobsViaWorkloadSlices"
 
+	// owner: @neilb-dotcom
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/14615-elastic-jobs-provisioning-request-scope
+	//
+	// Enables ProvisioningRequest integration with elastic workload slices.
+	ElasticJobsViaWorkloadSlicesForProvisioningRequests featuregate.Feature = "ElasticJobsViaWorkloadSlicesForProvisioningRequests"
+
 	// owner: @sohankunkerkar
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
 	//
@@ -795,36 +801,37 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
-	TASFailedNodeReplacement:                        {TopologyAwareScheduling},
-	TASFailedNodeReplacementFailFast:                {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeOnPodTermination:                  {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeDueToNotReadyOverFixedTime:        {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceMultipleFailedNodes:                   {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASBalancedPlacement:                            {TopologyAwareScheduling},
-	TASReplaceNodeOnNodeTaints:                      {TopologyAwareScheduling},
-	TASMultiLayerTopology:                           {TopologyAwareScheduling},
-	TASRespectNodeAffinityPreferred:                 {TopologyAwareScheduling},
-	TASGroupedPodSetSlicing:                         {TopologyAwareScheduling},
-	TASRejectFalseUnconstrainedTopology:             {TopologyAwareScheduling},
-	UnadmittedWorkloadsExplicitStatus:               {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:                     {TopologyAwareScheduling},
-	TASNodeFeasibilityForAllLevels:                  {TopologyAwareScheduling},
-	TASLeaderPodSetFeasibility:                      {TopologyAwareScheduling},
-	TASProfileMixed:                                 {TopologyAwareScheduling},
-	TASRecomputeAssignmentWithinSchedulingCycle:     {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesWithTAS:             {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
-	MultiKueueRayInTreeAutoscaling:                  {MultiKueue, ElasticJobsViaWorkloadSlices},
-	KueueDRAIntegrationExtendedResource:             {KueueDRAIntegration},
-	KueueDRAIntegrationPartitionableDevices:         {KueueDRAIntegration},
-	KueueDRAIntegrationConsumableCapacity:           {KueueDRAIntegration},
-	FlavorFungibilityPreserveScanProgress:           {FlavorFungibility},
-	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
-	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
-	TASTopologySpreading:                            {TopologyAwareScheduling},
-	AdmissionFairSharingAnchorAtQuotaReservation:    {AdmissionFairSharing},
-	KueueDRADeviceFeasibility:                       {KueueDRAIntegration, TopologyAwareScheduling, TASNodeFeasibilityForAllLevels},
-	KueueDRAIntegrationDeviceTaints:                 {KueueDRADeviceFeasibility},
-	TASPartialSlices:                                {TopologyAwareScheduling},
+	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime:            {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceMultipleFailedNodes:                       {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                                {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:                          {TopologyAwareScheduling},
+	TASMultiLayerTopology:                               {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:                     {TopologyAwareScheduling},
+	TASGroupedPodSetSlicing:                             {TopologyAwareScheduling},
+	TASRejectFalseUnconstrainedTopology:                 {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:                   {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:                         {TopologyAwareScheduling},
+	TASNodeFeasibilityForAllLevels:                      {TopologyAwareScheduling},
+	TASLeaderPodSetFeasibility:                          {TopologyAwareScheduling},
+	TASProfileMixed:                                     {TopologyAwareScheduling},
+	TASRecomputeAssignmentWithinSchedulingCycle:         {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:                 {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	MultiKueueRayInTreeAutoscaling:                      {MultiKueue, ElasticJobsViaWorkloadSlices},
+	KueueDRAIntegrationExtendedResource:                 {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:             {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:               {KueueDRAIntegration},
+	FlavorFungibilityPreserveScanProgress:               {FlavorFungibility},
+	SchedulingEquivalenceHashingIgnorePodSetName:        {SchedulingEquivalenceHashing},
+	MultiKueueReuseClientConnectionConfigForWorkers:     {MultiKueue},
+	TASTopologySpreading:                                {TopologyAwareScheduling},
+	AdmissionFairSharingAnchorAtQuotaReservation:        {AdmissionFairSharing},
+	KueueDRADeviceFeasibility:                           {KueueDRAIntegration, TopologyAwareScheduling, TASNodeFeasibilityForAllLevels},
+	KueueDRAIntegrationDeviceTaints:                     {KueueDRADeviceFeasibility},
+	TASPartialSlices:                                    {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -902,6 +909,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	ElasticJobsViaWorkloadSlices: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ElasticJobsViaWorkloadSlicesWithTAS: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},

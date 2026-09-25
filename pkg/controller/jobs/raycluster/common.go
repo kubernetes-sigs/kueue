@@ -151,9 +151,7 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 		}
 		if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
 			annotations[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial {
-			if wgs.MinReplicas != nil {
-				workerPodSet.MinCount = new(effectiveWorkerCount(wgs))
-			}
+			workerPodSet.MinCount = new(effectiveWorkerCount(wgs))
 		}
 		if collectorOptions != nil {
 			workerPodSet.Template.Spec.Containers = append(

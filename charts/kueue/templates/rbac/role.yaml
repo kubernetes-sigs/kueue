@@ -306,6 +306,7 @@ rules:
       - localqueues
       - multikueueclusters
       - multikueueconfigs
+      - preemptionconfigs
       - provisioningrequestconfigs
       - workloadpriorityclasses
     verbs:

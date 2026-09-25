@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -30,65 +29,57 @@ import (
 func TestWorkloadLabelFilter_Matches(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 
-	parseSelector := func(ls *metav1.LabelSelector) labels.Selector {
-		if ls == nil {
-			return nil
-		}
-		sel, err := metav1.LabelSelectorAsSelector(ls)
-		if err != nil {
-			t.Fatalf("failed to parse selector: %v", err)
-		}
-		return sel
-	}
-
 	cases := map[string]struct {
 		candidate *workload.Info
-		selector  labels.Selector
+		selector  *metav1.LabelSelector
 		wantMatch bool
 	}{
 		"matching labels returns true": {
 			candidate: workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "ns").Label("tier", "preemptible").Obj()),
-			selector:  parseSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}}),
+			selector:  &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}},
 			wantMatch: true,
 		},
 		"non-matching label value returns false": {
 			candidate: workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "ns").Label("tier", "guaranteed").Obj()),
-			selector:  parseSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}}),
+			selector:  &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}},
 			wantMatch: false,
 		},
 		"missing required label returns false": {
 			candidate: workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "ns").Label("other", "value").Obj()),
-			selector:  parseSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}}),
+			selector:  &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}},
 			wantMatch: false,
 		},
 		"workload with nil labels returns false": {
 			candidate: workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "ns").Obj()),
-			selector:  parseSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}}),
+			selector:  &metav1.LabelSelector{MatchLabels: map[string]string{"tier": "preemptible"}},
 			wantMatch: false,
 		},
 		"matching matchExpressions returns true": {
 			candidate: workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "ns").Label("tier", "dev").Obj()),
-			selector: parseSelector(&metav1.LabelSelector{
+			selector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{Key: "tier", Operator: metav1.LabelSelectorOpIn, Values: []string{"dev", "test"}},
 				},
-			}),
+			},
 			wantMatch: true,
 		},
 		"non-matching matchExpressions returns false": {
 			candidate: workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "ns").Label("tier", "prod").Obj()),
-			selector: parseSelector(&metav1.LabelSelector{
+			selector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{Key: "tier", Operator: metav1.LabelSelectorOpIn, Values: []string{"dev", "test"}},
 				},
-			}),
+			},
 			wantMatch: false,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			filter := NewWorkloadLabelFilter(tc.selector)
+			filter, ok := buildWorkloadLabelFilter(log, tc.selector)
+			if !ok || filter == nil {
+				t.Fatalf("buildWorkloadLabelFilter failed unexpectedly")
+			}
 			if got := filter.Matches(tc.candidate); got != tc.wantMatch {
 				t.Errorf("Matches(candidate) = %v, want %v", got, tc.wantMatch)
 			}
