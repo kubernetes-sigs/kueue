@@ -1497,6 +1497,10 @@ invalid values on creation or annotation changes. Unchanged invalid values on ex
 Workloads remain accepted and default to `1`, so recovery and cleanup are not blocked.
 The threshold does not impose an additional validation limit on `.status.unhealthyNodes`.
 
+Set the annotation on the Job's `metadata.annotations` (not its Pod template) to copy
+it to newly created Workloads when the gate is enabled. Later Job annotation edits or
+removal are not synchronized; update the existing Workload's annotation directly.
+
 With the gate enabled, Kueue keeps up to `N` unhealthy nodes queued for replacement and
 suppresses `TASFailedNodeReplacementFailFast` while within that threshold. A further distinct
 node failure exceeding `N` triggers eviction. Other eviction mechanisms still apply.

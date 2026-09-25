@@ -1547,6 +1547,14 @@ func HasUnhealthyNodes(w *kueue.Workload) bool {
 	return w != nil && len(w.Status.UnhealthyNodes) > 0
 }
 
+// FirstUnhealthyNodeName returns the next node queued for replacement, or an empty string if none.
+func FirstUnhealthyNodeName(w *kueue.Workload) string {
+	if !HasUnhealthyNodes(w) {
+		return ""
+	}
+	return w.Status.UnhealthyNodes[0].Name
+}
+
 func HasUnhealthyNode(w *kueue.Workload, nodeName string) bool {
 	return slices.ContainsFunc(w.Status.UnhealthyNodes, func(node kueue.UnhealthyNode) bool {
 		return node.Name == nodeName

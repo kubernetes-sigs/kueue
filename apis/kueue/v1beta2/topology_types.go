@@ -78,6 +78,8 @@ const (
 	// of unhealthy nodes retained for replacement without triggering workload eviction.
 	// Valid values are 1-8; absent values default to 1. Invalid values are rejected
 	// on creation or annotation changes. Existing invalid values default to 1.
+	// Set on the Job's metadata to copy it to newly created Workloads.
+	// Later Job annotation changes are not synchronized to existing Workloads.
 	// Ignored unless TASReplaceMultipleFailedNodes is enabled.
 	UnhealthyNodesConcurrentEvictionThresholdAnnotation = "kueue.x-k8s.io/unhealthy-nodes-concurrent-eviction-threshold"
 

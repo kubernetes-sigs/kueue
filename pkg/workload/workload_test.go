@@ -4454,6 +4454,33 @@ func TestShouldSkipClusterNomination(t *testing.T) {
 	}
 }
 
+func TestFirstUnhealthyNodeName(t *testing.T) {
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want string
+	}{
+		"nil workload": {},
+		"no unhealthy nodes": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+		},
+		"one unhealthy node": {
+			wl:   utiltestingapi.MakeWorkload("wl", "ns").UnhealthyNodes("node1").Obj(),
+			want: "node1",
+		},
+		"multiple unhealthy nodes retain queue order": {
+			wl:   utiltestingapi.MakeWorkload("wl", "ns").UnhealthyNodes("node2", "node1").Obj(),
+			want: "node2",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := FirstUnhealthyNodeName(tc.wl); got != tc.want {
+				t.Errorf("FirstUnhealthyNodeName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
 	baseWorkload := utiltestingapi.MakeWorkload("wl", "ns")
 	cases := map[string]struct {

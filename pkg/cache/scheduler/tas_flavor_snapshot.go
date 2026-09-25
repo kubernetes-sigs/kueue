@@ -919,7 +919,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	wl *workload.Info,
 	assumedUsage *assumedUsage,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
-	headNodeName := wl.Obj.Status.UnhealthyNodes[0].Name
+	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
 	tr.Count = deleteDomain(existingAssignment, headNodeName)
 	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, existingAssignment)
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {

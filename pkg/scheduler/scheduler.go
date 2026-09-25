@@ -1227,10 +1227,7 @@ func (s *Scheduler) patchWorkloadAdmission(
 	cq *schdcache.ClusterQueueSnapshot,
 	admission *kueue.Admission,
 ) error {
-	replacedNodeName := ""
-	if len(wl.Status.UnhealthyNodes) > 0 {
-		replacedNodeName = wl.Status.UnhealthyNodes[0].Name
-	}
+	replacedNodeName := workload.FirstUnhealthyNodeName(wl)
 	patchOptions := []workloadpatching.PatchStatusOption{workloadpatching.WithRetryOnConflict()}
 	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
 		patchOptions = append(patchOptions, workloadpatching.WithLooseOnApply())
