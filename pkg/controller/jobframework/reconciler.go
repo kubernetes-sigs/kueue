@@ -64,6 +64,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1972,8 +1973,9 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// origin even once every live predecessor is gone. The scheduler still
 			// enforces that a scale-up must grow at least one PodSet, using the
 			// predecessor's live grant while it's still around (see getInitialAssignments).
-			if prevWl.Spec.PodSets[i].MinCount != nil {
-				podSets[i].MinCount = prevWl.Spec.PodSets[i].MinCount
+			prevPodSet := utilpodset.FindPodSetByName(prevWl.Spec.PodSets, podSets[i].Name)
+			if prevPodSet != nil && prevPodSet.MinCount != nil {
+				podSets[i].MinCount = prevPodSet.MinCount
 			}
 		}
 		if extra != "" {
