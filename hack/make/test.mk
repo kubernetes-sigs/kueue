@@ -67,6 +67,13 @@ E2E_ENFORCE_OPERATOR_UPDATE ?= false
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
+# Settings for the lightweight KWOK smoke test.
+KWOK_CLUSTER_NAME ?= kueue-kwok
+KWOK_RUNTIME ?= binary
+KWOK_NODE_COUNT ?= 1
+KWOK_CLUSTER_TIMEOUT ?= 5m
+KWOK_DELETE_TIMEOUT_SECONDS ?= 60
+
 # Number of processes to use during e2e tests.
 E2E_NPROCS ?= 1
 
@@ -98,6 +105,13 @@ ifeq ($(JOB_TYPE),periodic)
 else
 	export USE_RAY_FOR_TESTS="raymini"
 endif
+
+.PHONY: test-kwok-smoke
+test-kwok-smoke: $(KWOKCTL) build compile-crd-manifests ## Run a minimal Kueue admission and Pod ungating test on KWOK.
+	ARTIFACTS=$(ARTIFACTS) E2E_MODE=$(E2E_MODE) KWOKCTL=$(KWOKCTL) KUEUE_MANAGER=$(BIN_DIR)/manager \
+	KWOK_CLUSTER_NAME=$(KWOK_CLUSTER_NAME) KWOK_RUNTIME=$(KWOK_RUNTIME) \
+	KWOK_NODE_COUNT=$(KWOK_NODE_COUNT) KWOK_CLUSTER_TIMEOUT=$(KWOK_CLUSTER_TIMEOUT) \
+	KWOK_DELETE_TIMEOUT_SECONDS=$(KWOK_DELETE_TIMEOUT_SECONDS) ./hack/testing/kwok-smoke-test.sh
 
 .PHONY: test
 test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
