@@ -7627,9 +7627,7 @@ func TestAssignTopology(t *testing.T) {
 			}
 
 			// The snapshot is shared with every other Workload in the cycle, so whatever
-			// AssignTopology does to it while searching has to be undone. This only has
-			// teeth for the elastic cases, which mutate capacity on purpose via
-			// SimulateUsageRemoval, but the invariant holds for every case.
+			// AssignTopology does to it while searching has to be undone.
 			var before string
 			if f.cq != nil && f.cq.TASFlavors["flavor-1"] != nil {
 				var err error
