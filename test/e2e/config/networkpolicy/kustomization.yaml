@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Installs Kueue together with the NetworkPolicies, so that any suite pointed at
+# this overlay exercises Kueue's real behaviour while the policies are enforcing.
+resources:
+- ../baseline
+- ../../../../config/networkpolicy
