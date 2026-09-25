@@ -659,6 +659,14 @@ func TestDefaultWaitForPodsReady(t *testing.T) {
 		deployment *appsv1.Deployment
 		want       *appsv1.Deployment
 	}{
+		"shouldn't propagate top-level annotation when no queue is set": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+		},
 		"propagates top-level annotation clean up to template": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").

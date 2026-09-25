@@ -111,18 +111,17 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 		if priorityClass := jobframework.WorkloadPriorityClassName(deployment.Object()); priorityClass != "" {
 			deployment.Spec.Template.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
 		}
-	}
-	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		if wfprAnnotationValue := deployment.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]; wfprAnnotationValue != "" {
-			if deployment.Spec.Template.Annotations == nil {
-				deployment.Spec.Template.Annotations = make(map[string]string)
+		if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+			if wfprAnnotationValue := deployment.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]; wfprAnnotationValue != "" {
+				if deployment.Spec.Template.Annotations == nil {
+					deployment.Spec.Template.Annotations = make(map[string]string)
+				}
+				deployment.Spec.Template.Annotations[controllerconstants.WaitForPodsReadyAnnotation] = wfprAnnotationValue
+			} else {
+				delete(deployment.Spec.Template.Annotations, controllerconstants.WaitForPodsReadyAnnotation)
 			}
-			deployment.Spec.Template.Annotations[controllerconstants.WaitForPodsReadyAnnotation] = wfprAnnotationValue
-		} else {
-			delete(deployment.Spec.Template.Annotations, controllerconstants.WaitForPodsReadyAnnotation)
 		}
 	}
-
 	return nil
 }
 
