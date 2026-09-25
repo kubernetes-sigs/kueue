@@ -28,6 +28,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/tas"
+	kueuetestalpha1 "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/test/util"
@@ -57,13 +58,11 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 	}
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "configurablepreemptions-")
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Defragmentation is configured", func() {
@@ -99,33 +98,23 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			defragPreemptionConfigName := "preemption-configuration"
-			config = &kueuealpha.PreemptionConfig{
-				Name: defragPreemptionConfigName,
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "defrag-smaller-tpu-workloads",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.QuotaFeasibleAndInsufficientTopology},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-										Mode:       kueuealpha.Boosted,
-										Comparison: kueuealpha.LessThanOrEqual,
-									},
-									Scope: kueuealpha.AnyClusterQueue,
-									NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
-										{
-											Key:           extraResource,
-											Comparison:    new(kueuealpha.LessThan),
-											FallbackValue: new(int32(0)),
-										},
-									},
-								},
+			config = kueuetestalpha1.MakePreemptionConfig(defragPreemptionConfigName).
+				Rule("defrag-smaller-tpu-workloads",
+					kueuealpha.QuotaFeasibleAndInsufficientTopology,
+					kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+						Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
+							Mode:       kueuealpha.Boosted,
+							Comparison: kueuealpha.LessThanOrEqual,
+						},
+						Scope: kueuealpha.AnyClusterQueue,
+						NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
+							{
+								Key:           extraResource,
+								Comparison:    new(kueuealpha.LessThan),
+								FallbackValue: new(int32(0)),
 							},
 						},
-					},
-				},
-			}
+					}).Obj()
 			util.MustCreate(ctx, k8sClient, config)
 
 			topology = utiltestingapi.MakeDefaultOneLevelTopology("defrag-topology")
@@ -173,31 +162,44 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 		})
 
 		ginkgo.It("Should reschedule running workload and schedule incoming", func() {
-			wlA := createWorkload("lq-a", "1", map[string]string{})
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			var wlA *kueue.Workload
+			ginkgo.By("Scheduling small workload on topology domain", func() {
+				wlA = createWorkload("lq-a", "1", map[string]string{})
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			})
 
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).Should(gomega.Succeed())
-			nodesA := slices.Collect(tas.LowestLevelValues(wlA.Status.Admission.PodSetAssignments[0].TopologyAssignment))
-			gomega.Expect(nodesA).To(gomega.HaveLen(1))
-			wlAHostnameBeforeReschedule := nodesA[0]
+			var wlAHostnameBeforeReschedule string
+			ginkgo.By("Save hostname of small workload before reschedule", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).Should(gomega.Succeed())
+				nodesA := slices.Collect(tas.LowestLevelValues(wlA.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+				gomega.Expect(nodesA).To(gomega.HaveLen(1))
+				wlAHostnameBeforeReschedule = nodesA[0]
+			})
 
-			// Simulate already taken topology by requiring workload to schedule on the same node as first workload.
-			wlB := createWorkload("lq-b", "2", map[string]string{corev1.LabelHostname: wlAHostnameBeforeReschedule})
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqB.Name, wlB)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			var wlB *kueue.Workload
+			ginkgo.By("Large workload requires same domain - needing defrag", func() {
+				// Simulate already taken topology by requiring workload to schedule on the same node as first workload.
+				wlB = createWorkload("lq-b", "2", map[string]string{corev1.LabelHostname: wlAHostnameBeforeReschedule})
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqB.Name, wlB)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			})
 
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).Should(gomega.Succeed())
-			nodesA = slices.Collect(tas.LowestLevelValues(wlA.Status.Admission.PodSetAssignments[0].TopologyAssignment))
-			gomega.Expect(nodesA).To(gomega.HaveLen(1))
-			wlAHostnameAfterReschedule := nodesA[0]
+			ginkgo.By("Verify small workload was rescheduled", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).Should(gomega.Succeed())
+				nodesA := slices.Collect(tas.LowestLevelValues(wlA.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+				gomega.Expect(nodesA).To(gomega.HaveLen(1))
+				wlAHostnameAfterReschedule := nodesA[0]
 
-			gomega.Expect(wlAHostnameAfterReschedule).ShouldNot(gomega.Equal(wlAHostnameBeforeReschedule))
+				gomega.Expect(wlAHostnameAfterReschedule).ShouldNot(gomega.Equal(wlAHostnameBeforeReschedule))
+			})
 
-			wlC := createWorkload("lq-a", "2", map[string]string{corev1.LabelHostname: wlAHostnameBeforeReschedule})
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
+			ginkgo.By("Same size workload requiring same domain remains pending", func() {
+				wlC := createWorkload("lq-a", "2", map[string]string{corev1.LabelHostname: wlAHostnameBeforeReschedule})
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
+			})
 		})
 	})
 
@@ -213,22 +215,12 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 
 		ginkgo.BeforeEach(func() {
 			heroJobConfiguration := "hero-job-preemption-configuration"
-			config = &kueuealpha.PreemptionConfig{
-				Name: heroJobConfiguration,
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "hero-preemption",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.AnyClusterQueue,
-								},
-							},
-						},
-					},
-				},
-			}
+			config = kueuetestalpha1.MakePreemptionConfig(heroJobConfiguration).
+				Rule("hero-preemption",
+					kueuealpha.Always,
+					kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+						Scope: kueuealpha.AnyClusterQueue,
+					}).Obj()
 			util.MustCreate(ctx, k8sClient, config)
 
 			flavor = utiltestingapi.MakeResourceFlavor("rf").Obj()

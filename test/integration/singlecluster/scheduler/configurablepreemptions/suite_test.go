@@ -80,6 +80,14 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.BeforeEach(func() {
+	fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
+})
+
+var _ = ginkgo.AfterEach(func() {
+	fwk.StopManager(ctx)
+})
+
 func managerAndSchedulerSetup() framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
