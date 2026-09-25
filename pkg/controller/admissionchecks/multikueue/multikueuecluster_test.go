@@ -926,6 +926,10 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	builder := getClientBuilder(ctx)
 	builder = builder.WithObjects(cluster, &secret)
+	managerWorkload := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		ClusterName("worker1").
+		Obj()
+	builder = builder.WithObjects(managerWorkload)
 	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
 	c := builder.Build()
 
@@ -946,6 +950,9 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	}
 
 	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
+	rc.clusterName = "worker1"
+	rc.localClient = c
+	rc.wlUpdateCh = reconciler.wlUpdateCh
 	rc.builderOverride = reconciler.builderOverride
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
@@ -959,6 +966,25 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	}
 	if !rc.connState.isConnected() {
 		t.Errorf("expected state to be connected")
+	}
+	select {
+	case e := <-reconciler.wlUpdateCh:
+		t.Fatalf("initial connection unexpectedly requeued workload: %v", e.Object)
+	default:
+	}
+
+	rc.connState.markDisconnected(time.Now())
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"})
+	if err != nil {
+		t.Fatalf("unexpected reconnect error: %v", err)
+	}
+	select {
+	case e := <-reconciler.wlUpdateCh:
+		if got := client.ObjectKeyFromObject(e.Object); got != client.ObjectKeyFromObject(managerWorkload) {
+			t.Fatalf("reconnected unexpected workload: got %v, want %v", got, client.ObjectKeyFromObject(managerWorkload))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reconnect did not requeue the manager workload")
 	}
 }
 
@@ -1823,42 +1849,6 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
 		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // clusterqueue.go-style read
 	})
-}
-
-func TestRemoteClientResyncWorkloads(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	localWorkload := utiltestingapi.MakeWorkload("wl1", TestNamespace).Obj()
-	remoteWorkload := utiltestingapi.MakeWorkload("wl1", TestNamespace).
-		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-		Obj()
-	unrelatedWorkload := utiltestingapi.MakeWorkload("wl2", TestNamespace).
-		Label(kueue.MultiKueueOriginLabel, "other-origin").
-		Obj()
-
-	localClient := getClientBuilder(ctx).WithObjects(localWorkload).Build()
-	remoteClient := NewNeverCachingClient(getClientBuilder(ctx).
-		WithObjects(remoteWorkload, unrelatedWorkload).
-		Build())
-	workloadEvents := make(chan event.GenericEvent, 2)
-	rc := newRemoteClient(localClient, workloadEvents, nil, nil, defaultOrigin, "worker1", nil)
-	rc.client = remoteClient
-
-	rc.requeueWorkloadsForCluster(ctx)
-
-	select {
-	case e := <-workloadEvents:
-		if got := client.ObjectKeyFromObject(e.Object); got != client.ObjectKeyFromObject(localWorkload) {
-			t.Fatalf("resynchronized unexpected workload: got %v, want %v", got, client.ObjectKeyFromObject(localWorkload))
-		}
-	case <-time.After(time.Second):
-		t.Fatal("resynchronization did not enqueue the manager workload")
-	}
-
-	select {
-	case e := <-workloadEvents:
-		t.Fatalf("resynchronized unrelated workload: %v", e.Object)
-	default:
-	}
 }
 
 func TestStopWatchersJoinsParkedWatcher(t *testing.T) {

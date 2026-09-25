@@ -352,6 +352,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	rc.StopWatchers()
 
+	hadClientBefore := rc.getClient() != nil
+	isReconnect := hadClientBefore && !connected && !configChanged
+
 	if configChanged {
 		rc.config = config
 		rc.resetFailedConnAttempt()
@@ -422,7 +425,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		startWatcher()
 	}
 
-	if !connected {
+	if isReconnect {
 		rc.requeueWorkloadsForCluster(watchCtx)
 	}
 
@@ -432,12 +435,14 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) {
 	wls := &kueue.WorkloadList{}
-	if err := rc.getClient().List(ctx, wls, client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin}); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "listing remote workloads for resync after reconnect")
+	if err := rc.localClient.List(ctx, wls); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
 		return
 	}
 	for i := range wls.Items {
-		rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
+		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName {
+			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
+		}
 	}
 }
 
