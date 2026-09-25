@@ -7550,10 +7550,7 @@ func TestAssignTopology(t *testing.T) {
 			wantPlan: false,
 		},
 		// Topology is a property of a flavor, so a pod set whose resources landed on two
-		// different TAS flavors has no single topology to be placed in. The rejection
-		// happens while building the requests, which runs before either branch and
-		// records the error on the pod set. psError clears the cached representative mode,
-		// so the Fit check right after already reads NoFit and neither branch runs.
+		// different TAS flavors has no single topology to be placed in.
 		"a pod set split across two TAS flavors is rejected": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				f := newFixture(ctx, t, log, Fit, "1", "")
