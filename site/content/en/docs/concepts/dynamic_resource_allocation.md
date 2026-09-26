@@ -47,8 +47,10 @@ ResourceClaimTemplate path.
 
 When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 `deviceClassName` from the template's `exactly` field and looks it up in
-`deviceClassMappings`. This mapping tells Kueue which logical resource name
-to charge quota against. The number of units charged is determined by the
+`deviceClassMappings`. With `KueueDRAIntegrationPrioritizedList` enabled it
+reads a request's `firstAvailable` alternatives as well; see the limitations
+below for what that charges. This mapping tells Kueue which logical resource
+name to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
 Only the `ExactCount` allocation mode is supported. The
@@ -119,7 +121,8 @@ a configured timeout.
 
 ## MultiKueue
 
-DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue).
+DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue),
+except for `firstAvailable` requests; see the limitations below.
 MultiKueue syncs the workload and its owning job to worker clusters, but
 `ResourceClaimTemplate` and `DeviceClass` objects are not automatically
 synced. These must be created on each worker cluster separately by the
@@ -259,9 +262,11 @@ The following limitations apply:
 - **ResourceClaimTemplates only**: Only `ResourceClaimTemplate` references
   are supported. Direct `ResourceClaim` references in the Pod spec are not
   supported and will result in inadmissible workloads.
-- **ExactCount allocation mode only**: Only device requests using `exactly`
-  are supported. `FirstAvailable` device selection and the `All` allocation
-  mode are not supported.
+- **ExactCount allocation mode only**: the `All` allocation mode is not
+  supported, in an `exactly` request or in an alternative of a `firstAvailable`
+  one. Kueue reads a `firstAvailable` request only when the
+  `KueueDRAIntegrationPrioritizedList` feature gate is enabled. That gate is
+  alpha and off by default; see the note below for what it covers.
 - **No device constraints or config**: Device `constraints` (MatchAttribute)
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not
@@ -269,5 +274,26 @@ The following limitations apply:
 - **No DRA + Topology Aware Scheduling (TAS)**: DRA resources are not
   accounted for in TAS capacity calculations. Using both features together
   may result in incorrect topology assignments for DRA devices.
-- **No support for DRADeviceTaints or DRAPrioritizedLists**: These Kubernetes
-  DRA features are not factored into Kueue's quota decisions.
+- **No support for DRADeviceTaints**: This Kubernetes DRA feature is not
+  factored into Kueue's quota decisions.
+- **`firstAvailable` requests are charged, within limits**: This support is
+  experimental; do not enable it in production. With
+  `KueueDRAIntegrationPrioritizedList` enabled, a `firstAvailable` request is
+  charged once, the count every alternative asks for, which is what the
+  scheduler allocates whichever alternative it picks. Every alternative of a
+  request has to ask for the same count and map to the same logical resource;
+  a request whose alternatives differ in count is refused, and so is an
+  alternative on a mapping with a `counter` or `capacity` source. An
+  alternative that sets `capacity` on the subrequest is charged its declared
+  count like any other. Without `KueueDRADeviceFeasibility`, Kueue does not
+  check that any alternative can be satisfied by the cluster, so a request
+  whose alternatives are all infeasible holds its quota until the Workload is
+  evicted, for example by
+  [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) where it is
+  configured; with it, such a Workload stays pending instead. The charge lands
+  on the one ResourceFlavor the PodSet is assigned, and the Pods carry that
+  flavor's node labels, so keep every alternative's devices behind the same
+  flavors; with a flavor per device model, only the alternative with devices on
+  the assigned flavor can run. MultiKueue does not support `firstAvailable`
+  requests: a manager and a worker may resolve different templates, and nothing
+  refuses such a Workload before dispatch yet.

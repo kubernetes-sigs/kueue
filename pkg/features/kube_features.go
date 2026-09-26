@@ -268,6 +268,13 @@ const (
 	// device's Capacity field and the workload's capacity.requests.
 	KueueDRAIntegrationConsumableCapacity featuregate.Feature = "KueueDRAIntegrationConsumableCapacity"
 
+	// owner: @thc1006
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA
+	//
+	// Charge a DRA firstAvailable request once, the count every alternative asks
+	// for on the logical resource every alternative maps to.
+	KueueDRAIntegrationPrioritizedList featuregate.Feature = "KueueDRAIntegrationPrioritizedList"
+
 	// owner: @khrm
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2349-multikueue-external-custom-job-support
 	//
@@ -814,6 +821,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationExtendedResource:                 {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:             {KueueDRAIntegration},
 	KueueDRAIntegrationConsumableCapacity:               {KueueDRAIntegration},
+	KueueDRAIntegrationPrioritizedList:                  {KueueDRAIntegration},
 	FlavorFungibilityPreserveScanProgress:               {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName:        {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers:     {MultiKueue},
@@ -955,6 +963,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KueueDRAIntegrationConsumableCapacity: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	KueueDRAIntegrationPrioritizedList: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	MultiKueueAdaptersForCustomJobs: {

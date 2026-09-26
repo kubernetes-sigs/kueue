@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 type testCandidate struct {
@@ -186,6 +187,62 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 	tolerantTemplate := utiltesting.MakeResourceClaimTemplate("tolerant-template", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).
 		WithToleration("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
+		Obj()
+
+	// One node with one device of each of two drivers, under classes that select by
+	// driver, so a firstAvailable request can fall back from one class to the other.
+	mixedNode := &corev1.Node{
+		Name: "mixed-node",
+	}
+	fullClass := &resourceapi.DeviceClass{
+		Name: "full.example.com",
+		Spec: resourceapi.DeviceClassSpec{
+			Selectors: []resourceapi.DeviceSelector{{CEL: &resourceapi.CELDeviceSelector{Expression: `device.driver == "full.example.com"`}}},
+		},
+	}
+	sliceClass := &resourceapi.DeviceClass{
+		Name: "slice.example.com",
+		Spec: resourceapi.DeviceClassSpec{
+			Selectors: []resourceapi.DeviceSelector{{CEL: &resourceapi.CELDeviceSelector{Expression: `device.driver == "slice.example.com"`}}},
+		},
+	}
+	fullSlice := &resourceapi.ResourceSlice{
+		Name: "mixed-node-full",
+		Spec: resourceapi.ResourceSliceSpec{
+			Driver:   "full.example.com",
+			NodeName: new("mixed-node"),
+			Pool: resourceapi.ResourcePool{
+				Name:               "full-pool",
+				Generation:         1,
+				ResourceSliceCount: 1,
+			},
+			Devices: []resourceapi.Device{{Name: "full-0"}},
+		},
+	}
+	sliceSlice := &resourceapi.ResourceSlice{
+		Name: "mixed-node-slice",
+		Spec: resourceapi.ResourceSliceSpec{
+			Driver:   "slice.example.com",
+			NodeName: new("mixed-node"),
+			Pool: resourceapi.ResourcePool{
+				Name:               "slice-pool",
+				Generation:         1,
+				ResourceSliceCount: 1,
+			},
+			Devices: []resourceapi.Device{{Name: "slice-0"}},
+		},
+	}
+	fallbackOneTemplate := utiltesting.MakeResourceClaimTemplate("fallback-template", "default").
+		DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+			testingdra.MakeDeviceSubRequest("full", "full.example.com", 1).Obj(),
+			testingdra.MakeDeviceSubRequest("slice", "slice.example.com", 1).Obj(),
+		).Obj()).
+		Obj()
+	fallbackTwoTemplate := utiltesting.MakeResourceClaimTemplate("fallback-template", "default").
+		DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+			testingdra.MakeDeviceSubRequest("full", "full.example.com", 2).Obj(),
+			testingdra.MakeDeviceSubRequest("slice", "slice.example.com", 2).Obj(),
+		).Obj()).
 		Obj()
 
 	tests := map[string]struct {
@@ -850,6 +907,38 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 				{node: cpuNode, id: "cpu-node"},
 			},
 			wantFeasible: []string{"gpu-node", "cpu-node"},
+		},
+		"a firstAvailable request is feasible when one alternative fits by itself": {
+			objects: []runtime.Object{fullClass, sliceClass, sliceSlice, fallbackOneTemplate},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimTemplateName: new("fallback-template")},
+					},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: mixedNode, id: "mixed-node"},
+			},
+			wantFeasible: []string{"mixed-node"},
+		},
+		"a firstAvailable request whose alternatives only fit together is infeasible": {
+			objects: []runtime.Object{fullClass, sliceClass, fullSlice, sliceSlice, fallbackTwoTemplate},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{
+						{Name: "gpu", ResourceClaimTemplateName: new("fallback-template")},
+					},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: mixedNode, id: "mixed-node"},
+			},
+			wantDRANoFit: 1,
 		},
 	}
 

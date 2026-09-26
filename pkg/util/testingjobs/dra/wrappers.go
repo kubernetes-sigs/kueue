@@ -147,3 +147,55 @@ func (d *DeviceRequestWrapper) FirstAvailableRequest(subrequests ...resourcev1.D
 	d.FirstAvailable = append(d.FirstAvailable, subrequests...)
 	return d
 }
+
+// MakeFirstAvailableRequest creates a DeviceRequestWrapper whose alternatives are
+// tried in order.
+func MakeFirstAvailableRequest(name string, alternatives ...resourcev1.DeviceSubRequest) *DeviceRequestWrapper {
+	return &DeviceRequestWrapper{Name: name, FirstAvailable: alternatives}
+}
+
+// DeviceSubRequestWrapper wraps a resourcev1.DeviceSubRequest.
+type DeviceSubRequestWrapper struct {
+	resourcev1.DeviceSubRequest
+}
+
+// MakeDeviceSubRequest creates an exact-count alternative of a firstAvailable request.
+// The name must be a DNS label, so it cannot be the DeviceClass name.
+func MakeDeviceSubRequest(name, deviceClassName string, count int64) *DeviceSubRequestWrapper {
+	return &DeviceSubRequestWrapper{
+		Name:            name,
+		DeviceClassName: deviceClassName,
+		AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+		Count:           count,
+	}
+}
+
+// Obj returns the inner DeviceSubRequest.
+func (d *DeviceSubRequestWrapper) Obj() resourcev1.DeviceSubRequest {
+	return d.DeviceSubRequest
+}
+
+// AllocationModeAll requests all matching devices.
+func (d *DeviceSubRequestWrapper) AllocationModeAll() *DeviceSubRequestWrapper {
+	d.AllocationMode = resourcev1.DeviceAllocationModeAll
+	d.Count = 0
+	return d
+}
+
+// CELSelector adds a CEL selector to the alternative.
+func (d *DeviceSubRequestWrapper) CELSelector(expression string) *DeviceSubRequestWrapper {
+	d.Selectors = append(d.Selectors, resourcev1.DeviceSelector{
+		CEL: &resourcev1.CELDeviceSelector{Expression: expression},
+	})
+	return d
+}
+
+// CapacityRequests sets the requested device capacities on the alternative.
+func (d *DeviceSubRequestWrapper) CapacityRequests(requests map[string]string) *DeviceSubRequestWrapper {
+	quantities := make(map[resourcev1.QualifiedName]resource.Quantity, len(requests))
+	for name, value := range requests {
+		quantities[resourcev1.QualifiedName(name)] = resource.MustParse(value)
+	}
+	d.Capacity = &resourcev1.CapacityRequirements{Requests: quantities}
+	return d
+}

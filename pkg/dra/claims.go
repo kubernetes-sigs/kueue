@@ -55,14 +55,25 @@ func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
 	return req.AdminAccess != nil && *req.AdminAccess
 }
 
-// countDevicesPerClass returns a resources.Requests representing the
-// total number of devices requested for each DeviceClass inside the provided
-// ResourceClaimSpec. Returns field errors for unsupported request features
-// (FirstAvailable, AllocationMode All). AdminAccess requests are skipped (zero quota).
-func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
-	out := resources.NewRequests()
+// claimCharges is the quota cost of one ResourceClaimSpec.
+type claimCharges struct {
+	// perDeviceClass counts Exactly requests by DeviceClass; the caller maps them.
+	perDeviceClass resources.Requests
+	// perLogicalResource holds firstAvailable charges, which arrive mapped.
+	perLogicalResource map[corev1.ResourceName]resources.Amount
+}
+
+// chargesForClaimSpec classifies every request in the provided ResourceClaimSpec
+// and returns what it costs. Returns field errors for unsupported request features
+// (AllocationMode All, and FirstAvailable unless the prioritized-list gate is on).
+// AdminAccess requests are skipped (zero quota).
+func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) (claimCharges, field.ErrorList) {
+	charges := claimCharges{
+		perDeviceClass:     resources.NewRequests(),
+		perLogicalResource: map[corev1.ResourceName]resources.Amount{},
+	}
 	if claimSpec == nil {
-		return out, nil
+		return charges, nil
 	}
 
 	var allErrs field.ErrorList
@@ -70,24 +81,31 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 	devicesRequestsPath := field.NewPath("devices", "requests")
 
 	for i, req := range claimSpec.Devices.Requests {
-		// v1 DeviceRequest has Exactly or FirstAvailable. For Step 1, we
-		// preserve existing semantics by only supporting Exactly with Count.
+		// A request is exactly or firstAvailable; the latter needs its gate.
 		var dcName string
 		var q int64
 		if req.FirstAvailable != nil {
-			allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), nil, "FirstAvailable device selection is not supported"))
-			return nil, allErrs
+			if !features.Enabled(features.KueueDRAIntegrationPrioritizedList) {
+				allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), nil, "FirstAvailable device selection is not supported"))
+				return claimCharges{}, allErrs
+			}
+			logical, count, errs := chargeForFirstAvailable(&claimSpec.Devices.Requests[i], mapper, devicesRequestsPath.Index(i))
+			if len(errs) > 0 {
+				return claimCharges{}, append(allErrs, errs...)
+			}
+			charges.perLogicalResource[logical] = charges.perLogicalResource[logical].AddInt64(count)
+			continue
 		}
 
 		if req.Exactly == nil {
 			allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), nil, "Exactly must be set if FirstAvailable is nil"))
-			return nil, allErrs
+			return claimCharges{}, allErrs
 		}
 
 		selectorsPath := devicesRequestsPath.Index(i).Child("exactly", "selectors")
 		if err := validateCELSelectors(req.Exactly.Selectors, selectorsPath); err != nil {
 			allErrs = append(allErrs, field.Invalid(selectorsPath, nil, err.Error()))
-			return nil, allErrs
+			return claimCharges{}, allErrs
 		}
 
 		switch {
@@ -98,7 +116,7 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 				allErrs,
 				field.Invalid(devicesRequestsPath.Index(i).Child("exactly", "allocationMode"), resourcev1.DeviceAllocationModeAll, "AllocationMode 'All' is not supported"),
 			)
-			return nil, allErrs
+			return claimCharges{}, allErrs
 		case req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeExactCount:
 			dcName = req.Exactly.DeviceClassName
 			q = req.Exactly.Count
@@ -111,20 +129,84 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 					fmt.Sprintf("unsupported allocation mode: %s", req.Exactly.AllocationMode),
 				),
 			)
-			return nil, allErrs
+			return claimCharges{}, allErrs
 		}
 
 		dc := corev1.ResourceName(dcName)
 		if dc == "" {
 			continue
 		}
-		// Device counts are user-controlled and effectively unbounded (the
-		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
-		// (matching the scheduler's Amount arithmetic) rather than letting the
-		// sum wrap to a negative count.
-		out.Set(dc, utilmath.SaturatingAdd(out.ResourceValue(dc), q))
+		// Counts are user-controlled up to MaxInt64, so the sum saturates rather than wraps.
+		charges.perDeviceClass.Set(dc, utilmath.SaturatingAdd(charges.perDeviceClass.ResourceValue(dc), q))
 	}
-	return out, nil
+	return charges, nil
+}
+
+// chargeForFirstAvailable returns the logical resource a firstAvailable request is
+// charged on and the count every one of its alternatives asks for. Only then does the
+// charge equal whichever alternative kube-scheduler allocates, so a request whose
+// alternatives differ in count or in logical resource is refused.
+func chargeForFirstAvailable(req *resourcev1.DeviceRequest, mapper *ResourceMapper, reqPath *field.Path) (corev1.ResourceName, int64, field.ErrorList) {
+	// An empty list has no count to charge.
+	if len(req.FirstAvailable) == 0 {
+		return "", 0, field.ErrorList{field.Required(reqPath.Child("firstAvailable"), "must list at least one alternative")}
+	}
+
+	var (
+		logical corev1.ResourceName
+		shared  int64
+	)
+	for i := range req.FirstAvailable {
+		sub := &req.FirstAvailable[i]
+		subPath := reqPath.Child("firstAvailable").Index(i)
+		mapped, count, errs := chargeForAlternative(sub, mapper, subPath)
+		if len(errs) > 0 {
+			return "", 0, errs
+		}
+		switch {
+		case logical == "":
+			logical, shared = mapped, count
+		case mapped != logical:
+			return "", 0, field.ErrorList{field.Invalid(subPath.Child("deviceClassName"), corev1.ResourceName(sub.DeviceClassName),
+				fmt.Sprintf("every alternative must map to %q, this one maps to %q", logical, mapped))}
+		case count != shared:
+			return "", 0, field.ErrorList{field.Invalid(subPath.Child("count"), sub.Count,
+				fmt.Sprintf("every alternative must have count %d, this one has %d", shared, count))}
+		}
+	}
+	return logical, shared, nil
+}
+
+// chargeForAlternative returns the logical resource one alternative maps to and the
+// device count it asks for, refusing every form Kueue does not charge.
+func chargeForAlternative(sub *resourcev1.DeviceSubRequest, mapper *ResourceMapper, subPath *field.Path) (corev1.ResourceName, int64, field.ErrorList) {
+	if sub.AllocationMode != resourcev1.DeviceAllocationModeExactCount {
+		return "", 0, field.ErrorList{field.NotSupported(subPath.Child("allocationMode"), sub.AllocationMode,
+			[]resourcev1.DeviceAllocationMode{resourcev1.DeviceAllocationModeExactCount})}
+	}
+	count := sub.Count
+	if count <= 0 {
+		return "", 0, field.ErrorList{field.Invalid(subPath.Child("count"), sub.Count, "must be greater than zero")}
+	}
+	if sub.DeviceClassName == "" {
+		return "", 0, field.ErrorList{field.Required(subPath.Child("deviceClassName"), "")}
+	}
+	if err := validateCELSelectors(sub.Selectors, subPath.Child("selectors")); err != nil {
+		return "", 0, field.ErrorList{field.Invalid(subPath.Child("selectors"), nil, err.Error())}
+	}
+
+	dc := corev1.ResourceName(sub.DeviceClassName)
+	mapped, found := mapper.Lookup(dc)
+	if !found {
+		return "", 0, field.ErrorList{field.NotFound(subPath.Child("deviceClassName"), dc)}
+	}
+	// The counter and capacity paths read Exactly requests only, so an alternative
+	// on one of those mappings would be charged nothing rather than too little.
+	if len(mapper.getCounterConfigs(dc)) > 0 || len(mapper.getCapacityConfigs(dc)) > 0 {
+		return "", 0, field.ErrorList{field.Invalid(subPath.Child("deviceClassName"), dc,
+			"a counter-backed or capacity-backed DeviceClass is not supported for firstAvailable")}
+	}
+	return mapped, count, nil
 }
 
 // getClaimSpec resolves the ResourceClaim(Template) referenced by the PodResourceClaim
@@ -184,7 +266,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				continue
 			}
 
-			deviceCounts, fieldErrs := countDevicesPerClass(spec)
+			charges, fieldErrs := chargesForClaimSpec(spec, mapper)
 			if len(fieldErrs) > 0 {
 				// Prefix the field paths with the podset and resource claim context
 				for _, fieldErr := range fieldErrs {
@@ -212,7 +294,13 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			for dc, qty := range deviceCounts.Iter() {
+			// firstAvailable charges arrive mapped. Emit them as whole units like the
+			// Exactly count below; a formatter would read a resource named cpu in milli.
+			for logical, amount := range charges.perLogicalResource {
+				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(amount.String())})
+			}
+
+			for dc, qty := range charges.perDeviceClass.Iter() {
 				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
