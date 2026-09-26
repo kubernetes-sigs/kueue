@@ -17,12 +17,20 @@ limitations under the License.
 package dra
 
 import (
+	"fmt"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2/ktesting"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 func TestRoundToValidValues(t *testing.T) {
@@ -224,6 +232,31 @@ func TestComputeCapacityCharge(t *testing.T) {
 			wantCharge:      "20Gi",
 		},
 		{
+			name: "explicit request rounded up to ValidValues",
+			matched: []resourcev1.Device{
+				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("20Gi")},
+				}),
+			},
+			count:           1,
+			explicitRequest: ptrQty("15Gi"),
+			wantCharge:      "20Gi",
+		},
+		{
+			name: "explicit request rounded up is charged per device",
+			matched: []resourcev1.Device{
+				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("20Gi")},
+				}),
+				makeDevice("gpu-1", "80Gi", &resourcev1.CapacityRequestPolicy{
+					ValidValues: []resource.Quantity{resource.MustParse("10Gi"), resource.MustParse("20Gi")},
+				}),
+			},
+			count:           2,
+			explicitRequest: ptrQty("15Gi"),
+			wantCharge:      "40Gi",
+		},
+		{
 			name: "no request uses device Default",
 			matched: []resourcev1.Device{
 				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("40Gi")}),
@@ -299,6 +332,74 @@ func TestComputeCapacityCharge(t *testing.T) {
 			want := resource.MustParse(tc.wantCharge)
 			if result.Cmp(want) != 0 {
 				t.Errorf("got %s, want %s", result.String(), tc.wantCharge)
+			}
+		})
+	}
+}
+
+func BenchmarkDetermineCapacityResourcesForWorkload(b *testing.B) {
+	for _, devices := range []int{8, 64, 512} {
+		b.Run(fmt.Sprintf("devices=%d", devices), func(b *testing.B) {
+			objs := []client.Object{
+				testingdra.MakeDeviceClass("vgpu.example.com").
+					CELSelector("device.driver == 'gpu.example.com'").
+					Obj(),
+				utiltesting.MakeResourceClaimTemplate("vgpu", "default").
+					DeviceRequest("gpu", "vgpu.example.com", 1).
+					WithCapacityRequests(map[string]string{"memory": "15Gi"}).
+					Obj(),
+			}
+			// Eight devices per node, as on a typical GPU node.
+			for node := range devices / 8 {
+				slice := testingdra.MakeResourceSlice(fmt.Sprintf("node-%d", node), "gpu.example.com").
+					NodeName(fmt.Sprintf("node-%d", node)).
+					Pool(fmt.Sprintf("node-%d", node), 1, 1)
+				for dev := range 8 {
+					slice = slice.Device(fmt.Sprintf("gpu-%d", dev)).
+						DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
+							Default: new(resource.MustParse("10Gi")),
+							ValidRange: &resourcev1.CapacityRequestPolicyRange{
+								Min:  new(resource.MustParse("10Gi")),
+								Step: new(resource.MustParse("10Gi")),
+							},
+						})
+				}
+				objs = append(objs, slice.Obj())
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&resourcev1.ResourceSlice{}, "spec.driver", func(obj client.Object) []string {
+					return []string{obj.(*resourcev1.ResourceSlice).Spec.Driver}
+				}).
+				WithObjects(objs...).
+				Build()
+
+			mapper := NewResourceMapper()
+			if err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+				Name:             "gpu.memory",
+				DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+				Sources: []configapi.DeviceClassSourceConfig{
+					{Capacity: &configapi.DeviceClassCapacitySource{
+						Name:   "memory",
+						Driver: "gpu.example.com",
+						DeviceSelector: resourcev1.DeviceSelector{
+							CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+						},
+					}},
+				},
+			}}); err != nil {
+				b.Fatalf("PopulateFromConfiguration failed: %v", err)
+			}
+
+			wl := utiltestingapi.MakeWorkload("wl", "default").Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{Name: "gpu", ResourceClaimTemplateName: new("vgpu")},
+			}
+
+			ctx := b.Context()
+			for b.Loop() {
+				if _, errs := DetermineCapacityResourcesForWorkload(ctx, cl, NewResourceSliceCache(cl), mapper, wl); len(errs) > 0 {
+					b.Fatalf("DetermineCapacityResourcesForWorkload failed: %v", errs)
+				}
 			}
 		})
 	}

@@ -375,7 +375,9 @@ sources). Counter and capacity sources cannot be mixed in the same mapping.
 
 3. Kueue rounds the request per the device's `RequestPolicy` (`ValidValues`
    or `ValidRange` with `Step`) to prevent quota gaming where a small request
-   consumes more actual capacity after rounding by the kube-scheduler.
+   consumes more actual capacity after rounding by the kube-scheduler. The
+   rounded charge appears in the Workload's `status.resourceRequests` after a
+   failed admission attempt, and in `status.admission` once admitted.
 
 4. For each matched device, Kueue computes the charge independently using
    the device's own Default and policy, then takes the **maximum** across

@@ -122,6 +122,7 @@ tags, and then generate with `hack/update-toc.sh`.
       - [KueueDRAIntegration](#kueuedraintegration)
       - [KueueDRAIntegrationExtendedResource](#kueuedraintegrationextendedresource-1)
       - [KueueDRAIntegrationPartitionableDevices](#kueuedraintegrationpartitionabledevices-1)
+      - [KueueDRAIntegrationConsumableCapacity](#kueuedraintegrationconsumablecapacity-1)
       - [KueueDRAIntegrationPrioritizedList](#kueuedraintegrationprioritizedlist-1)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
@@ -417,7 +418,10 @@ mapping, not the request, decides which devices share a budget.
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
 - ResourceClaims are not supported in alpha - workloads must use ResourceClaimTemplates.
   Direct ResourceClaim references will result in inadmissible workloads.
-- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ.
+- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ, and capacity-based mappings when capacity names differ.
+- Counter and capacity mappings cannot share a quota resource name. A counter charges what
+  the device consumes and a capacity source charges what the request asks for, so one
+  quota resource fed by both would mix two charging models.
 - Configuration-based approach - device class mappings are configured through the Kueue Configuration API
 - Quota accounting is independent of Kueue's Topology Aware Scheduling feature. The only
   place the two meet is the per-node device check in
@@ -443,8 +447,9 @@ mapping, not the request, decides which devices share a budget.
   devices requires [consumable capacity](https://github.com/kubernetes/enhancements/issues/5075)
   integration with both the DRA driver and Kueue. MPS additionally requires
   [KEP-5691 (Restricted Sharing)](https://github.com/kubernetes/enhancements/issues/5691)
-  to restrict sharing to the same namespace. These will be evaluated for Beta once the
-  upstream dependencies are available.
+  to restrict sharing to the same namespace. These stay out of scope until the upstream
+  dependencies are available, tracked in
+  [#15550](https://github.com/kubernetes-sigs/kueue/issues/15550).
   With structured parameters, GPU sharing is supported via ResourceClaimTemplates where
   containers within the same pod share a GPU. Cross-pod sharing via direct ResourceClaims
   is not supported.
@@ -718,8 +723,8 @@ complex runtime resolution logic, ensuring predictable and efficient workload ad
 **Note**: A single mapping can have multiple capacity sources that sum into one quota
 resource, which does not violate this constraint. Tracking independent capacity
 dimensions as separate quota resources (same DeviceClass, different resource names)
-remains deferred to beta, while counter-based mappings already relax this constraint
-for distinct counter names.
+works when the capacity names differ, as it does for counter-based mappings with
+distinct counter names.
 
 ### RBAC Requirements
 
@@ -1728,8 +1733,8 @@ produces a meaningless sum and is not a supported use case. Independent dimensio
 separate mappings with distinct resource names.
 
 Independent dimension tracking (same DeviceClass, different resource names, different
-mappings) requires relaxing the DeviceClass uniqueness validation. This is deferred to
-beta, consistent with the same deferral for partitionable devices multi-counter support.
+mappings) relaxes the DeviceClass uniqueness validation when the capacity names differ,
+as partitionable devices do for different counter names.
 
 #### Processing Flow
 
@@ -1795,12 +1800,13 @@ track partitioned devices via `consumesCounters`, capacity sources track shared 
 via `Capacity`. These serve different device types and are not combined on a single
 mapping entry.
 
-In [Alpha](#alpha), each mapping must have a unique resource name and counter and
+Each mapping must have a unique resource name and counter and
 capacity sources cannot be mixed within the same mapping. This means a unified
 quota pool across both device types (e.g., partitioned and time-sliced GPUs both
-charging `gpu.memory`) is not supported. Relaxing the resource name uniqueness
-to allow separate counter and capacity mappings to share a quota resource is to
-be evaluated for [Beta](#beta). For counter-based mappings, the same DeviceClass can appear in different mappings when the counter names differ. For device-count and capacity-based mappings, DeviceClass uniqueness remains enforced. 
+charging `gpu.memory`) is not supported. [Beta](#beta) keeps it that way, because a
+counter and a capacity source charge in different ways. The same DeviceClass can appear
+in different mappings when the counter names differ, or when the capacity names
+differ. For device-count mappings, DeviceClass uniqueness remains enforced.
 
 **Extended resources and capacity sources are not supported together:**
 
@@ -2440,16 +2446,22 @@ each. It asserts that each alternative is allocated once and that the Workload i
 ##### KueueDRAIntegrationConsumableCapacity
 
 - feature gate enabled by default
-- re-evaluate independent dimension tracking (same DeviceClass, different resource names
-  across mappings) by relaxing the DeviceClass uniqueness constraint. Same relaxation
-  deferred for partitionable devices multi-counter support
-- re-evaluate unified quota pools across counter and capacity mappings by relaxing the
-  resource name uniqueness constraint
-- re-evaluate consolidating ResourceSlice listing between CEL, counter, and capacity
-  processing into a shared layer
-- re-evaluate caching `deviceSelector` and `RequestPolicy` evaluation results
-- re-evaluate surfacing the rounded charge vs raw request in a workload condition or
-  event for operator visibility
+- support independent capacity dimensions by relaxing the DeviceClass uniqueness
+  constraint across mappings when both have capacity sources with different capacity
+  names, allowing memory and cores as separate quota resources for the same DeviceClass
+- keep counter and capacity mappings on separate quota resources. A counter charges
+  what the device consumes and a capacity source charges what the request asks for,
+  so one quota resource fed by both would mix two charging models
+- share ResourceSlice listing between CEL validation, counter and capacity processing
+  through the request-scoped cache that partitionable devices added
+- measure the capacity charge per reconciliation with
+  `BenchmarkDetermineCapacityResourcesForWorkload` before caching `deviceSelector` or
+  `RequestPolicy` results. At 512 matched devices, listing ResourceSlices takes about
+  half of the time and `deviceSelector` evaluation about 40%. `RequestPolicy` rounding
+  takes under 1%, so Kueue adds no cache
+- show the rounded charge in the Workload's `status.resourceRequests` and
+  `status.admission`, and log when rounding raises an explicit request, without a new
+  event or condition
 
 ##### KueueDRADeviceFeasibility
 
@@ -2535,6 +2547,14 @@ each. It asserts that each alternative is allocated once and that the Workload i
   node a workload will land on. Depends on scheduler-library integration
   ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)).
 
+##### KueueDRAIntegrationConsumableCapacity
+
+- the feature gate in stable
+- re-evaluate MAX-based capacity charging across devices with different `RequestPolicy`.
+  Accurate charging requires knowing which device the scheduler will allocate, as for
+  partitionable devices
+- charge a `DRAFractionalCapacityRange` policy in its own units instead of whole units
+
 ##### KueueDRAIntegrationPrioritizedList
 
 - the feature gate in stable
@@ -2569,6 +2589,7 @@ each. It asserts that each alternative is allocated once and that the Workload i
 - Skip DRA CEL availability check on MultiKueue manager: October 2026 by @ekam-walia —
   skip `ResourceSlice` CEL availability check for ClusterQueues with a MultiKueue admission check
   (see [#17769](https://github.com/kubernetes-sigs/kueue/issues/17769))
+- Consumable capacity per-dimension quota: October 2026 by @sohankunkerkar
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
