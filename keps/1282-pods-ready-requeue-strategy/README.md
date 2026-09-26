@@ -161,6 +161,23 @@ type RequeuingStrategy struct {
 	// Defaults to 60.
 	// +optional
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffLimitTimeout defines the maximum time a workload can spend being
+	// re-queued by waitForPodsReady before it is deactivated.
+	// The measurement starts at the first eviction with the PodsReadyTimeout reason
+	// since the workload last reached the PodsReady=true condition, recorded in
+	// `.status.requeueState.firstEvictedAt`. When the timeout has elapsed and the
+	// workload is about to be evicted with the PodsReadyTimeout reason again, it is
+	// deactivated (`.spec.active`=`false`) instead of being re-queued.
+	// Reaching PodsReady=true resets the measurement, so the timeout bounds the time
+	// spent cycling through evictions rather than the total time in the queue.
+	// BackoffLimitCount is applied independently; whichever limit is reached first
+	// deactivates the workload.
+	// When it is null, the re-queuing time is not limited.
+	//
+	// Defaults to null.
+	// +optional
+	BackoffLimitTimeout *metav1.Duration `json:"backoffLimitTimeout,omitempty"`
 }
 
 type RequeuingTimestamp string
@@ -206,6 +223,16 @@ type RequeueState struct {
 	//
 	// +optional
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
+
+	// firstEvictedAt records the time of the first eviction with the PodsReadyTimeout
+	// reason since the workload last reached the PodsReady=true condition.
+	// It is only recorded when waitForPodsReady.requeuingStrategy.backoffLimitTimeout
+	// is configured and is used to enforce that timeout.
+	// It is reset to null when the workload reaches PodsReady=true, and when a
+	// deactivated (`.spec.active`=`false`) workload is reactivated (`.spec.active`=`true`).
+	//
+	// +optional
+	FirstEvictedAt *metav1.Time `json:"firstEvictedAt,omitempty"`
 }
 ```
 
@@ -309,6 +336,45 @@ Finally, the jobframework reconciler stops a job based in the next reconcile.
 Additionally, when a deactivated workload by eviction is re-activated, the `requeueState` is reset to null. 
 If a workload is deactivated by other ways such as user operations, the `requeueState` is not reset.
 
+### Deactivation on a time limit
+
+`backoffLimitCount` bounds the number of re-queues, which is hard to translate into wall-clock time: with the
+exponential backoff above, ten retries is anywhere from a few minutes to several hours depending on
+`backoffBaseSeconds` and `backoffMaxSeconds`. A cluster operator who wants "give up on this workload after an hour"
+cannot express that with a count. `backoffLimitTimeout` expresses it directly.
+
+The measurement starts at the **first eviction with the `PodsReadyTimeout` reason** since the workload last reached
+`PodsReady=true`, recorded in `.status.requeueState.firstEvictedAt`, and it is reset when the workload reaches
+`PodsReady=true` and when a deactivated workload is reactivated. The timeout therefore bounds the time a workload
+spends cycling through evictions, not the total time it has existed: a workload that ran successfully for a day and
+then began failing gets the full window from the point at which it started failing, which is the behaviour an
+operator setting a "retry budget" expects.
+
+**What this knob promises.** It is a *retry budget expressed in time*, not a wall-clock cap. It bounds how long a
+workload may go on being retried after it first fails to become ready; it does not promise that a workload is
+deactivated within that time of anything. Time spent waiting in the queue with nothing to retry is not bounded by it,
+and at most one further attempt may start after the limit has passed, whose failure then deactivates the workload in
+place of the next eviction. An operator who wants a hard wall-clock guarantee needs a different knob; `firstEvictedAt`
+is in the status and the workload controller is the only writer of `requeueState`, so such a knob could be added later
+without a second deactivation path.
+
+Two consequences worth stating explicitly:
+
+* The limit is evaluated **at eviction time**, in the same place `backoffLimitCount` is evaluated. A workload that
+  exceeds the timeout while sitting in the queue is not deactivated until it is next evicted with the
+  `PodsReadyTimeout` reason. This is a deliberate narrowing of the shape sketched in the Alternatives section, which
+  had the queueManager deactivate queued workloads as well: keeping a single deactivation point keeps the semantics
+  of `.status.requeueState` unambiguous and avoids a second code path that can deactivate a workload.
+  @bolubo tried the queue-side evaluation locally and settled on the eviction-time form: it is not merely a stricter
+  reading of the same rule, because the `scheduler/podsready` spec fails under it - the workload is deactivated
+  before it is re-admitted, so it never runs the attempt it was queued for. That is a behaviour change of its own and
+  belongs in its own proposal if it is ever wanted.
+* `backoffLimitCount` and `backoffLimitTimeout` are independent. Either may be set alone, both may be set, and
+  whichever is reached first deactivates the workload.
+
+`firstEvictedAt` is only recorded when `backoffLimitTimeout` is configured, so clusters that do not use the timeout
+carry no extra status field.
+
 ### Test Plan
 
 [X] I/we understand the owners of the involved components may require updates to
@@ -373,6 +439,7 @@ The label 'reason' can have the following values:
 
 ## Implementation History
 
+- 2026-09-22: `backoffLimitTimeout` added to the design, moving it out of the Alternatives section.
 - Jan 18th: Implemented the re-queue strategy that workloads evicted due to pods-ready (story 1) [#1311](https://github.com/kubernetes-sigs/kueue/pulls/1311)
 - Feb 12th: Implemented the re-queueing backoff mechanism triggered by eviction with PodsReadyTimeout reason (story 2 and 3) [#1709](https://github.com/kubernetes-sigs/kueue/pulls/1709)
 
@@ -409,30 +476,8 @@ Furthermore, configuring these settings at the ClusterQueue level introduces the
 
 ### Make knob to be possible to set timeout until the workload is deactivated
 
-Another knob, `backoffCount` is difficult to estimate how many hours jobs will actually be retried (requeued).
-So, it might be useful to make a knob to possible to set timeout until the workload is deactivated.
-For the first iteration, we don't make this knob since only `backoffLimitCount` would be enough to current stories.  
-
-```go
-type RequeuingStrategy struct {
-	...
-	// backoffLimitTimeout defines the time for a workload that 
-	// has once been admitted to reach the PodsReady=true condition.
-	// When the time is reached, the workload is deactivated.
-	// 	
-	// Defaults to null.
-	// +optional
-	BackOffLimitTimeout *int32 `json:"backoffLimitTimeout,omitempty"`
-}
-```
-
-#### Evaluation
-
-When a workload's duration $currentTime - queueOrderingTimestamp$ reaches the kueueConfig `waitForPodsReady.requeueingStrategy.backoffLimitTimeout`,
-the workload controller and the queueManager sets false to `.spec.active`.
-After that, the jobframework reconciler deactivates a workload.
-
-Before the jobframework reconciler deactivates a workload,
-the workload controller sets false to `.spec.active` after the workload reconciler checks if a workload is finished.
-In addition, when the kueue scheduler gets headWorkloads from clusterQueues,
-if the queueManager finds the workloads exceeding `backoffLimitTimeout` and sets false to workload `.spec.active`.
+This was deferred in the first iteration on the grounds that `backoffLimitCount` alone covered the stories above.
+It is no longer an alternative: `backoffLimitTimeout` is part of the accepted design, described under
+[Deactivation on a time limit](#deactivation-on-a-time-limit). The shape considered here measured the elapsed time
+from the queue-ordering timestamp and had the queueManager deactivate workloads while they sat in the queue; the
+accepted design measures from the first PodsReadyTimeout eviction instead, for the reasons given there.
