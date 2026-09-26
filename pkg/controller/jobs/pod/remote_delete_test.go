@@ -27,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -51,6 +52,7 @@ func (c *replacingPodReadClient) Get(ctx context.Context, key client.ObjectKey, 
 }
 
 func TestDeleteOwnedRemotePodGroup(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, true)
 	cases := map[string]struct {
 		replacement  *corev1.Pod
 		wantConflict bool

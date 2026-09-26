@@ -295,6 +295,7 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 
 	const currentManagerUID = types.UID("current-manager")
 	tests := map[string]struct {
+		gateDisabled        bool
 		workloadManagerUID  types.UID
 		remoteObjectOrigin  string
 		remoteObjectPresent bool
@@ -304,11 +305,19 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 		wantRemoteWorkload  bool
 		wantErr             error
 	}{
-		"gate-off current Workload deletes the old object on the target worker": {
+		"current Workload deletes the old object on the target worker": {
 			workloadManagerUID:  currentManagerUID,
 			remoteObjectOrigin:  defaultOrigin,
 			remoteObjectPresent: true,
 			wantDeleted:         true,
+		},
+		"disabled gate preserves the old object and still creates the remote Workload": {
+			gateDisabled:        true,
+			workloadManagerUID:  currentManagerUID,
+			remoteObjectOrigin:  defaultOrigin,
+			remoteObjectPresent: true,
+			wantRemoteObject:    true,
+			wantRemoteWorkload:  true,
 		},
 		"stale Workload preserves the newer run object": {
 			workloadManagerUID:  "old-manager",
@@ -346,6 +355,7 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, !tc.gateDisabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			managerJob := testingjob.MakeJob("job", TestNamespace).UID(string(currentManagerUID)).Obj()
 			managerClient := getClientBuilder(ctx).WithObjects(managerJob).Build()
@@ -420,6 +430,7 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 
 func TestSameNameReplacementSkipsPodGroups(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, true)
+	features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	local := utiltestingapi.MakeWorkload("new-group", TestNamespace).
 		Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -452,6 +463,7 @@ func TestSameNameReplacementSkipsPodGroups(t *testing.T) {
 
 func TestSameNameReplacementPreservesConcurrentOwnershipChange(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, true)
+	features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	managerJob := testingjob.MakeJob("job", TestNamespace).UID("manager").Obj()
 	managerClient := getClientBuilder(ctx).WithObjects(managerJob).Build()

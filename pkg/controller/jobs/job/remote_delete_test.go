@@ -27,6 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -61,6 +62,7 @@ func (c *changingRemoteJobClient) Delete(ctx context.Context, obj client.Object,
 }
 
 func TestDeleteOwnedRemoteJobPreservesObservedIdentity(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, true)
 	cases := map[string]struct {
 		replacement  *batchv1.Job
 		changeOrigin bool

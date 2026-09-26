@@ -320,8 +320,10 @@ func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Clie
 
 // DeleteRemoteObjectIfOwned fetches the remote object for the given adapter's GVK and key,
 // skips deletion if the object does not exist or is not owned by this MultiKueue origin,
-// and otherwise delegates to adapter.DeleteRemoteObject. If workloadName is set,
-// an object identifying another prebuilt Workload is preserved.
+// and otherwise delegates to adapter.DeleteRemoteObject. When the
+// MultiKueueRemoteObjectRetention feature gate is enabled, an object identifying a
+// prebuilt Workload other than workloadName is preserved, and the adapter's deletion
+// is bound to the UID and resource version of the checked object.
 // Returns ErrMultiKueueOriginEmpty if origin is empty.
 func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, origin, workloadName string) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
@@ -343,6 +345,9 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 	if objectOrigin := remoteObject.GetLabels()[kueue.MultiKueueOriginLabel]; objectOrigin != origin {
 		log.V(2).Info("Skipping remote object deletion because object is not owned by this MultiKueue origin")
 		return nil
+	}
+	if !features.Enabled(features.MultiKueueRemoteObjectRetention) {
+		return adapter.DeleteRemoteObject(ctx, localClient, remoteClient, key)
 	}
 	if remoteWorkloadName := PrebuiltWorkloadNameFor(remoteObject); workloadName != "" && remoteWorkloadName != "" && remoteWorkloadName != workloadName {
 		log.V(3).Info("Skipping remote object deletion because it belongs to another Workload", "workload", workloadName, "remoteObjectWorkload", remoteWorkloadName)

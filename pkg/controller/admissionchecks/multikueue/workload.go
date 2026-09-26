@@ -159,6 +159,11 @@ func (g *wlGroup) managerObjectUID() types.UID {
 }
 
 func (g *wlGroup) deleteRemoteObjectOfOtherWorkload(ctx context.Context, cluster string) (deleted, proceed bool, err error) {
+	// The remote lookup below is not cached, so returning early keeps the dispatch
+	// path free of a worker cluster round trip when the feature is disabled.
+	if !features.Enabled(features.MultiKueueRemoteObjectRetention) {
+		return false, true, nil
+	}
 	if g.jobAdapter == nil {
 		return false, true, nil
 	}
@@ -184,12 +189,20 @@ func (g *wlGroup) deleteRemoteObjectOfOtherWorkload(ctx context.Context, cluster
 		// but still proceed to Create.
 		return false, true, nil
 	}
+	log := ctrl.LoggerFrom(ctx)
 	managerObject := &metav1.PartialObjectMetadata{}
 	managerObject.SetGroupVersionKind(g.jobAdapter.GVK())
 	if err := g.localClient.Get(ctx, g.controllerKey, managerObject); err != nil {
-		return false, false, client.IgnoreNotFound(err)
+		if err := client.IgnoreNotFound(err); err != nil {
+			return false, false, err
+		}
+		log.V(3).Info("Skipping remote object creation, the manager object is gone", "managerObject", g.controllerKey, "workload", g.local.Name)
+		return false, false, nil
 	}
 	if managerObject.UID != managerUID {
+		log.V(3).Info("Skipping remote object creation, the manager object belongs to a newer run",
+			"managerObject", g.controllerKey, "workload", g.local.Name,
+			"workloadManagerUID", managerUID, "managerObjectUID", managerObject.UID)
 		return false, false, nil
 	}
 
@@ -206,7 +219,7 @@ func (g *wlGroup) deleteRemoteObjectOfOtherWorkload(ctx context.Context, cluster
 		return false, true, nil
 	}
 
-	ctrl.LoggerFrom(ctx).V(3).Info("Deleting a remote object left by an earlier run", "remoteObject", g.controllerKey, "remoteObjectWorkload", remoteWorkloadName, "workload", g.local.Name)
+	log.V(3).Info("Deleting a remote object left by an earlier run", "remoteObject", g.controllerKey, "remoteObjectWorkload", remoteWorkloadName, "workload", g.local.Name)
 	// Only delete the dedicated object whose ownership we checked, even if it is
 	// replaced or its ownership changes before the delete reaches the worker.
 	if err := client.IgnoreNotFound(remoteClient.getClient().Delete(ctx, remoteObject,
