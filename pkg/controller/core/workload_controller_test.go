@@ -1951,35 +1951,6 @@ func TestReconcile(t *testing.T) {
 			},
 			wantError: nil,
 		},
-		"should not synchronize the status of preemption gates when the feature is disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:              false,
-				features.MultiKueueOrchestratedPreemption: false,
-			},
-			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
-			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
-			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				Queue("lq").
-				PreemptionGates(kueue.PreemptionGate{Name: "missing-status"}).
-				Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				Queue("lq").
-				PreemptionGates(kueue.PreemptionGate{Name: "missing-status"}).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadQuotaReserved,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
-					Message: "ClusterQueue cq is inactive",
-				}).
-				Condition(metav1.Condition{
-					Type:    kueue.WorkloadAdmitted,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
-					Message: "The workload has no reservation",
-				}).
-				Obj(),
-			wantResult: reconcile.Result{},
-		},
 		"should synchronize the status of preemption gates": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              false,

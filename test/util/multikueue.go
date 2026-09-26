@@ -339,9 +339,6 @@ func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workloa
 // nominated worker has the manager workload's spec. When
 // MultiKueueOrchestratedPreemption is enabled, the manager's preemption gates
 // are not copied and the MultiKueue preemption gate is set instead.
-//
-// In e2e tests, the feature gate is read from the test binary, so this relies
-// on the clusters running with the default feature gates.
 func ExpectRemoteWorkloadSpec(g gomega.Gomega, remoteWl, managerWl *kueue.Workload) {
 	ginkgo.GinkgoHelper()
 
