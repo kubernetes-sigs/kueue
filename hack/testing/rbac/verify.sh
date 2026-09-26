@@ -40,14 +40,16 @@ excluded_groups=(
 excluded_resources=(
   # Only read or created by Kueue.
   /limitranges /namespaces /nodes /podtemplates apps/replicasets
-  # The pod, deployment and statefulset integrations have never shipped
-  # editor/viewer roles (unlike batch/jobs). TODO(<issue>): decide.
+  # Generic workloads covered by the built-in edit and view ClusterRoles;
+  # Kueue's batch roles should not widen access to them.
   /pods apps/deployments apps/statefulsets
   # Referenced by TrainJobs, not submitted to Kueue.
   trainer.kubeflow.org/trainingruntimes trainer.kubeflow.org/clustertrainingruntimes
-  # Alpha APIs without editor/viewer roles. TODO(<issue>): decide.
+  # Alpha APIs that do not ship editor/viewer roles yet. Remove once they do.
   kueue.x-k8s.io/capacityproviders kueue.x-k8s.io/dynamicquotaorchestrators
 )
+# Entries that are no longer granted to the manager, or that already have an
+# editor or viewer role, fail the check so this list does not go stale.
 
 # grants <file>...: prints every top-level "group/resource" the rules grant.
 grants() {
@@ -93,6 +95,15 @@ while read -r resource; do
     failed=1
   fi
 done <<<"${manager}"
+
+for entry in "${excluded_resources[@]}"; do
+  if ! grep -qxF -- "${entry}" <<<"${manager}" \
+    || grep -qxF -- "${entry}" <<<"${editors}" \
+    || grep -qxF -- "${entry}" <<<"${viewers}"; then
+    echo "ERROR: ${entry} is excluded in hack/testing/rbac/verify.sh, but role.yaml no longer grants it or an editor/viewer role already does. Remove the exclusion." >&2
+    failed=1
+  fi
+done
 
 if [[ ${checked} -eq 0 ]]; then
   echo "ERROR: no resources to check in ${RBAC_DIR}/role.yaml" >&2
