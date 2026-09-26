@@ -282,6 +282,34 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			newJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("lq2").Suspend(true).Obj(),
 			nsHasDefaultQueue: true,
 		},
+		"local queue cannot be changed to an invalid name": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: fieldString,
+				},
+			},
+		},
+		"local queue cannot be added with an invalid name": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: fieldString,
+				},
+			},
+		},
+		"unchanged invalid local queue name is allowed": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("Bad_Queue").Suspend(true).Obj(),
+		},
+		"local queue label can be deleted if default queue does not exist": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").Queue("lq1").Suspend(true).Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").Suspend(true).Obj(),
+		},
 		"local queue can be changed from default": {
 			featureGates:      map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			oldJob:            utiltestingjob.MakeJob("test-job", "ns1").Queue("default").Suspend(true).Obj(),

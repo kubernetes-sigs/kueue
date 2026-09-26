@@ -1349,6 +1349,22 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"queue name changed to an invalid value on a gated pod": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Queue("lq1").
+				KueueSchedulingGate().
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Queue("Bad_Queue").
+				KueueSchedulingGate().
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {
