@@ -6,6 +6,8 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
+  upgradeStrategy:
+    type: None
   serveConfigV2: |
     applications:
       - name: fruit_app
