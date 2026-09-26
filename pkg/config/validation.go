@@ -604,6 +604,21 @@ func validateDeviceClassName(deviceClass corev1.ResourceName, path *field.Path) 
 	return allErrs
 }
 
+type deviceClassMappingKind string
+
+const (
+	deviceCountMapping deviceClassMappingKind = "device-count"
+	counterMapping     deviceClassMappingKind = "counter"
+	capacityMapping    deviceClassMappingKind = "capacity"
+)
+
+// deviceClassMappingInfo records how a DeviceClass is charged by the mappings that name it.
+type deviceClassMappingInfo struct {
+	resourceName corev1.ResourceName
+	kind         deviceClassMappingKind
+	sourceNames  sets.Set[string]
+}
+
 func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 	if c.Resources == nil || len(c.Resources.DeviceClassMappings) == 0 {
 		return nil
@@ -616,142 +631,174 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		allErrs = append(allErrs, field.TooMany(dynamicResourceAllocationPath, len(mappings), 16))
 	}
 
-	refuseReserved := features.Enabled(features.ReservedResourceNameValidation)
-	seenResourceNames := make(sets.Set[corev1.ResourceName])
-	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
-	deviceClassCounterNames := make(map[corev1.ResourceName]sets.Set[string])
+	seenResourceNames := sets.New[corev1.ResourceName]()
+	byDeviceClass := make(map[corev1.ResourceName]*deviceClassMappingInfo)
 
 	for idx, mapping := range mappings {
 		mappingPath := dynamicResourceAllocationPath.Index(idx)
-
-		if errs := content.IsLabelKey(string(mapping.Name)); len(errs) > 0 {
-			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, strings.Join(errs, "; ")))
-		}
-
-		if len(string(mapping.Name)) > 253 {
-			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
-		}
-
-		// pods is reserved for the request Kueue synthesizes from the PodSet count.
-		// The mapper is only built with DRA on, so until then the name is dormant
-		// and refusing it would fail an upgrade over an entry that does nothing.
-		if refuseReserved && features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
-			allErrs = append(allErrs, reservedResourceNameError(mappingPath.Child("name")))
-		}
-
+		mappingErrs := validateDeviceClassMappingFields(mapping, mappingPath)
 		if seenResourceNames.Has(mapping.Name) {
-			allErrs = append(allErrs, field.Duplicate(mappingPath.Child("name"), mapping.Name))
+			mappingErrs = append(mappingErrs, field.Duplicate(mappingPath.Child("name"), mapping.Name))
 		} else {
 			seenResourceNames.Insert(mapping.Name)
 		}
-
-		if len(mapping.DeviceClassNames) == 0 {
-			allErrs = append(allErrs, field.Required(mappingPath.Child("deviceClassNames"),
-				"at least one device class name is required"))
+		current, sourceErrs := validateDeviceClassMappingSources(mapping, mappingPath.Child("sources"))
+		mappingErrs = append(mappingErrs, sourceErrs...)
+		allErrs = append(allErrs, mappingErrs...)
+		if len(mappingErrs) > 0 {
+			continue
 		}
-
-		if len(mapping.DeviceClassNames) > 8 {
-			allErrs = append(allErrs, field.TooMany(mappingPath.Child("deviceClassNames"), len(mapping.DeviceClassNames), 8))
-		}
-
-		seenDeviceClassNames := make(sets.Set[corev1.ResourceName])
 
 		for dcIdx, deviceClass := range mapping.DeviceClassNames {
 			dcPath := mappingPath.Child("deviceClassNames").Index(dcIdx)
-			allErrs = append(allErrs, validateDeviceClassName(deviceClass, dcPath)...)
-
-			if seenDeviceClassNames.Has(deviceClass) {
-				allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
-			} else {
-				seenDeviceClassNames.Insert(deviceClass)
+			if existing, found := byDeviceClass[deviceClass]; found {
+				if err := mergeDeviceClassMapping(existing, current, deviceClass, dcPath); err != nil {
+					allErrs = append(allErrs, err)
+				}
+				continue
 			}
-
-			counterNames := counterNamesForMapping(mapping)
-			if existingResource, exists := deviceClassToResource[deviceClass]; exists {
-				if existingResource != mapping.Name {
-					// Allow same DeviceClass in multiple mappings only when all of them have
-					// counter sources and no two share a counter name — each mapping tracks
-					// a different counter dimension (e.g., gpu.memory and gpu.compute).
-					existingCounters := deviceClassCounterNames[deviceClass]
-					switch {
-					case counterNames.Len() == 0 || existingCounters.Len() == 0:
-						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
-							fmt.Sprintf("device class already mapped to resource %s", existingResource)))
-					case existingCounters.HasAny(counterNames.UnsortedList()...):
-						allErrs = append(allErrs, field.Invalid(dcPath, deviceClass,
-							fmt.Sprintf("device class already has a counter source for counter %q", sets.List(existingCounters.Intersection(counterNames))[0])))
-					default:
-						existingCounters.Insert(counterNames.UnsortedList()...)
-					}
-				}
-			} else {
-				deviceClassToResource[deviceClass] = mapping.Name
-				deviceClassCounterNames[deviceClass] = counterNames
-			}
-		}
-
-		if len(mapping.Sources) > 0 {
-			sourcesPath := mappingPath.Child("sources")
-			celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
-			counterCount := 0
-			hasCapacity := false
-			// A device that two sources with the same driver and name both match is charged twice.
-			seenSources := sets.New[string]()
-			for sIdx, source := range mapping.Sources {
-				sourcePath := sourcesPath.Index(sIdx)
-				if source.Counter == nil && source.Capacity == nil {
-					allErrs = append(allErrs, field.Required(sourcePath, "exactly one source type must be set per entry"))
-					continue
-				}
-				if source.Counter != nil && source.Capacity != nil {
-					allErrs = append(allErrs, field.Invalid(sourcePath, "counter+capacity", "exactly one source type must be set per entry"))
-					continue
-				}
-				if source.Counter != nil {
-					counterCount++
-					if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
-						allErrs = append(allErrs, field.Invalid(sourcePath.Child("counter"), true,
-							"counter sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
-						continue
-					}
-					counterPath := sourcePath.Child("counter")
-					if source.Counter.Name == "" {
-						allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
-					} else if errs := apimachineryutilvalidation.IsDNS1123Label(source.Counter.Name); len(errs) != 0 {
-						allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, strings.Join(errs, ",")))
-					}
-					allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Driver, &source.Counter.DeviceSelector, counterPath, celCache)...)
-					if key := source.Counter.Driver + "/" + source.Counter.Name; seenSources.Has(key) {
-						allErrs = append(allErrs, field.Duplicate(counterPath, key))
-					} else {
-						seenSources.Insert(key)
-					}
-				}
-				if source.Capacity != nil {
-					hasCapacity = true
-					if !features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
-						allErrs = append(allErrs, field.Invalid(sourcePath.Child("capacity"), true,
-							"capacity sources require KueueDRAIntegrationConsumableCapacity to be enabled"))
-						continue
-					}
-					capacityPath := sourcePath.Child("capacity")
-					allErrs = append(allErrs, validateQualifiedName(source.Capacity.Name, capacityPath.Child("name"))...)
-					allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Driver, &source.Capacity.DeviceSelector, capacityPath, celCache)...)
-					if key := source.Capacity.Driver + "/" + string(source.Capacity.Name); seenSources.Has(key) {
-						allErrs = append(allErrs, field.Duplicate(capacityPath, key))
-					} else {
-						seenSources.Insert(key)
-					}
-				}
-			}
-			if counterCount > 0 && hasCapacity {
-				allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
-					"cannot mix counter and capacity sources in the same mapping"))
-			}
+			// Each DeviceClass accumulates source names independently.
+			entry := current
+			entry.sourceNames = current.sourceNames.Clone()
+			byDeviceClass[deviceClass] = &entry
 		}
 	}
 
 	return allErrs
+}
+
+// validateDeviceClassMappingFields validates a mapping's resource name and DeviceClass names.
+func validateDeviceClassMappingFields(mapping configapi.DeviceClassMapping, mappingPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if errs := content.IsLabelKey(string(mapping.Name)); len(errs) > 0 {
+		allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, strings.Join(errs, "; ")))
+	}
+
+	if len(string(mapping.Name)) > 253 {
+		allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
+	}
+
+	// pods is reserved for the request Kueue synthesizes from the PodSet count.
+	// The mapper is only built with DRA on, so until then the name is dormant
+	// and refusing it would fail an upgrade over an entry that does nothing.
+	if features.Enabled(features.ReservedResourceNameValidation) && features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
+		allErrs = append(allErrs, reservedResourceNameError(mappingPath.Child("name")))
+	}
+
+	if len(mapping.DeviceClassNames) == 0 {
+		allErrs = append(allErrs, field.Required(mappingPath.Child("deviceClassNames"),
+			"at least one device class name is required"))
+	}
+
+	if len(mapping.DeviceClassNames) > 8 {
+		allErrs = append(allErrs, field.TooMany(mappingPath.Child("deviceClassNames"), len(mapping.DeviceClassNames), 8))
+	}
+
+	seenDeviceClassNames := sets.New[corev1.ResourceName]()
+	for dcIdx, deviceClass := range mapping.DeviceClassNames {
+		dcPath := mappingPath.Child("deviceClassNames").Index(dcIdx)
+		allErrs = append(allErrs, validateDeviceClassName(deviceClass, dcPath)...)
+		if seenDeviceClassNames.Has(deviceClass) {
+			allErrs = append(allErrs, field.Duplicate(dcPath, deviceClass))
+		} else {
+			seenDeviceClassNames.Insert(deviceClass)
+		}
+	}
+
+	return allErrs
+}
+
+// validateDeviceClassMappingSources validates a mapping's sources and returns its kind and source names.
+func validateDeviceClassMappingSources(mapping configapi.DeviceClassMapping, sourcesPath *field.Path) (deviceClassMappingInfo, field.ErrorList) {
+	info := deviceClassMappingInfo{
+		resourceName: mapping.Name,
+		kind:         deviceCountMapping,
+		sourceNames:  sets.New[string](),
+	}
+	if len(mapping.Sources) == 0 {
+		return info, nil
+	}
+
+	var allErrs field.ErrorList
+	celCache := dracel.NewCache(len(mapping.Sources), dracel.Features{})
+	counterCount := 0
+	hasCapacity := false
+	// A device that two sources with the same driver and name both match is charged twice.
+	seenSources := sets.New[string]()
+	for sIdx, source := range mapping.Sources {
+		sourcePath := sourcesPath.Index(sIdx)
+		if source.Counter == nil && source.Capacity == nil {
+			allErrs = append(allErrs, field.Required(sourcePath, "exactly one source type must be set per entry"))
+			continue
+		}
+		if source.Counter != nil && source.Capacity != nil {
+			allErrs = append(allErrs, field.Invalid(sourcePath, "counter+capacity", "exactly one source type must be set per entry"))
+			continue
+		}
+		if source.Counter != nil {
+			counterCount++
+			if !features.Enabled(features.KueueDRAIntegrationPartitionableDevices) {
+				allErrs = append(allErrs, field.Invalid(sourcePath.Child("counter"), true,
+					"counter sources require KueueDRAIntegrationPartitionableDevices to be enabled"))
+				continue
+			}
+			counterPath := sourcePath.Child("counter")
+			if source.Counter.Name == "" {
+				allErrs = append(allErrs, field.Required(counterPath.Child("name"), ""))
+			} else if errs := apimachineryutilvalidation.IsDNS1123Label(source.Counter.Name); len(errs) != 0 {
+				allErrs = append(allErrs, field.Invalid(counterPath.Child("name"), source.Counter.Name, strings.Join(errs, ",")))
+			}
+			allErrs = append(allErrs, validateDeviceClassSource(source.Counter.Driver, &source.Counter.DeviceSelector, counterPath, celCache)...)
+			if key := source.Counter.Driver + "/" + source.Counter.Name; seenSources.Has(key) {
+				allErrs = append(allErrs, field.Duplicate(counterPath, key))
+			} else {
+				seenSources.Insert(key)
+			}
+			info.sourceNames.Insert(source.Counter.Name)
+		}
+		if source.Capacity != nil {
+			hasCapacity = true
+			if !features.Enabled(features.KueueDRAIntegrationConsumableCapacity) {
+				allErrs = append(allErrs, field.Invalid(sourcePath.Child("capacity"), true,
+					"capacity sources require KueueDRAIntegrationConsumableCapacity to be enabled"))
+				continue
+			}
+			capacityPath := sourcePath.Child("capacity")
+			allErrs = append(allErrs, validateQualifiedName(source.Capacity.Name, capacityPath.Child("name"))...)
+			allErrs = append(allErrs, validateDeviceClassSource(source.Capacity.Driver, &source.Capacity.DeviceSelector, capacityPath, celCache)...)
+			if key := source.Capacity.Driver + "/" + string(source.Capacity.Name); seenSources.Has(key) {
+				allErrs = append(allErrs, field.Duplicate(capacityPath, key))
+			} else {
+				seenSources.Insert(key)
+			}
+			info.sourceNames.Insert(string(source.Capacity.Name))
+		}
+	}
+	switch {
+	case counterCount > 0 && hasCapacity:
+		allErrs = append(allErrs, field.Invalid(sourcesPath, len(mapping.Sources),
+			"cannot mix counter and capacity sources in the same mapping"))
+	case counterCount > 0:
+		info.kind = counterMapping
+	case hasCapacity:
+		info.kind = capacityMapping
+	}
+	return info, allErrs
+}
+
+// mergeDeviceClassMapping adds current to the mappings already recorded for a DeviceClass.
+// Only mappings of the same source kind with disjoint source names can share a DeviceClass.
+func mergeDeviceClassMapping(existing *deviceClassMappingInfo, current deviceClassMappingInfo, deviceClass corev1.ResourceName, path *field.Path) *field.Error {
+	if current.kind == deviceCountMapping || current.kind != existing.kind {
+		return field.Invalid(path, deviceClass, fmt.Sprintf("device class already mapped to resource %s", existing.resourceName))
+	}
+	if shared := existing.sourceNames.Intersection(current.sourceNames); shared.Len() > 0 {
+		return field.Invalid(path, deviceClass,
+			fmt.Sprintf("device class already has a %s source for %s %q", current.kind, current.kind, sets.List(shared)[0]))
+	}
+	existing.sourceNames.Insert(current.sourceNames.UnsortedList()...)
+	return nil
 }
 
 func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.ErrorList {
@@ -939,16 +986,6 @@ func validateLabelKey(fldPath *field.Path, value string) field.ErrorList {
 		return field.ErrorList{field.Invalid(fldPath, value, strings.Join(errs, "; "))}
 	}
 	return nil
-}
-
-func counterNamesForMapping(mapping configapi.DeviceClassMapping) sets.Set[string] {
-	names := sets.New[string]()
-	for _, source := range mapping.Sources {
-		if source.Counter != nil {
-			names.Insert(source.Counter.Name)
-		}
-	}
-	return names
 }
 
 func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelector, path *field.Path, celCache *dracel.Cache) field.ErrorList {
