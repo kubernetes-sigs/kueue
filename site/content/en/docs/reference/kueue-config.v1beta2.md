@@ -166,7 +166,8 @@ of Kueue-managed objects. A nil value disables all automatic deletions.</p>
 <a href="#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy"><code>QuotaReleaseStrategy</code></a>
 </td>
 <td>
-   <p>QuotaReleaseStrategy provides configuration options for controlling quota release timing.</p>
+   <p>QuotaReleaseStrategy provides configuration options for controlling quota release timing.
+Defaults to &quot;OnQuotaReleased&quot;.</p>
 </td>
 </tr>
 </tbody>
@@ -1274,9 +1275,10 @@ during admission.</p>
 <p>QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.</p>
 <p>Valid values are:</p>
 <ul>
-<li>&quot;OnTerminating&quot;: releases quota as soon as deletion is initiated or the workload is marked finished.</li>
-<li>&quot;OnTerminal&quot;: holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed).</li>
+<li>&quot;OnQuotaReleased&quot; (default): releases quota as soon as deletion is initiated or the workload is marked finished.</li>
+<li>&quot;OnTerminal&quot;: holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed). Currently only supported for the &quot;pod&quot; integration.</li>
 </ul>
+<p>Defaults to &quot;OnQuotaReleased&quot;.</p>
 
 
 

@@ -481,3 +481,28 @@ kind: Configuration
 resources:
   quotaCheckStrategy: "IgnoreUndeclared"
 ```
+
+## Configure quota release strategy
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+When Kueue manages workloads, it acquires quota from ClusterQueues upon workload admission. When workloads are preempted or deleted, Kueue releases this quota so other workloads can be admitted.
+
+Kueue provides a global `quotaReleaseStrategy` configuration in the `Configuration` to control the timing of quota release during workload termination.
+
+Kueue supports two quota release strategies:
+
+1. **`OnQuotaReleased`** (Default):
+   Quota is released as soon as deletion is initiated or the workload status is updated (for example, when all underlying pods receive a `deletionTimestamp`). This preserves fast readmission for batch jobs and preempted workloads.
+
+2. **`OnTerminal`**:
+   Quota is held until all underlying pods reach a terminal phase (`Succeeded` or `Failed`) and release hardware resources. This strategy is critical for Topology-Aware Scheduling (TAS) and hardware-constrained workloads (such as GPUs or specialized accelerators) where physical node capacity must be fully freed before new workloads can be scheduled on the same hardware. In Alpha (v0.20), `OnTerminal` is supported only for the `pod` integration.
+
+Follow the [installation instructions for using a custom configuration](/docs/installation#install-a-custom-configured-released-version) and configure `quotaReleaseStrategy` in the Kueue `Configuration`:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+quotaReleaseStrategy: OnTerminal
+```
+

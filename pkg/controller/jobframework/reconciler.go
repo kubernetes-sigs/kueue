@@ -124,6 +124,11 @@ func (r *JobReconciler) CustomLabels() *metrics.CustomLabels {
 	return r.customLabels
 }
 
+// QuotaReleaseStrategy returns the quota release strategy configured for the reconciler.
+func (r *JobReconciler) QuotaReleaseStrategy() configapi.QuotaReleaseStrategy {
+	return r.quotaReleaseStrategy
+}
+
 func (r *JobReconciler) podsScheduledTrackingEnabled() bool {
 	return waitforpodsready.PodsScheduledTrackingEnabled(r.waitForPodsReadyConfig)
 }
@@ -338,7 +343,6 @@ func NewReconciler(
 }
 
 func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Request, job GenericJob) (result ctrl.Result, err error) {
-	ctx = ContextWithQuotaReleaseStrategy(ctx, r.quotaReleaseStrategy)
 	object := job.Object()
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -646,8 +650,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
-		ctx = ContextWithQuotaReleaseStrategy(ctx, r.quotaReleaseStrategy)
-		if !job.IsActive(ctx) {
+		if !job.IsActive() {
 			log.V(6).Info("The job is no longer active, clear the workloads admission")
 			if err := r.clearAdmissionAfterEviction(ctx, wl); err != nil {
 				return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
@@ -2150,8 +2153,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	// Wait until there are no active pods, unless this is a workload-slice job.
 	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
 	// the scale-up case, where the new workload slice replaces the old workload slice.
-	ctx = ContextWithQuotaReleaseStrategy(ctx, r.quotaReleaseStrategy)
-	if job.IsActive(ctx) && !WorkloadSliceEnabled(job) {
+	if job.IsActive() && !WorkloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
 	}

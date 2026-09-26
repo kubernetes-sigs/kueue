@@ -53,7 +53,7 @@ const (
 	DefaultResourceTransformationStrategy         = Retain
 	DefaultVisibilityBindPort                     = 8082
 	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
-	DefaultQuotaReleaseStrategy                   = QuotaReleaseOnTerminating
+	DefaultQuotaReleaseStrategy                   = QuotaReleaseOnQuotaReleased
 	DefaultMaxTimeoutOnWorkload                   = 2 * time.Hour
 )
 

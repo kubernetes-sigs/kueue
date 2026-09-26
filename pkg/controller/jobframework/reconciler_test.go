@@ -961,7 +961,7 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
-			mgj.EXPECT().IsActive(gomock.Any()).Return(tc.job.Status.Active != 0).AnyTimes()
+			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
 			if tc.wantPodSets != nil {
 				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).Times(1)
 			} else {
@@ -2563,7 +2563,7 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 			mgj.EXPECT().Object().Return(job).AnyTimes()
 			mgj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(true).AnyTimes()
-			mgj.EXPECT().IsActive(gomock.Any()).Return(false).AnyTimes()
+			mgj.EXPECT().IsActive().Return(false).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(podSets, nil).AnyTimes()
 

@@ -133,7 +133,7 @@ func (j *RayService) IsSuspended() bool {
 	return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
 }
 
-func (j *RayService) IsActive(_ context.Context) bool {
+func (j *RayService) IsActive() bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 

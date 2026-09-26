@@ -77,13 +77,53 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"valid quota release strategy": {
+		"valid quota release strategy on quota released": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnQuotaReleased),
+			},
+		},
+		"valid quota release strategy on terminal with pod integration": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+				},
+				ManagedJobsNamespaceSelector: systemNamespacesSelector,
+				QuotaReleaseStrategy:         ptr.To(configapi.QuotaReleaseOnTerminal),
+			},
+		},
+		"invalid quota release strategy on terminal with batch/job integration": {
 			cfg: &configapi.Configuration{
 				Integrations:         defaultIntegrations,
 				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnTerminal),
 			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "quotaReleaseStrategy",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "quotaReleaseStrategy",
+				},
+			},
 		},
-		"invalid quota release strategy": {
+		"invalid quota release strategy on terminal with mixed integrations": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod", "batch/job"},
+				},
+				ManagedJobsNamespaceSelector: systemNamespacesSelector,
+				QuotaReleaseStrategy:         ptr.To(configapi.QuotaReleaseOnTerminal),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "quotaReleaseStrategy",
+				},
+			},
+		},
+		"invalid quota release strategy unsupported": {
 			cfg: &configapi.Configuration{
 				Integrations:         defaultIntegrations,
 				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("InvalidStrategy")),

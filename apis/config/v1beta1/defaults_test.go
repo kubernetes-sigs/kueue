@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -317,8 +316,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: new(false),
 				},
 				ClientConnection: &ClientConnection{
-					QPS:   ptr.To[float32](123.0),
-					Burst: ptr.To[int32](456),
+					QPS:   new(float32(123.0)),
+					Burst: new(int32(456)),
 				},
 			},
 			want: &Configuration{
@@ -328,8 +327,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: new(false),
 				},
 				ClientConnection: &ClientConnection{
-					QPS:   ptr.To[float32](123.0),
-					Burst: ptr.To[int32](456),
+					QPS:   new(float32(123.0)),
+					Burst: new(int32(456)),
 				},
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -375,8 +374,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RecoveryTimeout: &podsReadyTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(EvictionTimestamp),
-						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
-						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
+						BackoffBaseSeconds: new(int32(DefaultRequeuingBackoffBaseSeconds)),
+						BackoffMaxSeconds:  new(int32(DefaultRequeuingBackoffMaxSeconds)),
 					},
 				},
 				Namespace:         new(DefaultNamespace),
@@ -421,8 +420,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Timeout: &podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
-						BackoffBaseSeconds: ptr.To[int32](63),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						BackoffBaseSeconds: new(int32(63)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 				},
@@ -438,8 +437,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
-						BackoffBaseSeconds: ptr.To[int32](63),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						BackoffBaseSeconds: new(int32(63)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
 				Namespace:         new(DefaultNamespace),
@@ -631,7 +630,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Transformations: []ResourceTransformation{
 						{Input: corev1.ResourceCPU},
 						{Input: corev1.ResourceMemory, Strategy: new(Replace)},
-						{Input: corev1.ResourceEphemeralStorage, Strategy: ptr.To[ResourceTransformationStrategy]("")},
+						{Input: corev1.ResourceEphemeralStorage, Strategy: new(ResourceTransformationStrategy(""))},
 					},
 				},
 			},

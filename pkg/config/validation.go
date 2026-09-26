@@ -143,17 +143,46 @@ func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
 
 func validateQuotaReleaseStrategy(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
-	if c.QuotaReleaseStrategy != nil {
-		strategy := *c.QuotaReleaseStrategy
-		if strategy != configapi.QuotaReleaseOnTerminating && strategy != configapi.QuotaReleaseOnTerminal {
-			allErrs = append(allErrs, field.NotSupported(
-				quotaReleaseStrategyPath,
-				strategy,
-				[]configapi.QuotaReleaseStrategy{
-					configapi.QuotaReleaseOnTerminating,
-					configapi.QuotaReleaseOnTerminal,
-				},
-			))
+	if c.QuotaReleaseStrategy == nil {
+		return allErrs
+	}
+	strategy := *c.QuotaReleaseStrategy
+	if strategy != configapi.QuotaReleaseOnQuotaReleased && strategy != configapi.QuotaReleaseOnTerminal {
+		allErrs = append(allErrs, field.NotSupported(
+			quotaReleaseStrategyPath,
+			strategy,
+			[]configapi.QuotaReleaseStrategy{
+				configapi.QuotaReleaseOnQuotaReleased,
+				configapi.QuotaReleaseOnTerminal,
+			},
+		))
+		return allErrs
+	}
+	if strategy == configapi.QuotaReleaseOnTerminal {
+		if c.Integrations != nil {
+			var nonPodFrameworks []string
+			hasPod := false
+			for _, fw := range c.Integrations.Frameworks {
+				if fw == podworkload.FrameworkName {
+					hasPod = true
+				} else {
+					nonPodFrameworks = append(nonPodFrameworks, fw)
+				}
+			}
+			if len(nonPodFrameworks) > 0 {
+				allErrs = append(allErrs, field.Forbidden(
+					quotaReleaseStrategyPath,
+					fmt.Sprintf("%s is only supported for the %q integration, but [%s] is enabled",
+						configapi.QuotaReleaseOnTerminal, podworkload.FrameworkName, strings.Join(nonPodFrameworks, ", ")),
+				))
+			}
+			if !hasPod {
+				allErrs = append(allErrs, field.Forbidden(
+					quotaReleaseStrategyPath,
+					fmt.Sprintf("%s requires the %q integration to be enabled",
+						configapi.QuotaReleaseOnTerminal, podworkload.FrameworkName),
+				))
+			}
 		}
 	}
 	return allErrs

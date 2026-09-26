@@ -93,17 +93,17 @@ func (mr *MockGenericJobMockRecorder) GVK() *gomock.Call {
 }
 
 // IsActive mocks base method.
-func (m *MockGenericJob) IsActive(ctx context.Context) bool {
+func (m *MockGenericJob) IsActive() bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsActive", ctx)
+	ret := m.ctrl.Call(m, "IsActive")
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
 // IsActive indicates an expected call of IsActive.
-func (mr *MockGenericJobMockRecorder) IsActive(ctx any) *gomock.Call {
+func (mr *MockGenericJobMockRecorder) IsActive() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsActive", reflect.TypeOf((*MockGenericJob)(nil).IsActive), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsActive", reflect.TypeOf((*MockGenericJob)(nil).IsActive))
 }
 
 // IsSuspended mocks base method.

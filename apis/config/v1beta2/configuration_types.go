@@ -114,6 +114,7 @@ type Configuration struct {
 	VisibilityServer *VisibilityServerConfiguration `json:"visibilityServer,omitempty"`
 
 	// QuotaReleaseStrategy provides configuration options for controlling quota release timing.
+	// Defaults to "OnQuotaReleased".
 	// +optional
 	QuotaReleaseStrategy *QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
 }
@@ -306,20 +307,23 @@ type ControllerConfigurationSpec struct {
 // QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.
 //
 // Valid values are:
-// - "OnTerminating": releases quota as soon as deletion is initiated or the workload is marked finished.
-// - "OnTerminal": holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed).
+// - "OnQuotaReleased" (default): releases quota as soon as deletion is initiated or the workload is marked finished.
+// - "OnTerminal": holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed). Currently only supported for the "pod" integration.
 //
-// +kubebuilder:validation:Enum=OnTerminating;OnTerminal
+// Defaults to "OnQuotaReleased".
+//
+// +kubebuilder:validation:Enum=OnQuotaReleased;OnTerminal
 // +enum
 type QuotaReleaseStrategy string
 
 const (
-	// QuotaReleaseOnTerminating releases quota as soon as deletion is initiated
-	// or the workload is marked finished.
-	QuotaReleaseOnTerminating QuotaReleaseStrategy = "OnTerminating"
+	// QuotaReleaseOnQuotaReleased releases quota as soon as deletion is initiated
+	// or the workload status is updated.
+	QuotaReleaseOnQuotaReleased QuotaReleaseStrategy = "OnQuotaReleased"
 
 	// QuotaReleaseOnTerminal holds quota until all underlying pods
 	// have reached a terminal phase (Succeeded or Failed).
+	// Currently only supported for the "pod" integration.
 	QuotaReleaseOnTerminal QuotaReleaseStrategy = "OnTerminal"
 )
 

@@ -124,6 +124,7 @@ type Reconciler struct {
 	*jobframework.JobReconciler
 	integrationManager         *jobframework.IntegrationManager
 	manageJobsWithoutQueueName bool
+	quotaReleaseStrategy       configapi.QuotaReleaseStrategy
 	expectationsStore          *expectations.Store
 	clock                      clock.Clock
 }
@@ -138,6 +139,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 		WithManageJobsWithoutQueueName(r.manageJobsWithoutQueueName),
 		WithRoleTracker(r.RoleTracker()),
 		WithCustomLabels(r.CustomLabels()),
+		WithQuotaReleaseStrategy(r.quotaReleaseStrategy),
 	))
 }
 
@@ -165,6 +167,7 @@ func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, re
 		JobReconciler:              jobframework.NewReconciler(c, record, opts...),
 		integrationManager:         options.IntegrationManager,
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		quotaReleaseStrategy:       options.QuotaReleaseStrategy,
 		expectationsStore:          expectations.NewStore("finalizedPods"),
 		clock:                      options.Clock,
 	}, nil
@@ -185,6 +188,7 @@ type Pod struct {
 	clock                      clock.Clock
 	roleTracker                *roletracker.RoleTracker
 	customLabels               *metrics.CustomLabels
+	quotaReleaseStrategy       configapi.QuotaReleaseStrategy
 }
 
 var (
@@ -243,6 +247,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
 func WithCustomLabels(cl *metrics.CustomLabels) PodOption {
 	return func(pod *Pod) {
 		pod.customLabels = cl
+	}
+}
+
+// WithQuotaReleaseStrategy sets the quota release strategy configured for the Pod.
+func WithQuotaReleaseStrategy(strategy configapi.QuotaReleaseStrategy) PodOption {
+	return func(pod *Pod) {
+		pod.quotaReleaseStrategy = strategy
 	}
 }
 
@@ -474,11 +485,11 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 // blocked by Pods that are stuck terminating, ensuring quota can be released
 // and new Pods admitted.
 //
-// When the FastQuotaReleaseInPodIntegration feature gate is enabled, any pod
-// with a DeletionTimestamp is treated as inactive immediately, regardless of
-// its grace period status. This allows quota to be released as soon as
-// preempted pods begin terminating.
-func (p *Pod) IsActive(ctx context.Context) bool {
+// When the QuotaReleaseStrategy feature gate is enabled, the quota release behavior
+// is controlled by p.quotaReleaseStrategy (falling back to FastQuotaReleaseInPodIntegration
+// if unset). Otherwise, when the legacy FastQuotaReleaseInPodIntegration feature gate is
+// enabled, any pod with a DeletionTimestamp is treated as inactive immediately.
+func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
 		pod := p.list.Items[i]
 
@@ -487,9 +498,13 @@ func (p *Pod) IsActive(ctx context.Context) bool {
 			continue
 		}
 
-		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
-			strategy := jobframework.GetQuotaReleaseStrategy(ctx)
-			if strategy == configapi.QuotaReleaseOnTerminating {
+		if pod.DeletionTimestamp != nil {
+			if features.Enabled(features.QuotaReleaseStrategy) {
+				if p.quotaReleaseStrategy == configapi.QuotaReleaseOnQuotaReleased ||
+					(p.quotaReleaseStrategy == "" && features.Enabled(features.FastQuotaReleaseInPodIntegration)) { //nolint:staticcheck // SA1019: intentional deprecated fallback
+					continue
+				}
+			} else if features.Enabled(features.FastQuotaReleaseInPodIntegration) { //nolint:staticcheck // SA1019: intentional deprecated fallback
 				continue
 			}
 		}
