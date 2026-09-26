@@ -183,6 +183,14 @@ const (
 	// In TAS, treat node as failed if the node is not ready and the pods assigned to this node terminate.
 	TASReplaceNodeOnPodTermination featuregate.Feature = "TASReplaceNodeOnPodTermination"
 
+	// owner: @tg123
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// TASReplaceMultipleFailedNodes allows up to eight unhealthy nodes per Workload
+	// to be replaced incrementally without eviction due to multiple node failures.
+	// TASFailedNodeReplacementFailFast remains independent; a ninth distinct node failure triggers eviction.
+	TASReplaceMultipleFailedNodes featuregate.Feature = "TASReplaceMultipleFailedNodes"
+
 	// owner: @yakticus
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -797,6 +805,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeDueToNotReadyOverFixedTime:            {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceMultipleFailedNodes:                       {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASBalancedPlacement:                                {TopologyAwareScheduling},
 	TASReplaceNodeOnNodeTaints:                          {TopologyAwareScheduling},
 	TASMultiLayerTopology:                               {TopologyAwareScheduling},
@@ -914,6 +923,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASReplaceNodeOnPodTermination: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASReplaceMultipleFailedNodes: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SkipReassignmentForPodOwnedWorkloads: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},

@@ -50,6 +50,7 @@
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
       - [Sunsetting fixed-time marking (since v0.19)](#sunsetting-fixed-time-marking-since-v019)
+      - [Replacing multiple failed nodes](#replacing-multiple-failed-nodes)
       - [Workloads owned by a single Pod](#workloads-owned-by-a-single-pod)
     - [Tainted nodes treatment](#tainted-nodes-treatment)
       - [User stories](#user-stories-1)
@@ -1561,6 +1562,32 @@ Kueue tries to find a replacement for a failed node until success (or until it g
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
 
+##### Replacing multiple failed nodes
+
+Without this feature, a second failed node triggers Workload eviction. Since Kueue v0.20,
+the Alpha `TASReplaceMultipleFailedNodes` feature gate (disabled by default) allows
+up to eight unhealthy nodes per Workload to wait for incremental replacement.
+This fixed limit applies to all TAS Workloads when the gate is enabled and matches
+the API limit on `.status.unhealthyNodes`. This limit requires no annotation or configuration.
+
+`TASFailedNodeReplacementFailFast` remains independent and enabled by default: the
+first unsuccessful replacement attempt triggers eviction, even with multiple unhealthy nodes.
+Set it to `false` to keep retrying while replacement capacity is unavailable.
+A ninth distinct node failure while eight are still unhealthy also triggers eviction.
+Other eviction mechanisms still apply. With `TASReplaceMultipleFailedNodes` disabled, single-node replacement
+and eviction behavior are unchanged. ConfigAPI configuration of the global limit and
+possible per-Workload overrides are deferred to a future release.
+
+In Alpha, Kueue attempts one failed-node replacement per Workload per scheduling cycle,
+in FIFO order. Successful replacement removes only that node from `.status.unhealthyNodes`.
+An unreplaceable head blocks later entries, including those in other PodSets with available
+replacement capacity; they wait until the head can be replaced or the Workload is evicted.
+
+Placement is greedy and may miss feasible solutions for `required` topology requests.
+For example, healthy Pods can pin replacements to a rack without spare capacity even when
+moving the entire PodSet to another rack would fit. Joint replacement planning and skipping
+an unreplaceable head may be revisited for Beta or GA based on user feedback.
+
 ##### Workloads owned by a single Pod
 
 Node replacement assumes the Workload's controller re-creates pods within the same
@@ -2175,6 +2202,12 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
 - handle a more comprehensive set of failure scenarios (e.g., including node becoming unschedulable due to a taint)
 - re-evaluate replacing `NodeToReplace` annotation with a status field, to optimize number of requests in scheduler loop. [Discussion](https://github.com/kubernetes-sigs/kueue/issues/5560)
+- re-evaluate the `TASReplaceMultipleFailedNodes` sub-feature (multiple-node hot swap): decide
+  whether the general (multi-node) algorithm subsumes single-node replacement, whether a bounded
+  fallback to eviction is required to preserve guaranteed progress, and whether the
+  eviction-vs-incremental tradeoff is exposed as a per-ClusterQueue/per-Workload policy (see the
+  open questions in [Node failures](#node-failures) and
+  [#6514](https://github.com/kubernetes-sigs/kueue/issues/6514)).
 
 #### Stable
 

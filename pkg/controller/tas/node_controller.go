@@ -70,6 +70,9 @@ const (
 	nodeMultipleFailuresEvictionMessageFormat = "Workload eviction triggered due to multiple TAS assigned node failures, including: %s"
 	reconcileBatchPeriod                      = 100 * time.Millisecond
 
+	// Matches the API limit on Workload.Status.UnhealthyNodes.
+	maxUnhealthyNodes = 8
+
 	podTerminatedByKueueConditionType    = "TerminatedByKueue"
 	podTerminatedByKueueConditionReason  = "UnschedulableOnAssignedNode"
 	podTerminatedByKueueConditionMessage = "Pod terminated by Kueue NodeController due to node taint"
@@ -502,8 +505,15 @@ func (r *nodeReconciler) checkPodsOnNode(
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
 // It returns whether the node was evicted, and whether an error was encountered.
+//
+// TASReplaceMultipleFailedNodes allows up to eight unhealthy nodes to wait for replacement.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
+		if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) < maxUnhealthyNodes {
+			log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
+				"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", maxUnhealthyNodes)
+			return false, nil
+		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)
 		log.V(3).Info("Evicting workload due to multiple node failures")

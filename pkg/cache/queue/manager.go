@@ -1083,7 +1083,7 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 }
 
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
-// pass queue.
+// pass queue. The caller must hold the manager lock.
 func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 	m.secondPassQueue.deleteByKey(wlKey)
 }
