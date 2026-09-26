@@ -189,7 +189,9 @@ Note that:
   [`objectRetentionPolicies.workloads`](/docs/tasks/manage/setup_object_retention_policy/), which
   therefore caps how long the remote objects can be kept.
 - Worker-side retention policies or manual deletion can remove the remote objects sooner.
-  This setting does not prevent deletion initiated in the worker cluster.
+  This setting does not prevent deletion initiated in the worker cluster. If the remote
+  Workload is deleted in the worker cluster, for example by the worker's own
+  `objectRetentionPolicies.workloads`, the manager also deletes the mirrored job object.
 - When a new run encounters a same-key mirrored object dedicated to a different
   prebuilt Workload, the manager deletes that object and retries the MultiKueue
   reconciliation so that it can be created for the new run. Shared objects, such
