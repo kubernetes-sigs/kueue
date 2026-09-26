@@ -142,6 +142,7 @@ type dra struct {
 
 type InfoOptions struct {
 	adjustmentInputs         AdjustmentInputs
+	serverVersionFetcher     ServerVersionFetcher
 	effectivePodSpecs        *[]corev1.PodSpec
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation

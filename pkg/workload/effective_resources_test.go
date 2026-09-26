@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -101,6 +102,34 @@ func TestEffectivePodSpecs(t *testing.T) {
 					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
 			},
 		},
+		"pod-level request aggregates the container requests": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					Limit(corev1.ResourceCPU, "4").
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "1").Template.Spec,
+			},
+		},
+		"pod-level request aggregates the container limits": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "1").
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Limit(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceCPU, "1").
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "1").Template.Spec,
+			},
+		},
 		"pod-level limits": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -108,7 +137,8 @@ func TestEffectivePodSpecs(t *testing.T) {
 				Obj(),
 			wantPodSpecs: []corev1.PodSpec{
 				utiltestingapi.MakePodSet("main", 1).
-					PodLevelLimit(corev1.ResourceMemory, "2Gi").PodLevelRequest(corev1.ResourceMemory, "2Gi").
+					PodLevelLimit(corev1.ResourceMemory, "2Gi").
+					PodLevelRequest(corev1.ResourceMemory, "2Gi").PodLevelRequest(corev1.ResourceCPU, "2").
 					Limit(corev1.ResourceCPU, "4").Request(corev1.ResourceCPU, "2").Template.Spec,
 			},
 		},
@@ -282,5 +312,269 @@ func TestInfoCarriesEffectiveSnapshotAcrossDefaultChanges(t *testing.T) {
 	}
 	if got := refreshed.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 2000 {
 		t.Errorf("fresh CPU = %d, want 2000", got)
+	}
+}
+
+type fakeServerVersionFetcher struct {
+	version versionutil.Version
+}
+
+func (f fakeServerVersionFetcher) GetServerVersion() versionutil.Version {
+	return f.version
+}
+
+func TestUsesLegacyPodLevelDefaulting(t *testing.T) {
+	cases := map[string]struct {
+		version string
+		want    bool
+	}{
+		"1.34":             {version: "1.34.11", want: true},
+		"1.35":             {version: "1.35.8", want: true},
+		"1.36":             {version: "1.36.4", want: true},
+		"1.37":             {version: "1.37.0", want: false},
+		"1.38":             {version: "1.38.1", want: false},
+		"1.36 pre-release": {version: "1.36.0-rc.1", want: true},
+		"1.37 pre-release": {version: "1.37.0-rc.0", want: false},
+		"not fetched yet":  {want: false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			version := versionutil.Version{}
+			if tc.version != "" {
+				version = *versionutil.MustParseSemantic(tc.version)
+			}
+			if got := UsesLegacyPodLevelDefaulting(version); got != tc.want {
+				t.Errorf("UsesLegacyPodLevelDefaulting(%q) = %t, want %t", tc.version, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestEffectivePodSpecsPodLevelDefaultingModes verifies the effective pod spec
+// follows the pod-level defaulting of the API server version: 1.37 and newer
+// default the pod-level resources from the container aggregates after the
+// LimitRanger container defaults; older servers default them before the
+// container defaults, and the requests only when the pod has pod-level limits
+// (the hugepage limits defaulted from the containers count as such).
+func TestEffectivePodSpecsPodLevelDefaultingModes(t *testing.T) {
+	partiallySpecifiedContainers := func(secondRequest string) []corev1.Container {
+		second := corev1.Container{Name: "second"}
+		if secondRequest != "" {
+			second.Resources.Requests = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(secondRequest)}
+		}
+		return []corev1.Container{
+			{
+				Name:      "first",
+				Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}},
+			},
+			second,
+		}
+	}
+
+	hugePages2Mi := corev1.ResourceName(corev1.ResourceHugePagesPrefix + "2Mi")
+	hugePageContainers := func() []corev1.Container {
+		return []corev1.Container{{
+			Name: "first",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				Limits:   corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+			},
+		}}
+	}
+	hugePageContainersEffective := func() []corev1.Container {
+		return []corev1.Container{{
+			Name: "first",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+					hugePages2Mi:       resource.MustParse("2Mi"),
+				},
+				Limits: corev1.ResourceList{hugePages2Mi: resource.MustParse("2Mi")},
+			},
+		}}
+	}
+
+	cases := map[string]struct {
+		legacy            bool
+		limitRangeDefault string
+		wl                *kueue.Workload
+		wantPodSpecs      []corev1.PodSpec
+	}{
+		"no container requests, 1.37+ defaults from the LimitRange default": {
+			limitRangeDefault: "3",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "3").
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"no container requests, legacy server keeps the pod-level limit as request": {
+			legacy:            true,
+			limitRangeDefault: "3",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "3").
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "4").Template.Spec,
+			},
+		},
+		"partially specified containers, 1.37+ aggregates the container defaults": {
+			limitRangeDefault: "1",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Containers(partiallySpecifiedContainers("")...).
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Containers(partiallySpecifiedContainers("1")...).
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "2").Template.Spec,
+			},
+		},
+		"partially specified containers, legacy server aggregates before the defaults": {
+			legacy:            true,
+			limitRangeDefault: "1",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Containers(partiallySpecifiedContainers("")...).
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Containers(partiallySpecifiedContainers("1")...).
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelRequest(corev1.ResourceCPU, "1").Template.Spec,
+			},
+		},
+		"pod-level requests without limits, 1.37+ fills missing requests": {
+			limitRangeDefault: "1",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodLevelRequest(corev1.ResourceMemory, "1Gi").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					PodLevelRequest(corev1.ResourceMemory, "1Gi").
+					PodLevelRequest(corev1.ResourceCPU, "1").Template.Spec,
+			},
+		},
+		"pod-level requests without limits, legacy server leaves them alone": {
+			legacy:            true,
+			limitRangeDefault: "1",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodLevelRequest(corev1.ResourceMemory, "1Gi").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					PodLevelRequest(corev1.ResourceMemory, "1Gi").Template.Spec,
+			},
+		},
+		"container hugepage limits, 1.37+ defaults the pod-level hugepage limit and request": {
+			limitRangeDefault: "1",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Containers(hugePageContainers()...).
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Containers(hugePageContainersEffective()...).
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelLimit(hugePages2Mi, "2Mi").
+					PodLevelRequest(corev1.ResourceCPU, "1").
+					PodLevelRequest(hugePages2Mi, "2Mi").Template.Spec,
+			},
+		},
+		"container hugepage limits, legacy server also defaults the pod-level hugepage limit and request": {
+			legacy:            true,
+			limitRangeDefault: "1",
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Containers(hugePageContainers()...).
+					PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					Containers(hugePageContainersEffective()...).
+					PodLevelLimit(corev1.ResourceCPU, "4").
+					PodLevelLimit(hugePages2Mi, "2Mi").
+					PodLevelRequest(corev1.ResourceCPU, "1").
+					PodLevelRequest(hugePages2Mi, "2Mi").Template.Spec,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			limitRange := utiltesting.MakeLimitRange("limits", "ns").
+				WithValue("DefaultRequest", corev1.ResourceCPU, tc.limitRangeDefault).
+				Obj()
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(limitRange).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			in, errs := ResolveAdjustmentInputs(ctx, cl, tc.wl)
+			if len(errs) > 0 {
+				t.Fatalf("ResolveAdjustmentInputs returned errors: %v", errs)
+			}
+			in.LegacyPodLevelDefaulting = tc.legacy
+
+			if diff := cmp.Diff(tc.wantPodSpecs, EffectivePodSpecs(tc.wl, in)); diff != "" {
+				t.Errorf("Unexpected effective PodSpecs (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestUpdateFromClientServerVersionDefaulting verifies the Info resolves the
+// pod-level defaulting mode from the provided server version fetcher.
+func TestUpdateFromClientServerVersionDefaulting(t *testing.T) {
+	limitRange := utiltesting.MakeLimitRange("limits", "ns").
+		WithValue("DefaultRequest", corev1.ResourceCPU, "1").
+		Obj()
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(limitRange).
+		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+		Build()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			PodLevelLimit(corev1.ResourceCPU, "4").Obj()).
+		Obj()
+
+	cases := map[string]struct {
+		version versionutil.Version
+		wantCPU string
+	}{
+		"1.36 server":         {version: *versionutil.MustParseSemantic("1.36.4"), wantCPU: "4"},
+		"1.37 server":         {version: *versionutil.MustParseSemantic("1.37.0"), wantCPU: "1"},
+		"version not fetched": {wantCPU: "1"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			info := NewInfoFromClient(ctx, cl, wl, WithServerVersionFetcher(fakeServerVersionFetcher{version: tc.version}))
+			if len(info.EffectivePodSpecs) != 1 || info.EffectivePodSpecs[0].Resources == nil {
+				t.Fatal("expected the effective pod spec to carry pod-level resources")
+			}
+			got := info.EffectivePodSpecs[0].Resources.Requests[corev1.ResourceCPU]
+			if got.Cmp(resource.MustParse(tc.wantCPU)) != 0 {
+				t.Errorf("pod-level CPU request = %s, want %s", got.String(), tc.wantCPU)
+			}
+		})
 	}
 }
