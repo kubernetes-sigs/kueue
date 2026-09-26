@@ -4835,6 +4835,40 @@ func TestTotalExecutionTime(t *testing.T) {
 	}
 }
 
+func TestQuotaReservedWaitTime(t *testing.T) {
+	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
+	now := fakeClock.Now()
+
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want time.Duration
+	}{
+		"quota reserved 30 seconds ago": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now.Add(-30*time.Second)).
+				Obj(),
+			want: 30 * time.Second,
+		},
+		"missing QuotaReserved condition": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					LastTransitionTime: metav1.NewTime(now),
+				}).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := QuotaReservedWaitTime(tc.wl, fakeClock); got != tc.want {
+				t.Errorf("QuotaReservedWaitTime() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHasPodsScheduledCondition(t *testing.T) {
 	testCases := map[string]struct {
 		workload *kueue.Workload
