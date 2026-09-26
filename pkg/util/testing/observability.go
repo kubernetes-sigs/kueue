@@ -52,6 +52,7 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 				// Keep as is
 			case kueue.WorkloadQuotaReservedReasonMisconfigured,
 				kueue.WorkloadQuotaReservedReasonSuspended,
+				kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved,
 				kueue.WorkloadInadmissible:
 				cond.Reason = kueue.WorkloadInadmissible
 			default:

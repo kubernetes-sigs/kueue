@@ -28,6 +28,9 @@
     - [Resolution Algorithm](#resolution-algorithm)
     - [Resolution Examples](#resolution-examples)
   - [Admitted Condition Initialization and Lifecycle](#admitted-condition-initialization-and-lifecycle)
+  - [DRA Condition Reasons](#dra-condition-reasons)
+    - [DRA <code>QuotaReserved</code> reason](#dra-quotareserved-reason)
+    - [DRA <code>Requeued</code> reason](#dra-requeued-reason)
     - [Simplification: Removal of NoReservationUnsatisfiedChecks Reason](#simplification-removal-of-noreservationunsatisfiedchecks-reason)
   - [Prometheus Metrics Schema](#prometheus-metrics-schema)
   - [Troubleshooting &amp; End-User Inspection](#troubleshooting--end-user-inspection)
@@ -436,6 +439,26 @@ workload state and queue parameters:
   fails early).
 - `Admitted`: `False` (with the reason dynamically resolved to `NoReservation`
   on the first cycle).
+
+### DRA Condition Reasons
+
+#### DRA `QuotaReserved` reason
+
+DRA-specific preprocessing failures set the `QuotaReserved` condition to `False`
+with reason `DRAResourcesNotResolved`. This identifies that quota reservation failed
+because the workload's DRA resources could not be resolved. Queue configuration
+failures continue to use the generic `Misconfigured` or `Suspended` reasons.
+
+#### DRA `Requeued` reason
+
+DRA-specific preprocessing failures set the `Requeued` condition to `False` with
+reason `DRAResourcesNotResolved`. The DRA reconciliation path consumes this reason
+when deciding whether to transition the workload to `Requeued=True` with reason
+`DRAResourcesResolved` after the DRA resources become available or resolvable.
+
+For backwards compatibility, the controller also recognizes the legacy
+`Requeued=False` reason `Inadmissible` during recovery. Other requeue reasons,
+such as `PodsReadyTimeout`, are not treated as DRA failures.
 
 #### Simplification: Removal of NoReservationUnsatisfiedChecks Reason
 

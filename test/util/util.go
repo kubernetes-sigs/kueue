@@ -553,7 +553,8 @@ func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured) {
+			if cond != nil && cond.Status == metav1.ConditionFalse &&
+				(cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured || cond.Reason == kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved) {
 				inadmissible = append(inadmissible, wlKey)
 			}
 			wlObjects[i] = wl

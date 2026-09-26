@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -404,7 +404,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -436,7 +436,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved),
 				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -585,7 +585,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved,
 					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
 				},
 				metav1.Condition{
@@ -597,7 +597,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadDRAResourcesNotResolved,
 					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
 				},
 			)

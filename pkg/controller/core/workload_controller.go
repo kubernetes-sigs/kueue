@@ -128,6 +128,10 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
+func isDRAInadmissibleReason(reason string) bool {
+	return reason == kueue.WorkloadInadmissible || reason == kueue.WorkloadDRAResourcesNotResolved
+}
+
 // handleDRA preprocesses DRA-backed resources for a pending workload. It does not
 // queue the workload; Reconcile does that once with the returned queueOptions.
 // Returns done=true when reconciliation should stop (error or terminal DRA outcome).
@@ -140,9 +144,9 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if workload.HasResourceClaim(wl) {
 		log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
+			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved, kueue.WorkloadInadmissible)
 			updated := workload.UnsetQuotaReservationWithCondition(wl, reason, "KueueDRAIntegration feature does not support use of resource claims", r.clock.Now())
-			if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
+			if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesNotResolved, "DRA resource claims not supported", false) {
 				updated = true
 			}
 			return updated, nil
@@ -203,11 +207,15 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	// Non-DRA reasons (e.g. PodsReadyTimeout) are left untouched for the backoff path to handle.
 	var conditionsChanged bool
 	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
-	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && requeuedCond.Reason == kueue.WorkloadInadmissible {
-		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
-		}); err != nil {
-			return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
+	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
+		if isDRAInadmissibleReason(requeuedCond.Reason) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+			}); err != nil {
+				return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
+			}
+		} else {
+			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
 		}
 		conditionsChanged = true
 	}
@@ -229,9 +237,9 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 	err := fieldErrs.ToAggregate()
 	log.Error(err, logMsg)
 	updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
+		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved, kueue.WorkloadInadmissible)
 		updated := workload.UnsetQuotaReservationWithCondition(wl, reason, err.Error(), r.clock.Now())
-		if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
+		if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesNotResolved, err.Error(), false) {
 			updated = true
 		}
 		return updated, nil
@@ -511,11 +519,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		workload.HasDRA(&wl) {
 		log.V(3).Info("Rejecting workload that uses DRA resources because KueueDRAIntegration feature gate is disabled")
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
+			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonDRAResourcesNotResolved, kueue.WorkloadInadmissible)
 			updated := workload.UnsetQuotaReservationWithCondition(wl, reason,
 				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
 				r.clock.Now())
-			if workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible,
+			if workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesNotResolved,
 				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled", false) {
 				updated = true
 			}
