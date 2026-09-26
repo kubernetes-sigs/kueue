@@ -161,7 +161,7 @@ For a complete setup guide including local development with Kind, see the [Setup
 
 ## (Optional) Keep the remote objects after a workload finished
 
-{{< feature-state state="alpha" for_version="v0.20" >}}
+{{< feature-state state="alpha" for_version="v0.21" >}}
 
 By default, the manager deletes the remote Workload and mirrored job object, such as a Job or
 JobSet, from the worker cluster as soon as the local Workload finishes, which also removes the
