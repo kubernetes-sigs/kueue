@@ -479,31 +479,36 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 // preempted pods begin terminating.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
-		pod := p.list.Items[i]
-
-		// Pods that are not in the Running phase are never considered Active.
-		if pod.Status.Phase != corev1.PodRunning {
-			continue
+		if IsActivePod(&p.list.Items[i], p.clock.Now()) {
+			return true
 		}
-
-		if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
-			continue
-		}
-
-		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
-		// counting as Active, as doing so could block the workload to release acquired quota.
-		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
-			now := p.clock.Now()
-			gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-			if now.After(pod.DeletionTimestamp.Add(gracePeriod)) {
-				continue
-			}
-		}
-
-		// At this point, the pod is Running and not stuck terminating — count as active.
-		return true
 	}
 	return false
+}
+
+// IsActivePod reports whether a Pod still consumes a PodGroup's reservation.
+// StatefulSet scale-down uses the same activity semantics as the Pod integration.
+func IsActivePod(pod *corev1.Pod, now time.Time) bool {
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
+		return false
+	}
+	if deadline, ok := PodActivityDeadline(pod); ok && now.After(deadline) {
+		return false
+	}
+	return true
+}
+
+// PodActivityDeadline returns when the Pod integration considers a deleting Pod
+// inactive, if its deletion grace period is known.
+func PodActivityDeadline(pod *corev1.Pod) (time.Time, bool) {
+	if pod.DeletionTimestamp == nil || pod.DeletionGracePeriodSeconds == nil {
+		return time.Time{}, false
+	}
+	gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
+	return pod.DeletionTimestamp.Add(gracePeriod), true
 }
 
 func hasPodReadyTrue(conds []corev1.PodCondition) bool {

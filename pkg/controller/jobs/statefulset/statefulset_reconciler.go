@@ -101,6 +101,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+		if _, managed := managedByAnotherFramework(sts); managed {
+			return ctrl.Result{}, nil
+		}
+		if wl == nil {
+			shouldManage, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, sts, r.client,
+				r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			// Preserve ungating of existing Pods for unqueued StatefulSets when
+			// manageJobsWithoutQueueName is disabled. When that option is enabled,
+			// skip a namespace excluded by its selector to avoid defaulting Pods
+			// that this integration does not manage.
+			if !shouldManage && r.manageJobsWithoutQueueName {
+				return ctrl.Result{}, nil
+			}
+		}
 	}
 
 	// Reconciling pods and reconciling the Workload touch different objects, so
@@ -114,13 +131,22 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return r.ungatePods(ctx, req, sts, wlName)
 	})
 
+	var recheckAfter time.Duration
 	if sts != nil {
 		eg.Go(func() error {
-			return r.reconcileWorkload(ctx, sts, wl)
+			var err error
+			recheckAfter, err = r.reconcileWorkload(ctx, sts, wl)
+			return err
 		})
 	}
 
-	return ctrl.Result{}, eg.Wait()
+	if err := eg.Wait(); err != nil {
+		return ctrl.Result{}, err
+	}
+	if recheckAfter > 0 {
+		return ctrl.Result{RequeueAfter: recheckAfter}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *Reconciler) ungatePods(ctx context.Context, req reconcile.Request, sts *appsv1.StatefulSet, wlName string) error {
@@ -241,28 +267,29 @@ func findWorkload(ctx context.Context, c client.Client, sts *appsv1.StatefulSet)
 	return wlName, nil, nil
 }
 
-func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet, wl *kueue.Workload) error {
+func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet, wl *kueue.Workload) (time.Duration, error) {
 	replicas := ptr.Deref(sts.Spec.Replicas, 1)
 	queueName := jobframework.QueueNameForObject(sts)
 
 	if wl == nil {
 		_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
 		if replicas > 0 && (queueName != "" || r.manageJobsWithoutQueueName) && !isMultiKueueRemote {
-			return r.createPrebuiltWorkload(ctx, sts)
+			return 0, r.createPrebuiltWorkload(ctx, sts)
 		}
-		return nil
+		return 0, nil
 	}
 
 	hasOwnerReference, err := controllerutil.HasOwnerReference(wl.OwnerReferences, sts, r.client.Scheme())
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	var shouldUpdate bool
 	// Initialize retry-idempotent flags early so that a partial failure in a
 	// previous reconcile (e.g. owner-ref update succeeded but status patch
 	// failed) does not leave the workload stuck.
-	shouldReleaseReservation := replicas == 0 && workload.HasActiveQuotaReservation(wl) && !workloadfinish.IsFinished(wl) && workload.IsActive(wl)
+	isActiveUnfinished := !workloadfinish.IsFinished(wl) && workload.IsActive(wl)
+	shouldPutOnHold := replicas == 0 && isActiveUnfinished && !workload.IsOnHold(wl)
 	shouldClearOnHold := replicas > 0 && workload.IsOnHold(wl)
 
 	switch {
@@ -270,11 +297,9 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		// Keep the owner reference when scaling to zero so that the workload
 		// is not considered orphaned by the workload controller. The workload
 		// will be put on hold instead.
-	case !hasOwnerReference && replicas == 0:
-		// Owner reference was already removed in a previous reconcile (before
-		// OnHold was introduced), but quota reservation release may have
-		// failed. Retry the release if still active.
-	case !hasOwnerReference && replicas > 0:
+	case !hasOwnerReference && (replicas > 0 || isActiveUnfinished):
+		// Restore ownership for active legacy Workloads, including at zero replicas,
+		// so Workload status transitions requeue this StatefulSet.
 		shouldUpdate = true
 		err = controllerutil.SetOwnerReference(sts, wl, r.client.Scheme())
 		if wl.Annotations == nil {
@@ -284,7 +309,7 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		wl.Annotations[controllerconstants.JobOwnerNameAnnotation] = sts.Name
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if replicas > 0 && wl.Spec.QueueName != queueName {
@@ -313,14 +338,14 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(sts, wl)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
 	}
 
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if admissionGatedByUpdated {
@@ -330,15 +355,55 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	if waitForPodsReadyUpdated {
 		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
 	}
-	if shouldReleaseReservation {
-		return r.releaseScaleDownReservation(ctx, wl)
+	if shouldPutOnHold {
+		hasActivePods, recheckAfter, err := r.hasActiveOwnedPods(ctx, sts, time.Now())
+		if err != nil {
+			return 0, err
+		}
+		if hasActivePods {
+			ctrl.LoggerFrom(ctx).V(4).Info("Waiting for active StatefulSet Pods before putting Workload on hold",
+				"statefulSet", klog.KObj(sts), "workload", klog.KObj(wl))
+			return recheckAfter, nil
+		}
+		return 0, r.putWorkloadOnHold(ctx, wl)
 	}
 
 	if shouldClearOnHold {
-		return r.clearOnHold(ctx, wl)
+		return 0, r.clearOnHold(ctx, wl)
 	}
 
-	return nil
+	return 0, nil
+}
+
+func (r *Reconciler) hasActiveOwnedPods(ctx context.Context, sts *appsv1.StatefulSet, now time.Time) (bool, time.Duration, error) {
+	pods := &corev1.PodList{}
+	if err := r.client.List(ctx, pods, client.InNamespace(sts.Namespace), client.MatchingFields{
+		coreindexer.OwnerReferenceIndexKey(gvk): sts.Name,
+	}); err != nil {
+		return false, 0, err
+	}
+	var active, withoutDeadline bool
+	var latestDeadline time.Time
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		owner := metav1.GetControllerOf(pod)
+		if owner != nil && owner.UID == sts.UID && owner.Kind == gvk.Kind &&
+			owner.APIVersion == gvk.GroupVersion().String() && podcontroller.IsActivePod(pod, now) {
+			active = true
+			deadline, ok := podcontroller.PodActivityDeadline(pod)
+			if !ok {
+				withoutDeadline = true
+			} else if deadline.After(latestDeadline) {
+				latestDeadline = deadline
+			}
+		}
+	}
+	if !active || withoutDeadline {
+		return active, 0, nil
+	}
+	// IsActivePod uses a strict comparison, so recheck just after the last
+	// active Pod's deadline. Pod events can trigger an earlier reconcile.
+	return true, latestDeadline.Sub(now) + time.Nanosecond, nil
 }
 
 func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error {
@@ -350,7 +415,8 @@ func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error 
 		// so the workload becomes admissible again and can be requeued.
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
-			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+			//nolint:staticcheck // SA1019: fallback for the disabled feature gate.
+			kueue.WorkloadPending,
 		)
 		changed := workload.UnsetQuotaReservationWithCondition(
 			wl,
@@ -362,8 +428,8 @@ func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error 
 	}, clientutil.WithRetryOnConflict())
 }
 
-func (r *Reconciler) releaseScaleDownReservation(ctx context.Context, wl *kueue.Workload) error {
-	if wl == nil || workloadfinish.IsFinished(wl) || !workload.HasActiveQuotaReservation(wl) {
+func (r *Reconciler) putWorkloadOnHold(ctx context.Context, wl *kueue.Workload) error {
+	if wl == nil || workloadfinish.IsFinished(wl) || !workload.IsActive(wl) || workload.IsOnHold(wl) {
 		return nil
 	}
 
@@ -454,6 +520,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&appsv1.StatefulSet{}).
 		WithEventFilter(r).
 		Watches(&corev1.Pod{}, &podHandler{}).
+		Watches(&kueue.Workload{}, handler.EnqueueRequestForOwner(
+			mgr.GetScheme(), mgr.GetRESTMapper(), &appsv1.StatefulSet{},
+		)).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "statefulset-reconciler"),
 		}).
@@ -462,6 +531,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexer, eventRecorder events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
+	if options.IntegrationManager == nil {
+		options.IntegrationManager = jobframework.NewIntegrationManager()
+	}
 
 	return &Reconciler{
 		integrationManager:           options.IntegrationManager,
@@ -534,14 +606,26 @@ func (h *podHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.
 
 func (h *podHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	h.handle(e.ObjectNew, q)
+	oldPod, oldIsPod := e.ObjectOld.(*corev1.Pod)
+	newPod, newIsPod := e.ObjectNew.(*corev1.Pod)
+	if oldIsPod && newIsPod {
+		oldOwner := metav1.GetControllerOf(oldPod)
+		newOwner := metav1.GetControllerOf(newPod)
+		if oldOwner != nil && (newOwner == nil || oldOwner.UID != newOwner.UID ||
+			oldOwner.Name != newOwner.Name || oldOwner.Kind != newOwner.Kind || oldOwner.APIVersion != newOwner.APIVersion) {
+			// The new Pod event cannot wake a former owner.
+			h.handle(oldPod, q)
+		}
+	}
 }
 
-func (h *podHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *podHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.handle(e.Object, q)
 }
 
 func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, isPod := obj.(*corev1.Pod)
-	if !isPod || pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
+	if !isPod {
 		return
 	}
 	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {
