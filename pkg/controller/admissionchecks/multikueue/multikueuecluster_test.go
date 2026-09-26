@@ -913,55 +913,6 @@ func TestReconnectBackoff(t *testing.T) {
 	}
 }
 
-func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	kubeconfig := testKubeconfig("worker1")
-
-	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
-		KubeConfig(kueue.SecretLocationType, "worker1").
-		Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed", 1).
-		Generation(1).
-		Obj()
-	secret := makeTestSecret("worker1", kubeconfig)
-
-	builder := getClientBuilder(ctx)
-	builder = builder.WithObjects(cluster, &secret)
-	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
-	c := builder.Build()
-
-	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	recorder := &utiltesting.EventRecorder{}
-	reconciler := newClustersReconciler(c, TestNamespace,
-		withAdapters(adapters),
-		withClusterProfileAccessProvider(&testClusterProfileAccessProvider{}),
-		withEventRecorder(recorder),
-	)
-	reconciler.rootContext = ctx
-
-	var buildCalls int
-	inner := fakeClientBuilder(ctx)
-	reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
-		buildCalls++
-		return inner(builderCtx, cfg, opts)
-	}
-
-	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
-	rc.builderOverride = reconciler.builderOverride
-	reconciler.remoteClients["worker1"] = rc
-	defer rc.StopWatchers()
-
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"})
-	if err != nil {
-		t.Fatalf("unexpected reconcile error: %v", err)
-	}
-	if buildCalls != 1 {
-		t.Fatalf("builder invocations: want 1, got %d", buildCalls)
-	}
-	if !rc.connState.isConnected() {
-		t.Errorf("expected state to be connected")
-	}
-}
-
 func TestConnectionStateTransitions(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)

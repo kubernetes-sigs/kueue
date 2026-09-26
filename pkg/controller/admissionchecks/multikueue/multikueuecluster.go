@@ -352,6 +352,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	rc.StopWatchers()
 
+	hadClientBefore := rc.getClient() != nil
+	isReconnect := hadClientBefore && !connected
+
 	if configChanged {
 		rc.config = config
 		rc.resetFailedConnAttempt()
@@ -422,8 +425,25 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		startWatcher()
 	}
 
+	if isReconnect {
+		rc.requeueWorkloadsForCluster(watchCtx)
+	}
+
 	rc.resetFailedConnAttempt()
 	return nil, nil
+}
+
+func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) {
+	wls := &kueue.WorkloadList{}
+	if err := rc.localClient.List(ctx, wls); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
+		return
+	}
+	for i := range wls.Items {
+		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName {
+			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
+		}
+	}
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it
