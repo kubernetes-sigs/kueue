@@ -67,6 +67,15 @@ type PendingWorkloads struct {
 	// workloads per queue per cycle.
 	inflight map[workload.Reference]*workload.Info
 
+	// inflightUpdates holds, per inflight workload, the newest Info the workload
+	// controller produced for it while the scheduler owned it. Such an Info cannot
+	// be placed without breaking the invariant above, and for DRA-backed workloads
+	// the Info is the sole carrier of the preprocessed quota charges: dropping it
+	// would leave requeue pairing the newest object with charges computed for an
+	// older generation. Only populated while KueueDRAIntegration is enabled, and an
+	// entry never outlives the inflight entry with the same key.
+	inflightUpdates map[workload.Reference]*workload.Info
+
 	// schedulingHashes tracks the scheduling equivalence hashes of pending
 	// workloads for the pending_scheduling_hashes metric.
 	schedulingHashes *schedulingHashCounts
@@ -211,6 +220,33 @@ func (p *PendingWorkloads) ForgetInflightByKey(ref workload.Reference) {
 	p.Lock()
 	defer p.Unlock()
 	p.clearInflight(ref)
+}
+
+// CaptureInflightUpdate keeps wInfo as the newest Info produced for its inflight
+// workload, so requeue can pair the object with charges computed for it. It is a
+// no-op unless wInfo's workload is currently inflight, which is rechecked here
+// because callers test HasInflight under a separate acquisition of this lock.
+func (p *PendingWorkloads) CaptureInflightUpdate(wInfo *workload.Info) {
+	p.Lock()
+	defer p.Unlock()
+
+	key := workloadKey(wInfo)
+	if _, ok := p.inflight[key]; !ok {
+		return
+	}
+	p.inflightUpdates[key] = wInfo
+}
+
+// ConsumeInflightUpdate returns the Info captured for ref while it was inflight,
+// and clears it so it cannot be replayed into a later scheduling cycle. Returns
+// nil when no update arrived during the cycle.
+func (p *PendingWorkloads) ConsumeInflightUpdate(ref workload.Reference) *workload.Info {
+	p.Lock()
+	defer p.Unlock()
+
+	captured := p.inflightUpdates[ref]
+	delete(p.inflightUpdates, ref)
+	return captured
 }
 
 // ForgetInflightFromLocalQueue ends the checkouts of a LocalQueue that is being
@@ -517,10 +553,15 @@ func (p *PendingWorkloads) clearInflight(ref workload.Reference) {
 		delete(p.inflight, ref)
 		p.schedulingHashes.removeInflight(wInfo)
 	}
+	delete(p.inflightUpdates, ref)
 }
 
 func (p *PendingWorkloads) setInflight(wl *workload.Info) {
-	p.inflight[workloadKey(wl)] = wl
+	key := workloadKey(wl)
+	p.inflight[key] = wl
+	// An update captured under a previous checkout describes a cycle the
+	// scheduler no longer owns.
+	delete(p.inflightUpdates, key)
 	p.schedulingHashes.moveActiveToInflight(wl)
 }
 
