@@ -8152,7 +8152,7 @@ func TestPod_IsActive(t *testing.T) {
 						},
 						{
 							Name:                       "deleted-within-grace",
-							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(30 * time.Second))),
 							DeletionGracePeriodSeconds: new(int64(90)),
 							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -8168,7 +8168,7 @@ func TestPod_IsActive(t *testing.T) {
 					Items: []corev1.Pod{
 						{
 							Name:                       "terminating-within-grace",
-							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(30 * time.Second))),
 							DeletionGracePeriodSeconds: new(int64(90)),
 							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
@@ -8184,7 +8184,39 @@ func TestPod_IsActive(t *testing.T) {
 					Items: []corev1.Pod{
 						{
 							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(30 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		"FastQuotaRelease_Disabled_PodPastDeletionTimestamp_Inactive": {
+			enableFastQuotaRelease: false,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							Name:                       "terminating-past-deadline",
 							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"FastQuotaRelease_Disabled_PodAtDeletionTimestamp_Active": {
+			enableFastQuotaRelease: false,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							Name:                       "terminating-at-deadline",
+							DeletionTimestamp:          new(metav1.NewTime(now)),
 							DeletionGracePeriodSeconds: new(int64(90)),
 							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},

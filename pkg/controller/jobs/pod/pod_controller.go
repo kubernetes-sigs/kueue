@@ -493,9 +493,9 @@ func (p *Pod) IsActive() bool {
 		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
 		// counting as Active, as doing so could block the workload to release acquired quota.
 		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
-			now := p.clock.Now()
-			gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-			if now.After(pod.DeletionTimestamp.Add(gracePeriod)) {
+			// For graceful deletion, the API server sets DeletionTimestamp to the
+			// end of the grace period.
+			if p.clock.Now().After(pod.DeletionTimestamp.Time) {
 				continue
 			}
 		}
