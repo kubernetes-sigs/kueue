@@ -436,6 +436,20 @@ func (mr *MockMultiKueueAdapterMockRecorder) DeleteRemoteObject(ctx, localClient
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRemoteObject", reflect.TypeOf((*MockMultiKueueAdapter)(nil).DeleteRemoteObject), ctx, localClient, remoteClient, key)
 }
 
+// FrameworkName mocks base method.
+func (m *MockMultiKueueAdapter) FrameworkName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FrameworkName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// FrameworkName indicates an expected call of FrameworkName.
+func (mr *MockMultiKueueAdapterMockRecorder) FrameworkName() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FrameworkName", reflect.TypeOf((*MockMultiKueueAdapter)(nil).FrameworkName))
+}
+
 // GVK mocks base method.
 func (m *MockMultiKueueAdapter) GVK() schema.GroupVersionKind {
 	m.ctrl.T.Helper()
