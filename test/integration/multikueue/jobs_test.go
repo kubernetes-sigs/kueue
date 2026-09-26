@@ -791,6 +791,87 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should remove an orphaned worker job after its workload disappears", func() {
+		job := testingjob.MakeJob("orphaned-job", f.managerNs.Name).
+			ManagedBy(kueue.MultiKueueControllerName).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+		jobLookupKey := client.ObjectKeyFromObject(job)
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+			Namespace: f.managerNs.Name,
+		}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("dispatching the workload and admitting it on worker1", func() {
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
+			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, remoteJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		restoreConnectionToWorker1 := util.BreakConnection(
+			managerTestCluster.ctx,
+			managerTestCluster.client,
+			f.workerCluster1,
+			managersConfigNamespace.Name,
+		)
+		connectionRestored := false
+		ginkgo.DeferCleanup(func() {
+			if !connectionRestored {
+				restoreConnectionToWorker1()
+			}
+		})
+
+		ginkgo.By("deleting the remote workload while retaining its job", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+				controllerutil.RemoveFinalizer(remoteWl, kueue.ResourceInUseFinalizerName)
+				g.Expect(worker1TestCluster.client.Update(worker1TestCluster.ctx, remoteWl)).To(gomega.Succeed())
+				g.Expect(worker1TestCluster.client.Delete(worker1TestCluster.ctx, remoteWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(utiltesting.BeNotFoundError())
+
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, remoteJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("evicting the manager workload and deleting the orphaned job", func() {
+			restoreConnectionToWorker1()
+			connectionRestored = true
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(apimeta.FindStatusCondition(managerWl.Status.Conditions, kueue.WorkloadEvicted)).NotTo(gomega.BeNil())
+				g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+
+				remoteJob := &batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, remoteJob)).To(utiltesting.BeNotFoundError())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("an additional admission check covering only some flavors supported by the cluster queue is present", func() {
 		var (
 			additionalAc *kueue.AdmissionCheck
