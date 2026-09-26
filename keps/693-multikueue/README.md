@@ -10,6 +10,7 @@
     - [Story 1](#story-1)
     - [Story 2](#story-2)
     - [Story 3](#story-3)
+    - [Story 4](#story-4)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Subcomponents](#subcomponents)
@@ -21,6 +22,10 @@
     - [MultiKueueAdapter](#multikueueadapter)
     - [MultiKueueWatcher](#multikueuewatcher)
   - [Configuration](#configuration)
+    - [Completed remote object retention](#completed-remote-object-retention)
+      - [Lifecycle](#lifecycle)
+      - [Same-name reuse](#same-name-reuse)
+      - [Feature gate and version skew](#feature-gate-and-version-skew)
   - [MultiKueue Dispatcher API](#multikueue-dispatcher-api)
     - [Workload Synchronization](#workload-synchronization)
   - [Cluster Role sharing](#cluster-role-sharing)
@@ -30,6 +35,7 @@
     - [Integration tests](#integration-tests)
     - [E2E tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Remote object retention](#remote-object-retention)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -136,6 +142,12 @@ the order of clusters according to some in-house information
 rather than trying all of them at once. 
 This is important to avoid preemptions happening in all clusters at the same time during the admission.
 
+#### Story 4
+As a user who inspects jobs directly on a worker cluster, I want completed remote
+Workloads and their mirrored jobs to remain visible for a configurable duration,
+so that I can inspect the completed run after its status reaches the management
+cluster. Today, MultiKueue deletes these objects immediately after completion.
+
 ### Risks and Mitigations
 * Disabling the Job controller for all (or selected objects) may be problematic
 on environments where access to the master configuration is limited (like GKE).
@@ -168,6 +180,12 @@ deployments with very high job throughput (above 1M jobs per day).
     path to reside under the prefix directory.
   * Recommended deployment practice is to use `locationType=Secret` or
     `ClusterProfile` instead of `Path` in production environments.
+
+* Retaining completed remote objects increases worker API storage and controller
+  memory usage. Retention is opt-in and bounded by a configured duration; operators
+  should size it for their completion rate. Worker-side TTL policies and manual
+  deletion can remove objects, including Pods and their logs, sooner. This feature
+  postpones MultiKueue-initiated cleanup; it does not guarantee log availability.
 
 ## Design Details
 MultiKueue will be enabled on a cluster queue using the admission check fields.
@@ -425,6 +443,135 @@ if the connection with its reserving worker cluster is lost.
 - `ClusterProfileConfig` - defines the configuration for the ClusterProfile API.
 
 
+#### Completed remote object retention
+
+For v0.21, extend the global MultiKueue section of the v1beta2 `Configuration` with
+`multiKueue.objectRetentionPolicies.remoteObjects.afterFinished`, as requested in
+[issue #13847](https://github.com/kubernetes-sigs/kueue/issues/13847). It keeps the
+remote Workload and mirrored job on the worker for a while after the run completes,
+so that users can inspect them there. The optional fields are:
+
+```go
+type MultiKueue struct {
+    // ...
+    // ObjectRetentionPolicies configures cleanup of objects on worker clusters.
+    // +optional
+    ObjectRetentionPolicies *MultiKueueObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
+}
+
+type MultiKueueObjectRetentionPolicies struct {
+    // RemoteObjects configures retention of the remote Workload and mirrored job.
+    // +optional
+    RemoteObjects *RemoteObjectRetentionPolicy `json:"remoteObjects,omitempty"`
+}
+
+type RemoteObjectRetentionPolicy struct {
+    // AfterFinished is the duration to retain remote objects after the manager
+    // Workload succeeds or fails. Nil or zero preserves immediate cleanup.
+    // +optional
+    AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
+}
+```
+
+For example, with the `MultiKueueRemoteObjectRetention` feature gate enabled on the
+manager, this configuration requests one hour of retention:
+
+```yaml
+multiKueue:
+  objectRetentionPolicies:
+    remoteObjects:
+      afterFinished: "1h"
+```
+
+The `MultiKueueRemoteObjectRetention` feature gate starts at Alpha, disabled by
+default, in v0.21. The duration must be non-negative. An omitted policy or
+duration, `0s`, or a disabled gate keeps today's immediate cleanup. The setting is
+global, static for the manager process, and applies to all MultiKueue adapters. It
+has no per-`MultiKueueConfig`, per-queue, or per-job override.
+
+##### Lifecycle
+
+When the manager Workload finishes with reason `Succeeded` or `Failed`, the
+MultiKueue Workload Controller keeps the remote Workload and mirrored job on the
+worker where the Workload ran until `Finished.LastTransitionTime + afterFinished`,
+and requeues the Workload for the remaining time. Completion reporting and quota
+release are not delayed. Because the deadline comes from the persisted condition, a
+manager restart neither extends retention nor recreates objects that are already
+gone. If that worker is unreachable, the controller retries every
+`workerLostTimeout` without resetting the deadline.
+
+Cleanup stays immediate when:
+
+* the Workload finishes for any other reason, such as `OutOfSync` or `OwnerNotFound`;
+* the manager Workload is evicted, deactivated, or loses its quota reservation, even
+  if it has also finished;
+* the manager Job or Workload is deleted;
+* the objects are on a worker other than the one the Workload ran on;
+* the retained remote Workload is out of sync with the manager Workload, is evicted
+  on the worker, or is confirmed missing. An unreachable worker does not count as
+  missing.
+
+Elastic Workload handling is unchanged: replaced slices keep their existing
+shared-object lifecycle and never start retention.
+
+The orphan garbage collector finds remote objects only through remote Workloads
+that carry this manager's origin label. A mirrored job whose remote Workload is gone
+could therefore never be collected if a later manager-side cleanup were missed, so
+the controller deletes the job once it confirms that the remote Workload is missing.
+As a consequence, deleting the remote Workload on the worker, for example through
+the worker's own `objectRetentionPolicies.workloads`, also ends retention of its job.
+
+The manager-side `objectRetentionPolicies.workloads` policy from
+[KEP-1618](../1618-optional-gc-of-workloads/README.md) stays a separate field: there
+`nil` means never delete, while for remote objects `nil` must keep today's immediate
+cleanup. Deleting the manager Workload, including by that policy, ends remote
+retention, so that policy caps how long remote objects can be kept. The orphan
+garbage collector (`gcInterval`) is unchanged and still deletes remote objects only
+when their manager Workload no longer exists.
+
+Expiry cleanup uses the current `MultiKueueConfig` worker list, so the worker, its
+`MultiKueueCluster`, and its credentials must stay configured until cleanup
+finishes. Otherwise, retained objects need manual cleanup; this feature does not
+discover objects on workers outside the current configuration.
+
+##### Same-name reuse
+
+Deleting the manager Job ends retention, so a new run with the same namespace and
+name normally finds nothing left on the worker. A leftover remains only if the old
+cleanup was missed: for example, the worker was unreachable when the manager Job was
+deleted, the manager restarted before processing that deletion, the old Workload was
+still being deleted when the new run was dispatched, or the garbage collector is
+disabled. A new run must not wait for such a leftover to expire, so before creating
+remote objects the controller:
+
+1. Checks that the manager Job still has the UID recorded on the Workload.
+   Otherwise, a newer run owns the name and this Workload creates nothing.
+2. Reads the remote object with the same name. If it carries this manager's origin
+   but names a different prebuilt Workload, the controller deletes it with UID and
+   resourceVersion preconditions, then retries the MultiKueue reconcile shortly.
+   This is not a ClusterQueue requeue.
+
+Objects with another origin, or without a prebuilt Workload name, are left alone.
+Shared objects, such as those of elastic slices, Pod groups, and multi-Workload
+adapters, are excluded.
+
+Cleanup is guarded the same way: on expiry, manager deletion, or orphan garbage
+collection, the controller deletes a dedicated remote object only if it still names
+the Workload being cleaned up, and binds the adapter's deletion to the UID and
+resourceVersion it checked. An old run therefore cannot delete a newer same-name
+object, or one whose ownership changed after the check.
+
+##### Feature gate and version skew
+
+Retention, same-name replacement, and the ownership checks on deletion only apply
+with the gate enabled; with the gate disabled, dispatch and cleanup behave as
+before, so upgrading without opting in changes nothing. Disabling the gate or
+removing the duration and restarting the manager deletes previously retained
+objects on the next reconcile. Changing a positive duration recomputes deadlines
+from the original finish time. Before downgrading to a version that does not know
+the field or gate, remove them from the configuration; that version cleans up
+immediately.
+
 ### MultiKueue Dispatcher API
 
 Since Kueue 0.13, in order to meet the requirements of [Story 3](#story-3), we introduce an API for custom dispatching algorithms.
@@ -517,6 +664,14 @@ to implement this enhancement.
 #### Unit Tests
 The code will adhere to regular best practices for unit tests and coverage. 
 
+Remote retention unit tests will use a fake clock to cover nil or zero configuration,
+negative-duration rejection, successful and failed completion, expiry and
+recomputation after restart, other finish reasons, each immediate-cleanup condition,
+missing versus unreachable workers, and same-name replacement. Ownership races,
+including old-run expiry or garbage collection after a new run reuses the name, must
+preserve foreign, changed, and shared objects. With the gate disabled, dispatch and
+deletion must follow the existing paths.
+
 #### Integration tests
 Integration tests will be executed against a mocked clients for the worker clusters 
 that will provide predefined responses and allow to test various error scenarios, 
@@ -532,6 +687,14 @@ including situations like:
 * Job is correctly finished.
 * Job finishes with an error.
 * Job status changes frequently.
+
+For remote retention, integration tests will exercise Job and JobSet completion,
+final status sync, retention before expiry and cleanup afterwards, manager-side
+deletion, same-name resubmission, and completion racing with eviction or deactivation.
+They will also verify that disabling retention preserves immediate cleanup,
+that retained objects survive reconciliation after a manager restart, and that
+completed retained objects do not prevent another workload from using the released
+quota.
 
 #### E2E tests
 Should be created and cover similar use cases as integration tests. For start
@@ -555,7 +718,16 @@ Graduation to beta criteria:
 * Major bugs and deficiencies are not found/fixed.
 * Roadmap for missing features is defined.
 
+#### Remote object retention
+
+The v0.21 Alpha requires the configuration, lifecycle behavior, unit and integration
+tests described above, and user documentation of early-deletion conditions. Beta
+requires user feedback and end-to-end coverage on real worker clusters for retention,
+expiry, restart, and recovery after a worker outage. The Alpha gate can be disabled
+independently of MultiKueue; this does not change MultiKueue's existing milestones.
+
 ## Implementation History
+* 2026-09-25 Propose completed remote object retention for v0.21 (issue #13847).
 * 2026-06-09 Add ClusterProfile accessProviders configuration and deprecate credentialsProviders.
 * 2023-11-28 Initial KEP.
 
@@ -570,3 +742,16 @@ MultiKueue has some drawbacks.
 ## Alternatives
 * Use Armada or Multi Cluster App Dispatcher.
 * Use multicluster-specific Job APIs.
+
+For completed remote object retention, alternatives considered are:
+* Reuse the top-level Workload retention policy. This gives one field conflicting
+  nil semantics and changes remote cleanup for users who already retain local
+  Workloads, so a separate field preserves compatibility.
+* Configure retention per `MultiKueueConfig`. Unlike component configuration, it
+  can change or be reassigned while jobs run, requiring additional policy-change
+  semantics. A global setting keeps the initial feature small.
+* Reuse a same-name leftover for the new run instead of deleting it. A finished
+  `batch/Job` cannot be restarted and much of its spec is immutable, so the object
+  has to be recreated anyway.
+* Block the new run until the leftover expires. Retention exists for inspection
+  and should not delay new work.
