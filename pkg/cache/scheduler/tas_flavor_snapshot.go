@@ -953,7 +953,8 @@ func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignmen
 		// diverging from the node the pod actually runs on.
 		return true
 	}
-	return !utiltas.HasNodeInPodSetAssignment(psa, workload.FirstUnhealthyNodeName(wl))
+	return features.Enabled(features.TASReplaceMultipleFailedNodes) &&
+		!utiltas.HasNodeInPodSetAssignment(psa, workload.FirstUnhealthyNodeName(wl))
 }
 
 func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetRequests) {
