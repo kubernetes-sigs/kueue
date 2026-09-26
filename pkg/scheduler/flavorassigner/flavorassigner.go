@@ -1384,6 +1384,12 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWithinClusterQueue() || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
+		if mode == noPreemptionCandidates &&
+			!mayReclaimInHierarchy &&
+			a.canPreemptWithinClusterQueue() &&
+			!a.canPreemptWhileBorrowing() {
+			return noFit, borrow, &status
+		}
 		if mode != noFit {
 			status.noFitReason = ""
 		}
