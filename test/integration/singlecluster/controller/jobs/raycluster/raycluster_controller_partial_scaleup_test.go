@@ -288,6 +288,53 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		expectPodsUsage(7)
 	})
 
+	ginkgo.It("Should preserve worker group MinCounts when reordering during partial scale-up", func() {
+		const groupA, groupB = "workers-a", "workers-b"
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			WithWorkerGroups(
+				*testingraycluster.MakeWorkerGroup(groupA, 2).Request(corev1.ResourceCPU, "1").Obj(),
+				*testingraycluster.MakeWorkerGroup(groupB, 3).Request(corev1.ResourceCPU, "1").Obj(),
+			).
+			Obj()
+
+		ginkgo.By("admitting the original worker groups in their initial order")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupA, 2)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupB, 3)
+
+		ginkgo.By("reordering the worker groups and scaling the first one from 2 to 5")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs).Should(gomega.HaveLen(2))
+			testRayCluster.Spec.WorkerGroupSpecs[0], testRayCluster.Spec.WorkerGroupSpecs[1] =
+				testRayCluster.Spec.WorkerGroupSpecs[1], testRayCluster.Spec.WorkerGroupSpecs[0]
+			testRayCluster.Spec.WorkerGroupSpecs[1].Replicas = new(int32(5))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the replacement retains each worker group's own initial minimum")
+		scaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		gomega.Expect(scaleUpSlice.Spec.PodSets).Should(gomega.HaveLen(3))
+		gomega.Expect(scaleUpSlice.Spec.PodSets[1].Name).Should(gomega.Equal(kueue.PodSetReference(groupB)))
+		gomega.Expect(scaleUpSlice.Spec.PodSets[1].MinCount).Should(gomega.Equal(new(int32(3))))
+		gomega.Expect(scaleUpSlice.Spec.PodSets[2].Name).Should(gomega.Equal(kueue.PodSetReference(groupA)))
+		gomega.Expect(scaleUpSlice.Spec.PodSets[2].Count).Should(gomega.Equal(int32(5)))
+		gomega.Expect(scaleUpSlice.Spec.PodSets[2].MinCount).Should(gomega.Equal(new(int32(2))))
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, groupB, 3)
+		groupAIdx := slices.IndexFunc(scaleUpSlice.Status.Admission.PodSetAssignments, func(psa kueue.PodSetAssignment) bool {
+			return psa.Name == groupA
+		})
+		gomega.Expect(groupAIdx).ShouldNot(gomega.Equal(-1))
+		groupACount := scaleUpSlice.Status.Admission.PodSetAssignments[groupAIdx].Count
+		gomega.Expect(groupACount).ShouldNot(gomega.BeNil())
+		gomega.Expect(*groupACount).Should(gomega.BeNumerically(">", 2))
+		gomega.Expect(*groupACount).Should(gomega.BeNumerically("<", 5))
+	})
+
 	ginkgo.It("Should partially admit a RayCluster scale-up by preempting a lower-priority workload", func() {
 		// The victim occupies 4 of the 7 pods and is lower priority than the RayCluster, whose
 		// workload has the default priority of 0.
