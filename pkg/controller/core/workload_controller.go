@@ -136,7 +136,15 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	wi := workload.NewInfoFromClient(ctx, r.client, wl)
+	wi, err := workload.NewInfoFromClient(ctx, r.client, wl)
+	if err != nil {
+		if errors.Is(err, workload.ErrInternal) {
+			return true, ctrl.Result{}, nil, err
+		}
+		fieldErrs := field.ErrorList{field.Invalid(field.NewPath("spec", "podSets"), wl.Spec.PodSets, err.Error())}
+		done, result, markErr := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to resolve effective resources for DRA workload")
+		return done, result, nil, markErr
+	}
 	if workload.HasResourceClaim(wl) {
 		log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -2216,10 +2224,17 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
 			return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err), nil
 		}
-		wlInfo := workload.NewInfoFromClient(ctx, r.client, wl)
-		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
-		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
-			return "", "", admissibilityErr
+		wlInfo, err := workload.NewInfoFromClient(ctx, r.client, wl)
+		if err != nil {
+			if errors.Is(err, workload.ErrInternal) {
+				return "", "", err
+			}
+			admissibilityErr = err
+		} else {
+			admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
+			if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
+				return "", "", admissibilityErr
+			}
 		}
 	}
 	switch {
@@ -2322,7 +2337,7 @@ func shouldCheckEquivalenceHash(cond *metav1.Condition) bool {
 func (r *WorkloadReconciler) needsDRAReconcile(ctx context.Context, wl *kueue.Workload) bool {
 	wi := &workload.Info{Obj: wl}
 	if features.Enabled(features.KueueDRAIntegration) && features.Enabled(features.KueueDRAIntegrationExtendedResource) {
-		wi = workload.NewInfoFromClient(ctx, r.client, wl)
+		wi, _ = workload.NewInfoFromClient(ctx, r.client, wl)
 	}
 	return dra.NeedsDRAReconcile(wi, r.draBackedResources)
 }
