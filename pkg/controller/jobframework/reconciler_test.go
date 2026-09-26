@@ -2724,6 +2724,47 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
 		},
+		"scale-up with reordered podsets copies minCount by name": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 8, MinCount: new(int32(8))},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 8,
+				kueue.PodSetReference("workers-spot"):        20,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+			},
+		},
+		"defensive: an unmatched podset retains its initialized minCount": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 8, MinCount: new(int32(8))},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
+				{Name: kueue.PodSetReference("workers-new"), Count: 2, MinCount: new(int32(2))},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 8,
+				kueue.PodSetReference("workers-spot"):        20,
+				kueue.PodSetReference("workers-new"):         2,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+				kueue.PodSetReference("workers-new"):         new(int32(2)),
+			},
+		},
 	}
 
 	for name, tc := range cases {
