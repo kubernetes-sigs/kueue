@@ -1852,6 +1852,205 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 	})
 })
 
+var _ = ginkgo.Describe("Workload topology-spreading validation", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-spread-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.DescribeTable("Validate topology spreading on create",
+		func(w func() *kueue.Workload, matcher gomegatypes.GomegaMatcher) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+			gomega.Expect(k8sClient.Create(ctx, w())).Should(matcher)
+		},
+		ginkgo.Entry("accepts a valid spreading annotation with required topology",
+			func() *kueue.Workload {
+				return spreadingWorkloadForWebhook("valid-spread", webhookSpreadingJSON)
+			},
+			gomega.Succeed()),
+		ginkgo.Entry("rejects an invalid spreading annotation",
+			func() *kueue.Workload {
+				return spreadingWorkloadForWebhook("bad-spread", "not-json")
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation)),
+			)),
+		ginkgo.Entry("rejects a spreading annotation without a structured required topology",
+			func() *kueue.Workload {
+				return utiltestingapi.MakeWorkload("ann-only", ns.Name).PodSets(
+					*utiltestingapi.MakePodSet("main", 1).
+						Annotations(map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON,
+						}).
+						Obj(),
+				).Obj()
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring("topologyRequest.required")),
+			)),
+		ginkgo.Entry("accepts a matching spreading group with equivalent parsed annotations",
+			groupedSpreadingWorkloadForWebhook,
+			gomega.Succeed()),
+	)
+
+	ginkgo.DescribeTable("Validate topology spreading on update",
+		func(w func() *kueue.Workload, mutate func(*kueue.Workload), matcher gomegatypes.GomegaMatcher) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+			wl := w()
+			util.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				mutate(wl)
+				g.Expect(k8sClient.Update(ctx, wl)).Should(matcher)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		},
+		ginkgo.Entry("rejects changing a valid spreading annotation to invalid",
+			func() *kueue.Workload {
+				return spreadingWorkloadForWebhook("valid-spread", webhookSpreadingJSON)
+			},
+			func(wl *kueue.Workload) {
+				wl.Spec.PodSets[0].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = "not-json"
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation)),
+			)),
+		ginkgo.Entry("rejects a mismatched spreading annotation in a group",
+			groupedSpreadingWorkloadForWebhook,
+			func(wl *kueue.Workload) {
+				wl.Spec.PodSets[1].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = webhookOtherSpreadingJSON
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation)),
+				gomega.MatchError(gomega.ContainSubstring("spec.podSets[1].template.metadata.annotations["+kueue.PodSetTopologySpreadingAnnotation+"]")),
+			)),
+	)
+
+	ginkgo.It("Should leave spreading unvalidated while the feature gate is disabled and exempt unchanged invalid spreading after enabling it", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, false)
+		wl := spreadingWorkloadForWebhook("staged-spread", "not-json")
+		util.MustCreate(ctx, k8sClient, wl)
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+
+		ginkgo.By("accepting a spec update that leaves the invalid spreading annotation unchanged")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.QueueName = "q2"
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("accepting a status update that leaves the invalid spreading annotation unchanged")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+				Name:               "ac1",
+				Message:            "checking",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				State:              kueue.CheckStatePending,
+			}, util.RealClock)
+			g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("rejecting a change to a different invalid spreading annotation")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.PodSets[0].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = "also-not-json"
+			err := k8sClient.Update(ctx, wl)
+			g.Expect(err).Should(utiltesting.BeForbiddenError())
+			g.Expect(err.Error()).Should(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("accepting a repair to a valid spreading annotation")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.PodSets[0].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = webhookSpreadingJSON
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should repair one spreading group without requiring an unchanged invalid group to be fixed", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, false)
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).PodSets(
+			*utiltestingapi.MakePodSet("a1", 1).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g1").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON}).
+				Obj(),
+			*utiltestingapi.MakePodSet("a2", 2).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g1").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookOtherSpreadingJSON}).
+				Obj(),
+			*utiltestingapi.MakePodSet("b1", 1).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g2").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON}).
+				Obj(),
+			*utiltestingapi.MakePodSet("b2", 2).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g2").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookOtherSpreadingJSON}).
+				Obj(),
+		).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+
+		ginkgo.By("repairing only the first group")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.PodSets[1].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = webhookSpreadingJSON
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("leaving the unrepaired group unchanged")
+		created := &kueue.Workload{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), created)).To(gomega.Succeed())
+		gomega.Expect(created.Spec.PodSets[2].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]).To(gomega.Equal(webhookSpreadingJSON))
+		gomega.Expect(created.Spec.PodSets[3].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]).To(gomega.Equal(webhookOtherSpreadingJSON))
+	})
+})
+
+const (
+	webhookSpreadingJSON           = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+	webhookEquivalentSpreadingJSON = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"}]}`
+	webhookOtherSpreadingJSON      = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.5"}]}`
+)
+
+func spreadingWorkloadForWebhook(name, spreading string) *kueue.Workload {
+	return utiltestingapi.MakeWorkload(name, ns.Name).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			RequiredTopologyRequest("cloud.com/block").
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreading}).
+			Obj()).
+		Obj()
+}
+
+func groupedSpreadingWorkloadForWebhook() *kueue.Workload {
+	return utiltestingapi.MakeWorkload("wl", ns.Name).PodSets(
+		*utiltestingapi.MakePodSet("leader", 1).
+			RequiredTopologyRequest("cloud.com/block").
+			PodSetGroup("g").
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON}).
+			Obj(),
+		*utiltestingapi.MakePodSet("workers", 2).
+			RequiredTopologyRequest("cloud.com/block").
+			PodSetGroup("g").
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookEquivalentSpreadingJSON}).
+			Obj(),
+	).Obj()
+}
+
 func validSliceFor(levels []string, suffix int) kueue.TopologyAssignmentSlice {
 	res := kueue.TopologyAssignmentSlice{
 		DomainCount: int32(1),
