@@ -214,6 +214,9 @@ func isDistributedFalse(orchestrator *kueuealpha.DynamicQuotaOrchestrator) bool 
 }
 
 // calculateAllocations distributes total capacity across all flavors and resources to participant nodes in the subtree.
+// A flavor present in the effective capacity is fully orchestrated: every (flavor, resource) pair declared
+// in the subtree that is missing from its resources is distributed as zero instead of falling back to
+// spec.resourceGroups.
 func calculateAllocations(
 	effectiveCapacity *kueuealpha.EffectiveCapacity,
 	cohorts []kueue.Cohort,
@@ -221,11 +224,19 @@ func calculateAllocations(
 ) map[quotaKey]map[string]resource.Quantity {
 	participantsByKey := indexParticipantsByQuotaKey(cohorts, clusterQueues)
 	allocatedQuantities := make(map[quotaKey]map[string]resource.Quantity)
+	orchestratedFlavors := sets.New[kueuealpha.ResourceFlavorReference]()
 	for _, flavor := range effectiveCapacity.Flavors {
+		orchestratedFlavors.Insert(flavor.Name)
 		for resourceName, totalCapacity := range flavor.Resources {
 			key := quotaKey{flavor: flavor.Name, resource: resourceName}
 			allocatedQuantities[key] = distributeCapacityProportionally(resourceName, totalCapacity, participantsByKey[key])
 		}
+	}
+	for key, participants := range participantsByKey {
+		if _, found := allocatedQuantities[key]; found || !orchestratedFlavors.Has(key.flavor) {
+			continue
+		}
+		allocatedQuantities[key] = distributeCapacityProportionally(key.resource, *resource.NewQuantity(0, resource.DecimalSI), participants)
 	}
 	return allocatedQuantities
 }

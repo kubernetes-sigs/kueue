@@ -550,6 +550,108 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		})
 	})
 
+	ginkgo.It("Should distribute zero for resources of orchestrated flavors that the provider stops reporting", func() {
+		const gpu corev1.ResourceName = "example.com/gpu"
+		const license corev1.ResourceName = "example.com/license"
+
+		cp := utiltestingalpha.MakeCapacityProvider("zero-cp").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1", "f2").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Resource(corev1.ResourceMemory, "50Gi").
+							Obj(),
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f2").
+							Resource(gpu, "8").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:    kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueuealpha.CapacityProviderReasonSynchronized,
+				Message: "Capacity synchronized successfully",
+			}).
+			Obj()
+		cps = append(cps, cp)
+		createCapacityProvider(ctx, k8sClient, cp)
+
+		cq = utiltestingapi.MakeClusterQueue("zero-cq").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").
+					Resource(corev1.ResourceCPU, "10").
+					Resource(corev1.ResourceMemory, "20Gi").
+					Obj(),
+			).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f2").Resource(gpu, "4").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f3").Resource(license, "5").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("zero-dqo").
+			DiscoveryProvider(cp.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, cq.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, dqo)
+
+		cqKey := types.NamespacedName{Name: cq.Name}
+
+		ginkgo.By("Verifying that reported resources are distributed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectClusterQueueEffectiveResourceGroups(g, cqKey,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Resource(corev1.ResourceMemory, "50Gi").
+							Obj(),
+					),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f2").Resource(gpu, "8").Obj()),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f3").Resource(license, "5").Obj()),
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Dropping a resource and a whole flavor from the provider report", func() {
+			setCapacityProviderCapacity(ctx, k8sClient, cp, utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(
+					utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+						Resource(corev1.ResourceCPU, "100").
+						Obj(),
+				).
+				Obj())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var latestDQO kueuealpha.DynamicQuotaOrchestrator
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqo), &latestDQO)).Should(gomega.Succeed())
+				g.Expect(cmp.Diff(
+					utiltestingalpha.MakeEffectiveCapacity().
+						Flavors(
+							*utiltestingalpha.MakeEffectiveCapacityFlavor("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+							*utiltestingalpha.MakeEffectiveCapacityFlavor("f2").Obj(),
+						).
+						Obj(),
+					latestDQO.Status.EffectiveCapacity,
+					cmpopts.EquateEmpty(),
+				)).Should(gomega.BeEmpty())
+
+				expectClusterQueueEffectiveResourceGroups(g, cqKey,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Resource(corev1.ResourceMemory, "0").
+							Obj(),
+					),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f2").Resource(gpu, "0").Obj()),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f3").Resource(license, "5").Obj()),
+				)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should aggregate capacity from multiple CapacityProviders and dynamically distribute proportionally when one provider changes", func() {
 		cp1 := utiltestingalpha.MakeCapacityProvider("multi-dist-cp-1").
 			ControllerName("example.com/p1").
