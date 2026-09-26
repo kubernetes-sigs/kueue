@@ -755,3 +755,139 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 		})
 	})
 })
+
+var _ = ginkgo.Describe("DRA Consumable Capacity Multiple Dimensions Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
+			c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings,
+				config.DeviceClassMapping{
+					Name:             "gpu.memory",
+					DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+					Sources: []config.DeviceClassSourceConfig{
+						{Capacity: &config.DeviceClassCapacitySource{
+							Name:   "memory",
+							Driver: "gpu.example.com",
+							DeviceSelector: resourcev1.DeviceSelector{
+								CEL: &resourcev1.CELDeviceSelector{
+									Expression: "device.driver == 'gpu.example.com'",
+								},
+							},
+						}},
+					},
+				},
+				config.DeviceClassMapping{
+					Name:             "gpu.cores",
+					DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+					Sources: []config.DeviceClassSourceConfig{
+						{Capacity: &config.DeviceClassCapacitySource{
+							Name:   "cores",
+							Driver: "gpu.example.com",
+							DeviceSelector: resourcev1.DeviceSelector{
+								CEL: &resourcev1.CELDeviceSelector{
+									Expression: "device.driver == 'gpu.example.com'",
+								},
+							},
+						}},
+					},
+				},
+			)
+		}))
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.When("One DeviceClass is mapped to two capacity dimensions", func() {
+		var (
+			ns             *corev1.Namespace
+			resourceFlavor *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+			vgpuClass      *resourcev1.DeviceClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-cc-dims-")
+			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+			vgpuClass = testingdra.MakeDeviceClass("vgpu.example.com").
+				CELSelector("device.driver == 'gpu.example.com'").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, vgpuClass)).To(gomega.Succeed())
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-cc-dims-").Obj()
+			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("cc-dims-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource("cpu", "8").
+						Resource("memory", "16Gi").
+						Resource("gpu.memory", "160Gi").
+						Resource("gpu.cores", "64").
+						Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("cc-dims-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, vgpuClass, true)
+		})
+
+		ginkgo.It("Should charge each capacity dimension to its own quota resource", func() {
+			ginkgo.By("Creating ResourceSlice with memory and cores dimensions")
+			slice := testingdra.MakeResourceSlice("cc-dims-slice", "gpu.example.com").
+				Pool("node1-gpu0", 1, 1).
+				Device("gpu-0").
+				DeviceCapacity("memory", "80Gi", nil).
+				DeviceCapacity("cores", "32", nil).
+				AllowMultipleAllocations(true).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, slice)).To(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Creating RCT requesting 20Gi of memory and 4 cores")
+			rct := utiltesting.MakeResourceClaimTemplate("cc-dims", ns.Name).
+				DeviceRequest("gpu", "vgpu.example.com", 1).
+				WithCapacityRequests(map[string]string{"memory": "20Gi", "cores": "4"}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
+
+			ginkgo.By("Creating workload")
+			wl := utiltestingapi.MakeWorkload("cc-dims-wl", ns.Name).
+				Queue("cc-dims-lq").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+				{Name: "gpu", ResourceClaimTemplateName: new("cc-dims")},
+			}
+			wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{
+				{Name: "gpu"},
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying gpu.memory is charged 20Gi and gpu.cores is charged 4")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				memUsage := assignment.ResourceUsage["gpu.memory"]
+				g.Expect(memUsage.Cmp(resource.MustParse("20Gi"))).To(gomega.Equal(0))
+				coresUsage := assignment.ResourceUsage["gpu.cores"]
+				g.Expect(coresUsage.Cmp(resource.MustParse("4"))).To(gomega.Equal(0))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+})
