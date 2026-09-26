@@ -24,7 +24,8 @@ import (
 type CapacityProviderSpec struct {
 	// orchestratedFlavors identifies the ResourceFlavors for which this provider may
 	// publish capacity. DQO ignores entries in status.capacity.flavors whose
-	// names are not listed here.
+	// names are not listed here. The provider orchestrates all resources of the
+	// listed flavors: capacity that is not reported for a listed flavor is zero.
 	//
 	// +required
 	// +listType=map
@@ -115,9 +116,11 @@ type CapacityProviderNormalizedCapacityFlavor struct {
 	Name ResourceFlavorReference `json:"name"`
 
 	// resources contains total capacity by resource name.
+	// The provider orchestrates all resources of the flavor: a resource that is
+	// not listed, including when the map is empty, has zero capacity.
 	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="size(self) >= 1 && size(self) <= 64",message="resource capacity must have between 1 and 64 entries"
+	// +kubebuilder:validation:XValidation:rule="size(self) <= 64",message="resource capacity must have at most 64 entries"
 	Resources corev1.ResourceList `json:"resources"`
 }
 
