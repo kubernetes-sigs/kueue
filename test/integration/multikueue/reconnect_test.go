@@ -87,17 +87,32 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 
 		finishJobReason := "Job finished successfully"
 		ginkgo.By("finishing the worker job while disconnected", func() {
+			reachedPodsReason := "Reached expected number of succeeded pods"
 			now := metav1.Now()
-			workerJob := &batchv1.Job{}
-			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), workerJob)).To(gomega.Succeed())
-			workerJob.Status.Conditions = []batchv1.JobCondition{{
-				Type:               batchv1.JobComplete,
-				Status:             corev1.ConditionTrue,
-				LastProbeTime:      now,
-				LastTransitionTime: now,
-				Message:            finishJobReason,
-			}}
-			gomega.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, workerJob)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerJob := &batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), workerJob)).To(gomega.Succeed())
+				workerJob.Status.Conditions = append(workerJob.Status.Conditions,
+					batchv1.JobCondition{
+						Type:               batchv1.JobSuccessCriteriaMet,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      now,
+						LastTransitionTime: now,
+						Message:            reachedPodsReason,
+					},
+					batchv1.JobCondition{
+						Type:               batchv1.JobComplete,
+						Status:             corev1.ConditionTrue,
+						LastProbeTime:      now,
+						LastTransitionTime: now,
+						Message:            finishJobReason,
+					},
+				)
+				workerJob.Status.Succeeded = 1
+				workerJob.Status.StartTime = new(now)
+				workerJob.Status.CompletionTime = new(now)
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, workerJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				workerWl := &kueue.Workload{}
