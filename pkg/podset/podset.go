@@ -55,7 +55,8 @@ type PodSetInfo struct {
 }
 
 // FromAssignment returns a PodSetInfo based on the provided assignment and an error if unable
-// to get any of the referenced flavors.
+// to get any of the referenced flavors, or if the node labels of two assigned flavors
+// disagree on the same key.
 func FromAssignment(ctx context.Context, client client.Client, assignment *kueue.PodSetAssignment, podSet *kueue.PodSet) (PodSetInfo, error) {
 	processedFlvs := sets.New[kueue.ResourceFlavorReference]()
 	info := PodSetInfo{
@@ -76,7 +77,8 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 			Name: kueue.TopologySchedulingGate,
 		})
 	}
-	for _, flvRef := range assignment.Flavors {
+	for _, resName := range slices.Sorted(maps.Keys(assignment.Flavors)) {
+		flvRef := assignment.Flavors[resName]
 		if processedFlvs.Has(flvRef) {
 			continue
 		}
@@ -84,6 +86,9 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		flv := kueue.ResourceFlavor{}
 		if err := client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
 			return info, err
+		}
+		if err := utilmaps.HaveConflict(info.NodeSelector, flv.Spec.NodeLabels); err != nil {
+			return info, fmt.Errorf("flavor %s for resource %s: node label conflict with another assigned flavor: %w", flvRef, resName, err)
 		}
 		utilmaps.Copy(&info.NodeSelector, flv.Spec.NodeLabels)
 		info.Tolerations = append(info.Tolerations, flv.Spec.Tolerations...)
