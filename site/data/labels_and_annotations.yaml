@@ -383,6 +383,18 @@
     When enabled, we use the value of pre-built workload from the annotation by default;
     if it is not present, we fall back to the label.
 
+- key: kueue.x-k8s.io/preemption-config-name
+  type: Annotation
+  example: '`kueue.x-k8s.io/preemption-config-name: "my-preemption-config"`'
+  used_on: |
+    [ClusterQueue](/docs/concepts/cluster_queue/).
+  description: |
+    This annotation requires the `ConfigurablePreemptions` feature gate.
+
+    It references a cluster-scoped `PreemptionConfig` resource containing declarative preemption rules.
+    In Alpha, preemption candidate outputs from the referenced `PreemptionConfig` are merged with candidates
+    from the classical or fair sharing preemption rules defined in `spec.preemption`.
+
 - key: kueue.x-k8s.io/priority-boost
   type: Annotation
   example: '`kueue.x-k8s.io/priority-boost: "10"`'
