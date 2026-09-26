@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 				g.Expect(apimeta.FindStatusCondition(workerWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
-					Reason:  "JobFinished",
+					Reason:  kueue.WorkloadFinishedReasonSucceeded,
 					Message: finishJobReason,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -143,7 +143,7 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 				g.Expect(apimeta.FindStatusCondition(managerWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
-					Reason:  "JobFinished",
+					Reason:  kueue.WorkloadFinishedReasonSucceeded,
 					Message: finishJobReason,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
