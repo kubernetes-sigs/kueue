@@ -9,7 +9,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: openvex/generate-vex@c59881b41451d7ccba5c3b74cd195382b8971fcd
+    - uses: openvex/generate-vex@c59881b41451d7ccba5c3b74cd195382b8971fcd # main
       name: Run vexctl
       with:
         product: pkg:golang/sigs.k8s.io/kueue@${{ inputs.tag }}
