@@ -335,15 +335,13 @@ func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workloa
 	return ClusterInfo{}
 }
 
-// ExpectRemoteWorkloadSpec asserts that a remote workload dispatched to a
-// nominated worker has the manager workload's spec. When
-// MultiKueueOrchestratedPreemption is enabled, the manager's preemption gates
-// are not copied and the MultiKueue preemption gate is set instead.
 func ExpectRemoteWorkloadSpec(g gomega.Gomega, remoteWl, managerWl *kueue.Workload) {
 	ginkgo.GinkgoHelper()
 
 	wantSpec := managerWl.Spec.DeepCopy()
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		// The manager's preemption gates are not copied and the MultiKueue
+		// preemption gate is set instead.
 		wantSpec.PreemptionGates = []kueue.PreemptionGate{{Name: constants.MultiKueuePreemptionGate}}
 	}
 	g.Expect(remoteWl.Spec).To(gomega.BeComparableTo(*wantSpec))
