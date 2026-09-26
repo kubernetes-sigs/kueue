@@ -99,7 +99,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-kustomization-resources verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -201,6 +201,10 @@ $(KUSTOMIZE) build config/alpha-enabled > /dev/null
 $(KUSTOMIZE) build config/components/crd/alpha > /dev/null
 endef
 
+define _kustomization_resources_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/kustomization/verify.sh
+endef
+
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
@@ -260,6 +264,10 @@ verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck afte
 .PHONY: verify-kustomize-build
 verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
 	$(_kustomize_build_verify_recipe)
+
+.PHONY: verify-kustomization-resources
+verify-kustomization-resources: verify-tree-prereqs yq ## Verify manifests shipped by the Helm chart are listed in kustomizations after generation
+	$(_kustomization_resources_verify_recipe)
 
 .PHONY: verify-skills-lint
 verify-skills-lint: ## Lint agent skills with skillsaw
@@ -322,6 +330,10 @@ npm-depcheck: ## Verify frontend and e2e npm dependencies.
 .PHONY: kustomize-build-verify
 kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
 	$(_kustomize_build_verify_recipe)
+
+.PHONY: kustomization-resources-verify
+kustomization-resources-verify: yq ## Validate manifests shipped by the Helm chart are listed in kustomizations.
+	$(_kustomization_resources_verify_recipe)
 
 .PHONY: skills-lint
 skills-lint: ## Lint agent skills with skillsaw.
