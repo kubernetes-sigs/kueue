@@ -112,6 +112,11 @@ type Configuration struct {
 	// VisibilityServer configures the visibility server.
 	// +optional
 	VisibilityServer *VisibilityServerConfiguration `json:"visibilityServer,omitempty"`
+
+	// QuotaReleaseStrategy provides configuration options for controlling quota release timing.
+	// Defaults to "OnQuotaReleased".
+	// +optional
+	QuotaReleaseStrategy *QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
 }
 
 type ControllerManager struct {
@@ -298,6 +303,29 @@ type ControllerConfigurationSpec struct {
 	// +optional
 	CacheSyncTimeout *time.Duration `json:"cacheSyncTimeout,omitempty"`
 }
+
+// QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.
+//
+// Valid values are:
+// - "OnQuotaReleased" (default): releases quota as soon as deletion is initiated or the workload is marked finished.
+// - "OnTerminal": holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed). Currently only supported for the "pod" integration.
+//
+// Defaults to "OnQuotaReleased".
+//
+// +kubebuilder:validation:Enum=OnQuotaReleased;OnTerminal
+// +enum
+type QuotaReleaseStrategy string
+
+const (
+	// QuotaReleaseOnQuotaReleased releases quota as soon as deletion is initiated
+	// or the workload status is updated.
+	QuotaReleaseOnQuotaReleased QuotaReleaseStrategy = "OnQuotaReleased"
+
+	// QuotaReleaseOnTerminal holds quota until all underlying pods
+	// have reached a terminal phase (Succeeded or Failed).
+	// Currently only supported for the "pod" integration.
+	QuotaReleaseOnTerminal QuotaReleaseStrategy = "OnTerminal"
+)
 
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
 // which is used to ensure that all Pods are ready within the specified time.
@@ -579,6 +607,7 @@ type Integrations struct {
 	//  - "statefulset"
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
 	Frameworks []string `json:"frameworks,omitempty"`
+
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`

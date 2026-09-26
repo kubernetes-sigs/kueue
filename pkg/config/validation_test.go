@@ -34,6 +34,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -73,6 +74,64 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "integrations",
+				},
+			},
+		},
+		"valid quota release strategy on quota released": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnQuotaReleased),
+			},
+		},
+		"valid quota release strategy on terminal with pod integration": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+				},
+				ManagedJobsNamespaceSelector: systemNamespacesSelector,
+				QuotaReleaseStrategy:         ptr.To(configapi.QuotaReleaseOnTerminal),
+			},
+		},
+		"invalid quota release strategy on terminal with batch/job integration": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnTerminal),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "quotaReleaseStrategy",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "quotaReleaseStrategy",
+				},
+			},
+		},
+		"invalid quota release strategy on terminal with mixed integrations": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod", "batch/job"},
+				},
+				ManagedJobsNamespaceSelector: systemNamespacesSelector,
+				QuotaReleaseStrategy:         ptr.To(configapi.QuotaReleaseOnTerminal),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "quotaReleaseStrategy",
+				},
+			},
+		},
+		"invalid quota release strategy unsupported": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("InvalidStrategy")),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "quotaReleaseStrategy",
 				},
 			},
 		},

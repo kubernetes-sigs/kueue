@@ -633,6 +633,7 @@ func setupControllers(
 		jobframework.WithObjectRetentionPolicies(cfg.ObjectRetentionPolicies),
 		jobframework.WithRoleTracker(opts.RoleTracker),
 		jobframework.WithCustomLabels(opts.CustomLabels),
+		jobframework.WithQuotaReleaseStrategy(cfg.QuotaReleaseStrategy),
 	}
 
 	nsSelector, err := metav1.LabelSelectorAsSelector(cfg.ManagedJobsNamespaceSelector)
