@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"testing"
 	"time"
@@ -733,7 +734,7 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 		},
 		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
-		// is exact past int64. calculateLendable then aggregates potentialAvailable
+		// is exact past int64. lendableCapacity then aggregates potentialAvailable
 		// and lendable["cpu"] carries the whole of it.
 		// b.PerThousandOf(lr) divides the exact operands and evaluates to a tiny
 		// positive finite number; math.Ceil rounds it up to 1. This test pins that
@@ -882,6 +883,59 @@ func TestDominantResourceShare(t *testing.T) {
 				t.Errorf("dominantResourceShare snapshot mismatch: %s", diff)
 			}
 		})
+	}
+}
+
+// Lendable capacity is maintained by the cache next to SubtreeQuota and carried
+// into the snapshot, so fair sharing does not recompute it once per preemption
+// candidate. The carried value must equal a fresh computation, and it must
+// survive the usage changes preemption simulates.
+func TestSnapshotCarriesLendable(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+
+	for _, cohort := range []*kueue.Cohort{
+		utiltestingapi.MakeCohort("root").Obj(),
+		utiltestingapi.MakeCohort("mid").Parent("root").
+			ResourceGroup(utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "10", "", "4").FlavorQuotas).Obj(),
+	} {
+		if err := cache.AddOrUpdateCohort(cohort); err != nil {
+			t.Fatalf("Adding cohort %s: %v", cohort.Name, err)
+		}
+	}
+	cq := utiltestingapi.MakeClusterQueue("cq").Cohort("mid").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "6", "", "2").Obj()).Obj()
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshotting: %v", err)
+	}
+
+	for _, cohort := range snapshot.Cohorts() {
+		if cohort.lendable == nil {
+			t.Errorf("Cohort %s did not carry lendable from the cache", cohort.Name)
+			continue
+		}
+		if diff := cmp.Diff(computeLendable(cohort), cohort.lendable, cmp.Comparer(resources.Equal)); diff != "" {
+			t.Errorf("Cohort %s carried lendable differs from a fresh computation (-fresh,+carried):\n%s", cohort.Name, diff)
+		}
+	}
+
+	// Preemption simulates removing usage. Lendable must not move with it.
+	before := maps.Clone(snapshot.Cohort("mid").lendable)
+	snapshot.ClusterQueue("cq").AddUsage(workload.Usage{Quota: workload.ResourceUsage{
+		Assigned: resources.FlavorResourceQuantities{
+			{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5000),
+		},
+	}})
+	if diff := cmp.Diff(before, lendableCapacity(snapshot.Cohort("mid")), cmp.Comparer(resources.Equal)); diff != "" {
+		t.Errorf("Lendable changed after a usage change (-before,+after):\n%s", diff)
 	}
 }
 

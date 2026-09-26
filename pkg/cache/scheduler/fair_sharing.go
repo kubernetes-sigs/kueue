@@ -168,7 +168,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	drs.borrowing = true
 	drs.borrowedFRs = borrowedFRs
 
-	lendable := calculateLendable(node.parentHRN())
+	lendable := lendableCapacity(node.parentHRN())
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
 			ratio := b.PerThousandOf(lr)
@@ -182,9 +182,35 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	return drs
 }
 
-// calculateLendable aggregates capacity for resources across all
+// lendableCohort is implemented by both Cohort types, which rebuild their
+// lendable capacity whenever SubtreeQuota is rebuilt. ClusterQueues do not
+// implement it, and do not need to: dominantResourceShare returns early at a
+// parentless node and otherwise reads the parent, which is always a Cohort.
+type lendableCohort interface {
+	cachedLendable() map[corev1.ResourceName]resources.Amount
+}
+
+// lendableCapacity aggregates capacity for resources across all
 // FlavorResources.
-func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
+//
+// The fair-sharing tournament calls this once per preemption candidate. The
+// result depends only on quota and the Cohort tree, never on usage, which is the
+// only thing the tournament mutates, so Cohorts serve it from the value
+// maintained by updateCohortLendable. Anything else, and a Cohort whose tree was
+// built without that pass, falls through to computeLendable.
+func lendableCapacity(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
+	if cohort, ok := node.(lendableCohort); ok {
+		if lendable := cohort.cachedLendable(); lendable != nil {
+			return lendable
+		}
+	}
+	return computeLendable(node)
+}
+
+// computeLendable derives lendable capacity from the Cohort tree, ignoring any
+// precomputed value. Callers that can accept a cached result should use
+// lendableCapacity instead.
+func computeLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
 	for root.HasParent() {
