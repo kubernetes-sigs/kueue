@@ -795,7 +795,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					createdWorkload := &kueue.Workload{}
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

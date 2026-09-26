@@ -376,6 +376,7 @@ on any of the workers.
 ## Implementation History
 
 - 2026-02-04: Initial draft of the KEP.
+- 2026-09-25: Graduated to beta.
 
 ## Drawbacks
 
