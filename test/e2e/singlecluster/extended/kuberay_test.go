@@ -26,6 +26,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayctrlcommon "github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,7 @@ import (
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -1163,50 +1165,16 @@ app = HelloWorld.bind()`,
 	ginkgo.It("Should gate a zero-downtime upgrade's pending RayCluster on queue quota", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
-		childRayClusters := func(g gomega.Gomega) []rayv1.RayCluster {
-			rcList := &rayv1.RayClusterList{}
-			g.Expect(k8sClient.List(ctx, rcList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			return rcList.Items
-		}
 		countElasticGatedPods := func(g gomega.Gomega) int {
 			podList := &corev1.PodList{}
 			g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 			gated := 0
 			for i := range podList.Items {
-				for _, gate := range podList.Items[i].Spec.SchedulingGates {
-					if gate.Name == kueue.ElasticJobSchedulingGate {
-						gated++
-						break
-					}
+				if utilpod.HasGate(&podList.Items[i], kueue.ElasticJobSchedulingGate) {
+					gated++
 				}
 			}
 			return gated
-		}
-		notFinishedWorkloads := func(g gomega.Gomega) []kueue.Workload {
-			wlList := &kueue.WorkloadList{}
-			g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			var live []kueue.Workload
-			for i := range wlList.Items {
-				if !workloadfinish.IsFinished(&wlList.Items[i]) {
-					live = append(live, wlList.Items[i])
-				}
-			}
-			return live
-		}
-		totalPods := func(wl *kueue.Workload) int32 {
-			var n int32
-			for i := range wl.Spec.PodSets {
-				n += wl.Spec.PodSets[i].Count
-			}
-			return n
-		}
-		headPodSetCount := func(wl *kueue.Workload) int32 {
-			for i := range wl.Spec.PodSets {
-				if wl.Spec.PodSets[i].Name == "head" {
-					return wl.Spec.PodSets[i].Count
-				}
-			}
-			return 0
 		}
 
 		configMap := &corev1.ConfigMap{
@@ -1273,19 +1241,22 @@ app = HelloWorld.bind()`,
 			VolumeMounts(rayv1.HeadNode, volumeMounts).
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
 			Obj()
+		childRayClusters := func(g gomega.Gomega) []rayv1.RayCluster {
+			rcList := &rayv1.RayClusterList{}
+			options := rayctrlcommon.RayServiceRayClustersAssociationOptions(rayService).ToListOptions()
+			g.Expect(k8sClient.List(ctx, rcList, options...)).To(gomega.Succeed())
+			return rcList.Items
+		}
 
 		ginkgo.By("Creating the ConfigMap and RayService", func() {
 			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
 		})
 
+		var initialSlice *kueue.Workload
 		ginkgo.By("Checking the initial workload is created and admitted", func() {
-			// Workload slices use generated suffixes, so find the workload by listing.
-			gomega.Eventually(func(g gomega.Gomega) {
-				wls := notFinishedWorkloads(g)
-				g.Expect(wls).To(gomega.HaveLen(1))
-				g.Expect(workload.IsAdmitted(&wls[0])).To(gomega.BeTrue())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			initialSlice = &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+			util.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, util.LongTimeout, client.ObjectKeyFromObject(initialSlice))
 		})
 
 		var initialClusterName string
@@ -1324,23 +1295,21 @@ app = HelloWorld.bind()`,
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		var upgradeSlice *kueue.Workload
 		ginkgo.By("Checking the upgrade slice accounts for both clusters and stays pending", func() {
+			upgradeSlice = util.ExpectNewWorkloadSliceWithTimeout(ctx, k8sClient, initialSlice, util.LongTimeout)
 			gomega.Eventually(func(g gomega.Gomega) {
-				wls := notFinishedWorkloads(g)
-				g.Expect(wls).To(gomega.HaveLen(2))
-				var upgradeSlice, activeSlice *kueue.Workload
-				for i := range wls {
-					if totalPods(&wls[i]) == 4 {
-						upgradeSlice = &wls[i]
-					} else {
-						activeSlice = &wls[i]
-					}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(upgradeSlice), upgradeSlice)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), initialSlice)).To(gomega.Succeed())
+				headPodSet := utilpodset.FindPodSetByName(upgradeSlice.Spec.PodSets, "head")
+				g.Expect(headPodSet).NotTo(gomega.BeNil())
+				if headPodSet == nil {
+					return
 				}
-				g.Expect(upgradeSlice).NotTo(gomega.BeNil(), "expected a slice reserving both clusters (4 pods)")
-				g.Expect(activeSlice).NotTo(gomega.BeNil())
-				g.Expect(headPodSetCount(upgradeSlice)).To(gomega.Equal(int32(2)))
+				g.Expect(headPodSet.Count).To(gomega.Equal(int32(2)))
 				g.Expect(workload.IsAdmitted(upgradeSlice)).To(gomega.BeFalse())
-				g.Expect(workload.IsAdmitted(activeSlice)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(initialSlice)).To(gomega.BeTrue())
+				g.Expect(workloadfinish.IsFinished(initialSlice)).To(gomega.BeFalse())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -1388,11 +1357,25 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Verifying quota settles back to a single RayCluster's reservation", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				wls := notFinishedWorkloads(g)
+				wlList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, wlList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				wls := util.FindNonFinishedWorkloads(wlList.Items)
 				g.Expect(wls).To(gomega.HaveLen(1))
+				if len(wls) != 1 {
+					return
+				}
 				g.Expect(workload.IsAdmitted(&wls[0])).To(gomega.BeTrue())
-				g.Expect(totalPods(&wls[0])).To(gomega.Equal(int32(2)))
-				g.Expect(headPodSetCount(&wls[0])).To(gomega.Equal(int32(1)))
+				g.Expect(wls[0].Spec.PodSets).To(gomega.HaveLen(2))
+				headPodSet := utilpodset.FindPodSetByName(wls[0].Spec.PodSets, "head")
+				workerPodSetName := kueue.NewPodSetReference(rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName)
+				workerPodSet := utilpodset.FindPodSetByName(wls[0].Spec.PodSets, workerPodSetName)
+				g.Expect(headPodSet).NotTo(gomega.BeNil())
+				g.Expect(workerPodSet).NotTo(gomega.BeNil())
+				if headPodSet == nil || workerPodSet == nil {
+					return
+				}
+				g.Expect(headPodSet.Count).To(gomega.Equal(int32(1)))
+				g.Expect(workerPodSet.Count).To(gomega.Equal(int32(1)))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
