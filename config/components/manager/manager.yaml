@@ -24,6 +24,7 @@ spec:
         - /manager
         args:
         - "--zap-log-level=2"
+        - "--webhook-service-timeout=15s"
         imagePullPolicy: Always
         image: controller:latest
         name: manager
@@ -39,20 +40,24 @@ spec:
             port: 8081
           initialDelaySeconds: 15
           periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /readyz
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         # TODO(user): Configure the resources accordingly based on the project requirements.
         # More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
         resources:
           limits:
             cpu: "2"
-            memory: 512Mi
+            memory: 1Gi
           requests:
-            cpu: 500m
-            memory: 512Mi
+            cpu: 750m
+            memory: 768Mi
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

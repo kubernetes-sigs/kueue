@@ -19,12 +19,14 @@ package extended
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -79,6 +81,29 @@ var _ = ginkgo.SynchronizedBeforeSuite(
 		util.WaitForKueueAvailability(ctx, k8sManagerClient)
 		util.WaitForKueueAvailability(ctx, k8sWorker1Client)
 		util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+
+		ginkgo.By("Waiting for webhook service to be ready")
+		gomega.Eventually(func() error {
+			pods := &corev1.PodList{}
+			if err := k8sManagerClient.List(ctx, pods, client.InNamespace(kueueNS),
+				client.MatchingLabels{"app.kubernetes.io/name": "kueue", "app.kubernetes.io/component": "webhook"}); err != nil {
+				return err
+			}
+			if len(pods.Items) == 0 {
+				return fmt.Errorf("no webhook pods found in namespace %s", kueueNS)
+			}
+			for _, pod := range pods.Items {
+				if pod.Status.Phase != corev1.PodRunning {
+					return fmt.Errorf("webhook pod %s not running, phase: %s", pod.Name, pod.Status.Phase)
+				}
+				for _, cond := range pod.Status.Conditions {
+					if cond.Type == corev1.PodReady && cond.Status != corev1.ConditionTrue {
+						return fmt.Errorf("webhook pod %s not ready", pod.Name)
+					}
+				}
+			}
+			return nil
+		}).WithTimeout(2 * time.Minute).Should(gomega.Succeed())
 
 		labelFilter := ginkgo.GinkgoLabelFilter()
 
