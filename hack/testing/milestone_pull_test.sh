@@ -306,6 +306,37 @@ ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null || rc=$?
 assert_eq "0" "${rc}" "exit code on a large listing"
 assert_eq "already present" "${MILESTONE_RESULT}" "result on a large listing"
 
+# --- confirm_push ----------------------------------------------------------
+
+function confirm_rc() {
+  local rc=0
+  printf '%b' "$1" | confirm_push origin local-branch remote-branch >/dev/null || rc=$?
+  echo "${rc}"
+}
+
+start_case "confirm_push proceeds on y or Y"
+assert_eq "0" "$(confirm_rc 'y\n')" "exit code on y"
+assert_eq "0" "$(confirm_rc 'Y\n')" "exit code on Y"
+
+start_case "confirm_push aborts on anything else"
+assert_eq "1" "$(confirm_rc 'n\n')" "exit code on n"
+assert_eq "1" "$(confirm_rc '\n')" "exit code on a bare Enter"
+assert_eq "1" "$(confirm_rc 'yes\n')" "exit code on yes, which the sibling scripts also reject"
+
+# A closed stdin has to be told apart from a no: in a non-interactive run it means nobody
+# answered, and treating it as a decline would let a misconfigured job finish green with no PR.
+start_case "confirm_push reports no answer when stdin is closed"
+rc=0
+confirm_push origin local-branch remote-branch </dev/null >/dev/null || rc=$?
+assert_eq "2" "${rc}" "exit code on a closed stdin"
+
+start_case "confirm_push accepts an answer without a trailing newline"
+assert_eq "0" "$(confirm_rc 'y')" "exit code on an unterminated y"
+
+start_case "confirm_push shows the exact push it is about to run"
+assert_contains "$(printf 'n\n' | confirm_push origin local-branch remote-branch 2>&1 || true)" \
+  "  git push origin -f local-branch:remote-branch" "announced push command"
+
 # --- result ----------------------------------------------------------------
 
 if [[ "${failures}" -ne 0 ]]; then

@@ -198,6 +198,21 @@ function update_release_issue() {
   }
 }
 
+# confirm_push shows the push about to happen and asks before doing it, like the sibling release
+# scripts. Returns 0 to push, 1 when declined, 2 when no answer arrived (stdin closed, as in a
+# non-interactive run without `yes y` piped in).
+# $1 - fork remote, $2 - local branch, $3 - remote branch
+function confirm_push() {
+  local reply=""
+  echo
+  echo "+++ I'm about to do the following to push to GitHub (and I'm assuming $1 is your personal fork):"
+  echo
+  echo "  git push $1 -f $2:$3"
+  echo
+  read -r -p "+++ Proceed (anything other than 'y' aborts it)? [y/N] " reply || [[ -n "${reply}" ]] || return 2
+  [[ "${reply}" =~ ^[yY]$ ]] || return 1
+}
+
 # submit_mapping_pr runs the whole pull request phase against the local test-infra clone.
 # $1 - kueue repository, e.g. kubernetes-sigs/kueue
 function submit_mapping_pr() {
@@ -312,6 +327,21 @@ function submit_mapping_pr() {
     PR_RESULT="skipped (DRY_RUN), branch ${TEST_INFRA_WORK_BRANCH} left in place"
     echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
     return 0
+  fi
+
+  git --no-pager show --format= HEAD
+
+  local confirm_rc=0
+  confirm_push "${fork_remote}" "${TEST_INFRA_WORK_BRANCH}" "${PR_BRANCH}" || confirm_rc=$?
+  if [[ "${confirm_rc}" -eq 1 ]]; then
+    PR_RESULT="aborted before push"
+    echo "Aborting." >&2
+    return 0
+  fi
+  if [[ "${confirm_rc}" -eq 2 ]]; then
+    PR_RESULT="FAILED (no answer at the push prompt)"
+    echo "!!! No answer at the push prompt. For a non-interactive run, pipe 'yes y' into the script."
+    exit 1
   fi
 
   echo "+++ Pushing ${TEST_INFRA_WORK_BRANCH} to ${fork_remote} as ${PR_BRANCH}"
