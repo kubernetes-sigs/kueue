@@ -60,6 +60,7 @@ func TestCQReconcile(t *testing.T) {
 		wantQuotaAutomated                 bool
 		wantNominalQuotas                  map[string]string // Ignored if wantQuotaAutomated == false
 		wantCondition                      *metav1.Condition
+		wantMessageTruncated               bool
 		workerResourceCount                int
 		initialConditionObservedGeneration int64
 	}{
@@ -442,7 +443,8 @@ func TestCQReconcile(t *testing.T) {
 				Status: metav1.ConditionFalse,
 				Reason: "UnsupportedConfiguration",
 			},
-			workerResourceCount: 550, // Enough valid resource names to exceed the 32-KiB condition message limit.
+			workerResourceCount:  550, // Enough valid resource names to exceed the 32-KiB condition message limit.
+			wantMessageTruncated: true,
 		},
 		"not a MultiKueue manager ClusterQueue": {
 			cq: utiltestingapi.MakeClusterQueue("cq1").
@@ -588,7 +590,7 @@ func TestCQReconcile(t *testing.T) {
 			// Verify condition state
 			gotCond := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
 			ignoredConditionFields := []string{"LastTransitionTime"}
-			if tc.workerResourceCount > 0 {
+			if tc.wantMessageTruncated {
 				// The generated message is checked for size separately.
 				ignoredConditionFields = append(ignoredConditionFields, "Message")
 				if gotCond != nil && len(gotCond.Message) != 32*1024 {
