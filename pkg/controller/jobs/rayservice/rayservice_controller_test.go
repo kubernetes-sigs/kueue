@@ -338,6 +338,11 @@ func TestPodSets(t *testing.T) {
 						},
 					},
 				},
+				Status: rayv1.RayServiceStatuses{
+					ActiveServiceStatus: rayv1.RayServiceStatus{
+						RayClusterName: "rayservice-active",
+					},
+				},
 			}),
 			children: []rayv1.RayCluster{
 				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 5, new(true)),
