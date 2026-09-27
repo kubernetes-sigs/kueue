@@ -187,6 +187,8 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 	if err := c.List(ctx, &children, client.InNamespace(j.GetNamespace()), childRayClusterLabels(j.GetName())); err != nil {
 		return nil, err
 	}
+	// Fall back to the active RayCluster or MultiKueue runtime-count annotations
+	// when no labeled child RayClusters are available locally.
 	if len(children.Items) == 0 {
 		return raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, j.Status.ActiveServiceStatus.RayClusterName)
 	}
