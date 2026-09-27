@@ -1160,7 +1160,6 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	// Avoid CPU contention while the active RayService remains running throughout the test.
 	ginkgo.It("Should gate a zero-downtime upgrade's pending RayCluster on queue quota", ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
