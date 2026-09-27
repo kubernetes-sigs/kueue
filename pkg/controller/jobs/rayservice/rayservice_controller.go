@@ -184,10 +184,7 @@ func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodS
 	}
 
 	var children rayv1.RayClusterList
-	if err := c.List(ctx, &children,
-		client.InNamespace(j.GetNamespace()),
-		childRayClusterLabels(j.GetName()),
-	); err != nil {
+	if err := c.List(ctx, &children, client.InNamespace(j.GetNamespace()), childRayClusterLabels(j.GetName())); err != nil {
 		return nil, err
 	}
 	if len(children.Items) == 0 {
