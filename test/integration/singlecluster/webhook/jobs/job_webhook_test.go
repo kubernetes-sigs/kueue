@@ -257,6 +257,22 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		gomega.Expect(k8sClient.Update(ctx, updatedJob)).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("should reject lowering the parallelism of a suspended partially admissible job below its minimum", func() {
+		job := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("queue").
+			Parallelism(5).
+			Completions(6).
+			SetAnnotation(job.JobMinParallelismAnnotation, "3").
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+		createdJob := &batchv1.Job{}
+		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+
+		createdJob.Spec.Parallelism = new(int32(2))
+		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(utiltesting.BeForbiddenError())
+	})
+
 	ginkgo.It("Should not set the default WorkloadPriorityClass label when the feature gate is disabled", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, false)
 
