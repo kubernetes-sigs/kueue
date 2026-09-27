@@ -312,7 +312,7 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
-		"steady state: single child, PodSets reflect the child's live spec": {
+		"steady state: autoscaling child provides live replica count and autoscaler sidecar": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Name:      "rayservice",
 				Namespace: "ns",
@@ -321,6 +321,7 @@ func TestPodSets(t *testing.T) {
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
+						EnableInTreeAutoscaling: new(true),
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
