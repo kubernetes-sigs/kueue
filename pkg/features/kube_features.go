@@ -759,9 +759,10 @@ const (
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/13382
 	// Before ungating a pod-group Pod, verify that it fits the PodSet named by its
 	// kueue.x-k8s.io/role-hash annotation. The annotation is treated as an untrusted
-	// PodSet name, not a credential. Disable to restore the previous behavior of
-	// ungating without this check, at the cost of allowing a forged role hash to run
-	// an oversized Pod under a cheaper role's reservation.
+	// PodSet name, not a credential. A Pod requesting more than that PodSet reserves
+	// is kept gated, without affecting the rest of the group. Disable to restore the
+	// previous behavior of ungating without this check, at the cost of allowing a
+	// forged role hash to run an oversized Pod under a cheaper role's reservation.
 	PodIntegrationVerifyRoleRequests featuregate.Feature = "PodIntegrationVerifyRoleRequests"
 
 	// owner: @ivnovakov

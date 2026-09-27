@@ -1313,7 +1313,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.It("Should fail the group when a replacement pod requests more than its role reserves", func() {
+			ginkgo.It("Should keep an oversized replacement pod gated without disrupting the group", func() {
 				const roleHash = "role-a"
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					GroupNameLabel("test-group").
@@ -1355,6 +1355,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, nil)
 				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCQ)).To(gomega.Succeed())
+					g.Expect(createdCQ.Status.ReservingWorkloads).To(gomega.Equal(int32(1)))
+					g.Expect(createdCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 				ginkgo.By("failing one pod and creating an oversized replacement with the same role-hash")
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod2)
@@ -1368,25 +1374,53 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				util.MustCreate(ctx, k8sClient, replacementPod)
 				replacementKey := client.ObjectKeyFromObject(replacementPod)
 
-				ginkgo.By("checking that the replacement stays gated")
-				gomega.Consistently(func(g gomega.Gomega) {
-					created := &corev1.Pod{}
-					g.Expect(k8sClient.Get(ctx, replacementKey, created)).To(gomega.Succeed())
-					g.Expect(created.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
-				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-
-				ginkgo.By("checking that the workload is finished failed and a Warning is emitted")
+				ginkgo.By("checking that a Warning is emitted for the oversized replacement")
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).To(
-						utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, jobframework.FailedToStartFinishedReason))
 					ok, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
 						return e.Reason == podcontroller.ReasonPodExceedsRoleRequests &&
 							e.Type == corev1.EventTypeWarning &&
+							e.Regarding.Name == replacementPod.Name &&
 							strings.Contains(e.Note, "requests more cpu than podset")
 					})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(ok).To(gomega.BeTrue(), "expected a PodExceedsRoleRequests warning event")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("checking that the replacement stays gated while the group keeps running within its quota")
+				gomega.Consistently(func(g gomega.Gomega) {
+					created := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, replacementKey, created)).To(gomega.Succeed())
+					g.Expect(created.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+
+					createdPod1 := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod1)).To(gomega.Succeed())
+					g.Expect(createdPod1.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+					g.Expect(createdPod1.DeletionTimestamp).To(gomega.BeNil())
+					g.Expect(createdPod1.Finalizers).To(gomega.ContainElement(podconstants.PodFinalizer))
+
+					createdCQ := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCQ)).To(gomega.Succeed())
+					g.Expect(createdCQ.Status.ReservingWorkloads).To(gomega.Equal(int32(1)))
+					g.Expect(createdCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+				ginkgo.By("replacing the oversized pod with an honest one")
+				gomega.Expect(k8sClient.Delete(ctx, replacementPod)).To(gomega.Succeed())
+				honestReplacement := testingpod.MakePod("replacement-honest", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					RoleHash(roleHash).
+					Request(corev1.ResourceCPU, "1").
+					Queue(lq.Name).
+					Obj()
+				util.MustCreate(ctx, k8sClient, honestReplacement)
+				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(honestReplacement), nil)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, replacementKey, &corev1.Pod{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

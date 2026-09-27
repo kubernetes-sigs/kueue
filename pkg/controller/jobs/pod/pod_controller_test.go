@@ -506,26 +506,27 @@ func TestRun(t *testing.T) {
 				{Key: types.NamespacedName{Name: "p2", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted},
 			},
 		},
-		"forged hash requesting more than the role reserves is permanent and atomic": {
+		"forged hash requesting more than the role reserves keeps only that pod gated": {
 			wl:       wlWithRoleA("1"),
 			pods:     []corev1.Pod{gatedGroupPod("p1", "1"), gatedGroupPod("p2", "2")},
 			runInfo:  runInfoRoleA,
 			isGroup:  true,
-			wantErr:  podset.ErrInvalidPodsetInfo,
-			wantPods: []corev1.Pod{gatedGroupPod("p1", "1"), gatedGroupPod("p2", "2")},
-			wantEvents: []utiltesting.EventRecord{{
-				Key:       types.NamespacedName{Name: "p2", Namespace: metav1.NamespaceDefault},
-				EventType: corev1.EventTypeWarning,
-				Reason:    ReasonPodExceedsRoleRequests,
-				Message:   `Pod "p2" requests more cpu than podset "role-a" reserves`,
-			}},
+			wantPods: []corev1.Pod{ungatedGroupPod("p1", "1"), gatedGroupPod("p2", "2")},
+			wantEvents: []utiltesting.EventRecord{
+				{Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted},
+				{
+					Key:       types.NamespacedName{Name: "p2", Namespace: metav1.NamespaceDefault},
+					EventType: corev1.EventTypeWarning,
+					Reason:    ReasonPodExceedsRoleRequests,
+					Message:   `Pod "p2" requests more cpu than podset "role-a" reserves`,
+				},
+			},
 		},
-		"pod requesting a resource the role reserves none of is rejected": {
+		"pod requesting a resource the role reserves none of is kept gated": {
 			wl:       wlWithRoleA("1"),
 			pods:     []corev1.Pod{gatedOversizedPod()},
 			runInfo:  runInfoRoleA,
 			isGroup:  true,
-			wantErr:  podset.ErrInvalidPodsetInfo,
 			wantPods: []corev1.Pod{gatedOversizedPod()},
 			wantEvents: []utiltesting.EventRecord{{
 				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
@@ -566,12 +567,11 @@ func TestRun(t *testing.T) {
 					Obj(),
 			},
 		},
-		"init-container requests above the reservation are rejected": {
+		"init-container requests above the reservation keep the pod gated": {
 			wl:       wlWithRoleA("1"),
 			pods:     []corev1.Pod{gatedInitContainerPod()},
 			runInfo:  runInfoRoleA,
 			isGroup:  true,
-			wantErr:  podset.ErrInvalidPodsetInfo,
 			wantPods: []corev1.Pod{gatedInitContainerPod()},
 			wantEvents: []utiltesting.EventRecord{{
 				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
@@ -580,12 +580,11 @@ func TestRun(t *testing.T) {
 				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
 			}},
 		},
-		"sidecar requests above the reservation are rejected": {
+		"sidecar requests above the reservation keep the pod gated": {
 			wl:       wlWithRoleA("1"),
 			pods:     []corev1.Pod{gatedSidecarPod()},
 			runInfo:  runInfoRoleA,
 			isGroup:  true,
-			wantErr:  podset.ErrInvalidPodsetInfo,
 			wantPods: []corev1.Pod{gatedSidecarPod()},
 			wantEvents: []utiltesting.EventRecord{{
 				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
@@ -594,12 +593,11 @@ func TestRun(t *testing.T) {
 				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
 			}},
 		},
-		"pod-level resource requests above the reservation are rejected": {
+		"pod-level resource requests above the reservation keep the pod gated": {
 			wl:       wlWithRoleA("1"),
 			pods:     []corev1.Pod{gatedPodLevelResourcesPod()},
 			runInfo:  runInfoRoleA,
 			isGroup:  true,
-			wantErr:  podset.ErrInvalidPodsetInfo,
 			wantPods: []corev1.Pod{gatedPodLevelResourcesPod()},
 			wantEvents: []utiltesting.EventRecord{{
 				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
@@ -1682,8 +1680,12 @@ func TestConstructGroupPodSets(t *testing.T) {
 				gate(&tc.pods[i])
 			}
 			wl := utiltestingapi.MakeWorkload("wl", "ns").PodSets(gotPodSets...).Obj()
-			if err := validatePodsBeforeUngating(tc.pods, wl, nil); err != nil {
+			oversized, err := validatePodsBeforeUngating(tc.pods, wl, nil)
+			if err != nil {
 				t.Errorf("honest max-merged group failed validatePodsBeforeUngating: %v", err)
+			}
+			if oversized.Len() != 0 {
+				t.Errorf("honest max-merged group has oversized pods: %v", sets.List(oversized))
 			}
 		})
 	}

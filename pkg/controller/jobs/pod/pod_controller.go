@@ -319,6 +319,7 @@ func (p *Pod) Suspend() {
 func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	var keepGated sets.Set[string]
 	if !p.isGroup {
 		if len(podSetsInfo) != 1 {
 			return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
@@ -339,14 +340,18 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 		}
 
 		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
-	} else if err := validatePodsBeforeUngating(p.list.Items, wl, recorder); err != nil {
-		return err
+	} else {
+		var err error
+		keepGated, err = validatePodsBeforeUngating(p.list.Items, wl, recorder)
+		if err != nil {
+			return err
+		}
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
 		pod := &p.list.Items[i]
 
-		if !isGated(pod) {
+		if !isGated(pod) || keepGated.Has(pod.Name) {
 			return nil
 		}
 
@@ -1073,15 +1078,19 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 }
 
 // validatePodsBeforeUngating verifies that every gated pod fits the PodSet its
-// role-hash annotation names. The annotation is user-supplied and is treated as an
-// untrusted PodSet name: it selects the reservation to check against, it does not
-// assert anything about the pod. Verifying here rather than at admission means the
-// pod is in its final shape (admission-check nodeSelectors already applied) and no
-// pod annotation has to be rewritten to make the check sound.
-func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) error {
+// role-hash annotation names, and returns the names of the pods that do not. The
+// annotation is user-supplied and is treated as an untrusted PodSet name: it selects
+// the reservation to check against, it does not assert anything about the pod.
+// Verifying here rather than at admission means the pod is in its final shape
+// (admission-check nodeSelectors already applied) and no pod annotation has to be
+// rewritten to make the check sound. A pod exceeding its reservation gets a Warning
+// event and is left gated instead of failing the group, so that such a pod cannot
+// disrupt an already admitted group.
+func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
-		return nil
+		return nil, nil
 	}
+	oversized := sets.New[string]()
 	podSets := utilslices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
 	for i := range pods {
 		pod := &pods[i]
@@ -1090,11 +1099,11 @@ func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder 
 		}
 		role, err := getRoleHash(*pod)
 		if err != nil {
-			return errRoleHashCalculationForPod(pod.Name, err)
+			return nil, errRoleHashCalculationForPod(pod.Name, err)
 		}
 		ps, found := podSets[kueue.NewPodSetReference(role)]
 		if !found {
-			return fmt.Errorf("%w: no podset named %q for pod %q", podset.ErrInvalidPodsetInfo, role, pod.Name)
+			return nil, fmt.Errorf("%w: no podset named %q for pod %q", podset.ErrInvalidPodsetInfo, role, pod.Name)
 		}
 		reserved := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
 		resourceName, exceeds := firstExceededResource(pod, reserved)
@@ -1105,10 +1114,9 @@ func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder 
 		if recorder != nil {
 			recorder.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodExceedsRoleRequests, "Admission", api.TruncateEventMessage(msg))
 		}
-		return fmt.Errorf("%w: pod %q requests more than podset %q reserves",
-			podset.ErrInvalidPodsetInfo, pod.Name, role)
+		oversized.Insert(pod.Name)
 	}
-	return nil
+	return oversized, nil
 }
 
 func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {
