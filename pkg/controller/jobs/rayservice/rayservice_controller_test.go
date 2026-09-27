@@ -348,31 +348,7 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			children: []rayv1.RayCluster{
-				{
-					Name:      "rayservice-cluster",
-					Namespace: "ns",
-					Labels: map[string]string{
-						rayutils.RayOriginatedFromCRNameLabelKey: "rayservice",
-						rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
-					},
-					Spec: rayv1.RayClusterSpec{
-						EnableInTreeAutoscaling: new(true),
-						HeadGroupSpec: rayv1.HeadGroupSpec{
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
-							},
-						},
-						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-							{
-								GroupName: "group1",
-								Replicas:  new(int32(5)), // RayCluster has scaled to 5 replicas
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
-								},
-							},
-						},
-					},
-				},
+				childRayCluster("rayservice-cluster", "rayservice", "ns", "group1", 5, new(true)),
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -388,7 +364,7 @@ func TestPodSets(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlices: true,
 			},
 		},
-		"with workload slicing enabled but autoscaling disabled, use spec count": {
+		"with workload slicing enabled but autoscaling disabled": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Name:      "rayservice",
 				Namespace: "ns",
@@ -421,24 +397,12 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			children: []rayv1.RayCluster{
-				{
-					Name:      "rayservice-cluster",
-					Namespace: "ns",
-					Spec: rayv1.RayClusterSpec{
-						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-							{
-								GroupName: "group1",
-								Replicas:  new(int32(10)), // RayCluster has different count
-							},
-						},
-					},
-				},
+				childRayCluster("rayservice-cluster", "rayservice", "ns", "group1", 2, new(false)),
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
 					Obj(),
-				// Uses spec count, not RayCluster
 				*utiltestingapi.MakePodSet("group1", 2).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
 					Obj(),
