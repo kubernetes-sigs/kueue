@@ -17,7 +17,6 @@ limitations under the License.
 package util_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -28,7 +27,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-func TestPodNamesByGate(t *testing.T) {
+func TestUngatedPodNames(t *testing.T) {
 	const (
 		namespace = "test"
 		gateName  = "example.com/gate"
@@ -43,32 +42,12 @@ func TestPodNamesByGate(t *testing.T) {
 		&corev1.Pod{Name: "ungated", Namespace: namespace},
 	).Build()
 
-	testCases := map[string]struct {
-		get  func(context.Context, string) ([]string, error)
-		want []string
-	}{
-		"gated": {
-			get: func(ctx context.Context, gate string) ([]string, error) {
-				return util.GatedPodNames(ctx, client, namespace, gate)
-			},
-			want: []string{"gated"},
-		},
-		"ungated": {
-			get: func(ctx context.Context, gate string) ([]string, error) {
-				return util.UngatedPodNames(ctx, client, namespace, gate)
-			},
-			want: []string{"other-gate", "ungated"},
-		},
+	got, err := util.UngatedPodNames(t.Context(), client, namespace, gateName)
+	if err != nil {
+		t.Fatalf("UngatedPodNames() error = %v", err)
 	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got, err := tc.get(t.Context(), gateName)
-			if err != nil {
-				t.Fatalf("Pod names error = %v", err)
-			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("Pod names (-want,+got):\n%s", diff)
-			}
-		})
+	want := []string{"other-gate", "ungated"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("UngatedPodNames() mismatch (-want,+got):\n%s", diff)
 	}
 }

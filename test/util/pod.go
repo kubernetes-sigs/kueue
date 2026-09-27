@@ -26,29 +26,19 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
-// GatedPodNames returns the sorted names of Pods in the namespace that have the
-// specified scheduling gate.
-func GatedPodNames(ctx context.Context, k8sClient client.Client, namespace, gateName string) ([]string, error) {
-	return podNamesByGate(ctx, k8sClient, namespace, gateName, true)
-}
-
 // UngatedPodNames returns the sorted names of Pods in the namespace that don't
 // have the specified scheduling gate.
 func UngatedPodNames(ctx context.Context, k8sClient client.Client, namespace, gateName string) ([]string, error) {
-	return podNamesByGate(ctx, k8sClient, namespace, gateName, false)
-}
-
-func podNamesByGate(ctx context.Context, k8sClient client.Client, namespace, gateName string, gated bool) ([]string, error) {
 	pods := &corev1.PodList{}
 	if err := k8sClient.List(ctx, pods, client.InNamespace(namespace)); err != nil {
 		return nil, err
 	}
-	matching := make([]string, 0, len(pods.Items))
+	ungated := make([]string, 0, len(pods.Items))
 	for i := range pods.Items {
-		if utilpod.HasGate(&pods.Items[i], gateName) == gated {
-			matching = append(matching, pods.Items[i].Name)
+		if !utilpod.HasGate(&pods.Items[i], gateName) {
+			ungated = append(ungated, pods.Items[i].Name)
 		}
 	}
-	slices.Sort(matching)
-	return matching, nil
+	slices.Sort(ungated)
+	return ungated, nil
 }
