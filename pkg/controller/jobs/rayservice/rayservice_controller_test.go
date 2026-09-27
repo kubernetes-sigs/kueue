@@ -69,6 +69,8 @@ func childRayCluster(name, rayServiceName, namespace, groupName string, replicas
 
 func TestPodSets(t *testing.T) {
 	collectorImage := "quay.io/kuberay/collector:v1.7.0"
+	// autoscaler mirrors the sidecar KubeRay injects into the head Pod when
+	// in-tree autoscaling is enabled, with KubeRay's default resources.
 	autoscaler := corev1.Container{
 		Name: "autoscaler",
 		Resources: corev1.ResourceRequirements{
