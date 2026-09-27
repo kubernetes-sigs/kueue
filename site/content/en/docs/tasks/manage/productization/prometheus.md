@@ -53,9 +53,9 @@ Kueue can also supports helm deployment for Prometheus.
 If you want to secure the metrics endpoints with external certificates:
 
 1. Set both `enableCertManager` and `enablePrometheus` to true. Setting `enableCertManager` also disables internal cert management, unless you set `internalCertManagement` explicitly in `managerConfig`.
-2. Provide values for the tlsConfig, including `insecureSkipVerify: false`, see the example below:
+2. The chart configures the ServiceMonitor to verify the metrics certificate issued by cert-manager, so no `tlsConfig` is needed.
 
-An example for your tlsConfig in the helm chart could be as follows:
+To customize it, set `metrics.serviceMonitor.tlsConfig`. It replaces the generated configuration entirely, so include `insecureSkipVerify: false`. For example:
 
 ```yaml
 ...
