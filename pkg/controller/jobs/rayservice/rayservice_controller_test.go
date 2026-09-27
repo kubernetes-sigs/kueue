@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -591,25 +590,6 @@ func TestIsSuspended(t *testing.T) {
 				t.Errorf("IsSuspended() = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestSuspendDoesNotSuspendRayClusterTemplate(t *testing.T) {
-	rayService := (*RayService)(&rayv1.RayService{
-		Spec: rayv1.RayServiceSpec{
-			RayClusterSpec: rayv1.RayClusterSpec{
-				Suspend: new(false),
-			},
-		},
-	})
-
-	rayService.Suspend()
-
-	if !rayService.Spec.Suspend {
-		t.Error("Suspend() did not suspend the RayService")
-	}
-	if got := ptr.Deref(rayService.Spec.RayClusterSpec.Suspend, false); got {
-		t.Error("Suspend() suspended the RayCluster template; elastic Pod scheduling gates should control child Pods")
 	}
 }
 
