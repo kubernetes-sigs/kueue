@@ -30,6 +30,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -302,11 +303,32 @@ func ValidateImmutablePodGroupPodSpec(newPodSpec *corev1.PodSpec, oldPodSpec *co
 	return validateImmutablePodGroupPodSpecPath(utilpod.SpecShape(newPodSpec), utilpod.SpecShape(oldPodSpec), fieldPath)
 }
 
+// hasWaitForPodsReadyAnnotationChanged reports whether the parsed WaitForPodsReady
+// annotation configuration differs between oldObj and newObj. It compares the
+// raw strings first and parse only when they differ.
+func hasWaitForPodsReadyAnnotationChanged(oldObj, newObj client.Object) bool {
+	oldValue := oldObj.GetAnnotations()[constants.WaitForPodsReadyAnnotation]
+	newValue := newObj.GetAnnotations()[constants.WaitForPodsReadyAnnotation]
+	if oldValue == newValue {
+		return false
+	}
+	newCfg, err := waitforpodsready.ParseAnnotation(newValue)
+	if err != nil {
+		return true
+	}
+	oldCfg, err := waitforpodsready.ParseAnnotation(oldValue)
+	if err != nil || !apiequality.Semantic.DeepEqual(oldCfg, newCfg) {
+		return true
+	}
+	return false
+}
+
 func ValidateWaitForPodsReadyAnnotationOnUpdate(oldObj, newObj client.Object, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
 		return nil
 	}
-	if oldObj.GetAnnotations()[constants.WaitForPodsReadyAnnotation] == newObj.GetAnnotations()[constants.WaitForPodsReadyAnnotation] {
+	hasChange := hasWaitForPodsReadyAnnotationChanged(oldObj, newObj)
+	if !hasChange {
 		return nil
 	}
 	return ValidateWaitForPodsReadyAnnotation(newObj, maxTimeoutOnWorkload)
