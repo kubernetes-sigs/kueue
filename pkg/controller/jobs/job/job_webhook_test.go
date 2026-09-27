@@ -853,6 +853,23 @@ func TestValidateUpdate(t *testing.T) {
 			},
 		},
 		{
+			name: "lower parallelism below the minimum while adding the stopping annotation to a suspended job with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(2).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(StoppingAnnotation, "true").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 3, "should be greater than 0 and less than 2"),
+			},
+		},
+		{
 			name: "unsuspend with parallelism below the minimum with partial admission enabled",
 			oldJob: testingutil.MakeJob("job", "default").
 				Parallelism(6).
