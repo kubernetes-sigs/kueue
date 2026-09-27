@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-func childRayCluster(name, rayServiceName, namespace, groupName string, replicas int32, enableAutoscaling ...bool) rayv1.RayCluster {
+func childRayCluster(name, rayServiceName, namespace, groupName string, replicas int32, enableAutoscaling *bool) rayv1.RayCluster {
 	cluster := rayv1.RayCluster{
 		Name:      name,
 		Namespace: namespace,
@@ -63,9 +63,7 @@ func childRayCluster(name, rayServiceName, namespace, groupName string, replicas
 			},
 		},
 	}
-	if len(enableAutoscaling) > 0 {
-		cluster.Spec.EnableInTreeAutoscaling = new(enableAutoscaling[0])
-	}
+	cluster.Spec.EnableInTreeAutoscaling = enableAutoscaling
 	return cluster
 }
 
@@ -341,7 +339,7 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			children: []rayv1.RayCluster{
-				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 5, true),
+				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 5, new(true)),
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
@@ -433,8 +431,8 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			children: []rayv1.RayCluster{
-				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 2),
-				childRayCluster("rayservice-pending", "rayservice", "ns", "group1", 2),
+				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 2, nil),
+				childRayCluster("rayservice-pending", "rayservice", "ns", "group1", 2, nil),
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 2).
@@ -526,8 +524,8 @@ func TestPodSetsRejectsDifferentResourceRequestsDuringUpgrade(t *testing.T) {
 			workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 		},
 	})
-	active := childRayCluster("rayservice-active", "rayservice", "ns", "group1", 1)
-	pending := childRayCluster("rayservice-pending", "rayservice", "ns", "group1", 1)
+	active := childRayCluster("rayservice-active", "rayservice", "ns", "group1", 1, nil)
+	pending := childRayCluster("rayservice-pending", "rayservice", "ns", "group1", 1, nil)
 	pending.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Requests = corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("1"),
 	}
