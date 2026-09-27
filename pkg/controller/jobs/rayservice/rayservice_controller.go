@@ -176,8 +176,11 @@ func (j *RayService) PodLabelSelector() string {
 
 func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
-	if err != nil || !workloadslicing.Enabled(j.Object()) {
-		return podSets, err
+	if err != nil {
+		return nil, err
+	}
+	if !workloadslicing.Enabled(j.Object()) {
+		return podSets, nil
 	}
 
 	var children rayv1.RayClusterList
