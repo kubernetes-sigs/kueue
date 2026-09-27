@@ -45,7 +45,6 @@ import (
 )
 
 var (
-	eventuallyTimeout     = 10 * time.Minute
 	eventuallyLongTimeout = 15 * time.Minute
 )
 
