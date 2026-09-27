@@ -108,8 +108,7 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 		// topology: the pods' controller owner (RayCluster) differs from the
 		// slices' owner (RayService).
 		childCluster := &rayv1.RayCluster{
-			Name:      service.Name + "-raycluster",
-			Namespace: ns.Name,
+			Name: service.Name + "-raycluster", Namespace: ns.Name,
 			Labels: map[string]string{
 				rayutils.RayOriginatedFromCRNameLabelKey: service.Name,
 				rayutils.RayOriginatedFromCRDLabelKey:    rayutils.RayOriginatedFromCRDLabelValue(rayutils.RayServiceCRD),
