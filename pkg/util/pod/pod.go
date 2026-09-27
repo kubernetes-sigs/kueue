@@ -106,9 +106,12 @@ func IgnoreLabelNotFoundError(err error) error {
 	return err
 }
 
-// ReadUIntFromLabel reads labelKey as an unsigned integer, with no upper bound.
-func ReadUIntFromLabel(obj client.Object, labelKey string) (*int, error) {
-	return readUIntFromLabel(obj, labelKey, nil)
+// ValidateUIntLabel returns the error reading labelKey as an unsigned integer would produce.
+func ValidateUIntLabel(obj client.Object, labelKey string) error {
+	// The value is deliberately not returned: without a bound it can exceed what an
+	// int holds, and no caller needs it.
+	_, err := readUIntFromLabel(obj, labelKey, nil)
+	return err
 }
 
 func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) (*int, error) {
