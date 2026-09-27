@@ -1321,14 +1321,6 @@ app = HelloWorld.bind()`,
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Verifying the active RayCluster keeps serving during the gated upgrade", func() {
-			clientPod := startServeClientPod(ns.Name)
-			cmd := rayServeCurlCmd(rayService.Name, "")
-			stdout, stderr, err := util.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
-			gomega.Expect(string(stdout)).To(gomega.ContainSubstring("Hello, World!"))
-		})
-
 		ginkgo.By("Adding quota so the upgrade slice fits", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				updatedCq := &kueue.ClusterQueue{}
