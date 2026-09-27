@@ -322,8 +322,7 @@ func (p *Pod) readPodIndex(labelKey string) (string, error) {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		// Outside a group there is no count to bound the index against.
-		_, err := utilpod.ReadUIntFromLabel(p.Object(), labelKey)
-		return index, err
+		return index, utilpod.ValidateUIntLabel(p.Object(), labelKey)
 	}
 	_, err = utilpod.ReadUIntFromLabelBelowBound(p.Object(), labelKey, groupTotalCount)
 	return index, err
