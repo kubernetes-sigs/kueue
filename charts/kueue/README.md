@@ -197,7 +197,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
 | managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
-| metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |
+| metrics.serviceMonitor.tlsConfig | object | `{}` | ServiceMonitor's tlsConfig. When empty, the chart verifies the metrics certificate issued by cert-manager if `enableCertManager` is true, and skips verification otherwise. When set, it replaces the generated tlsConfig. |
 | metricsService.annotations | object | `{}` | metricsService's annotations |
 | metricsService.labels | object | `{}` | metricsService's labels |
 | metricsService.ports | list | `[{"name":"https","port":8443,"protocol":"TCP","targetPort":8443}]` | metricsService's ports |
