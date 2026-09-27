@@ -145,6 +145,8 @@ func TestEntryPenaltyHelpersDoNotMutateSharedMaps(t *testing.T) {
 	}
 }
 
+// SettlePenalty must copy settledPenalties. The second settlement is the first
+// write after Get, so an in-place insert shows up on the fetched map.
 func TestSettlePenaltyDoesNotMutateSharedSettledMap(t *testing.T) {
 	lqKey := utilqueue.NewLocalQueueReference("default", "lq")
 	ledger := NewAfsUsageLedger()
@@ -164,13 +166,43 @@ func TestSettlePenaltyDoesNotMutateSharedSettledMap(t *testing.T) {
 		entry, _ = entry.SettlePenalty("ns/wl2")
 		return entry
 	})
-	ledger.ForgetSettledPenalty(lqKey, "ns/wl1")
 
 	if !snapshot.HasSettledPenalty("ns/wl1") {
 		t.Error("a later write deleted a settled identity from a fetched entry's map")
 	}
 	if snapshot.HasSettledPenalty("ns/wl2") {
 		t.Error("a later write inserted a settled identity into a fetched entry's map")
+	}
+}
+
+// ForgetSettledPenalty must copy settledPenalties. The forget runs immediately
+// after Get: a later settlement would already have cloned the map, and an
+// in-place delete of the snapshot would then go unnoticed.
+func TestForgetSettledPenaltyDoesNotMutateSharedSettledMap(t *testing.T) {
+	lqKey := utilqueue.NewLocalQueueReference("default", "lq")
+	ledger := NewAfsUsageLedger()
+	ledger.PushPenalty(lqKey, "ns/wl1", corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, time.Now())
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		entry, _ = entry.SettlePenalty("ns/wl1")
+		return entry
+	})
+
+	snapshot, found := ledger.Get(lqKey)
+	if !found {
+		t.Fatal("expected the settlement to create an entry")
+	}
+
+	ledger.ForgetSettledPenalty(lqKey, "ns/wl1")
+
+	if !snapshot.HasSettledPenalty("ns/wl1") {
+		t.Error("ForgetSettledPenalty deleted a settled identity from a fetched entry's map")
+	}
+	stored, found := ledger.Get(lqKey)
+	if !found {
+		t.Fatal("expected the entry to remain after forgetting one settled identity")
+	}
+	if stored.HasSettledPenalty("ns/wl1") {
+		t.Error("ForgetSettledPenalty left the settled identity on the stored entry")
 	}
 }
 
