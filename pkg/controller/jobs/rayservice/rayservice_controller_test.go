@@ -340,12 +340,12 @@ func TestPodSets(t *testing.T) {
 				},
 				Status: rayv1.RayServiceStatuses{
 					ActiveServiceStatus: rayv1.RayServiceStatus{
-						RayClusterName: "rayservice-active",
+						RayClusterName: "rayservice-cluster",
 					},
 				},
 			}),
 			children: []rayv1.RayCluster{
-				childRayCluster("rayservice-active", "rayservice", "ns", "group1", 5, new(true)),
+				childRayCluster("rayservice-cluster", "rayservice", "ns", "group1", 5, new(true)),
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
