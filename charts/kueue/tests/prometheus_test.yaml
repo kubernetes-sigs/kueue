@@ -1,0 +1,20 @@
+suite: test prometheus ServiceMonitor
+templates:
+  - prometheus/monitor.yaml
+tests:
+  - it: should verify the metrics certificate when configured as documented for cert-manager
+    set:
+      enablePrometheus: true
+      enableCertManager: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            insecureSkipVerify: false
+            ca:
+              secret:
+                name: kueue-metrics-server-cert
+                key: ca.crt
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: false
