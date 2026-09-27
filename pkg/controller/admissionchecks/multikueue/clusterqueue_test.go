@@ -418,9 +418,6 @@ func TestCQReconcile(t *testing.T) {
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
 				AdmissionChecks("ac1").
 				Obj(),
-			lqs: []*kueue.LocalQueue{
-				utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("cq1").Obj(),
-			},
 			acs: []*kueue.AdmissionCheck{
 				utiltestingapi.MakeAdmissionCheck("ac1").
 					ControllerName(kueue.MultiKueueControllerName).
@@ -430,14 +427,7 @@ func TestCQReconcile(t *testing.T) {
 			configs: []*kueue.MultiKueueConfig{
 				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").QuotaManagement(kueue.QuotaManagementAutomated).Obj(),
 			},
-			workers: map[string]workerState{
-				"worker1": {
-					lqs: []*kueue.LocalQueue{utiltestingapi.MakeLocalQueue("lq1", TestNamespace).ClusterQueue("w1-cq1").Obj()},
-					cqs: []*kueue.ClusterQueue{
-						utiltestingapi.MakeClusterQueue("w1-cq1").Obj(),
-					},
-				},
-			},
+			workers: map[string]workerState{"worker1": {}},
 			wantCondition: &metav1.Condition{
 				Type:   kueue.MultiKueueManagerQuotaAutomation,
 				Status: metav1.ConditionFalse,
@@ -505,12 +495,20 @@ func TestCQReconcile(t *testing.T) {
 				tc.cq.Status.Conditions[0].ObservedGeneration = tc.initialConditionObservedGeneration
 			}
 			if tc.workerResourceCount > 0 {
-				flavor := utiltestingapi.MakeFlavorQuotas("default")
-				for i := range tc.workerResourceCount {
-					flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/r%050d", i)), "1")
+				worker := tc.workers["worker1"]
+				// Each resource list may contain at most 64 entries.
+				for start := 0; start < tc.workerResourceCount; start += 64 {
+					flavor := utiltestingapi.MakeFlavorQuotas("default")
+					for i := start; i < min(start+64, tc.workerResourceCount); i++ {
+						flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/r%050d", i)), "1")
+					}
+					cqName := fmt.Sprintf("w1-cq%d", start/64)
+					lqName := fmt.Sprintf("lq%d", start/64)
+					worker.cqs = append(worker.cqs, utiltestingapi.MakeClusterQueue(cqName).ResourceGroup(*flavor.Obj()).Obj())
+					worker.lqs = append(worker.lqs, utiltestingapi.MakeLocalQueue(lqName, TestNamespace).ClusterQueue(cqName).Obj())
+					tc.lqs = append(tc.lqs, utiltestingapi.MakeLocalQueue(lqName, TestNamespace).ClusterQueue(tc.cq.Name).Obj())
 				}
-				workerCQ := tc.workers["worker1"].cqs[0]
-				workerCQ.Spec.ResourceGroups = []kueue.ResourceGroup{utiltestingapi.ResourceGroup(*flavor.Obj())}
+				tc.workers["worker1"] = worker
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
