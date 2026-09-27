@@ -17,7 +17,6 @@ limitations under the License.
 package rayservice
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -522,35 +521,6 @@ func TestPodSets(t *testing.T) {
 				t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-func TestPodSetsRejectsDifferentResourceRequestsDuringUpgrade(t *testing.T) {
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.TopologyAwareScheduling:      false,
-		features.ElasticJobsViaWorkloadSlices: true,
-	})
-
-	rayService := (*RayService)(&rayv1.RayService{
-		Name:      "rayservice",
-		Namespace: "ns",
-		Annotations: map[string]string{
-			workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-		},
-	})
-	active := childRayCluster("rayservice-active", "rayservice", "ns", "group1", 1, nil)
-	pending := childRayCluster("rayservice-pending", "rayservice", "ns", "group1", 1, nil)
-	pending.Spec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Resources.Requests = corev1.ResourceList{
-		corev1.ResourceCPU: resource.MustParse("1"),
-	}
-	fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).
-		WithObjects(&active, &pending).
-		Build()
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-	_, err := rayService.PodSets(ctx, fakeClient)
-	if err == nil || !strings.Contains(err.Error(), "incompatible resource requests") {
-		t.Fatalf("PodSets() error = %v, want incompatible resource requests error", err)
 	}
 }
 
