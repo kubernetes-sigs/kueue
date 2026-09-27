@@ -4435,7 +4435,9 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 
 		ginkgo.By("keeping the surplus Pod gated and the first Pod unchanged")
 		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.TopologySchedulingGate))).To(gomega.ConsistOf("pod-0", "pod-1", "pod-2"))
+			ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.TopologySchedulingGate)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(ungated).To(gomega.ConsistOf("pod-0", "pod-1", "pod-2"))
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(extra), extra)).To(gomega.Succeed())
 			g.Expect(utilpod.HasGate(extra, kueue.TopologySchedulingGate)).To(gomega.BeTrue())
 			first := &corev1.Pod{}
@@ -5109,18 +5111,6 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 	})
 })
 
-func ungatedPodNames(g gomega.Gomega, nsName, gateName string) sets.Set[string] {
-	pods := &corev1.PodList{}
-	g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName))).Should(gomega.Succeed())
-	ungated := sets.New[string]()
-	for i := range pods.Items {
-		if !utilpod.HasGate(&pods.Items[i], gateName) {
-			ungated.Insert(pods.Items[i].Name)
-		}
-	}
-	return ungated
-}
-
 var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacity",
 	func(tasEnabled bool) {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
@@ -5358,7 +5348,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			mintGatedPod("pod-0")
 			mintGatedPod("pod-1")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.ElasticJobSchedulingGate))).Should(gomega.HaveLen(2))
+				ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.ElasticJobSchedulingGate)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ungated).Should(gomega.HaveLen(2))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -5394,7 +5386,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			// The usual window is shorter than the second or so the ungater
 			// takes to reach a newly created pod.
 			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.ElasticJobSchedulingGate))).Should(gomega.HaveLen(2))
+				ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.ElasticJobSchedulingGate)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ungated).Should(gomega.HaveLen(2))
 			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -5407,7 +5401,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 				g.Expect(k8sClient.Status().Update(ctx, slice)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.ElasticJobSchedulingGate))).Should(gomega.HaveLen(3))
+				ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.ElasticJobSchedulingGate)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(ungated).Should(gomega.HaveLen(3))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -5992,12 +5988,16 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 		ginkgo.By("the ungater ungates exactly the granted count and leaves the surplus gated")
 		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.ElasticJobSchedulingGate))).Should(gomega.HaveLen(grantedPodCount))
+			ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.ElasticJobSchedulingGate)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(ungated).Should(gomega.HaveLen(grantedPodCount))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the cap is stable: the ungater never exceeds the granted quota")
 		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.ElasticJobSchedulingGate))).Should(gomega.HaveLen(grantedPodCount))
+			ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.ElasticJobSchedulingGate)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(ungated).Should(gomega.HaveLen(grantedPodCount))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
@@ -6121,7 +6121,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(firstPod), firstPod)).Should(gomega.Succeed())
 			g.Expect(firstPod.Status.Phase).Should(gomega.Equal(corev1.PodRunning))
-			g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.ElasticJobSchedulingGate))).Should(gomega.ConsistOf(firstPod.Name))
+			ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.ElasticJobSchedulingGate)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(ungated).Should(gomega.ConsistOf(firstPod.Name))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
@@ -6223,7 +6225,9 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 		ginkgo.By("the cap holds: both granted pods are ungated and no surplus is")
 		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(sets.List(ungatedPodNames(g, ns.Name, kueue.ElasticJobSchedulingGate))).Should(gomega.HaveLen(2))
+			ungated, err := util.UngatedPodNames(ctx, k8sClient, ns.Name, kueue.ElasticJobSchedulingGate)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(ungated).Should(gomega.HaveLen(2))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
