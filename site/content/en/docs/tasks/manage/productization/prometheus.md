@@ -55,7 +55,7 @@ If you want to secure the metrics endpoints with external certificates:
 1. Set both `enableCertManager` and `enablePrometheus` to true. Setting `enableCertManager` also disables internal cert management, unless you set `internalCertManagement` explicitly in `managerConfig`.
 2. The chart configures the ServiceMonitor to verify the metrics certificate issued by cert-manager, so no `tlsConfig` is needed.
 
-To customize it, set `metrics.serviceMonitor.tlsConfig`. It replaces the generated configuration entirely, so include `insecureSkipVerify: false`. For example:
+To customize it, set `metrics.serviceMonitor.tlsConfig`. It replaces the generated configuration entirely, so set `serverName` and `ca` yourself. For example:
 
 ```yaml
 ...
