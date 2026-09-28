@@ -197,6 +197,16 @@ func (c *ContainerWrapper) WithResourceLimit(resourceName corev1.ResourceName, q
 	return c
 }
 
+// Port appends a container port, exposed on the host when host is non-zero.
+func (c *ContainerWrapper) Port(container, host int32, protocol corev1.Protocol) *ContainerWrapper {
+	c.Ports = append(c.Ports, corev1.ContainerPort{
+		ContainerPort: container,
+		HostPort:      host,
+		Protocol:      protocol,
+	})
+	return c
+}
+
 // WithEnvVar appends a env variable to the container.
 func (c *ContainerWrapper) WithEnvVar(envVar corev1.EnvVar) *ContainerWrapper {
 	c.Env = append(c.Env, envVar)

@@ -27,6 +27,8 @@
     - [Default Candidate Ordering](#default-candidate-ordering)
   - [Integration](#integration)
   - [Observability](#observability)
+    - [Eviction Statistics](#eviction-statistics)
+    - [Conditions](#conditions)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -864,8 +866,25 @@ This approach changes the existing preemption and scheduling codebase as little 
 
 ### Observability
 
-As new preemptions may be far more complex than the existing classical model, it may be non-trivial to judge why a workload was preempted just by looking at the ClusterQueue resource. Therefore, we need to add more visibility into preemption reasons. To satisfy this need, details about the eviction will be written to the `WorkloadSchedulingStatsEviction` structure in the `Workload` status.
-Reason will be set to `ConfigurablePreemption` to indicate that the new mechanism was used for preemption. The `UnderlyingCause` will be filled with the following information up to the maximum characters:
+Because configurable preemptions can be significantly more complex than the classical model, determining why a workload was preempted by inspecting the `ClusterQueue` resource alone may not be straightforward. To provide better visibility into preemption causes, eviction details will be recorded in the `Workload` status under `WorkloadSchedulingStatsEviction` and in the corresponding status conditions.
+
+#### Eviction Statistics
+
+In the eviction statistics (`WorkloadSchedulingStatsEviction`), `Reason` will be set to `ConfigurablePreemption` to indicate that the new mechanism triggered the preemption, and `UnderlyingCause` will be populated with the name of the `PreemptionConfig` that caused it.
+
+Each time a workload is preempted due to a particular `PreemptionConfig`, the `Count` for the corresponding `WorkloadSchedulingStatsEviction` entry will be incremented. Because a cluster is expected to have relatively few `PreemptionConfig` resources (typically <= 10), this will neither exhaust the eviction entries limit nor cause an excessive number of resource updates.
+
+#### Conditions
+
+When a workload is preempted by the configurable preemption mechanism, two conditions will be set, consistent with the existing preemption mechanism:
+
+1. **Evicted**
+   - `Reason` will be set to `Preempted` to preserve existing requeue logic and avoid breaking changes for clients that rely on this condition's `Reason`.
+
+2. **Preempted**
+   - `Reason` will be set to `ConfigurablePreemption` to indicate that the new mechanism triggered the preemption.
+
+The `Message` for both conditions will be the same (following the existing preemptions pattern) and filled with the following information up to the maximum characters:
 
 - preemptor workload reference,
 - preemption config name, rule name, and selector indices which resulted in choosing this workload as a candidate.
@@ -878,7 +897,6 @@ In case of multiple selectors which are triggered within one rule, they will be 
 Example message:
 `Preempted by <preemptor> because of preemption config <preemptionConfig> rule <ruleName_1>/<selectorIndex_1>,<selectorIndex_2>,...,<selectorIndex_n>; <ruleName_2>/<selectorIndex_1>,<selectorIndex_2>,...,<selectorIndex_n>; ...`
 
-New preemptions will overwrite the previous underlying cause but increase the eviction count for this reason.
 
 ### Test Plan
 

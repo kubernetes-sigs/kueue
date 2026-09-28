@@ -439,7 +439,7 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 	}
 }
 
-// simulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
+// SimulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
 // returns a function that puts them back.
 func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
 	// The default simulator reports the same cluster whatever is running, so there is

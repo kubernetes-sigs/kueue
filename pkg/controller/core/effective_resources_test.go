@@ -56,9 +56,9 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 		requeueAfterBackoff bool
 		preprocessingRead   int
 	}{
-		"initial DRA queue insertion": {preprocessingRead: 1},
 		// Reconcile first reads defaults in needsDRAReconcile; handleDRA
 		// takes the preprocessing snapshot on the second read.
+		"initial DRA queue insertion":       {preprocessingRead: 2},
 		"DRA queue insertion after backoff": {requeueAfterBackoff: true, preprocessingRead: 2},
 	}
 	for name, tc := range cases {
@@ -98,7 +98,10 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 					}}).Build()
 			cache := schdcache.New(cl)
 			queues := qcache.NewManagerForUnitTests(cl, cache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
-			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+			if err := cl.Create(ctx, cq); err != nil {
+				t.Fatal(err)
+			}
 			if err := cache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatal(err)
 			}
@@ -106,6 +109,9 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 				t.Fatal(err)
 			}
 			lq := utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj()
+			if err := cl.Create(ctx, lq); err != nil {
+				t.Fatal(err)
+			}
 			if err := queues.AddLocalQueue(ctx, lq); err != nil {
 				t.Fatal(err)
 			}
@@ -120,11 +126,7 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 			backedResources.Add(gpu, dc.Name)
 			reconciler := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{}, WithDRAMapper(mapper), WithDRABackedResources(backedResources))
 			reconciler.clock = testingclock.NewFakeClock(now)
-			if tc.requeueAfterBackoff {
-				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
-					t.Fatal(err)
-				}
-			} else if _, _, _, err := reconciler.handleDRA(ctx, wl); err != nil {
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
 				t.Fatal(err)
 			}
 			infos := queues.PendingWorkloadsInfo("cq")

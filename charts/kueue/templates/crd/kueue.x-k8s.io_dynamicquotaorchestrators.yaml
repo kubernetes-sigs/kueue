@@ -213,11 +213,14 @@ spec:
                                 - type: string
                               pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                               x-kubernetes-int-or-string: true
-                            description: resources contains total capacity by resource name.
+                            description: |-
+                              resources contains total capacity by resource name.
+                              A resource that is not listed, including when the map is empty, has zero
+                              capacity for the flavor.
                             type: object
                             x-kubernetes-validations:
-                              - message: resource capacity must have between 1 and 64 entries
-                                rule: size(self) >= 1 && size(self) <= 64
+                              - message: resource capacity must have at most 64 entries
+                                rule: size(self) <= 64
                         required:
                           - name
                           - resources

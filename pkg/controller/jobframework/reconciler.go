@@ -1962,18 +1962,21 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			}
 		}
 		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
+		prevPodSets := slices.ToRefMap(prevWl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference {
+			return ps.Name
+		})
 		admitted := int32(0)
 		for i := range podSets {
 			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok {
 				admitted += prevAdmittedCount
 			}
-			// The baseline is copied forward from the predecessor's own floor, not
+			// The baseline is copied forward from the matching predecessor's own floor, not
 			// recomputed from its live grant, so it keeps tracing back to the chain's
 			// origin even once every live predecessor is gone. The scheduler still
 			// enforces that a scale-up must grow at least one PodSet, using the
 			// predecessor's live grant while it's still around (see getInitialAssignments).
-			if prevWl.Spec.PodSets[i].MinCount != nil {
-				podSets[i].MinCount = prevWl.Spec.PodSets[i].MinCount
+			if prevPodSet := prevPodSets[podSets[i].Name]; prevPodSet != nil && prevPodSet.MinCount != nil {
+				podSets[i].MinCount = prevPodSet.MinCount
 			}
 		}
 		if extra != "" {
