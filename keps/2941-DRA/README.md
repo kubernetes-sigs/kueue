@@ -2056,7 +2056,7 @@ for production use. The Kubernetes API is summarized in the
 
 #### Terminology
 
-- **Alternative**: one `.spec.devices.requests[*].firstAvailable[*]` entry of a
+- **Alternative**: one `.spec.spec.devices.requests[*].firstAvailable[*]` entry of a
   ResourceClaimTemplate.
 - **Logical resource**: the `name` of a `deviceClassMappings` entry, which is the resource a
   ClusterQueue sets quota for, such as `example.com/a100` in [Story 6](#story-6).
@@ -2538,7 +2538,7 @@ each. It asserts that each alternative is allocated once and that the Workload i
 - Consumable capacity design: July 2026 by @sohankunkerkar — added KEP-5075 integration
   for software-level device sharing
 - Promoted KueueDRAIntegrationPartitionableDevices to Beta: July 2026 by @PannagaRao
-- `firstAvailable` quota design: July 2026 by @thc1006
+- `firstAvailable` quota design: July 2026 by @thc1006 and @sohankunkerkar
   (see [#13599](https://github.com/kubernetes-sigs/kueue/issues/13599))
 - DRA device feasibility: September 2026 by @sohankunkerkar — added per-node device
   checking before admission, so quota is not reserved for unplaceable Workloads
