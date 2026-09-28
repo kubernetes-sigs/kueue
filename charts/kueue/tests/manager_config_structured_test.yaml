@@ -315,6 +315,96 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "clientConnection:|integrations:|leaderElection:|controller:"
 
+  - it: should ignore optional framework webhooks for an empty legacy YAML object
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: "{}"
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+
+  - it: should ignore optional framework webhooks when integrations are removed
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config.integrations: null
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+
+  - it: should ignore optional framework webhooks when frameworks are removed
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config.integrations.frameworks: null
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+
   - it: should use packaged defaults with an empty structured map
     template: manager/manager-config.yaml
     set:
