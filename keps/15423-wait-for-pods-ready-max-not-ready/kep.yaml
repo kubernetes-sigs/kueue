@@ -1,4 +1,4 @@
-title: WaitForPodsReady Maximum Unavailable Pods
+title: WaitForPodsReady Maximum Not-Ready Pods
 kep-number: 15423
 authors:
   - "@j-skiba"
@@ -10,7 +10,7 @@ reviewers:
   - "@kannon92"
   - "@mwielgus"
 approvers:
-  - "@kannon92"
+  - "@tenzen-y"
   - "@mimowo"
 
 see-also:
@@ -35,7 +35,7 @@ milestone:
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
-  - name: WaitForPodsReadyMaxUnavailable
+  - name: WaitForPodsReadyMaxNotReady
 disable-supported: true
 
 # The following PRR answers are required at beta release

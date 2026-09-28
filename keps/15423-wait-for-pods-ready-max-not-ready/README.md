@@ -1,4 +1,4 @@
-# KEP-15423: WaitForPodsReady Maximum Unavailable Pods
+# KEP-15423: WaitForPodsReady Maximum Not-Ready Pods
 
 <!-- toc -->
 - [Summary](#summary)
@@ -32,9 +32,9 @@
 
 ## Summary
 
-This KEP introduces the `kueue.x-k8s.io/pod-group-max-unavailable-count` Pod annotation,
-guarded by the alpha `WaitForPodsReadyMaxUnavailable` feature gate (disabled by default).
-It sets the maximum number of unavailable Pods tolerated for a Pod group to satisfy the
+This KEP introduces the `kueue.x-k8s.io/pod-group-max-not-ready-count` Pod annotation,
+guarded by the alpha `WaitForPodsReadyMaxNotReady` feature gate (disabled by default).
+It sets the maximum number of not-ready Pods tolerated for a Pod group to satisfy the
 Workload `PodsReady` condition, relaxing `waitForPodsReady.timeout` and
 `waitForPodsReady.recoveryTimeout` while keeping admission and quota reservation at full
 `kueue.x-k8s.io/pod-group-total-count` size.
@@ -46,14 +46,14 @@ Workload `PodsReady` condition, relaxing `waitForPodsReady.timeout` and
 `timeout` (and recover within `recoveryTimeout`), otherwise evicting and requeuing the
 entire Workload.
 
-For large workloads that tolerate a few unavailable Pods, evicting the entire Workload is
+For large workloads that tolerate a few not-ready Pods, evicting the entire Workload is
 far more disruptive than running slightly below capacity while those Pods recover.
 
-Expressing this tolerance as a maximum number of unavailable Pods aligns with standard
-Kubernetes disruption and rollout primitives (`PodDisruptionBudget`, `StatefulSet`,
-`Deployment`) and remains valid when a `StatefulSet` or `LeaderWorkerSet` is scaled
-(provided the total Pod count stays above the configured limit) without modifying the Pod
-template.
+Expressing this tolerance as a maximum number of not-ready Pods mirrors the
+`maxUnavailable` pattern of standard Kubernetes disruption and rollout primitives
+(`PodDisruptionBudget`, `StatefulSet`, `Deployment`) and remains valid when a
+`StatefulSet` or `LeaderWorkerSet` is scaled (provided the total Pod count stays above the
+configured limit) without modifying the Pod template.
 
 Unlike partial admission (`podSets[].minCount`,
 [KEP-420](../420-partial-admission/README.md)), which shrinks a Workload at admission
@@ -62,10 +62,10 @@ threshold.
 
 ### Goals
 
-- Allow configuring, per Pod group, the maximum number of unavailable Pods tolerated when
+- Allow configuring, per Pod group, the maximum number of not-ready Pods tolerated when
   satisfying the Workload `PodsReady` condition for both `timeout` and `recoveryTimeout`.
 - Support plain Pod groups ([KEP-976](../976-plain-pods/README.md)).
-- Preserve all-or-nothing behavior (`0` unavailable Pods tolerated) when the feature gate
+- Preserve all-or-nothing behavior (`0` not-ready Pods tolerated) when the feature gate
   is disabled or the annotation is absent or invalid.
 
 ### Non-Goals
@@ -80,12 +80,20 @@ threshold.
 
 ## Proposal
 
-Introduce the `kueue.x-k8s.io/pod-group-max-unavailable-count` annotation on the Pods of a
-Pod group, honored when the `WaitForPodsReadyMaxUnavailable` feature gate is enabled.
+Introduce the `kueue.x-k8s.io/pod-group-max-not-ready-count` annotation on the Pods of a
+Pod group, honored when the `WaitForPodsReadyMaxNotReady` feature gate is enabled.
+
+A Pod group's **not-ready Pods** are the `pod-group-total-count` slots of the group that
+are not filled by a Pod counted as ready for `PodsReady` purposes, i.e.
+`notReady = pod-group-total-count - readyCount`. This covers Pods whose `Ready` condition
+is not `True` (unless they succeeded and succeeded Pods count as ready, see
+[Notes/Constraints/Caveats](#notesconstraintscaveats-optional)) as well as Pods that were
+not yet created or were deleted. The term matches the existing `PodsReady` condition and
+its `Not all pods are ready or succeeded` message.
 
 When every Pod in the group carries a valid integer `M` in `[0, pod-group-total-count - 1]`,
-the Pod group tolerates up to `M` unavailable Pods (satisfying `PodsReady` once at least
-`pod-group-total-count - M` of its Pods are ready). Otherwise, `0` unavailable Pods are
+the Pod group tolerates up to `M` not-ready Pods (satisfying `PodsReady` once at least
+`pod-group-total-count - M` of its Pods are ready). Otherwise, `0` not-ready Pods are
 tolerated and all `pod-group-total-count` Pods must be ready.
 
 The existing `waitForPodsReady` machinery (`timeout`, `recoveryTimeout`, `blockAdmission`,
@@ -98,9 +106,9 @@ of the resulting `PodsReady` condition.
 #### Story 1
 
 As a user running a 200-replica `StatefulSet` (or `LeaderWorkerSet`) backed by Kueue's Pod
-group integration, I want the Workload to tolerate up to 5 unavailable Pods when evaluating
+group integration, I want the Workload to tolerate up to 5 not-ready Pods when evaluating
 `PodsReady` (requiring at least 195 ready Pods), so that a few delayed or replacement Pods
-do not trigger `timeout` or `recoveryTimeout` eviction. I set the maximum unavailable count
+do not trigger `timeout` or `recoveryTimeout` eviction. I set the maximum not-ready count
 directly in the Pod template, which remains valid if `replicas` is scaled (with
 `replicas > 5`) without editing the Pod template:
 
@@ -116,7 +124,7 @@ spec:
   template:
     metadata:
       annotations:
-        kueue.x-k8s.io/pod-group-max-unavailable-count: "5"
+        kueue.x-k8s.io/pod-group-max-not-ready-count: "5"
     spec:
       # ...
 ```
@@ -124,10 +132,10 @@ spec:
 #### Story 2
 
 As a user or custom controller managing a plain Pod group directly (without `StatefulSet`
-or `LeaderWorkerSet`), I want the Workload to tolerate up to 5 unavailable Pods out of 200
+or `LeaderWorkerSet`), I want the Workload to tolerate up to 5 not-ready Pods out of 200
 when evaluating `PodsReady`, so that a few delayed or replacement Pods do not trigger
 `timeout` or `recoveryTimeout` eviction. I set
-`kueue.x-k8s.io/pod-group-max-unavailable-count` alongside
+`kueue.x-k8s.io/pod-group-max-not-ready-count` alongside
 `kueue.x-k8s.io/pod-group-total-count` on each Pod in the group:
 
 ```yaml
@@ -140,7 +148,7 @@ metadata:
     kueue.x-k8s.io/pod-group-name: trainer
   annotations:
     kueue.x-k8s.io/pod-group-total-count: "200"
-    kueue.x-k8s.io/pod-group-max-unavailable-count: "5"
+    kueue.x-k8s.io/pod-group-max-not-ready-count: "5"
 spec:
   # ...
 ```
@@ -150,9 +158,9 @@ spec:
 - **Single-Pod readiness is unchanged.** A Pod counts as ready when its `Ready` condition
   is `True` or, for non-serving Pod groups with `PodIntegrationCountSucceededPodsAsReady`
   enabled, when it has succeeded.
-- **Flat count & strictest value.** Unavailability is evaluated across the full group size
+- **Flat count & strictest value.** Not-ready Pods are counted across the full group size
   (`pod-group-total-count - readyCount`) and governed by the lowest (strictest)
-  `pod-group-max-unavailable-count` value among its Pods; any Pod with a missing or invalid
+  `pod-group-max-not-ready-count` value among its Pods; any Pod with a missing or invalid
   annotation (not an integer in `[0, pod-group-total-count - 1]`) defaults to `0`.
 - **StatefulSet and LeaderWorkerSet.** Because these integrations use Pod groups under the
   hood, the annotation works when set in their Pod template(s) (for `LeaderWorkerSet`, in
@@ -161,10 +169,10 @@ spec:
 
 ### Risks and Mitigations
 
-- **Weakened all-or-nothing guarantee:** Unavailable Pods within the allowed budget still
+- **Weakened all-or-nothing guarantee:** Not-ready Pods within the allowed budget still
   hold quota while `PodsReady=True` unblocks subsequent admissions and disarms timeouts.
   *Mitigation:* Opt-in per Pod group; cluster admins can keep the
-  `WaitForPodsReadyMaxUnavailable` feature gate disabled or restrict the annotation via a
+  `WaitForPodsReadyMaxNotReady` feature gate disabled or restrict the annotation via a
   ValidatingAdmissionPolicy.
 - **Silent fallback in Alpha:** Invalid values (non-integers, `M < 0`, or
   `M >= pod-group-total-count`) fall back to `0` (requiring all `pod-group-total-count`
@@ -176,16 +184,10 @@ spec:
 
 ### API
 
-A new alpha feature gate (disabled by default in v0.20):
+A new Pod annotation constant:
 
 ```go
-WaitForPodsReadyMaxUnavailable featuregate.Feature = "WaitForPodsReadyMaxUnavailable"
-```
-
-And a new Pod annotation constant:
-
-```go
-GroupMaxUnavailableCountAnnotation = "kueue.x-k8s.io/pod-group-max-unavailable-count"
+GroupMaxNotReadyCountAnnotation = "kueue.x-k8s.io/pod-group-max-not-ready-count"
 ```
 
 The annotation value is valid when it is an integer `M` with
@@ -196,31 +198,31 @@ The annotation value is valid when it is an integer `M` with
 The Pod integration computes `PodsReady` for a Pod group as follows:
 
 ```text
-maxUnavailable(pod) = M  if the pod's annotation is a valid integer M in [0, totalCount - 1]
+maxNotReady(pod)    = M  if the pod's annotation is a valid integer M in [0, totalCount - 1]
                     = 0  otherwise (annotation missing or invalid)
 
-allowedUnavailable  = 0                                        if the feature gate is disabled
-                    = min(maxUnavailable(pod) for pod in group) otherwise
+allowedNotReady     = 0                                     if the feature gate is disabled
+                    = min(maxNotReady(pod) for pod in group) otherwise
 
-unavailable         = totalCount - count(pod in group : readyOrSucceeded(pod))
-PodsReady           = unavailable <= allowedUnavailable
+notReady            = totalCount - count(pod in group : readyOrSucceeded(pod))
+PodsReady           = notReady <= allowedNotReady
 ```
 
 Taking the minimum across the group makes evaluation deterministic during in-place
 annotation updates (`kubectl annotate pods ... --overwrite`) and fail-safe if values
-diverge: relaxing the budget (raising `pod-group-max-unavailable-count`) takes effect once
+diverge: relaxing the budget (raising `pod-group-max-not-ready-count`) takes effect once
 all Pods carry the new value, whereas tightening it (lowering
-`pod-group-max-unavailable-count`) takes effect as soon as any Pod is updated. Measuring
-`unavailable` against `totalCount` also ensures that uncreated or deleted Pods count as
-unavailable.
+`pod-group-max-not-ready-count`) takes effect as soon as any Pod is updated. Measuring
+`notReady` against `totalCount` also ensures that uncreated or deleted Pods count as
+not ready.
 
-Disabling the feature gate causes Kueue to ignore the annotation and allow `0` unavailable
+Disabling the feature gate causes Kueue to ignore the annotation and allow `0` not-ready
 Pods (requiring all `totalCount` Pods to be ready).
 
 ### Validation
 
 In Alpha, no webhook validation is added; invalid values safely fall back to `0`
-unavailable Pods tolerated.
+not-ready Pods tolerated.
 
 For Beta, admission-time validation or warnings can be added for:
 - non-integer values or values outside `[0, pod-group-total-count - 1]` on Pod group Pods,
@@ -230,21 +232,21 @@ For Beta, admission-time validation or warnings can be added for:
 
 - **Consolidating under `kueue.x-k8s.io/wait-for-pods-ready`
   ([KEP-4803](../4803-workload-level-wait-for-pods-ready/README.md)):** Move the
-  unavailability configuration into the per-workload `kueue.x-k8s.io/wait-for-pods-ready`
+  not-ready budget configuration into the per-workload `kueue.x-k8s.io/wait-for-pods-ready`
   JSON annotation (and eventually `Workload.spec.waitForPodsReady`) alongside
   `timeoutSeconds` and `recoveryTimeoutSeconds`, unifying per-workload `WaitForPodsReady`
   settings in one place.
 - **Generalizing to `evictionCriteria`:** Generalize the single integer count into
-  structured `evictionCriteria` where `maxUnavailable` can be specified per PodSet/role
-  within a PodGroup or Workload - for example, tolerating `0` unavailable `leader` Pods
-  while tolerating `1` unavailable `worker` Pod.
+  structured `evictionCriteria` where `maxNotReady` can be specified per PodSet/role
+  within a PodGroup or Workload - for example, tolerating `0` not-ready `leader` Pods
+  while tolerating `1` not-ready `worker` Pod.
 - **Parent-object propagation:** Propagate the annotation from `StatefulSet` and
   `LeaderWorkerSet` objects to their Pods so the budget can be updated without a Pod
   template rollout.
 - **Other integrations:** Support non-Pod-group integrations once ready Pod tracking is
   available ([kubernetes-sigs/kueue#15404](https://github.com/kubernetes-sigs/kueue/issues/15404)).
 - **Further improvements:** Based on user feedback, future versions may consider surfacing
-  ready and unavailable Pod counts in Workload status and MultiKueue support.
+  ready and not-ready Pod counts in Workload status and MultiKueue support.
 
 ### Test Plan
 
@@ -258,7 +260,7 @@ None.
 
 #### Unit tests
 
-- `pkg/controller/jobs/pod`: Test `PodsReady` with `WaitForPodsReadyMaxUnavailable` enabled
+- `pkg/controller/jobs/pod`: Test `PodsReady` with `WaitForPodsReadyMaxNotReady` enabled
   and disabled, covering valid budgets, missing or invalid annotations (non-integers,
   `M < 0`, and `M >= totalCount`), divergent values across Pods in a group, and
   `PodIntegrationCountSucceededPodsAsReady`.
@@ -266,28 +268,34 @@ None.
 #### Integration tests
 
 - Verify Pod group `PodsReady` transitions and `recoveryTimeout` eviction when
-  `kueue.x-k8s.io/pod-group-max-unavailable-count` is configured and updated.
+  `kueue.x-k8s.io/pod-group-max-not-ready-count` is configured and updated.
 - Verify interaction with per-Workload `kueue.x-k8s.io/wait-for-pods-ready`
   ([KEP-4803](../4803-workload-level-wait-for-pods-ready/README.md)).
 
 #### e2e tests
 
-- Verify that a Pod group with `kueue.x-k8s.io/pod-group-max-unavailable-count` stays ready
-  when unavailable Pods remain within the allowed budget and is evicted on
-  `recoveryTimeout` when unavailable Pods exceed the budget.
+- Verify that a Pod group with `kueue.x-k8s.io/pod-group-max-not-ready-count` stays ready
+  when not-ready Pods remain within the allowed budget and is evicted on
+  `recoveryTimeout` when not-ready Pods exceed the budget.
 
 ### Graduation Criteria
 
 #### Alpha
 
-- `WaitForPodsReadyMaxUnavailable` feature gate introduced (disabled by default).
-- `kueue.x-k8s.io/pod-group-max-unavailable-count` honored for plain Pod groups.
+- `WaitForPodsReadyMaxNotReady` feature gate introduced (disabled by default).
+- `kueue.x-k8s.io/pod-group-max-not-ready-count` honored for plain Pod groups.
 - Unit, integration, and e2e tests added; annotation reference updated.
+- `PodsReady=False` reuses the existing generic message (`Not all pods are ready or
+  succeeded`); no new condition messages are introduced.
 
 #### Beta
 
 - Feature gate enabled by default.
-- Admission-time validation or warnings for invalid values and unsupported integrations.
+- Webhook validation or warnings for invalid values and unsupported integrations.
+- Make the `PodsReady=False` condition message explain why the condition is not satisfied
+  (for example, the not-ready Pod count versus the allowed
+  `pod-group-max-not-ready-count` budget). This may land in an intermediate Alpha
+  iteration.
 - Re-evaluate replacing the annotation with a Workload API field [KEP-4803](../4803-workload-level-wait-for-pods-ready/README.md).
 
 #### Stable
@@ -311,28 +319,28 @@ None.
 ## Alternatives
 
 - **Specifying minimum ready Pods (`pod-group-min-ready-count`) instead of maximum
-  unavailable:** While equivalent for a fixed group size
-  (`minReady = totalCount - maxUnavailable`), a minimum ready count couples the Pod
+  not-ready:** While equivalent for a fixed group size
+  (`minReady = totalCount - maxNotReady`), a minimum ready count couples the Pod
   template annotation to the total replica count. Scaling a `StatefulSet` or
   `LeaderWorkerSet` would either invalidate the threshold or require modifying the Pod
   template (triggering a Pod rollout). Expressing the budget as
-  `pod-group-max-unavailable-count` remains valid across replica scaling (as long as
-  `totalCount > maxUnavailable`) and is symmetric with `pod-group-total-count`.
+  `pod-group-max-not-ready-count` remains valid across replica scaling (as long as
+  `totalCount > maxNotReady`) and is symmetric with `pod-group-total-count`.
 - **Clamping `M >= pod-group-total-count` to `pod-group-total-count - 1` instead of
   falling back to `0`:** Clamping values `>= pod-group-total-count` would mark a group
   `PodsReady=True` as soon as a single Pod is ready (for example if a user accidentally
-  sets `pod-group-max-unavailable-count` equal to `pod-group-total-count`). Treating
+  sets `pod-group-max-not-ready-count` equal to `pod-group-total-count`). Treating
   `M >= pod-group-total-count` as invalid and falling back to `0` fails closed to
   all-or-nothing behavior.
 - **Reusing `podSets[].minCount` ([KEP-420](../420-partial-admission/README.md)):**
   `minCount` resizes a Workload and reduces its quota at admission time, whereas this
   feature keeps the full admission size and only relaxes `PodsReady`.
 - **A Workload API field:** A per-PodSet field (for example
-  `spec.podSets[].maxUnavailable`) requires all integrations to report ready Pods per
+  `spec.podSets[].maxNotReady`) requires all integrations to report ready Pods per
   PodSet
   ([kubernetes-sigs/kueue#15404](https://github.com/kubernetes-sigs/kueue/issues/15404)).
   Starting with a Pod group annotation keeps the Alpha API footprint small.
-- **Cluster-level configuration:** Tolerating unavailable Pods is workload-specific; a
+- **Cluster-level configuration:** Tolerating not-ready Pods is workload-specific; a
   global ratio would weaken all-or-nothing guarantees for workloads that require every Pod.
 - **Reading the annotation from a single Pod:** Inspecting only the reconciling Pod would
   make readiness order-dependent during updates and could mark an incomplete group ready if
