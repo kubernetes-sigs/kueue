@@ -330,6 +330,74 @@ cohorts:
 	}
 }
 
+func TestLoadConfig_TASDRA(t *testing.T) {
+	testContent := `
+topology:
+  name: test-topology
+  levels:
+    - name: rack
+      count: 2
+      nodeLabel: "cloud.provider.com/topology-rack"
+    - name: node
+      count: 16
+      nodeLabel: "kubernetes.io/hostname"
+
+dra:
+  devicesPerNode: 8
+
+resourceFlavor:
+  name: test-flavor
+  nodeLabel: "tas-node-group"
+  topologyName: "test-topology"
+
+cohorts:
+  - className: dra-cohort
+    count: 1
+    queuesSets:
+      - className: dra-cq
+        count: 1
+        nominalQuota: 20
+        borrowingLimit: 100
+        reclaimWithinCohort: Any
+        withinClusterQueue: LowerPriority
+        deviceNominalQuota: "40"
+        deviceBorrowingLimit: "200"
+        workloadsSets:
+          - count: 10
+            creationIntervalMs: 100
+            workloads:
+              - className: dra-wl
+                runtimeMs: 200
+                priority: 50
+                request: 500m
+                podCount: 2
+                devices: 1
+                tasConstraint: required
+                tasLevel: cloud.provider.com/topology-rack
+`
+	tempDir := t.TempDir()
+	fPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(fPath, []byte(testContent), os.FileMode(0600)); err != nil {
+		t.Fatalf("unable to create test file: %v", err)
+	}
+
+	got, err := LoadConfig(fPath)
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
+	}
+
+	if got.DRA == nil || got.DRA.DevicesPerNode != 8 {
+		t.Errorf("expected dra.devicesPerNode 8, got %+v", got.DRA)
+	}
+	qSet := got.Cohorts[0].QueuesSets[0]
+	if qSet.DeviceNominalQuota != "40" || qSet.DeviceBorrowingLimit != "200" {
+		t.Errorf("expected device quota 40/200, got %q/%q", qSet.DeviceNominalQuota, qSet.DeviceBorrowingLimit)
+	}
+	if wl := qSet.WorkloadsSets[0].Workloads[0]; wl.Devices != 1 {
+		t.Errorf("expected devices 1, got %d", wl.Devices)
+	}
+}
+
 func TestGenerateNodesRecursive_UniqueHostnames(t *testing.T) {
 	levels := []TopologyLevel{
 		{Name: "block", Count: 1, NodeLabel: "cloud.provider.com/topology-block"},
@@ -348,5 +416,144 @@ func TestGenerateNodesRecursive_UniqueHostnames(t *testing.T) {
 	}
 	if hostnames.Len() != 640 {
 		t.Errorf("expected 640 distinct hostnames, got %d", hostnames.Len())
+	}
+}
+
+func TestLoadConfig_InvalidDevices(t *testing.T) {
+	testContent := `
+cohorts:
+  - className: cohort
+    count: 1
+    queuesSets:
+      - className: cq
+        count: 1
+        nominalQuota: 20
+        deviceNominalQuota: 8
+        workloadsSets:
+          - count: 1
+            workloads:
+              - className: small
+                request: 1
+                tasLevel: kubernetes.io/hostname
+                devices: 1
+`
+	tempDir := t.TempDir()
+	fPath := filepath.Join(tempDir, "config.yaml")
+	if err := os.WriteFile(fPath, []byte(testContent), os.FileMode(0600)); err != nil {
+		t.Fatalf("unable to create test file: %v", err)
+	}
+
+	_, err := LoadConfig(fPath)
+	if err == nil {
+		t.Fatal("expected error for devices without a dra section, got nil")
+	}
+	if err.Error() != `workload class "small" requests devices but the config has no dra section` {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestValidateDevices(t *testing.T) {
+	testCases := map[string]struct {
+		config  Config
+		wantErr string
+	}{
+		"valid": {
+			config: Config{
+				DRA: &DRAConfig{DevicesPerNode: 8},
+				Cohorts: []CohortSet{{QueuesSets: []QueuesSet{{
+					ClassName:          "cq",
+					DeviceNominalQuota: "8",
+					WorkloadsSets: []WorkloadsSet{{Workloads: []WorkloadTemplate{{
+						ClassName: "small",
+						TASLevel:  "kubernetes.io/hostname",
+						Devices:   1,
+					}}}},
+				}}}},
+			},
+		},
+		"zero devicesPerNode": {
+			config: Config{
+				DRA: &DRAConfig{DevicesPerNode: 0},
+				Cohorts: []CohortSet{{QueuesSets: []QueuesSet{{
+					ClassName:          "cq",
+					DeviceNominalQuota: "8",
+					WorkloadsSets: []WorkloadsSet{{Workloads: []WorkloadTemplate{{
+						ClassName: "small",
+						TASLevel:  "kubernetes.io/hostname",
+						Devices:   1,
+					}}}},
+				}}}},
+			},
+			wantErr: "dra.devicesPerNode must be positive",
+		},
+		"negative devices": {
+			config: Config{
+				DRA: &DRAConfig{DevicesPerNode: 8},
+				Cohorts: []CohortSet{{QueuesSets: []QueuesSet{{
+					ClassName:          "cq",
+					DeviceNominalQuota: "8",
+					WorkloadsSets: []WorkloadsSet{{Workloads: []WorkloadTemplate{{
+						ClassName: "small",
+						TASLevel:  "kubernetes.io/hostname",
+						Devices:   -1,
+					}}}},
+				}}}},
+			},
+			wantErr: `workload class "small": devices must not be negative`,
+		},
+		"devices without tasLevel": {
+			config: Config{
+				DRA: &DRAConfig{DevicesPerNode: 8},
+				Cohorts: []CohortSet{{QueuesSets: []QueuesSet{{
+					ClassName:          "cq",
+					DeviceNominalQuota: "8",
+					WorkloadsSets: []WorkloadsSet{{Workloads: []WorkloadTemplate{{
+						ClassName: "small",
+						Devices:   1,
+					}}}},
+				}}}},
+			},
+			wantErr: `workload class "small": devices require tasLevel, since only TAS runs the device check`,
+		},
+		"devices without dra section": {
+			config: Config{
+				Cohorts: []CohortSet{{QueuesSets: []QueuesSet{{
+					ClassName:          "cq",
+					DeviceNominalQuota: "8",
+					WorkloadsSets: []WorkloadsSet{{Workloads: []WorkloadTemplate{{
+						ClassName: "small",
+						TASLevel:  "kubernetes.io/hostname",
+						Devices:   1,
+					}}}},
+				}}}},
+			},
+			wantErr: `workload class "small" requests devices but the config has no dra section`,
+		},
+		"devices without deviceNominalQuota": {
+			config: Config{
+				DRA: &DRAConfig{DevicesPerNode: 8},
+				Cohorts: []CohortSet{{QueuesSets: []QueuesSet{{
+					ClassName: "cq",
+					WorkloadsSets: []WorkloadsSet{{Workloads: []WorkloadTemplate{{
+						ClassName: "small",
+						TASLevel:  "kubernetes.io/hostname",
+						Devices:   1,
+					}}}},
+				}}}},
+			},
+			wantErr: `queue class "cq" runs workloads that request devices but has no deviceNominalQuota`,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			err := validateDevices(&tc.config)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateDevices() unexpected error: %v", err)
+				}
+			} else if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("validateDevices() error = %v, want %q", err, tc.wantErr)
+			}
+		})
 	}
 }
