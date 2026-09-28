@@ -19,6 +19,8 @@ package filters
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
@@ -36,7 +38,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 		preemptorPriority *int32
 		candidatePriority *int32
 		wantMatch         bool
-		wantBuildErr      bool
+		wantBuildErr      error
 	}{
 		"LessThan: candidate strictly lower matches": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
@@ -198,7 +200,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			},
 			preemptorPriority: ptr.To[int32](100),
 			candidatePriority: ptr.To[int32](50),
-			wantBuildErr:      true,
+			wantBuildErr:      errUnsupportedPriorityMode,
 		},
 		"Unknown/unsupported comparison returns build error": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
@@ -207,7 +209,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			},
 			preemptorPriority: ptr.To[int32](100),
 			candidatePriority: ptr.To[int32](50),
-			wantBuildErr:      true,
+			wantBuildErr:      errUnsupportedPriorityComparison,
 		},
 	}
 
@@ -227,10 +229,10 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			candidate := workload.NewInfo(log, candBuilder.Obj())
 
 			filter, err := NewPriorityFilter(log, tc.constraint, preemptor)
-			if (err != nil) != tc.wantBuildErr {
-				t.Fatalf("NewPriorityFilter() error = %v, wantBuildErr %v", err, tc.wantBuildErr)
+			if diff := cmp.Diff(tc.wantBuildErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("NewPriorityFilter() build error (-want +got):\n%s", diff)
 			}
-			if err != nil {
+			if tc.wantBuildErr != nil {
 				return
 			}
 			if got := filter.Matches(candidate); got != tc.wantMatch {

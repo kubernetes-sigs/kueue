@@ -17,6 +17,7 @@ limitations under the License.
 package filters
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -26,6 +27,16 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
+
+var (
+	errUnsupportedScope              = errors.New("unsupported scope")
+	errInvalidClusterQueueSelector   = errors.New("invalid clusterQueueSelector")
+	errInvalidWorkloadLabelSelector  = errors.New("invalid labelSelector")
+	errUnsupportedPriorityMode       = errors.New("unsupported priority mode")
+	errUnsupportedPriorityComparison = errors.New("unsupported priority comparison")
+	errUnsupportedNumericComparison  = errors.New("unsupported numeric label comparison")
+)
+
 
 // NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters.
 // It returns an error identifying which filter failed to build if compilation fails.
@@ -107,7 +118,7 @@ func buildScopeFilters(
 		return nil, nil, nil
 
 	default:
-		return nil, nil, fmt.Errorf("unsupported scope %q", scope)
+		return nil, nil, fmt.Errorf("%w %q", errUnsupportedScope, scope)
 	}
 }
 
@@ -122,7 +133,7 @@ func buildNumericLabelFilters(
 	filters := make([]WorkloadFilter, 0, len(labels))
 	for _, numConstraint := range labels {
 		if numConstraint.Comparison != nil && !isSupportedComparison(*numConstraint.Comparison) {
-			return nil, fmt.Errorf("unsupported numeric label comparison %q for key %q", *numConstraint.Comparison, numConstraint.Key)
+			return nil, fmt.Errorf("%w %q for key %q", errUnsupportedNumericComparison, *numConstraint.Comparison, numConstraint.Key)
 		}
 		filters = append(filters, NewNumericLabelFilter(log, numConstraint, preemptor))
 	}
@@ -137,7 +148,7 @@ func buildWorkloadLabelFilter(
 	}
 	ls, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		return nil, fmt.Errorf("invalid labelSelector: %w", err)
+		return nil, fmt.Errorf("%w: %w", errInvalidWorkloadLabelSelector, err)
 	}
 	if ls.Empty() {
 		return nil, nil
@@ -164,7 +175,7 @@ func buildClusterQueueLabelFilter(
 	}
 	ls, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		return nil, fmt.Errorf("invalid clusterQueueSelector: %w", err)
+		return nil, fmt.Errorf("%w: %w", errInvalidClusterQueueSelector, err)
 	}
 	if ls.Empty() {
 		return nil, nil
