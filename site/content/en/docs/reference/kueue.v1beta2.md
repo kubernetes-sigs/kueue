@@ -1951,7 +1951,7 @@ no new reservation being made.</p>
 <a href="#kueue-x-k8s-io-v1beta2-FairSharing"><code>FairSharing</code></a>
 </td>
 <td>
-   <p>fairSharing defines the properties of the LocalQueue when
+   <p>TEMP KAL VIOLATION (v1beta2): bool field, bad comment start.
 participating in AdmissionFairSharing.  The values are only relevant
 if AdmissionFairSharing is enabled in the Kueue configuration.</p>
 </td>
