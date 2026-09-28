@@ -150,7 +150,6 @@ func TestPlan(t *testing.T) {
 		TopologyAssignment
 
 	cases := map[string]struct {
-		// quota is the CPU quota of the ClusterQueue. The admitted workloads use 4 CPU of it.
 		quota            string
 		evictableBlocker bool
 		// cpu is the CPU requested by the single pod of the incoming workload.
