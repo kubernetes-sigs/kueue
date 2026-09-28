@@ -408,6 +408,110 @@ requested amount exceeds the device's `RequestPolicy` limits (e.g., request
 exceeds `ValidRange.Max` or all `ValidValues`). Adjust the workload's
 `capacity.requests` to a value within the device's policy.
 
+## Use Topology-Aware Scheduling with DRA
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Use this feature when DRA workloads run in a [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling/)
+(TAS) flavor and you want Kueue to place each Pod only on nodes that can allocate
+the devices it requests. This requires the `ResourceClaimTemplate` path or the extended
+resource path to be set up as described above. See
+[Topology-Aware Scheduling with DRA](/docs/concepts/dynamic_resource_allocation/#topology-aware-scheduling-with-dra)
+for the prerequisites and limitations.
+
+### 1. Enable the feature gates
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRADeviceFeasibility: true
+  KueueDRAIntegrationDeviceTaints: true  # optional: honor device taints
+```
+
+`KueueDRADeviceFeasibility` also requires `KueueDRAIntegration`,
+`TopologyAwareScheduling` and `TASNodeFeasibilityForAllLevels`, which are enabled by
+default.
+
+### 2. Create a TAS flavor with the DRA resource
+
+The nodes need the labels that the example `Topology` and flavor below refer to. On
+an existing cluster, label each node with its block and rack, for example:
+
+```shell
+kubectl label node <node-name> cloud.provider.com/node-group=tas-group cloud.provider.com/topology-block=b1 cloud.provider.com/topology-rack=r1
+```
+
+Verify the labels:
+
+```shell
+kubectl get nodes -L cloud.provider.com/topology-block,cloud.provider.com/topology-rack
+```
+
+For more about topology labels, see
+[Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/).
+
+The check runs only for workloads assigned a `ResourceFlavor` with a
+`topologyName`. The following example creates a `Topology`, a flavor for the nodes
+labeled `cloud.provider.com/node-group: tas-group`, and a `ClusterQueue` that covers
+`example.com/gpu`, the resource name mapped in `deviceClassMappings` above:
+
+{{< include "examples/dra/sample-dra-tas-queues.yaml" "yaml" >}}
+
+```shell
+kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-tas-queues.yaml
+```
+
+### 3. Verify the check is working
+
+Submit a workload that requests one GPU per Pod:
+
+{{< include "examples/dra/sample-dra-tas-job.yaml" "yaml" >}}
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-tas-job.yaml
+```
+
+If you submit the example more than once, `kubectl` reports that the
+`ResourceClaimTemplate` `single-gpu-tas` already exists. The Job is still created.
+
+Check the node the workload was assigned to:
+
+```shell
+kubectl -n default get workloads.kueue.x-k8s.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.admission.podSetAssignments[0].topologyAssignment}{"\n"}{end}'
+```
+
+The output is similar to the following:
+
+```
+job-sample-dra-tas-job-xxxxx: {"levels":["kubernetes.io/hostname"],"slices":[{"domainCount":1,"podCounts":{"universal":2},"valuesPerLevel":[{"universal":"gpu-node-1"}]}]}
+```
+
+The node is one that publishes `gpu.example.com` devices. You can list those nodes
+with:
+
+```shell
+kubectl get resourceslices -o custom-columns=NODE:.spec.nodeName,DRIVER:.spec.driver,DEVICES:.spec.devices[*].name
+```
+
+When no node in the topology has the devices a Pod requests, for example because their
+devices are in use or, with `KueueDRAIntegrationDeviceTaints`, tainted, the workload
+stays pending. Its `QuotaReserved` condition counts the nodes rejected for devices as
+`draNoFit`:
+
+```shell
+kubectl -n default get workloads.kueue.x-k8s.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.conditions[?(@.type=="QuotaReserved")].message}{"\n"}{end}'
+```
+
+The output is similar to the following:
+
+```
+job-sample-dra-tas-job-xxxxx: couldn't assign flavors to pod set main: topology "dra-topology" doesn't allow to fit any of 2 pod(s). Total nodes: 2; excluded: draNoFit: 2
+```
+
+If the request also exceeds the quota, the message reports insufficient quota
+instead, because quota is checked first.
+
 ## Path separation
 
 The two paths are independent. Do not configure the same `DeviceClass` in

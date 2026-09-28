@@ -104,6 +104,22 @@ you need:
 If you omit `capacity.requests`, Kueue charges the device's
 `RequestPolicy.Default` or the full device capacity.
 
+### Using Topology-Aware Scheduling
+
+{{% alert title="Note" color="info" %}}
+This feature requires the `KueueDRADeviceFeasibility` feature gate, which is
+disabled by default in v0.20.
+{{% /alert %}}
+
+If your administrator has set up
+[Topology-Aware Scheduling with DRA](/docs/tasks/manage/setup_dra/#use-topology-aware-scheduling-with-dra)
+for a [Topology-Aware Scheduling](/docs/tasks/run/topology_aware_scheduling/) (TAS)
+queue, Kueue places each Pod only on nodes that can allocate the devices it
+requests. You request devices the same way, with a `ResourceClaimTemplate` or an
+extended resource, and add a topology annotation as for any TAS workload:
+
+{{< include "examples/dra/sample-dra-tas-job.yaml" "yaml" >}}
+
 If you are not sure which approach to use, ask your administrator.
 
 ## 2. Run the workload
@@ -121,6 +137,15 @@ For an extended resource-based workload:
 ```shell
 kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-extended-resource-job.yaml
 ```
+
+For a workload in a Topology-Aware Scheduling queue:
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-tas-job.yaml
+```
+
+If you submit the example more than once, `kubectl` reports that the
+`ResourceClaimTemplate` `single-gpu-tas` already exists. The Job is still created.
 
 Internally, Kueue will create a corresponding [Workload](/docs/concepts/workload)
 for this Job.
@@ -159,6 +184,28 @@ If the Workload stays in `Pending` state:
   fully consumed by other workloads.
 - Run `kubectl -n default describe workload <workload-name>` and look at
   the Events section for admission rejection reasons.
+
+### Workload pending with `draNoFit`
+
+Run `kubectl -n default describe workload <workload-name>` and look at the
+`QuotaReserved` condition in the `Conditions` section. If its reason is
+`TopologyPlacementFailed` and its message includes `draNoFit: N`, no node in the
+topology has the devices a single Pod requests. The devices may be in use by other
+workloads, or tainted by an administrator if device taints are enabled. Kueue retries
+when devices change, for example when another workload releases them or a taint is
+removed. If no node can ever satisfy the request, reduce the number of devices each
+Pod requests, or ask your administrator which nodes publish the `DeviceClass` you use.
+
+If the message is `Bypassed scheduling evaluation because an equivalent workload
+recently failed`, Kueue skipped your workload because an equivalent one, with the same
+requests, was just rejected. Look for another workload in the same queue whose message
+includes `draNoFit`; it gives the reason. Both are retried when the devices change.
+
+### Pods pending after the workload is admitted
+
+Kueue checks that a node can serve one Pod, not all the Pods it places there. If a
+node has fewer free devices than the Pods placed on it request, some Pods stay
+`Pending` until devices are released, for example when another workload finishes.
 
 ### Double counting (extended resource path)
 
