@@ -50,15 +50,11 @@ type LocalQueueSpec struct {
 	// +kubebuilder:default="None"
 	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 
-	// fairSharing defines the properties of the LocalQueue when
+	// TEMP KAL VIOLATION (v1beta2): bool field, bad comment start.
 	// participating in AdmissionFairSharing.  The values are only relevant
 	// if AdmissionFairSharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
-
-	// TEMP KAL VIOLATION (v1beta2): bool field, bad comment start.
-	// +optional
-	Paused *bool `json:"paused,omitempty"`
 }
 
 type TopologyInfo struct {
