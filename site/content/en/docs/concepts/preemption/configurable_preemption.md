@@ -10,14 +10,14 @@ description: >
 
 {{< feature-state state="alpha" for_version="v0.20" >}}
 
-{{% alert title="Power-User Feature & Cascading Preemption Risk" color="warning" %}}
+{{% alert title="Cascading Preemption Risk" color="warning" %}}
 Configurable Preemptions is an advanced capability intended for power users and cluster administrators. Custom preemption rules carry inherent operational risks: if rules are misconfigured or symmetric (e.g., jobs can mutually preempt one another), they can trigger cascading preemptions and continuous job disruptions across the cluster.
 {{% /alert %}}
 
 Configurable Preemptions introduces a declarative mechanism to define when preemption should occur and which workloads are eligible for eviction. It complements Kueue's existing [Classic Preemption](/docs/concepts/preemption/#classic-preemption) and [Fair Sharing](/docs/concepts/preemption/#fair-sharing) algorithms by enabling policies for complex operational scenarios, such as:
 
 - **Topology Defragmentation**: Allowing distributed workloads requiring specific physical topology domains (such as multi-node GPU or TPU training jobs under [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling)) to preempt smaller workloads that fragment the cluster, even when all workloads are within their nominal quotas.
-- **Mission-Critical "Hero" Workloads**: Allowing dedicated, access-restricted queues with elevated preemption privileges to evict workloads across queues even when those workloads are within nominal quota (while remaining subject to configured cohort borrowing limits). When combined with the [`PrioritizePreemptorWorkloads`](/docs/concepts/cluster_queue/#preemption) feature gate (Alpha in v0.20), hero jobs can effectively lock quota and gain admission without extra cluster-wide modifications.
+- **Mission-Critical "Hero" Workloads**: Allowing dedicated, access-restricted queues with elevated preemption privileges to evict workloads across queues even when those workloads are within nominal quota (while remaining subject to configured cohort borrowing limits). When combined with the `PrioritizePreemptorWorkloads` feature gate (Alpha in v0.20), hero jobs can effectively lock quota and gain admission without extra cluster-wide modifications.
 - **Granular Priority & Label Rules**: Evaluating candidates using either priorities or custom labels.
 
 To use Configurable Preemptions, enable the `ConfigurablePreemptions` [feature gate](/docs/installation/#change-the-feature-gates-configuration).
@@ -88,7 +88,7 @@ Each rule specifies `candidateSelectors` to filter eligible preemption victims. 
 
 - **`mode`** (Required):
   - `Base`: Compares raw priority values assigned in `Workload.spec.priority`.
-  - `Boosted`: Compares effective priority values adjusted by priority boosting (see [Priority Boosting](/docs/concepts/workload/#priority-boost)).
+  - `Boosted`: Compares effective priority values adjusted by priority boosting (see [Priority Boosting](/docs/reference/labels-and-annotations/#kueuex-k8siopriority-boost)).
 - **`comparison`** (Required):
   - `LessThan`: Candidate priority < Preemptor priority.
   - `LessThanOrEqual`: Candidate priority <= Preemptor priority.
@@ -151,7 +151,7 @@ During preemption evaluation in the scheduler, candidates from both mechanisms a
 3. **Selective Control**:
    - To use **only** `PreemptionConfig` rules and silence classical preemption, explicitly set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`.
    - To use **only** classical preemption, simply omit the `kueue.x-k8s.io/preemption-config-name` annotation.
-4. **Ordering & Evaluation**: Once gathered, candidates are evaluated and sorted to satisfy the preemptor's requirements. In Alpha, candidates from configurable rules are appended and integrated with standard preemption heuristics (such as prioritizing workloads already marked for eviction, cohort borrow status, priority, and admission recency). Further optimizations (such as per-selector candidate queues) are planned for future iterations.
+4. **Ordering & Evaluation**: Once gathered, candidates are evaluated and sorted to satisfy the preemptor's requirements. In Alpha, candidates from configurable rules are appended and integrated with standard preemption heuristics (such as prioritizing workloads already marked for eviction, cohort borrow status, priority, and admission recency). 
 
 {{% alert title="Note on Beta Evolution" color="info" %}}
 In Beta+, `PreemptionConfig` will achieve full feature parity with classical and fair sharing preemption. The strategies will become mutually exclusive via a formal API field on `ClusterQueueSpec`, and the Alpha annotation will be retired.
@@ -206,7 +206,7 @@ Asymmetry can be guaranteed by:
 
 ## What's next?
 
-- Follow the [Configure Custom Preemption Policies](/docs/tasks/manage/setup_configurable_preemption) guide for hands-on configuration steps and practical scenarios.
+- Follow the [Use Custom Preemption Configurations](/docs/tasks/manage/setup_configurable_preemption) guide for hands-on configuration steps and practical scenarios.
 - Read [Preemption](/docs/concepts/preemption) to understand Classic Preemption and Fair Sharing algorithms.
 - Read [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling) to see how physical network topology and defragmentation interact.
 - Learn about [Workload Priority Class](/docs/concepts/workload_priority_class) to configure workload priorities.
