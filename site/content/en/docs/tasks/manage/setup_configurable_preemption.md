@@ -113,7 +113,7 @@ metadata:
   name: "topology-defrag-preemption-config"
 spec:
   rules:
-  - name: "reclaim-quota-within-cohort"
+  - name: "preempt-lower-priority-within-cohort"
     activationPolicy:
       trigger: "InsufficientQuota"
     candidateSelectors:
@@ -150,8 +150,9 @@ spec:
   - **Protection Guardrail**: `labelSelector` prevents evicting lower-priority workloads labeled `example.com/workload-tier: mission-critical`.
 - **Rule: evict-smaller-jobs-for-topology**:
   - **Trigger**: `QuotaFeasibleAndInsufficientTopology` activates only when quota is already feasible for the incoming job under at least one eligible flavor assignment (after baseline preemption and any applicable `InsufficientQuota` rules), but placement is blocked by physical topology constraints.
-    > [!NOTE]
-    > `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied. Combining this with an `InsufficientQuota` rule ensures workloads can first reclaim quota and then defragment topology.
+    {{% alert title="Note" color="info" %}}
+    `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied. Combining this with an `InsufficientQuota` rule ensures workloads can first reclaim quota and then defragment topology.
+    {{% /alert %}}
   - **Scope**: `AnyClusterQueue` searches across all ClusterQueues in the cluster so topology can be unblocked across physical nodes regardless of cohort relationship.
   - **Asymmetric Defragmentation**: `numericLabels` with `comparison: LessThan` ensures that a larger workload (e.g., `example.com/node-count: 32`) can preempt smaller workloads (e.g., `example.com/node-count: 4`), but a 4-node workload cannot preempt a 32-node workload in return. Omitting `fallbackValue` ensures unlabeled workloads are treated as incomparable and protected from eviction.
   - **Protecting Mission-Critical Workloads**: Without explicit exclusion, defragmentation rules could evict smaller mission-critical workloads. The `labelSelector` prevents evicting workloads labeled `example.com/workload-tier: mission-critical`.
@@ -171,9 +172,10 @@ spec:
     withinClusterQueue: Never
   # ... resource groups, flavors, and quotas ...
 ```
-> [!WARNING]
-> **Disabling Classical Preemption for Label Protection**
+{{% alert title="Note" color="info" %}}
+**Disabling Classical Preemption for Label Protection**
 > Because `PreemptionConfig` now manages both quota reclamation and topology defragmentation while enforcing protection for `example.com/workload-tier: mission-critical`, set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`. If classical preemption were left enabled as `LowerPriority`, it would evaluate cohort candidates without checking the `labelSelector`, potentially evicting lower-priority mission-critical workloads.
+> {{% /alert %}}
 ---
 
 ## Common Pitfalls
