@@ -153,9 +153,9 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Queue(managerLq.Name).
 				ScaleFirstWorkerGroup(1).
-				Request(rayv1.HeadNode, corev1.ResourceCPU, "500m").
+				Request(rayv1.HeadNode, corev1.ResourceCPU, "200m").
 				Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-				Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+				Request(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
 				Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).

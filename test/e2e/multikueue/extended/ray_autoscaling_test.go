@@ -125,7 +125,7 @@ func runRayClusterSequentialScaleUpTest(
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
-		Request(rayv1.HeadNode, corev1.ResourceCPU, "500m").
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
 		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
 		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
@@ -407,7 +407,7 @@ func runRayClusterAutoscalingTest(
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
-		Request(rayv1.HeadNode, corev1.ResourceCPU, "500m").
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
 		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
 		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
