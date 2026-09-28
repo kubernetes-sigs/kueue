@@ -964,46 +964,10 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, preemptedWorkloads preemption.PreemptedWorkloads) func() {
 	victims := slices.Collect(maps.Values(preemptedWorkloads))
 	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
-	revertPods := simulatePodRemoval(ctx, log, snapshot, victims)
+	revertPods := snapshot.SimulatePodRemoval(ctx, log, victims)
 	return func() {
 		revertPods()
 		revertUsage()
-	}
-}
-
-// simulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
-// returns a function that puts them back.
-func simulatePodRemoval(ctx context.Context, log logr.Logger, snapshot *schdcache.Snapshot, workloads []*workload.Info) func() {
-	// The default simulator reports the same cluster whatever is running, so there is
-	// nothing to take out of it and nothing cached to drop.
-	if snapshot.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
-		return func() {}
-	}
-	reverts := make([]func() error, 0, len(workloads))
-	for _, w := range workloads {
-		revert, err := snapshot.SchedulerSimulator.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
-		if err != nil {
-			// The simulation still holds this victim's Pods, so it can only be
-			// stricter than reality. Log it and keep scheduling.
-			log.V(2).Info("Could not remove a preempted Workload from the scheduling simulator",
-				"workload", klog.KObj(w.Obj), "error", err)
-			continue
-		}
-		reverts = append(reverts, revert)
-	}
-	if len(reverts) == 0 {
-		return func() {}
-	}
-	// The simulator reports a different cluster now, so results cached before this
-	// no longer hold. The revert changes it back, so they are dropped again there.
-	snapshot.ForgetSimulatedFeasibility()
-	return func() {
-		for _, revert := range reverts {
-			if err := revert(); err != nil {
-				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
-			}
-		}
-		snapshot.ForgetSimulatedFeasibility()
 	}
 }
 
@@ -1031,7 +995,7 @@ func updateAssignmentForTAS(
 			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
-			revertPods := simulatePodRemoval(ctx, log, snapshot, targetWorkloads)
+			revertPods := snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
