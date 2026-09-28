@@ -265,16 +265,23 @@ lists in full. In this example, the default client burst is retained, and only
 the two listed job integrations are enabled. The manager and job webhooks use
 the same configuration.
 
-Choose either `managerConfig.config` or the legacy
-`managerConfig.controllerManagerConfigYaml` string. Supplying both is an error.
-If neither is supplied, the chart uses its defaults. A legacy string, including
-an empty string, remains a complete replacement and requires no migration.
+A nonempty `managerConfig.controllerManagerConfigYaml` string takes precedence
+as a complete replacement; it is never merged with `config`. If the string is
+absent or empty, the chart uses structured configuration and its packaged defaults.
+Nonempty legacy strings require no migration. An explicitly empty string now
+selects structured configuration or chart defaults; use the YAML string `"{}"`
+if you need to preserve an intentionally empty configuration.
 
-To migrate, remove the legacy field from a values file containing all customizations
-you want to retain, add your structured customizations, and upgrade with
-`helm upgrade kueue <chart> --namespace kueue-system --reset-values --values values.yaml`.
-Do not use `--reuse-values` for this migration: it can carry forward the old
-chart's default string and conflict with the new `config` input.
+To migrate, put every intentional manager customization under `config` and set
+`managerConfig.controllerManagerConfigYaml: ""` in the same values file. For example,
+`helm upgrade kueue <chart> --namespace kueue-system --reuse-values --values migration.yaml`
+preserves other saved chart customizations. The explicit empty string is required
+to clear a retained legacy string; merely adding `config` may leave it ignored.
+Settings inside the old YAML string are not converted automatically.
+
+The migration also works with `--reset-values` and `--reset-then-reuse-values`.
+When using `--reset-values`, include all other chart customizations you want to
+retain in your values file.
 
 Unspecified structured settings follow the selected chart version's packaged
 defaults, including on later upgrades with `--reuse-values`. Review the rendered

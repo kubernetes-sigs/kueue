@@ -174,9 +174,9 @@ Maps merge recursively, lists and scalars replace, and null removes a key.
 {{- end }}
 
 {{/*
-Resolve mutually exclusive manager configuration inputs.
-Legacy strings, including an empty string, are complete replacements.
-Structured configuration is merged with this chart's packaged defaults.
+Resolve manager configuration once for every consumer.
+A nonempty legacy YAML string takes precedence as a complete replacement.
+Otherwise, structured configuration is merged with this chart's packaged defaults.
 */}}
 {{- define "kueue.managerConfig" -}}
 {{- $values := dict }}
@@ -186,20 +186,21 @@ Structured configuration is merged with this chart's packaged defaults.
 {{- if not (kindIs "map" $values) }}
 {{- fail "managerConfig must be a map" }}
 {{- end }}
-{{- if and (hasKey $values "config") (hasKey $values "controllerManagerConfigYaml") }}
-{{- fail "managerConfig.config and managerConfig.controllerManagerConfigYaml are mutually exclusive. To migrate, remove controllerManagerConfigYaml from your complete custom values file and upgrade with --reset-values." }}
-{{- end }}
 {{- if hasKey $values "controllerManagerConfigYaml" }}
 {{- if not (kindIs "string" $values.controllerManagerConfigYaml) }}
 {{- fail "managerConfig.controllerManagerConfigYaml must be a string" }}
 {{- end }}
-{{- $values.controllerManagerConfigYaml }}
-{{- else }}
-{{- $config := .Files.Get "files/manager-config.yaml" | fromYaml }}
+{{- end }}
 {{- if hasKey $values "config" }}
 {{- if not (kindIs "map" $values.config) }}
 {{- fail "managerConfig.config must be a map" }}
 {{- end }}
+{{- end }}
+{{- if $values.controllerManagerConfigYaml }}
+{{- $values.controllerManagerConfigYaml }}
+{{- else }}
+{{- $config := .Files.Get "files/manager-config.yaml" | fromYaml }}
+{{- if hasKey $values "config" }}
 {{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.config) }}
 {{- end }}
 {{- toYaml $config }}

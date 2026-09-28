@@ -159,14 +159,50 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "managedJobsNamespaceSelector:\\n\\s+matchLabels:\\n\\s+team: research"
 
-  - it: should reject both Kueue configuration inputs with the subchart disabled
+  - it: should prefer nonempty YAML with the Kueue subchart disabled
+    documentIndex: 3
     set:
       kueue.enabled: false
-      kueue.managerConfig.config: {}
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: legacy"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
+
+  - it: should use structured configuration when the YAML is cleared with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
       kueue.managerConfig.controllerManagerConfigYaml: ""
     asserts:
-      - failedTemplate:
-          errorMessage: kueue.managerConfig.config and kueue.managerConfig.controllerManagerConfigYaml are mutually exclusive
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
+
+  - it: should prefer nonempty YAML through the enabled Kueue subchart
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: legacy"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
 
   - it: should preserve the explicit populator selector over structured Kueue configuration
     documentIndex: 3

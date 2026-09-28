@@ -130,7 +130,7 @@ tests:
       managerConfig.config: invalid
     asserts:
       - failedTemplate:
-          errorMessage: managerConfig.config must be a map
+          errorPattern: "(?s)managerConfig[/.]config.*(object|map)"
 
   - it: should propagate the structured selector to the manager and both webhook configurations
     set:
@@ -179,30 +179,134 @@ tests:
           value: Ignore
         documentIndex: 0
 
-  - it: should reject both configuration inputs
-    template: webhook/manifests.yaml
+  - it: should use nonempty YAML instead of structured configuration for every consumer
     set:
-      managerConfig.config.clientConnection.qps: 600
+      managerConfig.config:
+        clientConnection:
+          qps: 600
+        integrations:
+          frameworks: [batch/job, pod]
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: structured
       managerConfig.controllerManagerConfigYaml: |
         clientConnection:
           qps: 100
+        integrations:
+          frameworks: [batch/job]
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
     asserts:
-      - failedTemplate:
-          errorMessage: managerConfig.config and managerConfig.controllerManagerConfigYaml are mutually exclusive. To migrate, remove controllerManagerConfigYaml from your complete custom values file and upgrade with --reset-values.
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 100"
+        template: manager/manager-config.yaml
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 600|burst:|groupKindConcurrency:|team: structured"
+        template: manager/manager-config.yaml
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: legacy"
+        template: manager/manager-config.yaml
+      - equal:
+          path: webhooks[?(@.name == "mjob.kb.io")].namespaceSelector.matchLabels.team
+          value: legacy
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vjob.kb.io")].namespaceSelector.matchLabels.team
+          value: legacy
+        template: webhook/manifests.yaml
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        template: webhook/manifests.yaml
+        documentIndex: 1
 
-  - it: should reject both inputs even when both are empty
-    template: webhook/manifests.yaml
+  - it: should use chart defaults when both inputs are empty
+    template: manager/manager-config.yaml
     set:
       managerConfig.config: {}
       managerConfig.controllerManagerConfigYaml: ""
     asserts:
-      - failedTemplate:
-          errorMessage: managerConfig.config and managerConfig.controllerManagerConfigYaml are mutually exclusive. To migrate, remove controllerManagerConfigYaml from your complete custom values file and upgrade with --reset-values.
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst: 500"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 300"
 
-  - it: should preserve the meaning of an empty legacy string
+  - it: should use chart defaults with an empty legacy string
     template: manager/manager-config.yaml
     set:
       managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst: 500"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 300"
+
+  - it: should derive webhook policies from chart defaults with an empty string
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Fail
+        documentIndex: 0
+
+  - it: should select structured configuration when the legacy string is cleared
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.config:
+        clientConnection:
+          qps: 600
+        integrations:
+          frameworks: [batch/job]
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: structured
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 600"
+        template: manager/manager-config.yaml
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
+        template: manager/manager-config.yaml
+      - equal:
+          path: webhooks[?(@.name == "mjob.kb.io")].namespaceSelector.matchLabels.team
+          value: structured
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vjob.kb.io")].namespaceSelector.matchLabels.team
+          value: structured
+        template: webhook/manifests.yaml
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        template: webhook/manifests.yaml
+        documentIndex: 0
+
+  - it: should allow an explicit empty YAML object as a complete replacement
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: "{}"
+      managerConfig.config.clientConnection.qps: 600
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -210,16 +314,6 @@ tests:
       - notMatchRegex:
           path: data["controller_manager_config.yaml"]
           pattern: "clientConnection:|integrations:|leaderElection:|controller:"
-
-  - it: should retain legacy webhook policies for an empty string
-    template: webhook/manifests.yaml
-    set:
-      managerConfig.controllerManagerConfigYaml: ""
-    asserts:
-      - equal:
-          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
-          value: Ignore
-        documentIndex: 0
 
   - it: should use packaged defaults with an empty structured map
     template: manager/manager-config.yaml
@@ -239,7 +333,7 @@ tests:
       managerConfig.config: null
     asserts:
       - failedTemplate:
-          errorMessage: managerConfig.config must be a map
+          errorPattern: "(?s)managerConfig[/.]config.*(object|map)"
 
   - it: should reject a non-string legacy input
     template: webhook/manifests.yaml
@@ -247,7 +341,7 @@ tests:
       managerConfig.controllerManagerConfigYaml: {}
     asserts:
       - failedTemplate:
-          errorMessage: managerConfig.controllerManagerConfigYaml must be a string
+          errorPattern: "(?s)managerConfig[/.]controllerManagerConfigYaml.*string"
 
   - it: should reject a null legacy input
     template: webhook/manifests.yaml
@@ -255,4 +349,4 @@ tests:
       managerConfig.controllerManagerConfigYaml: null
     asserts:
       - failedTemplate:
-          errorMessage: managerConfig.controllerManagerConfigYaml must be a string
+          errorPattern: "(?s)managerConfig[/.]controllerManagerConfigYaml.*string"
