@@ -1095,28 +1095,22 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 	return 0
 }
 
-// probeRequestsFor includes the group's actual requests and one pod's requests
-// for each zero-count PodSet. Groups without zero-count PodSets need no probe.
+// probeRequestsFor checks one pod per PodSet only when the entire group is empty.
+// Otherwise, actual requests drive flavor selection: zero-count PodSets may
+// represent completed, reclaimed pods that will not run again.
 func (a *FlavorAssigner) probeRequestsFor(podSets []indexedPodSet) resources.Requests {
-	if !slices.ContainsFunc(podSets, func(ps indexedPodSet) bool { return ps.podSet.Count == 0 }) {
+	if slices.ContainsFunc(podSets, func(ps indexedPodSet) bool { return ps.podSet.Count != 0 }) {
 		return nil
 	}
 	probeRequests := resources.NewRequests()
-	var podCount int64
 	for _, podSet := range podSets {
-		requests := podSet.podSet.Requests
-		count := podSet.podSet.Count
-		if count == 0 {
-			requests = podSet.podSet.PerPodRequests
-			count = 1
-		}
+		requests := podSet.podSet.PerPodRequests
 		if requests != nil {
 			probeRequests.Add(requests)
 		}
-		podCount += int64(count)
 	}
 	if a.cq.RGByResource(corev1.ResourcePods) != nil {
-		probeRequests.Set(corev1.ResourcePods, podCount)
+		probeRequests.Set(corev1.ResourcePods, int64(len(podSets)))
 	}
 	return probeRequests
 }
