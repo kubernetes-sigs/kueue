@@ -39,15 +39,17 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestValidateCreate(t *testing.T) {
 	tooManyWorkerGroups := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
 
 	testCases := map[string]struct {
-		service   *rayv1.RayService
-		manageAll bool
-		wantErr   bool
+		service      *rayv1.RayService
+		manageAll    bool
+		featureGates map[featuregate.Feature]bool
+		wantErr      bool
 	}{
 		"valid rayservice": {
 			service: &rayv1.RayService{
@@ -127,10 +129,37 @@ func TestValidateCreate(t *testing.T) {
 			manageAll: false,
 			wantErr:   true,
 		},
+		"MultiKueue autoscaling without its feature gate": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				EnableInTreeAutoscaling().
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:   true,
+				features.MultiKueueRayInTreeAutoscaling: false,
+			},
+			wantErr: true,
+		},
+		"MultiKueue autoscaling with its feature gate": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				EnableInTreeAutoscaling().
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:   true,
+				features.MultiKueueRayInTreeAutoscaling: true,
+			},
+			wantErr: false,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			webhook := &RayServiceWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}

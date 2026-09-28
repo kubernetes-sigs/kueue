@@ -375,6 +375,16 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 			),
 		)
 	}
+	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) &&
+		isRayJobOrServiceManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+		allErrors = append(
+			allErrors,
+			field.Forbidden(
+				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+				fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
+			),
+		)
+	}
 
 	// Should limit the generated PodSet count to the maximum supported by Workloads.
 	if podSetsCount := ExpectedPodSetsCount(rayClusterSpec); podSetsCount > jobframework.MaxPodSets {
@@ -392,6 +402,17 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 	}
 
 	return allErrors
+}
+
+func isRayJobOrServiceManagedByMultiKueue(object client.Object) bool {
+	switch job := object.(type) {
+	case *rayv1.RayJob:
+		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	case *rayv1.RayService:
+		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	default:
+		return false
+	}
 }
 
 func ValidateTopologyRequest(
