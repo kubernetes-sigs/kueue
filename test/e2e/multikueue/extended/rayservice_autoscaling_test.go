@@ -68,7 +68,8 @@ app = HelloWorld.bind()`,
 		}
 	})
 
-	serveConfig := `applications:
+	serveConfig := `proxy_location: EveryNode
+applications:
   - name: hello_app
     import_path: hello_serve:app
     route_prefix: /
