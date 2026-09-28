@@ -57,7 +57,9 @@ Please do not remove items from the checklist
         (`v$MAJ.$(($MIN+1)).0-devel`) on `main`, so that development builds
         from the `main` branch have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
-        <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh $VERSION` to create the
+          `v$MAJ.$(($MIN+1))` milestone and submit the `milestone_applier` PR
+    - [ ] Wait for this PR to merge <!-- MILESTONE_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and periodic jobs for the next patch release, and remove the CI jobs for testing the unsupported branch:
         <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->
     - [ ] Run `./hack/releasing/ci_pull.sh $VERSION` locally.
