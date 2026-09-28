@@ -55,15 +55,15 @@ the chunk sizes differ.
 
 ## Motivation
 
-A workload often has groups of pods that must stay close together, and those
-groups are not always the same size. A training job might run four
-tensor-parallel workers that have to share a rack, three pipeline stages that
-have to share a rack, and one coordinator that can go anywhere.
+A workload often needs its pods kept close together in chunks, and those chunks
+are not always the same size. A job might need eight interchangeable pods placed
+as a chunk of four sharing a rack, a chunk of three sharing a rack, and one pod
+that can go anywhere, with no preference for which pods form which chunk.
 
 `size` cannot express that. It cuts the PodSet into equal chunks, so the only
-way to keep a group of four together is to set `size: 4`, which also forces the
-other groups into fours. Users are left picking a chunk size that is wrong for
-most of their groups, or splitting the work into separate PodSets and losing the
+way to keep a chunk of four together is to set `size: 4`, which also forces the
+other chunks into fours. Users are left picking a chunk size that is wrong for
+most of their chunks, or splitting the work into separate PodSets and losing the
 single pod index space their application depends on.
 
 `sizes` is the smallest change that covers this: the same per-chunk co-location
