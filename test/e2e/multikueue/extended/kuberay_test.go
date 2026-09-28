@@ -111,9 +111,10 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 				Suspend(true).
 				Queue(managerLq.Name).
 				RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+				TerminationGracePeriod(1).
 				Obj()
 
 			ginkgo.By("Creating the RayCluster", func() {
