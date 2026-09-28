@@ -116,7 +116,7 @@ controllerManager:
     enabled: false
     # -- PodDisruptionBudget's minAvailable
     minAvailable: 1
-# -- Manager configuration inputs. A nonempty controllerManagerConfigYaml string takes precedence as a complete replacement. Otherwise, merge config with the defaults in files/manager-config.yaml. To migrate, set the YAML string to "" and supply config.
+# -- Manager configuration inputs. A nonempty controllerManagerConfigYaml string takes precedence as a complete replacement. Otherwise, merge config with the defaults in templates/manager/_config.tpl. To migrate, set the YAML string to "" and supply config.
 managerConfig: {}
 # managerConfig:
 #   config:

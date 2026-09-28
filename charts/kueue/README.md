@@ -140,7 +140,7 @@ set to `null` inside `config`. This example keeps the default client burst and
 enables only the two listed integrations. Neither input itself accepts `null`;
 use `""` to clear a legacy string.
 
-The defaults are packaged in [files/manager-config.yaml](files/manager-config.yaml),
+The defaults are defined in [templates/manager/_config.tpl](templates/manager/_config.tpl),
 separately from user inputs. Unspecified structured settings follow the selected
 chart version's defaults, **including with `--reuse-values`**. Explicitly supplied
 settings remain pinned. Review the rendered configuration when upgrading.
@@ -278,7 +278,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
 | kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
 | kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
-| managerConfig | object | `{}` | Manager configuration inputs. A nonempty controllerManagerConfigYaml string takes precedence as a complete replacement. Otherwise, merge config with the defaults in files/manager-config.yaml. To migrate, set the YAML string to "" and supply config. |
+| managerConfig | object | `{}` | Manager configuration inputs. A nonempty controllerManagerConfigYaml string takes precedence as a complete replacement. Otherwise, merge config with the defaults in templates/manager/_config.tpl. To migrate, set the YAML string to "" and supply config. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |
 | metricsService.annotations | object | `{}` | metricsService's annotations |

@@ -142,7 +142,7 @@ set to `null` inside `config`. This example keeps the default client burst and
 enables only the two listed integrations. Neither input itself accepts `null`;
 use `""` to clear a legacy string.
 
-The defaults are packaged in [files/manager-config.yaml](files/manager-config.yaml),
+The defaults are defined in [templates/manager/_config.tpl](templates/manager/_config.tpl),
 separately from user inputs. Unspecified structured settings follow the selected
 chart version's defaults, **including with `--reuse-values`**. Explicitly supplied
 settings remain pinned. Review the rendered configuration when upgrading.
