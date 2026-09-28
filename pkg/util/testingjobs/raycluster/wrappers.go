@@ -333,3 +333,11 @@ func (j *ClusterWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value str
 	}
 	return j
 }
+
+func (j *ClusterWrapper) TerminationGracePeriod(seconds int64) *ClusterWrapper {
+	j.Spec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	for i := range j.Spec.WorkerGroupSpecs {
+		j.Spec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	}
+	return j
+}
