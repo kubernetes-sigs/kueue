@@ -93,5 +93,5 @@ The admission webhook validates this annotation only when the `ElasticJobsViaWor
       error when patching "job.yaml": admission webhook "vjob.kb.io" denied the request: spec.parallelism: Forbidden: cannot change when partial admission is enabled and the job is not suspended
       ```
 * When scaling up a previously admitted job the new workload must reuse the originally assigned flavor, even if other eligible flavors have available capacity.
-* MultiKueue supports elastic `batch/v1.Job`, `ray.io/v1.RayCluster`, `ray.io/v1.RayJob`, and `ray.io/v1.RayService` workloads. Worker-side Ray autoscaling requires the `MultiKueueRayInTreeAutoscaling` feature gate.
-* No Topology-Aware Scheduling (TAS) support.
+* MultiKueue support for elastic workloads is currently available only for `batch/v1.Job` and `ray.io/v1.RayCluster` (not supported for `ray.io/v1.RayJob` or `ray.io/v1.RayService`).
+* No Topology-Aware Scheduling (TAS) support. 

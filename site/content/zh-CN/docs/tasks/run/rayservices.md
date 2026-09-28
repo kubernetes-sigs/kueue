@@ -101,12 +101,6 @@ Kueue 控制 RayService 的 `spec.rayClusterConfig.suspend` 字段。当 RayServ
        enableInTreeAutoscaling: true
    ```
 
-4. 通过 MultiKueue 分发 RayService 时，请在 Manager 和 Worker 集群的 Kueue 中启用 Worker 端 Ray 自动扩缩：
-
-   ```yaml
-   MultiKueueRayInTreeAutoscaling: true
-   ```
-
 ### 滚动升级限制 {#rolling-upgrade-limitation}
 
 Kueue 的工作负载切片特性目前仅管理单个活跃集群的配额。启用工作负载切片时，暂不支持创建二级临时集群的升级策略（`spec.upgradeStrategy.type: NewCluster` 或 `NewClusterWithIncrementalUpgrade`），因为待处理集群的 Pod 会保持被门控状态。要在使用工作负载切片的同时进行自动扩缩，请使用 `spec.upgradeStrategy.type: None` 或进行就地更新。

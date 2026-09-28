@@ -98,12 +98,6 @@ Autoscaling is only supported for [elastic](/docs/concepts/elastic_workload) Ray
        enableInTreeAutoscaling: true
    ```
 
-4. When dispatching the RayService through MultiKueue, enable worker-side Ray autoscaling on the manager and worker Kueue installations:
-
-   ```yaml
-   MultiKueueRayInTreeAutoscaling: true
-   ```
-
 ### Rolling upgrades limitation
 
 Kueue's Workload Slices feature currently manages quota for a single active cluster. Upgrade strategies that provision a secondary surge cluster (`spec.upgradeStrategy.type: NewCluster` or `NewClusterWithIncrementalUpgrade`) are not currently supported when workload slicing is enabled because pending cluster pods will remain gated. To use workload slicing with autoscaling, use `spec.upgradeStrategy.type: None` or apply updates in-place.
