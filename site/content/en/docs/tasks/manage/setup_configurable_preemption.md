@@ -57,9 +57,9 @@ spec:
   rules:
   - name: "hero-preempt-lower-priority"
     activationPolicy:
-      trigger: "InsufficientQuota"
+      trigger: "Always"
     candidateSelectors:
-    - scope: "WithinCohortTree"
+    - scope: "AnyClusterQueue"
       priority:
         mode: "Base"
         comparison: "LessThan"
@@ -71,8 +71,8 @@ spec:
 ```
 
 **How it works:**
-- **Trigger**: `InsufficientQuota` activates candidate search when the hero workload cannot be admitted due to insufficient quota.
-- **Scope**: `WithinCohortTree` restricts preemption search to the cohort tree. (Workloads cannot borrow quota outside their cohort hierarchy).
+- **Trigger**: `Always` evaluates candidates unconditionally whenever preemption evaluation runs. This ensures the hero workload can preempt lower-priority workloads both to reclaim quota and to clear physical topology constraints under Topology-Aware Scheduling, preventing it from getting stuck on topology even after quota is satisfied.
+- **Scope**: `AnyClusterQueue` searches across all queues in the cluster. Because physical topology domains (e.g., racks or blocks) span the cluster and can be occupied by workloads from any queue, this allows the hero workload to unblock its topology requirements cluster-wide.
 - **Elevated Privileges**: Workloads in this queue can evict lower-priority workloads across queues even if those target workloads are running within their nominal quota (subject to overall cohort borrowing limits).
 - **Protection Guardrail**: `clusterQueueSelector` ensures that ClusterQueues labeled `example.com/protection-tier: mission-critical` are never selected for preemption.
 
@@ -113,11 +113,24 @@ metadata:
   name: "topology-defrag-preemption-config"
 spec:
   rules:
+  - name: "reclaim-quota-within-cohort"
+    activationPolicy:
+      trigger: "InsufficientQuota"
+    candidateSelectors:
+    - scope: "WithinCohortTree"
+      priority:
+        mode: "Base"
+        comparison: "LessThan"
+      labelSelector:
+        matchExpressions:
+        - key: "example.com/workload-tier"
+          operator: "NotIn"
+          values: ["mission-critical"]
   - name: "evict-smaller-jobs-for-topology"
     activationPolicy:
       trigger: "QuotaFeasibleAndInsufficientTopology"
     candidateSelectors:
-    - scope: "WithinCohortTree"
+    - scope: "AnyClusterQueue"
       priority:
         mode: "Base"
         comparison: "LessThanOrEqual"
@@ -130,14 +143,18 @@ spec:
           operator: "NotIn"
           values: ["mission-critical"]
 ```
-
 **How it works:**
-- **Trigger**: `QuotaFeasibleAndInsufficientTopology` activates only when quota is already feasible for the incoming job under at least one eligible flavor assignment (after baseline preemption and any applicable `InsufficientQuota` rules), but placement is blocked by physical topology constraints.
-  > [!NOTE]
-  > `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied.
-- **Scope**: `WithinCohortTree` evaluates candidates within the same cohort hierarchy.
-- **Asymmetric Defragmentation**: `numericLabels` with `comparison: LessThan` ensures that a larger workload (e.g., `example.com/node-count: 32`) can preempt smaller workloads (e.g., `example.com/node-count: 4`), but a 4-node workload cannot preempt a 32-node workload in return. Omitting `fallbackValue` ensures unlabeled workloads are treated as incomparable and protected from eviction.
-- **Protecting Mission-Critical Workloads**: Without explicit exclusion, defragmentation rules could evict smaller mission-critical workloads. The `labelSelector` prevents evicting workloads labeled `example.com/workload-tier: mission-critical`.
+- **Rule: reclaim-quota-within-cohort**:
+  - **Trigger**: `InsufficientQuota` activates when the incoming workload lacks sufficient quota to be admitted.
+  - **Scope**: `WithinCohortTree` restricts quota reclamation to the cohort hierarchy (since borrowing outside the cohort tree is not permitted).
+  - **Protection Guardrail**: `labelSelector` prevents evicting lower-priority workloads labeled `example.com/workload-tier: mission-critical`.
+- **Rule: evict-smaller-jobs-for-topology**:
+  - **Trigger**: `QuotaFeasibleAndInsufficientTopology` activates only when quota is already feasible for the incoming job under at least one eligible flavor assignment (after baseline preemption and any applicable `InsufficientQuota` rules), but placement is blocked by physical topology constraints.
+    > [!NOTE]
+    > `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied. Combining this with an `InsufficientQuota` rule ensures workloads can first reclaim quota and then defragment topology.
+  - **Scope**: `AnyClusterQueue` searches across all ClusterQueues in the cluster so topology can be unblocked across physical nodes regardless of cohort relationship.
+  - **Asymmetric Defragmentation**: `numericLabels` with `comparison: LessThan` ensures that a larger workload (e.g., `example.com/node-count: 32`) can preempt smaller workloads (e.g., `example.com/node-count: 4`), but a 4-node workload cannot preempt a 32-node workload in return. Omitting `fallbackValue` ensures unlabeled workloads are treated as incomparable and protected from eviction.
+  - **Protecting Mission-Critical Workloads**: Without explicit exclusion, defragmentation rules could evict smaller mission-critical workloads. The `labelSelector` prevents evicting workloads labeled `example.com/workload-tier: mission-critical`.
 
 #### 2. Attach to the ClusterQueue
 
@@ -150,11 +167,13 @@ metadata:
     kueue.x-k8s.io/preemption-config-name: "topology-defrag-preemption-config"
 spec:
   preemption:
-    reclaimWithinCohort: LowerPriority
-    withinClusterQueue: LowerPriority
+    reclaimWithinCohort: Never
+    withinClusterQueue: Never
   # ... resource groups, flavors, and quotas ...
 ```
-
+> [!WARNING]
+> **Disabling Classical Preemption for Label Protection**
+> Because `PreemptionConfig` now manages both quota reclamation and topology defragmentation while enforcing protection for `example.com/workload-tier: mission-critical`, set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`. If classical preemption were left enabled as `LowerPriority`, it would evaluate cohort candidates without checking the `labelSelector`, potentially evicting lower-priority mission-critical workloads.
 ---
 
 ## Common Pitfalls
@@ -184,7 +203,7 @@ status:
     evictions:
     - count: 1
       reason: ConfigurablePreemption
-      underlyingCause: "Preempted by default/hero-job-xyz because of preemption config hero-workloads-preemption-config rule hero-preempt-lower-priority/0"
+      underlyingCause: "Preempted by default/hero-job-xyz because of preemption config:  hero-workloads-preemption-config"
 ```
 
 The `underlyingCause` string records the preemptor workload name, the active `PreemptionConfig`, the rule name, and the index of the matching candidate selector.
