@@ -119,7 +119,7 @@ type CapacityProviderNormalizedCapacityFlavor struct {
 	//
 	// +required
 	// +kubebuilder:validation:XValidation:rule="size(self) <= 64",message="resource capacity must have at most 64 entries"
-	Resources corev1.ResourceList `json:"resources,omit"`
+	Resources corev1.ResourceList `json:"resources"`
 }
 
 // +kubebuilder:validation:MinLength=1
