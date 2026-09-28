@@ -150,9 +150,9 @@ spec:
   - **Protection Guardrail**: `labelSelector` prevents evicting lower-priority workloads labeled `example.com/workload-tier: mission-critical`.
 - **Rule: evict-smaller-jobs-for-topology**:
   - **Trigger**: `QuotaFeasibleAndInsufficientTopology` activates only when quota is already feasible for the incoming job under at least one eligible flavor assignment (after baseline preemption and any applicable `InsufficientQuota` rules), but placement is blocked by physical topology constraints.
-    {{% alert title="Note" color="info" %}}
-    `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied. Combining this with an `InsufficientQuota` rule ensures workloads can first reclaim quota and then defragment topology.
-    {{% /alert %}}
+  {{% alert title="Note" color="info" %}}
+  `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied. Combining this with an `InsufficientQuota` rule ensures workloads can first reclaim quota and then defragment topology.
+  {{% /alert %}}
   - **Scope**: `AnyClusterQueue` searches across all ClusterQueues in the cluster so topology can be unblocked across physical nodes regardless of cohort relationship.
   - **Asymmetric Defragmentation**: `numericLabels` with `comparison: LessThan` ensures that a larger workload (e.g., `example.com/node-count: 32`) can preempt smaller workloads (e.g., `example.com/node-count: 4`), but a 4-node workload cannot preempt a 32-node workload in return. Omitting `fallbackValue` ensures unlabeled workloads are treated as incomparable and protected from eviction.
   - **Protecting Mission-Critical Workloads**: Without explicit exclusion, defragmentation rules could evict smaller mission-critical workloads. The `labelSelector` prevents evicting workloads labeled `example.com/workload-tier: mission-critical`.
@@ -174,7 +174,7 @@ spec:
 ```
 {{% alert title="Note" color="info" %}}
 **Disabling Classical Preemption for Label Protection**
-> Because `PreemptionConfig` now manages both quota reclamation and topology defragmentation while enforcing protection for `example.com/workload-tier: mission-critical`, set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`. If classical preemption were left enabled as `LowerPriority`, it would evaluate cohort candidates without checking the `labelSelector`, potentially evicting lower-priority mission-critical workloads.
+> Because `PreemptionConfig` now manages both quota acquisition and topology defragmentation while enforcing protection for `example.com/workload-tier: mission-critical`, set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`. If classical preemption were left enabled as `LowerPriority`, it would evaluate cohort candidates without checking the `labelSelector`, potentially evicting lower-priority mission-critical workloads.
 > {{% /alert %}}
 ---
 
@@ -189,30 +189,27 @@ spec:
 
 ## Verification & Observability
 
-### 1. Inspect Workload Eviction Stats
+To provide visibility into why a workload was preempted when custom rules are used, Kueue tracks configurable preemption outcomes in workload status through eviction statistics and status conditions.
 
-When a preemption occurs, Kueue records detailed diagnostic information in `Workload.status.schedulingStats.evictions` on the preempted workload:
+### Eviction Scheduling Stats
 
-```bash
-kubectl get workload <preempted-workload-name> -o yaml
-```
+Kueue records detailed eviction information in `Workload.status.schedulingStats.evictions`:
 
-In the output, locate `status.schedulingStats.evictions`:
+- **`reason`**: Set to `ConfigurablePreemption` to indicate that the configurable preemption mechanism triggered the eviction.
+- **`underlyingCause`**: Populated with the name of the `PreemptionConfig` that triggered the preemption:
+  ```yaml
+  status:
+    schedulingStats:
+      evictions:
+      - count: 1
+        reason: ConfigurablePreemption
+        underlyingCause: "Preempted because of preemption config hero-workloads-preemption-config"
+  ```
+- **`count`**: Incremented each time the workload is preempted due to this specific `PreemptionConfig`.
 
-```yaml
-status:
-  schedulingStats:
-    evictions:
-    - count: 1
-      reason: ConfigurablePreemption
-      underlyingCause: "Preempted by default/hero-job-xyz because of preemption config:  hero-workloads-preemption-config"
-```
+### Status Conditions
 
-The `underlyingCause` string records the preemptor workload name, the active `PreemptionConfig`, the rule name, and the index of the matching candidate selector.
-
-### 2. Inspect Status Conditions
-
-Kueue also sets conditions in `Workload.status.conditions` on the preempted workload:
+When a workload is preempted by a `PreemptionConfig` rule, Kueue sets two conditions in `Workload.status.conditions`. Both conditions share the exact same diagnostic message identifying the preemptor workload, the `PreemptionConfig` name, the rule name, and the selector index:
 
 ```yaml
 status:
@@ -220,15 +217,18 @@ status:
   - type: Evicted
     status: "True"
     reason: Preempted
-    message: "Preempted by rule 'hero-preempt-lower-priority' in PreemptionConfig 'hero-workloads-preemption-config' to accommodate workload default/hero-job-xyz"
+    message: "Preempted by default/hero-job-xyz because of preemption config hero-workloads-preemption-config rule hero-preempt-lower-priority/0"
   - type: Preempted
     status: "True"
     reason: ConfigurablePreemption
-    message: "Preempted by rule 'hero-preempt-lower-priority' in PreemptionConfig 'hero-workloads-preemption-config'"
+    message: "Preempted by default/hero-job-xyz because of preemption config hero-workloads-preemption-config rule hero-preempt-lower-priority/0"
 ```
 
-### 3. Check Metrics
+If multiple selectors within a rule triggered the candidate's preemption, their indices are concatenated with commas (e.g., `rule hero-preempt-lower-priority/0,1`). If multiple rules contributed, they are separated with semicolons.
+
+### Metrics
 
 Kueue exports Prometheus metrics broken down by queue and reason:
 - `kueue_preempted_workloads_total{reason="ConfigurablePreemption"}`: Counts workloads preempted by `PreemptionConfig` rules.
 - `kueue_admission_attempts_total{result="inadmissible"}`: Counts failed admission attempts. Inspect `Workload.status.conditions` to determine whether a workload was blocked by quota or topology.
+
