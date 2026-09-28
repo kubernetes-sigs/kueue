@@ -174,8 +174,9 @@ spec:
 ```
 
 {{% alert title="Disabling Classical Preemption for Label Protection" color="info" %}}
-> Because `PreemptionConfig` now manages both quota acquisition and topology defragmentation while enforcing protection for `example.com/workload-tier: mission-critical`, set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`. If classical preemption were left enabled as `LowerPriority`, it would evaluate cohort candidates without checking the `labelSelector`, potentially evicting lower-priority mission-critical workloads.
-> {{% /alert %}}
+Because `PreemptionConfig` now manages both quota acquisition and topology defragmentation while enforcing protection for `example.com/workload-tier: mission-critical`, set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`. If classical preemption were left enabled as `LowerPriority`, it would evaluate cohort candidates without checking the `labelSelector`, potentially evicting lower-priority mission-critical workloads.
+{{% /alert %}}
+
 ---
 
 ## Common Pitfalls
