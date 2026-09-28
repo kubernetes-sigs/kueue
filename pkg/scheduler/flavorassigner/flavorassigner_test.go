@@ -4439,7 +4439,7 @@ func TestAssignFlavors(t *testing.T) {
 					resources.NewResourceFormatter(),
 					0,
 				)
-				assignment := flvAssigner.AssignFlavors(ctx, log, nil)
+				assignment := flvAssigner.AssignFlavors(ctx, log, tc.counts)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 				}
