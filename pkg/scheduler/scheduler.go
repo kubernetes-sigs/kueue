@@ -509,7 +509,7 @@ func (s *Scheduler) processEntry(
 		e.requeueReason = qcache.RequeueReasonFailedAfterNomination
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
 		// The scan progress was shaped by the transient reservations, so the
-		// next cycle re-evaluates every flavor, as in the DeferredFit branch.
+		// next cycle re-evaluates every flavor, as for overlapping preemptions.
 		e.FlavorScanState = nil
 		log.V(3).Info("Refilled workload cannot act on its assignment; deferring to the next cycle", "mode", mode)
 		return
@@ -546,15 +546,17 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
-		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+		if e.assignment.WaitingForResidualTASPods {
+			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
+		} else {
+			e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+			// Retry every flavor after overlapping preemptions change the cluster
+			// state. Residual Pods may take longer to terminate, so keep that
+			// attempt's scan progress to explore other flavors in the meantime.
+			e.FlavorScanState = nil
+		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
-		// Clear FlavorScanState to force a full re-evaluation of all flavors in the next cycle.
-		// Since we are deferring admission until in-flight preemptions complete, the cluster
-		// state will change. Retaining the current assignment could lock the workload into a
-		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
-		// become available.
-		e.FlavorScanState = nil
 		bookUsage(log, snapshot, cq, e)
 		return
 	}
@@ -874,6 +876,9 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	cq *schdcache.ClusterQueueSnapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads) (bool, error) {
 	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	if e.assignment.WaitingForResidualTASPods && fitsCheck == schdcache.FitsCheckNoTAS {
+		return false, nil
+	}
 
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
@@ -1594,6 +1599,12 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		fitsFn := func(nextCounts []int32) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
 			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
+				// A reduced count may fit only by evicting another victim. Keep
+				// waiting for residual Pods unless it fits without preemption.
+				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
+					partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
+					return false
+				}
 				bestPartialPlan = &partialPlan
 				return true
 			}
