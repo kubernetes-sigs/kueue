@@ -138,11 +138,12 @@ may land in the same rack.
 
 #### Story 1: Co-location Groups of Different Sizes
 
-As a cluster user, my job has one group of four pods and one group of three
-pods that each need to sit in a single rack, plus one pod with no locality
-requirement. I want to say `sizes: [4, 3, 1]` and have Kueue keep each group
-whole, without forcing all three groups to the same size or splitting my job
-into separate PodSets.
+As a cluster user, my job runs eight interchangeable pods. I need four of them
+to share a rack, three others to share a rack, and the last one can go anywhere.
+Which pods end up in which chunk does not matter to me. I want to say
+`sizes: [4, 3, 1]` and have Kueue keep each chunk inside one rack, without
+forcing all three chunks to the same size or splitting my job into separate
+PodSets.
 
 #### Story 2: Shaping Each Block the Same Way
 
