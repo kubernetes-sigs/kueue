@@ -240,16 +240,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 				// Repointing now would still name the pre-resize slice.
 				return false, nil
 			}
-			if err := a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob); err != nil {
-				return false, err
-			}
-			// RayService combines worker-owned replicas with manager-owned Serve
-			// configuration. Keep forwarding the latter after the runtime state and
-			// workload-slice identity are synchronized.
-			if a.remoteSpecSync != nil && features.Enabled(features.MultiKueueRemoteSpecSync) && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
-				return false, a.syncRemoteSpec(ctx, remoteClient, localJob, remoteJob)
-			}
-			return false, nil
+			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
 		}
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)

@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -86,11 +85,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 	elasticManagerReflected.Status = *elasticWorkerService.Status.DeepCopy()
 	elasticManagerWithoutRuntime := elasticManagerService.DeepCopy()
 	elasticManagerWithoutRuntime.Status = *elasticWorkerService.Status.DeepCopy()
-	elasticManagerStable := elasticManagerReflected.DeepCopy()
-	elasticManagerStable.Spec.ServeConfigV2 = "new-config"
-	elasticWorkerSynced := elasticWorkerService.DeepCopy()
-	elasticWorkerSynced.Labels[constants.PrebuiltWorkloadLabel] = "wl2"
-	elasticWorkerSynced.Spec.ServeConfigV2 = "new-config"
 
 	cases := map[string]struct {
 		managersRayServices []rayv1.RayService
@@ -188,34 +182,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantError:               errActiveRayClusterNotControlled,
 			wantManagersRayServices: []rayv1.RayService{*elasticManagerWithoutRuntime.DeepCopy()},
 			wantWorkerRayServices:   []rayv1.RayService{*elasticWorkerService.DeepCopy()},
-		},
-		"autoscaling sync still forwards serveConfigV2 after runtime state is stable": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:   true,
-				features.MultiKueueRayInTreeAutoscaling: true,
-				features.WorkloadIdentifierAnnotations:  false,
-			},
-			managersRayServices: []rayv1.RayService{
-				*utiltestingrayservice.MakeService("rayservice1", TestNamespace).
-					Suspend(false).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
-					Annotation(raycluster.RayClusterGenerationAnnotation, "child-uid-2").
-					ManagedBy(kueue.MultiKueueControllerName).
-					EnableInTreeAutoscaling().
-					WithServeConfigV2("new-config").
-					Obj(),
-			},
-			workerRayServices: []rayv1.RayService{
-				*elasticWorkerService.DeepCopy(),
-			},
-			workerRayClusters: []rayv1.RayCluster{*elasticWorkerCluster.DeepCopy()},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "wl2", "origin1")
-				return err
-			},
-			wantManagersRayServices: []rayv1.RayService{*elasticManagerStable.DeepCopy()},
-			wantWorkerRayServices:   []rayv1.RayService{*elasticWorkerSynced.DeepCopy()},
 		},
 		"sync status from remote rayservice": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
