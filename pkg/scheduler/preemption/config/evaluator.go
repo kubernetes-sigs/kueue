@@ -87,7 +87,7 @@ func (p *PreemptionEvaluator) Candidates(
 	var candidates []*configurableCandidate
 	// Several rules, or several selectors of a rule, can select the same workload.
 	// Therefore, we need to keep track of the UIDs of the selected workloads
-	// to avoid duplicates. Additionaly map's value is used as index of already recorded candidate
+	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
 	// for effective look up to add another selector's index in case of another match.
 	seen := map[types.UID]int{}
 	for _, rule := range p.config.Spec.Rules {

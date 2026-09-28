@@ -319,7 +319,6 @@ func messageAndUnderlyingCause(
 	target *Target,
 	preemptor *workload.Info,
 	snap *schdcache.ClusterQueueSnapshot) (string, kueue.EvictionUnderlyingCause) {
-
 	if target.Reason == kueue.ConfigurablePreemptionReason {
 		if target.ConfigurablePreemptionReasonData != nil {
 			message := target.ConfigurablePreemptionReasonData.EvictionMessage(preemptor.Obj)
