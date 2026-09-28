@@ -159,23 +159,14 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "managedJobsNamespaceSelector:\\n\\s+matchLabels:\\n\\s+team: research"
 
-  - it: should give the legacy Kueue string precedence over structured configuration
-    documentIndex: 3
+  - it: should reject both Kueue configuration inputs with the subchart disabled
     set:
-      kueue.managerConfig.config.managedJobsNamespaceSelector:
-        matchLabels:
-          team: structured
-      kueue.managerConfig.controllerManagerConfigYaml: |
-        managedJobsNamespaceSelector:
-          matchLabels:
-            team: legacy
+      kueue.enabled: false
+      kueue.managerConfig.config: {}
+      kueue.managerConfig.controllerManagerConfigYaml: ""
     asserts:
-      - matchRegex:
-          path: data["controller_manager_config.yaml"]
-          pattern: "team: legacy"
-      - notMatchRegex:
-          path: data["controller_manager_config.yaml"]
-          pattern: "team: structured"
+      - failedTemplate:
+          errorMessage: kueue.managerConfig.config and kueue.managerConfig.controllerManagerConfigYaml are mutually exclusive
 
   - it: should preserve the explicit populator selector over structured Kueue configuration
     documentIndex: 3
@@ -211,3 +202,15 @@ tests:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
           pattern: 'values:\s+- kube-system\s+- custom-kueue-system'
+
+  - it: should resolve structured configuration through the enabled Kueue subchart
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.config.managedJobsNamespaceSelector:
+        matchLabels:
+          team: research
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "managedJobsNamespaceSelector:\\n\\s+matchLabels:\\n\\s+team: research"

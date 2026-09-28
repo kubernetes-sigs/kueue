@@ -155,16 +155,53 @@ name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
 {{- end }}
 
 {{/*
-Select the manager configuration.
-The legacy YAML string takes precedence as a full replacement.
+Apply structured manager configuration to the defaults in place.
+Maps merge recursively, lists and scalars replace, and null removes a key.
+*/}}
+{{- define "kueue.mergeManagerConfig" -}}
+{{- range $key, $value := .source }}
+{{- if eq $value nil }}
+{{- $_ := unset $.target $key }}
+{{- else if kindIs "map" $value }}
+{{- if not (kindIs "map" (get $.target $key)) }}
+{{- $_ := set $.target $key (dict) }}
+{{- end }}
+{{- $_ := include "kueue.mergeManagerConfig" (dict "target" (get $.target $key) "source" $value) }}
+{{- else }}
+{{- $_ := set $.target $key (deepCopy $value) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Resolve mutually exclusive manager configuration inputs.
+Legacy strings, including an empty string, are complete replacements.
+Structured configuration is merged with this chart's packaged defaults.
 */}}
 {{- define "kueue.managerConfig" -}}
-{{- if .Values.managerConfig.controllerManagerConfigYaml }}
-{{- .Values.managerConfig.controllerManagerConfigYaml }}
+{{- $values := dict }}
+{{- if hasKey .Values "managerConfig" }}
+{{- $values = .Values.managerConfig }}
+{{- end }}
+{{- if not (kindIs "map" $values) }}
+{{- fail "managerConfig must be a map" }}
+{{- end }}
+{{- if and (hasKey $values "config") (hasKey $values "controllerManagerConfigYaml") }}
+{{- fail "managerConfig.config and managerConfig.controllerManagerConfigYaml are mutually exclusive. To migrate, remove controllerManagerConfigYaml from your complete custom values file and upgrade with --reset-values." }}
+{{- end }}
+{{- if hasKey $values "controllerManagerConfigYaml" }}
+{{- if not (kindIs "string" $values.controllerManagerConfigYaml) }}
+{{- fail "managerConfig.controllerManagerConfigYaml must be a string" }}
+{{- end }}
+{{- $values.controllerManagerConfigYaml }}
 {{- else }}
-{{- if not (kindIs "map" .Values.managerConfig.config) }}
+{{- $config := .Files.Get "files/manager-config.yaml" | fromYaml }}
+{{- if hasKey $values "config" }}
+{{- if not (kindIs "map" $values.config) }}
 {{- fail "managerConfig.config must be a map" }}
 {{- end }}
-{{- toYaml .Values.managerConfig.config }}
+{{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.config) }}
+{{- end }}
+{{- toYaml $config }}
 {{- end }}
 {{- end }}

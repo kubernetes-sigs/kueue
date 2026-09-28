@@ -84,10 +84,9 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: 'frameworks: \[\]'
 
-  - it: should give the legacy string precedence without merging structured defaults
+  - it: should keep a legacy string as a full replacement
     template: manager/manager-config.yaml
     set:
-      managerConfig.config.clientConnection.qps: 600
       managerConfig.controllerManagerConfigYaml: |
         clientConnection:
           qps: 100
@@ -97,7 +96,7 @@ tests:
           pattern: "qps: 100"
       - notMatchRegex:
           path: data["controller_manager_config.yaml"]
-          pattern: "burst:|groupKindConcurrency:|qps: 600"
+          pattern: "burst:|groupKindConcurrency:"
 
   - it: should disable internal certificates when cert-manager is enabled with structured config
     template: manager/manager-config.yaml
@@ -180,29 +179,80 @@ tests:
           value: Ignore
         documentIndex: 0
 
-  - it: should use the legacy selector and frameworks for webhooks when both inputs are set
+  - it: should reject both configuration inputs
     template: webhook/manifests.yaml
     set:
-      managerConfig.config.managedJobsNamespaceSelector:
-        matchLabels:
-          team: structured
-      managerConfig.config.integrations.frameworks: [batch/job, pod]
+      managerConfig.config.clientConnection.qps: 600
       managerConfig.controllerManagerConfigYaml: |
-        managedJobsNamespaceSelector:
-          matchLabels:
-            team: legacy
-        integrations:
-          frameworks: [batch/job]
+        clientConnection:
+          qps: 100
     asserts:
-      - equal:
-          path: webhooks[?(@.name == "mjob.kb.io")].namespaceSelector.matchLabels.team
-          value: legacy
-        documentIndex: 0
-      - equal:
-          path: webhooks[?(@.name == "vjob.kb.io")].namespaceSelector.matchLabels.team
-          value: legacy
-        documentIndex: 1
+      - failedTemplate:
+          errorMessage: managerConfig.config and managerConfig.controllerManagerConfigYaml are mutually exclusive. To migrate, remove controllerManagerConfigYaml from your complete custom values file and upgrade with --reset-values.
+
+  - it: should reject both inputs even when both are empty
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config: {}
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: managerConfig.config and managerConfig.controllerManagerConfigYaml are mutually exclusive. To migrate, remove controllerManagerConfigYaml from your complete custom values file and upgrade with --reset-values.
+
+  - it: should preserve the meaning of an empty legacy string
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:|integrations:|leaderElection:|controller:"
+
+  - it: should retain legacy webhook policies for an empty string
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
       - equal:
           path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
           value: Ignore
         documentIndex: 0
+
+  - it: should use packaged defaults with an empty structured map
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config: {}
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst: 500"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 300"
+
+  - it: should reject a null structured input
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config: null
+    asserts:
+      - failedTemplate:
+          errorMessage: managerConfig.config must be a map
+
+  - it: should reject a non-string legacy input
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: managerConfig.controllerManagerConfigYaml must be a string
+
+  - it: should reject a null legacy input
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: null
+    asserts:
+      - failedTemplate:
+          errorMessage: managerConfig.controllerManagerConfigYaml must be a string
