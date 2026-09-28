@@ -202,7 +202,7 @@ type ClusterQueue struct {
 	queueInadmissibleCycle int64
 
 	compareFunc  func(a, b *workload.Info) int
-	snapshotSort func(elements []*workload.Info)
+	snapshotSort func(elements []*workload.Info, lqWeights map[utilqueue.LocalQueueReference]float64)
 
 	queueingStrategy kueue.QueueingStrategy
 
@@ -216,8 +216,8 @@ type ClusterQueue struct {
 
 	// lqWeights holds the LocalQueues that belong to this ClusterQueue, mapped to
 	// their fair-sharing weight. Presence denotes membership; the heap comparator
-	// reads the weight without a fallible API call, and missing entries fall back
-	// to weight 1.0. Guarded by rwm. See Kueue#13476.
+	// and Snapshot read the weight without a fallible API call, and missing entries
+	// fall back to weight 1.0. Guarded by rwm. See Kueue#13476.
 	lqWeights map[utilqueue.LocalQueueReference]float64
 
 	pw *preemptorWorkload
@@ -294,7 +294,7 @@ func newClusterQueue(
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, opts ...clusterQueueOption) *ClusterQueue {
+func newClusterQueueImpl(ctx context.Context, _ client.Client, wo workload.Ordering, clock clock.Clock, opts ...clusterQueueOption) *ClusterQueue {
 	options := &clusterQueueOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -304,10 +304,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	// weight updates are visible to the comparator. All access holds rwm.
 	lqWeights := make(map[utilqueue.LocalQueueReference]float64)
 	getLQWeight := func(lqKey utilqueue.LocalQueueReference) float64 {
-		if w, ok := lqWeights[lqKey]; ok {
-			return w
-		}
-		return 1.0
+		return lookupLQWeight(lqWeights, lqKey)
 	}
 	// The comparator reads the sticky workload and cached weights live; safe
 	// because those writes and heap operations all hold rwm.
@@ -317,7 +314,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	// Snapshot sorts without the lock, so it captures the sticky workload once
 	// per sort rather than reading it live. See Kueue#12740.
 	snapshotSort := buildSnapshotSort(
-		ctx, wo, &pw, client,
+		ctx, wo, &pw,
 		options.enableAdmissionFs, options.fsResWeights,
 		options.afsUsageLedger,
 	)
@@ -928,8 +925,11 @@ func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 // When fair-sharing is enabled, FS usage is pre-computed per LocalQueue
 // from a point-in-time copy of AFS state before sorting.
 func (c *ClusterQueue) Snapshot() []*workload.Info {
-	elements := c.totalElements()
-	c.snapshotSort(elements)
+	c.rwm.RLock()
+	elements := c.totalElementsLocked()
+	lqWeights := maps.Clone(c.lqWeights)
+	c.rwm.RUnlock()
+	c.snapshotSort(elements, lqWeights)
 	return elements
 }
 
@@ -938,37 +938,24 @@ func (c *ClusterQueue) Snapshot() []*workload.Info {
 // workload once per sort (via preemptorWorkload.capturedStickyMatcher) to keep the comparison
 // transitive even if the sticky workload changes concurrently. See Kueue#12740.
 // When fair-sharing is enabled, it also pre-computes FS usage per LocalQueue from
-// deep-copied AFS state to avoid inconsistent comparisons from concurrent updates.
+// deep-copied AFS state and a point-in-time copy of cached LocalQueue weights to
+// avoid inconsistent comparisons from concurrent updates.
 func buildSnapshotSort(
 	ctx context.Context,
 	wo workload.Ordering,
 	pw *preemptorWorkload,
-	cl client.Client,
 	enableAdmissionFs bool,
 	fsResWeights map[corev1.ResourceName]float64,
 	afsUsageLedger *queueafs.AfsUsageLedger,
-) func(elements []*workload.Info) {
+) func(elements []*workload.Info, lqWeights map[utilqueue.LocalQueueReference]float64) {
 	log := ctrl.LoggerFrom(ctx)
 	if !enableAdmissionFs {
-		return func(elements []*workload.Info) {
+		return func(elements []*workload.Info, _ map[utilqueue.LocalQueueReference]float64) {
 			slices.SortFunc(elements, baseCompareFunc(log, wo, pw.capturedStickyMatcher()))
 		}
 	}
 
-	getLQWeight := func(lqKey utilqueue.LocalQueueReference) (float64, bool) {
-		if cl == nil {
-			return 1, true
-		}
-		ns, name := utilqueue.MustParseLocalQueueReference(lqKey)
-		lqWeight, err := afs.ResolveLQWeight(ctx, cl, client.ObjectKey{Namespace: ns, Name: string(name)})
-		if err != nil {
-			log.V(2).Error(err, "Failed to get LocalQueue for FS weight; falling back to base ordering for snapshot", "localQueue", klog.KRef(ns, string(name)))
-			return 0, false
-		}
-		return lqWeight, true
-	}
-
-	return func(elements []*workload.Info) {
+	return func(elements []*workload.Info, lqWeights map[utilqueue.LocalQueueReference]float64) {
 		// Capture the sticky workload once so the sort stays transitive without
 		// holding the lock. See Kueue#12740.
 		baseCmp := baseCompareFunc(log, wo, pw.capturedStickyMatcher())
@@ -985,14 +972,7 @@ func buildSnapshotSort(
 					penalty = entry.PendingPenalty().DeepCopy()
 				}
 			}
-			lqWeight, ok := getLQWeight(lqKey)
-			if !ok {
-				// A partial FS usage cache would mix fair-sharing and base comparisons,
-				// which can be non-transitive. Fall back to base ordering for the whole
-				// snapshot. See Kueue#12534.
-				slices.SortFunc(elements, baseCmp)
-				return
-			}
+			lqWeight := lookupLQWeight(lqWeights, lqKey)
 			usageCache[lqKey] = afs.CalculateUsage(consumed, penalty, lqWeight, fsResWeights)
 		}
 
@@ -1044,11 +1024,10 @@ func (c *ClusterQueue) trackedInfo(key workload.Reference) *workload.Info {
 	return nil
 }
 
-// totalElements returns all pending workloads (heap + inadmissible + inflight).
+// totalElementsLocked returns all pending workloads (heap + inadmissible + inflight).
+// Must be called with c.rwm held for reading.
 // The returned order is non-deterministic; callers should sort if needed.
-func (c *ClusterQueue) totalElements() []*workload.Info {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
+func (c *ClusterQueue) totalElementsLocked() []*workload.Info {
 	totalLen := c.heap.Len() + c.inadmissibleWorkloads.len()
 	elements := make([]*workload.Info, 0, totalLen)
 	elements = append(elements, c.heap.List()...)
@@ -1155,6 +1134,13 @@ func queueOrderingFunc(
 		}
 		return baseCmp(a, b)
 	}
+}
+
+func lookupLQWeight(lqWeights map[utilqueue.LocalQueueReference]float64, lqKey utilqueue.LocalQueueReference) float64 {
+	if w, ok := lqWeights[lqKey]; ok {
+		return w
+	}
+	return 1.0
 }
 
 func (c *ClusterQueue) addLocalQueue(lqKey utilqueue.LocalQueueReference, weight float64) {
