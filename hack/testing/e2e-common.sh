@@ -979,7 +979,7 @@ function cluster_kueue_deploy {
             -l app.kubernetes.io/instance=cert-manager \
             --timeout=5m
         if [ "$E2E_USE_HELM" == 'true' ]; then
-            helm_install "$1" "${ROOT_DIR}/test/e2e/config/certmanager/values.yaml"
+            helm_install "$1" "${ROOT_DIR}/test/e2e/config/certmanager/values.yaml" "${ROOT_DIR}/test/e2e/config/certmanager"
         else
             deploy_with_certmanager "$1"
         fi
@@ -992,7 +992,7 @@ function cluster_kueue_deploy {
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
         fi
     elif [ "$E2E_USE_HELM" == 'true' ]; then
-        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
+        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
@@ -1002,9 +1002,20 @@ function cluster_kueue_deploy {
 
 # $1 kubeconfig
 # $2 values file
+# $3 kustomization config whose kueue-manager-config is used as the manager
+#    configuration, so that Helm and kustomize installs share it
 function helm_install {
+    local manager_config
+    manager_config=$(mktemp)
+    # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
+    trap "rm -f '$manager_config'" RETURN
+    $KUSTOMIZE build "$3" |
+        $YQ -e 'select(.kind == "ConfigMap" and .metadata.name == "kueue-manager-config") | .data."controller_manager_config.yaml"' \
+        >"$manager_config"
+
     $HELM install \
       -f "$2" \
+      --set-file "managerConfig.controllerManagerConfigYaml=${manager_config}" \
       --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
       --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
       --create-namespace \
