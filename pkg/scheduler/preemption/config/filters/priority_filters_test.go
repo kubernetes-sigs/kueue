@@ -200,7 +200,10 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			},
 			preemptorPriority: ptr.To[int32](100),
 			candidatePriority: ptr.To[int32](50),
-			wantBuildErr:      errUnsupportedPriorityMode,
+			wantBuildErr: &FilterBuildError{
+				Filter: FilterPriority,
+				Reason: ReasonUnsupportedMode,
+			},
 		},
 		"Unknown/unsupported comparison returns build error": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
@@ -209,7 +212,10 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			},
 			preemptorPriority: ptr.To[int32](100),
 			candidatePriority: ptr.To[int32](50),
-			wantBuildErr:      errUnsupportedPriorityComparison,
+			wantBuildErr: &FilterBuildError{
+				Filter: FilterPriority,
+				Reason: ReasonUnsupportedComparison,
+			},
 		},
 	}
 

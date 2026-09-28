@@ -41,7 +41,11 @@ type priorityFilter struct {
 // based on the priority constraint compared against the preemptor workload.
 func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, error) {
 	if !isSupportedComparison(constraint.Comparison) {
-		return nil, fmt.Errorf("%w %q", errUnsupportedPriorityComparison, constraint.Comparison)
+		return nil, &FilterBuildError{
+			Filter:  FilterPriority,
+			Reason:  ReasonUnsupportedComparison,
+			Message: fmt.Sprintf("unsupported comparison %q", constraint.Comparison),
+		}
 	}
 
 	filterLog := log.WithValues("filter", "Priority", "mode", constraint.Mode, "comparison", constraint.Comparison)
@@ -58,7 +62,11 @@ func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPr
 			return priority.EffectivePriority(log, wl.Obj)
 		}
 	default:
-		return nil, fmt.Errorf("%w %q", errUnsupportedPriorityMode, constraint.Mode)
+		return nil, &FilterBuildError{
+			Filter:  FilterPriority,
+			Reason:  ReasonUnsupportedMode,
+			Message: fmt.Sprintf("unsupported mode %q", constraint.Mode),
+		}
 	}
 
 	preemptorPriority := priorityFn(preemptorLog, preemptor)

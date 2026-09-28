@@ -28,16 +28,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var (
-	errUnsupportedScope              = errors.New("unsupported scope")
-	errInvalidClusterQueueSelector   = errors.New("invalid clusterQueueSelector")
-	errInvalidWorkloadLabelSelector  = errors.New("invalid labelSelector")
-	errUnsupportedPriorityMode       = errors.New("unsupported priority mode")
-	errUnsupportedPriorityComparison = errors.New("unsupported priority comparison")
-	errUnsupportedNumericComparison  = errors.New("unsupported numeric label comparison")
-)
-
-
 // NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters.
 // It returns an error identifying which filter failed to build if compilation fails.
 func NewCandidateFilters(
@@ -50,25 +40,31 @@ func NewCandidateFilters(
 		return CandidateFilters{}, nil
 	}
 
+	var errs []error
+
 	cqScopeFilters, wlScopeFilters, err := buildScopeFilters(selector.Scope, preemptor, snapshot)
 	if err != nil {
-		return CandidateFilters{}, err
+		errs = append(errs, err)
 	}
 	cqLabelFilter, err := buildClusterQueueLabelFilter(selector.ClusterQueueSelector)
 	if err != nil {
-		return CandidateFilters{}, err
+		errs = append(errs, err)
 	}
 	wlLabelFilter, err := buildWorkloadLabelFilter(selector.LabelSelector)
 	if err != nil {
-		return CandidateFilters{}, err
+		errs = append(errs, err)
 	}
 	wlNumericFilters, err := buildNumericLabelFilters(log, selector.NumericLabels, preemptor)
 	if err != nil {
-		return CandidateFilters{}, err
+		errs = append(errs, err)
 	}
 	wlPriorityFilter, err := buildPriorityFilter(log, selector.Priority, preemptor)
 	if err != nil {
-		return CandidateFilters{}, err
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return CandidateFilters{}, errors.Join(errs...)
 	}
 
 	var cqFilters []ClusterQueueFilter
@@ -100,8 +96,6 @@ func buildScopeFilters(
 ) ([]ClusterQueueFilter, []WorkloadFilter, error) {
 	switch scope {
 	case kueuealpha.WithinLocalQueue:
-		// CQ Level: Prune all other ClusterQueues
-		// WL Level: Narrow down workloads to those matching exactly same LocalQueue
 		return []ClusterQueueFilter{NewWithinClusterQueueFilter(preemptor.ClusterQueue)},
 			[]WorkloadFilter{NewWithinLocalQueueFilter(preemptor.Obj.Namespace, preemptor.Obj.Spec.QueueName)}, nil
 
@@ -118,7 +112,11 @@ func buildScopeFilters(
 		return nil, nil, nil
 
 	default:
-		return nil, nil, fmt.Errorf("%w %q", errUnsupportedScope, scope)
+		return nil, nil, &FilterBuildError{
+			Filter:  FilterScope,
+			Reason:  ReasonUnsupportedScope,
+			Message: fmt.Sprintf("unsupported scope %q", scope),
+		}
 	}
 }
 
@@ -130,12 +128,21 @@ func buildNumericLabelFilters(
 	if len(labels) == 0 {
 		return nil, nil
 	}
+	var errs []error
 	filters := make([]WorkloadFilter, 0, len(labels))
 	for _, numConstraint := range labels {
 		if numConstraint.Comparison != nil && !isSupportedComparison(*numConstraint.Comparison) {
-			return nil, fmt.Errorf("%w %q for key %q", errUnsupportedNumericComparison, *numConstraint.Comparison, numConstraint.Key)
+			errs = append(errs, &FilterBuildError{
+				Filter:  FilterNumericLabels,
+				Reason:  ReasonUnsupportedComparison,
+				Message: fmt.Sprintf("unsupported comparison %q for key %q", *numConstraint.Comparison, numConstraint.Key),
+			})
+			continue
 		}
 		filters = append(filters, NewNumericLabelFilter(log, numConstraint, preemptor))
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return filters, nil
 }
@@ -148,7 +155,11 @@ func buildWorkloadLabelFilter(
 	}
 	ls, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidWorkloadLabelSelector, err)
+		return nil, &FilterBuildError{
+			Filter: FilterWorkloadSelector,
+			Reason: ReasonInvalidSelector,
+			Err:    err,
+		}
 	}
 	if ls.Empty() {
 		return nil, nil
@@ -175,7 +186,11 @@ func buildClusterQueueLabelFilter(
 	}
 	ls, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidClusterQueueSelector, err)
+		return nil, &FilterBuildError{
+			Filter: FilterClusterQueueSelector,
+			Reason: ReasonInvalidSelector,
+			Err:    err,
+		}
 	}
 	if ls.Empty() {
 		return nil, nil
