@@ -47,10 +47,7 @@ func fairPreemptionStrategy(
 	if noCandidates(preemptionCtx, candidateWls) {
 		return func(yieldStrategy func(PreemptionStrategy) bool) {}
 	}
-	orderingFn := func(a, b *workload.Info) int {
-		return common.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
-	}
-	slices.SortFunc(candidateWls, orderingFn)
+	slices.SortFunc(candidateWls, preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name))
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info(
 			"Simulating fair preemption",
@@ -118,7 +115,6 @@ func fairPreemptionStrategy(
 				preemptionCtx.snapshot,
 				&preemptionCtx.preemptor,
 				preemptionCtx.frsNeedPreemption,
-				orderingFn,
 				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 				yieldAndRecord,
 			)
