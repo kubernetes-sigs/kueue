@@ -288,6 +288,55 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		expectPodsUsage(7)
 	})
 
+	ginkgo.It("Should cap a shrinking worker group's minCount at its own new count", func() {
+		// Regression coverage: prepareWorkloadSliceForScaleUp copies a matched worker group's own
+		// recorded minCount forward from its predecessor. If that group shrinks in the same event
+		// another group grows, the predecessor's old floor can be larger than the group's own new
+		// count - an invalid state that would hand the scheduler's reducer a negative shrink
+		// budget for the group. It must be capped at the new count instead.
+		const groupA, groupB = "workers-a", "workers-b"
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			WithWorkerGroups(
+				*testingraycluster.MakeWorkerGroup(groupA, 4).Request(corev1.ResourceCPU, "1").Obj(),
+				*testingraycluster.MakeWorkerGroup(groupB, 2).Request(corev1.ResourceCPU, "1").Obj(),
+			).
+			Obj()
+
+		ginkgo.By("admitting the raycluster with groupA at 4 and groupB at 2")
+		util.MustCreate(ctx, k8sClient, testRayCluster)
+		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupA, 4)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupB, 2)
+		expectPodsUsage(7)
+
+		// groupA shrinks from 4 to 1 while groupB grows from 2 to 5, in the same scale event.
+		// 1 head + 1 + 5 = 7 pods, exactly the quota, so both land fully admitted.
+		ginkgo.By("shrinking groupA to 1 while growing groupB to 5")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			g.Expect(testRayCluster.Spec.WorkerGroupSpecs).Should(gomega.HaveLen(2))
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
+			testRayCluster.Spec.WorkerGroupSpecs[1].Replicas = new(int32(5))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the replacement admits both groups in full, groupA's minCount capped at its new count")
+		scaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		gomega.Expect(scaleUpSlice.Spec.PodSets).Should(gomega.HaveLen(3))
+		groupAIdx := slices.IndexFunc(scaleUpSlice.Spec.PodSets, func(ps kueue.PodSet) bool {
+			return ps.Name == groupA
+		})
+		gomega.Expect(groupAIdx).ShouldNot(gomega.Equal(-1))
+		gomega.Expect(scaleUpSlice.Spec.PodSets[groupAIdx].Count).Should(gomega.Equal(int32(1)))
+		gomega.Expect(scaleUpSlice.Spec.PodSets[groupAIdx].MinCount).Should(gomega.Equal(new(int32(1))))
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, groupA, 1)
+		util.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, groupB, 5)
+		expectPodsUsage(7)
+	})
+
 	ginkgo.It("Should preserve worker group MinCounts when reordering during partial scale-up", func() {
 		const groupA, groupB = "workers-a", "workers-b"
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
