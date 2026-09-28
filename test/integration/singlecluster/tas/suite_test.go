@@ -51,10 +51,11 @@ import (
 )
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
+	cfg            *rest.Config
+	k8sClient      client.Client
+	ctx            context.Context
+	fwk            *framework.Framework
+	schedulerCache *schdcache.Cache
 )
 
 func TestAPIs(t *testing.T) {
@@ -118,6 +119,7 @@ func managerSetupWithClientTransform(
 			schdcache.WithFairSharing(fairsharing.Enabled(controllersCfg.FairSharing)),
 		}
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
+		schedulerCache = cCache
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{
 			qcache.WithResourceTransformations(resourceTransformations),
