@@ -218,6 +218,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 		configurablePreemptionDisabled bool
 		wantPreempted                  sets.Set[string]
 		wantReasons                    map[string]string
+		wantConfigurableReasonsData    map[string]preemptioncommon.ConfigurablePreemptionReasonData
 	}{
 		"no candidates for CQ without config": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -902,6 +903,12 @@ func TestConfigurablePreemptions(t *testing.T) {
 			wantPreempted: sets.New("/a1"),
 			wantReasons: map[string]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
+			},
+			wantConfigurableReasonsData: map[string]preemptioncommon.ConfigurablePreemptionReasonData{
+				"/a1": {
+					ConfigName:                defaultConfigName,
+					RuleNameToSelectorIndexes: map[string][]int{"test-rule-one": {0}},
+				},
 			},
 		},
 		"QuotaFeasibleAndInsufficientTopology trigger is not used when the quota is insufficient": {
