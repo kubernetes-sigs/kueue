@@ -118,7 +118,8 @@ job webhooks:
 |---|---|
 | Nonempty `controllerManagerConfigYaml` | Use the YAML string as the complete configuration. Ignore `config`. |
 | YAML string absent or `""`, with `config` | Merge the structured map with this chart version's defaults. |
-| YAML string absent or `""`, without `config` | Use this chart version's defaults. |
+| Both inputs unspecified | Use this chart version's defaults. |
+| YAML string `""`, without `config` | Use this chart version's defaults. |
 
 The two inputs are never merged together. Both must have the correct type when
 supplied: `controllerManagerConfigYaml` is a string and `config` is a map. Values

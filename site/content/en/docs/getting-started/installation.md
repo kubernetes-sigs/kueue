@@ -249,44 +249,8 @@ make undeploy
 
 To install and configure Kueue with [Helm](https://helm.sh/), follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
 
-Set manager configuration fields in a values file passed to Helm with `--values`:
-
-```yaml
-managerConfig:
-  config:
-    clientConnection:
-      qps: 600
-    integrations:
-      frameworks: ["batch/job", "pod"]
-```
-
-The chart merges the structured map with its packaged defaults and replaces
-lists in full. In this example, the default client burst is retained, and only
-the two listed job integrations are enabled. The manager and job webhooks use
-the same configuration.
-
-A nonempty `managerConfig.controllerManagerConfigYaml` string takes precedence
-as a complete replacement; it is never merged with `config`. If the string is
-absent or empty, the chart uses structured configuration and its packaged defaults.
-Nonempty legacy strings require no migration. An explicitly empty string now
-selects structured configuration or chart defaults; use the YAML string `"{}"`
-if you need to preserve an intentionally empty configuration.
-
-To migrate, put every intentional manager customization under `config` and set
-`managerConfig.controllerManagerConfigYaml: ""` in the same values file. For example,
-`helm upgrade kueue <chart> --namespace kueue-system --reuse-values --values migration.yaml`
-preserves other saved chart customizations. The explicit empty string is required
-to clear a retained legacy string; merely adding `config` may leave it ignored.
-Settings inside the old YAML string are not converted automatically.
-
-The migration also works with `--reset-values` and `--reset-then-reuse-values`.
-When using `--reset-values`, include all other chart customizations you want to
-retain in your values file.
-
-Unspecified structured settings follow the selected chart version's packaged
-defaults, including on later upgrades with `--reuse-values`. Review the rendered
-configuration when upgrading. See the chart's [manager configuration guide](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md#manager-configuration)
-for the complete input contract and migration steps.
+For manager configuration and migration from the YAML string, see the chart's
+[manager configuration guide](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md#manager-configuration).
 
 ## Change the feature gates configuration
 
