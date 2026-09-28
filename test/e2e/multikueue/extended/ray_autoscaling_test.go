@@ -74,7 +74,7 @@ func registerRayAutoscalingTests(testContext func() rayAutoscalingTestContext) {
 			runRayJobAutoscalingTest(tc.managerNs, tc.managerCq, tc.managerLq, tc.multiKueueAc, tc.kubernetesClients)
 		})
 
-		ginkgo.It("Should reflect worker-side autoscaler resizes of a RayService's active RayCluster back on the manager", func() {
+		ginkgo.It("Should reflect worker-side autoscaler resizes of a RayService's active RayCluster back on the manager", ginkgo.Serial, func() {
 			tc := testContext()
 			runRayServiceAutoscalingTest(tc.managerNs, tc.managerLq, tc.multiKueueAc, tc.kubernetesClients)
 		})
