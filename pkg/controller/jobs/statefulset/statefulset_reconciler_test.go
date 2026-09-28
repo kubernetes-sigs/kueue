@@ -406,6 +406,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
 					GroupNameLabel(GetWorkloadName("", "sts")).
+					Label(controllerconstants.QueueLabel, "lq").
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -415,6 +416,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
 					GroupNameLabel(GetWorkloadName("", "sts")).
+					Label(controllerconstants.QueueLabel, "lq").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
