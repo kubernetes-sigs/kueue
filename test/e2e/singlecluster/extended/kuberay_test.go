@@ -1162,7 +1162,7 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	ginkgo.It("Should gate a zero-downtime upgrade's pending RayCluster on queue quota", ginkgo.Serial, func() {
+	ginkgo.It("Should gate a zero-downtime upgrade's pending RayCluster on queue quota", ginkgo.Label("shard:kuberay-a"), ginkgo.Serial, func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		countElasticGatedPods := func(g gomega.Gomega) int {
