@@ -3,6 +3,7 @@ kep-number: 2941
 authors:
   - "@alaypatel07"
   - "@sohankunkerkar"
+  - "@thc1006"
 status: implementable
 creation-date: 2025-05-02
 reviewers:
@@ -18,6 +19,7 @@ see-also:
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4815-dra-partitionable-devices"
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5075-dra-consumable-capacity"
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5055-dra-device-taints-and-tolerations"
+  - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4816-dra-prioritized-list"
 replaces:
   - "https://github.com/kubernetes-sigs/kueue/pull/3071"
 
@@ -42,6 +44,7 @@ feature-gates:
   - name: KueueDRAIntegrationExtendedResource
   - name: KueueDRAIntegrationPartitionableDevices
   - name: KueueDRAIntegrationConsumableCapacity
+  - name: KueueDRAIntegrationPrioritizedList
   - name: KueueDRARejectWorkloadsWhenDRADisabled
   - name: KueueDRADeviceFeasibility
   - name: KueueDRAIntegrationDeviceTaints
