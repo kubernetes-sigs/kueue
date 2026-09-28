@@ -24,7 +24,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -48,7 +47,8 @@ func runRayServiceAutoscalingTest(
 	)
 
 	configMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "rayservice-hello", Namespace: managerNs.Name},
+		Name:      "rayservice-hello",
+		Namespace: managerNs.Name,
 		Data: map[string]string{
 			"hello_serve.py": `from ray import serve
 
@@ -61,7 +61,7 @@ app = HelloWorld.bind()`,
 		},
 	}
 	ginkgo.By("Creating the RayService application ConfigMap on all clusters", func() {
-		util.MustCreate(ctx, k8sManagerClient, configMap)
+		util.MustCreate(ctx, k8sManagerClient, configMap.DeepCopy())
 		for _, worker := range kubernetesClients {
 			util.MustCreate(ctx, worker.client, configMap.DeepCopy())
 		}
@@ -78,10 +78,8 @@ app = HelloWorld.bind()`,
           num_cpus: 0`
 	codeVolume := corev1.Volume{
 		Name: "code-sample",
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: configMap.Name},
-			},
+		ConfigMap: &corev1.ConfigMapVolumeSource{
+			Name: configMap.Name,
 		},
 	}
 	codeMount := corev1.VolumeMount{Name: codeVolume.Name, MountPath: "/home/ray/samples"}
