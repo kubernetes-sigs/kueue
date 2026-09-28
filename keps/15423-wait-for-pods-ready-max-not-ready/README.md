@@ -296,6 +296,9 @@ None.
   (for example, the not-ready Pod count versus the allowed
   `pod-group-max-not-ready-count` budget). This may land in an intermediate Alpha
   iteration.
+- Honor `kueue.x-k8s.io/pod-group-max-not-ready-count` for
+  `waitForPodsReady.unscheduledTimeout` ([KEP-13502](../13502-unscheduled-pods-timeout/README.md))
+  so up to `pod-group-max-not-ready-count` unscheduled Pods are tolerated.
 - Re-evaluate replacing the annotation with a Workload API field [KEP-4803](../4803-workload-level-wait-for-pods-ready/README.md).
 
 #### Stable
