@@ -245,6 +245,29 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			wantWorkloadWrites: new(1),
 		},
 
+		// A workload with no priorityClassRef under an owner with no label never
+		// followed the label, so a sibling moving off a WorkloadPriorityClass in the
+		// same batch must not drag it onto the resolved fallback.
+		"leaves the unreferenced workloads of an unlabelled owner alone while a sibling transitions": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			podPriorityClass: []schedulingv1.PriorityClass{
+				{Name: "podpc", Value: 50},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("unreferenced", "ns").Priority(7).Obj(),
+				utiltestingapi.MakeWorkload("transitioning", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"unreferenced":  {refName: new(""), priority: new(int32(7))},
+				"transitioning": {refName: new("podpc"), priority: new(int32(50))},
+			},
+			wantWorkloadWrites: new(1),
+		},
+
 		// A workload that already carries the right class name but a stale value is
 		// only repaired if the comparison looks past the name.
 		"converges a workload that already names the class but holds a stale value": {
