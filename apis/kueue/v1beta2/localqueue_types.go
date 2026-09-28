@@ -55,6 +55,10 @@ type LocalQueueSpec struct {
 	// if AdmissionFairSharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharing `json:"fairSharing,omitempty"`
+
+	// TEMP KAL VIOLATION (v1beta2): bool field, bad comment start.
+	// +optional
+	Paused *bool `json:"paused,omitempty"`
 }
 
 type TopologyInfo struct {
