@@ -4158,7 +4158,7 @@ func TestPreemption(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             kueue.ConfigurablePreemptionReason,
+						Reason:             "Preempted",
 						Message:            "Preempted by /in because of preemption config default-config rule test-rule-one/0",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -4169,7 +4169,10 @@ func TestPreemption(t *testing.T) {
 						Message:            "Preempted by /in because of preemption config default-config rule test-rule-one/0",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: kueue.ConfigurablePreemptionReason, Count: 1}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Preempted",
+						UnderlyingCause: "default-config",
+						Count:           1}).
 					Obj(),
 			},
 		},
@@ -4237,7 +4240,7 @@ func TestPreemption(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
-						Reason:             kueue.ConfigurablePreemptionReason,
+						Reason:             "Preempted",
 						Message:            "Preempted by /in because of preemption config default-config rule test-rule-one/0,1; test-rule-two/0,1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -4248,7 +4251,10 @@ func TestPreemption(t *testing.T) {
 						Message:            "Preempted by /in because of preemption config default-config rule test-rule-one/0,1; test-rule-two/0,1",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
-					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: kueue.ConfigurablePreemptionReason, Count: 1}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{
+						Reason:          "Preempted",
+						UnderlyingCause: "default-config",
+						Count:           1}).
 					Obj(),
 			},
 		},

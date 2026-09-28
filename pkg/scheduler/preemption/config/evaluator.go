@@ -69,7 +69,7 @@ func (p *PreemptionEvaluator) HasRulesFor(triggers ...kueuealpha.PreemptionConfi
 	return false
 }
 
-type Candidate struct {
+type configurableCandidate struct {
 	WlInfo                    *workload.Info
 	ConfigName                string
 	RuleNameToSelectorIndexes map[string][]int
@@ -83,9 +83,12 @@ func (p *PreemptionEvaluator) Candidates(
 	preemptor *workload.Info,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
-) ([]*Candidate, error) {
-	var candidates []*Candidate
+) ([]*configurableCandidate, error) {
+	var candidates []*configurableCandidate
 	// Several rules, or several selectors of a rule, can select the same workload.
+	// Therefore, we need to keep track of the UIDs of the selected workloads
+	// to avoid duplicates. Additionaly map's value is used as index of already recorded candidate
+	// for effective look up to add another selector's index in case of another match.
 	seen := map[types.UID]int{}
 	for _, rule := range p.config.Spec.Rules {
 		if rule.ActivationPolicy.Trigger != trigger {
@@ -118,7 +121,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	ruleName string,
 	seen map[types.UID]int,
-	candidates *[]*Candidate,
+	candidates *[]*configurableCandidate,
 	selectorIndex int,
 ) {
 	for _, targetCq := range snapshot.ClusterQueues() {
@@ -127,26 +130,33 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 		}
 
 		for _, wlInfo := range targetCq.Workloads {
-			existingIndex, found := seen[wlInfo.Obj.UID]
-
 			if matchesWorkload(filter, wlInfo) && classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) {
-				var candidate *Candidate
-				if found {
-					candidate = (*candidates)[existingIndex]
-				} else {
-					seen[wlInfo.Obj.UID] = len(*candidates)
-					candidate = &Candidate{
-						WlInfo:                    wlInfo,
-						ConfigName:                p.config.Name,
-						RuleNameToSelectorIndexes: map[string][]int{},
-					}
-					*candidates = append(*candidates, candidate)
-				}
+				candidate := p.ensureCandidate(seen, candidates, wlInfo)
 
 				candidate.RuleNameToSelectorIndexes[ruleName] = append(candidate.RuleNameToSelectorIndexes[ruleName], selectorIndex)
 			}
 		}
 	}
+}
+
+func (p *PreemptionEvaluator) ensureCandidate(
+	seen map[types.UID]int,
+	candidates *[]*configurableCandidate,
+	wlInfo *workload.Info,
+) *configurableCandidate {
+	if existingIndex, found := seen[wlInfo.Obj.UID]; found {
+		return (*candidates)[existingIndex]
+	}
+
+	seen[wlInfo.Obj.UID] = len(*candidates)
+	candidate := &configurableCandidate{
+		WlInfo:                    wlInfo,
+		ConfigName:                p.config.Name,
+		RuleNameToSelectorIndexes: map[string][]int{},
+	}
+
+	*candidates = append(*candidates, candidate)
+	return candidate
 }
 
 func matchesClusterQueue(filter *filters.CandidateFilters, cq *schdcache.ClusterQueueSnapshot) bool {

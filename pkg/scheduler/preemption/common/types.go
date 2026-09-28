@@ -17,10 +17,14 @@ limitations under the License.
 package common
 
 import (
+	"fmt"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/logging"
+	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -29,6 +33,22 @@ type Target struct {
 	WorkloadInfo *workload.Info
 	Reason       string
 	WorkloadCq   *scheduler.ClusterQueueSnapshot
+
+	// ConfigurablePreemptionReasonData stores data which resulted in eviction.
+	// Specified only when eviction is due to configurable preemption.
+	ConfigurablePreemptionReasonData *ConfigurablePreemptionReasonData
+}
+
+type ConfigurablePreemptionReasonData struct {
+	ConfigName                string
+	RuleNameToSelectorIndexes map[string][]int
+}
+
+func (d *ConfigurablePreemptionReasonData) EvictionMessage(preemptor *kueue.Workload) string {
+	return fmt.Sprintf("Preempted by %s because of preemption config %s rule %s",
+		workload.Key(preemptor),
+		d.ConfigName,
+		stringsutils.JoinMap(d.RuleNameToSelectorIndexes, "/", ",", "; "))
 }
 
 type yieldCandidate = func(*Target) bool
