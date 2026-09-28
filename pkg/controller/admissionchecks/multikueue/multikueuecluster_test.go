@@ -913,6 +913,120 @@ func TestReconnectBackoff(t *testing.T) {
 	}
 }
 
+func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	kubeconfig := testKubeconfig("worker1")
+
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+		KubeConfig(kueue.SecretLocationType, "worker1").
+		Active(metav1.ConditionFalse, "BadKubeConfig", "load client config failed", 1).
+		Generation(1).
+		Obj()
+	secret := makeTestSecret("worker1", kubeconfig)
+
+	managerWorkload := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		ClusterName("worker1").
+		Obj()
+	nominatedWorkload := utiltestingapi.MakeWorkload("wl2", TestNamespace).
+		NominatedClusterNames("worker1").
+		Obj()
+	unrelatedWorkload := utiltestingapi.MakeWorkload("wl3", TestNamespace).
+		ClusterName("worker2").
+		Obj()
+
+	builder := getClientBuilder(ctx)
+	builder = builder.WithObjects(cluster, &secret, managerWorkload, nominatedWorkload, unrelatedWorkload)
+	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{}, &kueue.Workload{})
+	c := builder.Build()
+
+	remoteWorkload := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Obj()
+	workerBuilder := getClientBuilder(ctx)
+	workerBuilder = workerBuilder.WithObjects(remoteWorkload)
+	workerBuilder = workerBuilder.WithStatusSubresource(&kueue.Workload{})
+	workerClient := NewNeverCachingClient(workerBuilder.Build())
+
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	recorder := &utiltesting.EventRecorder{}
+	reconciler := newClustersReconciler(c, TestNamespace,
+		withAdapters(adapters),
+		withClusterProfileAccessProvider(&testClusterProfileAccessProvider{}),
+		withEventRecorder(recorder),
+	)
+	reconciler.rootContext = ctx
+
+	var buildCalls int
+	reconciler.builderOverride = func(builderCtx context.Context, cfg *clientConfig, opts client.Options) (SelectivelyCachingClient, error) {
+		buildCalls++
+		return workerClient, nil
+	}
+
+	rc := newTestClient(ctx, []byte(kubeconfig), nil, nil)
+	rc.clusterName = "worker1"
+	rc.origin = defaultOrigin
+	rc.localClient = c
+	rc.wlUpdateCh = reconciler.wlUpdateCh
+	rc.builderOverride = reconciler.builderOverride
+	reconciler.remoteClients["worker1"] = rc
+	defer rc.StopWatchers()
+
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"})
+	if err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+	if buildCalls != 1 {
+		t.Fatalf("builder invocations: want 1, got %d", buildCalls)
+	}
+	if !rc.connState.isConnected() {
+		t.Errorf("expected state to be connected")
+	}
+	select {
+	case e := <-reconciler.wlUpdateCh:
+		t.Fatalf("initial connection unexpectedly requeued workload: %v", e.Object)
+	default:
+	}
+
+	rc.StopWatchers()
+	rc.connState.markDisconnected(time.Now())
+
+	remoteWl := &kueue.Workload{}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remoteWorkload), remoteWl); err != nil {
+		t.Fatalf("failed to get remote workload: %v", err)
+	}
+	remoteWl.Status.Conditions = append(remoteWl.Status.Conditions, metav1.Condition{
+		Type:   kueue.WorkloadFinished,
+		Status: metav1.ConditionTrue,
+		Reason: "ByTest",
+	})
+	if err := workerClient.Status().Update(ctx, remoteWl); err != nil {
+		t.Fatalf("failed to update remote workload: %v", err)
+	}
+
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"})
+	if err != nil {
+		t.Fatalf("unexpected reconnect error: %v", err)
+	}
+
+	queued := map[types.NamespacedName]bool{}
+	for len(queued) < 2 {
+		select {
+		case e := <-reconciler.wlUpdateCh:
+			queued[client.ObjectKeyFromObject(e.Object)] = true
+		case <-time.After(time.Second):
+			t.Fatalf("reconnect did not requeue the workloads of the cluster, got %v", queued)
+		}
+	}
+	for _, wl := range []*kueue.Workload{managerWorkload, nominatedWorkload} {
+		if !queued[client.ObjectKeyFromObject(wl)] {
+			t.Errorf("reconnect did not requeue workload %v", client.ObjectKeyFromObject(wl))
+		}
+	}
+	if queued[client.ObjectKeyFromObject(unrelatedWorkload)] {
+		t.Errorf("reconnect unexpectedly requeued unrelated workload %v", client.ObjectKeyFromObject(unrelatedWorkload))
+	}
+}
+
 func TestConnectionStateTransitions(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)

@@ -440,7 +440,8 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) {
 		return
 	}
 	for i := range wls.Items {
-		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName {
+		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName ||
+			slices.Contains(wls.Items[i].Status.NominatedClusterNames, rc.clusterName) {
 			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
 		}
 	}
