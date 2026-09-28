@@ -18,12 +18,10 @@ package rayservice
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,8 +31,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
-
-var errActiveRayClusterNotControlled = errors.New("active RayCluster is not controlled by RayService")
 
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
@@ -79,18 +75,6 @@ func fetchActiveRayClusterWorkerState(ctx context.Context, remoteClient client.C
 			return nil, nil
 		}
 		return nil, err
-	}
-	if !metav1.IsControlledBy(child, remoteService) {
-		return nil, fmt.Errorf("%w: RayCluster %q, RayService %q", errActiveRayClusterNotControlled, child.Name, remoteService.Name)
-	}
-	expectedWorkerGroups := make(map[string]struct{}, len(remoteService.Spec.RayClusterSpec.WorkerGroupSpecs))
-	for i := range remoteService.Spec.RayClusterSpec.WorkerGroupSpecs {
-		expectedWorkerGroups[remoteService.Spec.RayClusterSpec.WorkerGroupSpecs[i].GroupName] = struct{}{}
-	}
-	for i := range child.Spec.WorkerGroupSpecs {
-		if _, found := expectedWorkerGroups[child.Spec.WorkerGroupSpecs[i].GroupName]; !found {
-			return nil, fmt.Errorf("active RayCluster %q has unexpected worker group %q", child.Name, child.Spec.WorkerGroupSpecs[i].GroupName)
-		}
 	}
 	return &ray.FetchResult{
 		Counts:   raycluster.WorkerGroupPodCounts(&child.Spec),
