@@ -40,7 +40,9 @@ type Target struct {
 }
 
 type ConfigurablePreemptionReasonData struct {
-	ConfigName                string
+	ConfigName string
+	// RuleNameToSelectorIndexes maps rule names to the indexes of selectors
+	// that the workload satisfies.
 	RuleNameToSelectorIndexes map[string][]int
 }
 
