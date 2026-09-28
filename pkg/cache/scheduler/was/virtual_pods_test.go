@@ -195,7 +195,7 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 	}
 }
 
-func TestBuildCandidatePodValidation(t *testing.T) {
+func TestCandidateVirtualPodsForPodSet_Validation(t *testing.T) {
 	baseWl := utiltestingapi.MakeWorkload("wl", "test-ns").Obj()
 	basePs := &kueue.PodSet{Name: "main"}
 
@@ -225,7 +225,7 @@ func TestBuildCandidatePodValidation(t *testing.T) {
 	}
 }
 
-func TestCandidateVirtualPodsForPodSetMetadataAndStatus(t *testing.T) {
+func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("wl", "test-ns").UID("wl-uid").Obj()
 	ps := &kueue.PodSet{
 		Name: "workers",
@@ -279,7 +279,7 @@ func TestCandidateVirtualPodsForPodSetMetadataAndStatus(t *testing.T) {
 	}
 }
 
-func TestCandidateVirtualPodsForPodSetNodeSelector(t *testing.T) {
+func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("wl", "default").Obj()
 
 	tests := map[string]struct {
@@ -348,7 +348,7 @@ func TestCandidateVirtualPodsForPodSetNodeSelector(t *testing.T) {
 	}
 }
 
-func TestCandidateVirtualPodsForPodSetTolerations(t *testing.T) {
+func TestCandidateVirtualPodsForPodSet_Tolerations(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("wl", "default").Obj()
 	ps := &kueue.PodSet{
 		Name: "main",
@@ -387,7 +387,7 @@ func TestCandidateVirtualPodsForPodSetTolerations(t *testing.T) {
 	}
 }
 
-func TestCandidateVirtualPodsForPodSetImmutability(t *testing.T) {
+func TestCandidateVirtualPodsForPodSet_Immutability(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("wl", "default").Obj()
 	ps := &kueue.PodSet{
 		Name: "main",
@@ -427,7 +427,7 @@ func TestCandidateVirtualPodsForPodSetImmutability(t *testing.T) {
 	}
 }
 
-func TestCandidateVirtualPodsForPodSetCount(t *testing.T) {
+func TestCandidateVirtualPodsForPodSet_Count(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("wl", "test-ns").UID("wl-uid").Obj()
 	ps := &kueue.PodSet{
 		Name: "workers",

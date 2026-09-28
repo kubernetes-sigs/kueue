@@ -1563,16 +1563,16 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 		}
 		podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psAssignment.Name)
 		if podSet == nil {
-			continue
+			return nil, fmt.Errorf("podSet %q not found in workload %s", psAssignment.Name, wl.Obj.Name)
 		}
 
 		tasFlavor, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("failed to get TAS flavor for PodSet %q: %w", psAssignment.Name, err)
 		}
 		flavorSnapshot := cq.TASFlavors[*tasFlavor]
 		if flavorSnapshot == nil {
-			continue
+			return nil, fmt.Errorf("TAS flavor snapshot for flavor %q not found in ClusterQueue %s", *tasFlavor, cq.Name)
 		}
 
 		// Gather ready PodSetUpdates from admission checks

@@ -357,8 +357,7 @@ func (s *TASFlavorSnapshot) Tolerations() []corev1.Toleration {
 	tolerations := slices.Clone(s.tolerations)
 	for i := range tolerations {
 		if tolerations[i].TolerationSeconds != nil {
-			seconds := *tolerations[i].TolerationSeconds
-			tolerations[i].TolerationSeconds = &seconds
+			tolerations[i].TolerationSeconds = new(*tolerations[i].TolerationSeconds)
 		}
 	}
 	return tolerations
