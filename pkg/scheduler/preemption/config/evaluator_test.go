@@ -120,6 +120,51 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorCq: "a",
 			wantError:   "\"invalid\" is not a valid label selector operator",
 		},
+		"returns error for candidate selector with invalid label selector operator": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						LabelSelector(&metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{Key: "test", Operator: "invalid"},
+							},
+						}).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
+			preemptorCq: "a",
+			wantError:   "invalid labelSelector: \"invalid\" is not a valid label selector operator",
+		},
+		"returns error for candidate selector with unsupported scope": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.PreemptionConfigPreemptionQueueScope("InvalidScope")).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
+			preemptorCq: "a",
+			wantError:   "unsupported scope \"InvalidScope\"",
+		},
+		"returns error for candidate selector with unsupported priority mode": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						Priority(kueuealpha.PreemptionConfigPriorityMode("InvalidMode"), kueuealpha.LessThan).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
+			preemptorCq: "a",
+			wantError:   "unsupported priority mode \"InvalidMode\"",
+		},
 		"selects candidates for CQ without cohort": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("a").

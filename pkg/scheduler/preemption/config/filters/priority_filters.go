@@ -17,6 +17,8 @@ limitations under the License.
 package filters
 
 import (
+	"fmt"
+
 	"github.com/go-logr/logr"
 	"k8s.io/klog/v2"
 
@@ -37,8 +39,11 @@ type priorityFilter struct {
 
 // NewPriorityFilter creates a WorkloadFilter to evaluate candidate workloads
 // based on the priority constraint compared against the preemptor workload.
-// It returns (nil, false) if the priority mode is unsupported.
-func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, bool) {
+func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, error) {
+	if !isSupportedComparison(constraint.Comparison) {
+		return nil, fmt.Errorf("unsupported priority comparison %q", constraint.Comparison)
+	}
+
 	filterLog := log.WithValues("filter", "Priority", "mode", constraint.Mode, "comparison", constraint.Comparison)
 	preemptorLog := filterLog.WithValues("preemptor", klog.KObj(preemptor.Obj))
 
@@ -53,8 +58,7 @@ func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPr
 			return priority.EffectivePriority(log, wl.Obj)
 		}
 	default:
-		preemptorLog.V(3).Info("Unsupported or unhandled priority mode evaluated; candidate rejected", "mode", constraint.Mode)
-		return nil, false
+		return nil, fmt.Errorf("unsupported priority mode %q", constraint.Mode)
 	}
 
 	preemptorPriority := priorityFn(preemptorLog, preemptor)
@@ -65,7 +69,7 @@ func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPr
 		comparison:        constraint.Comparison,
 		priorityFn:        priorityFn,
 		preemptorPriority: preemptorPriority,
-	}, true
+	}, nil
 }
 
 // Matches evaluates a candidate workload's priority against the preemptor's priority.

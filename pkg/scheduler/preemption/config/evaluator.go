@@ -94,9 +94,9 @@ func (p *PreemptionEvaluator) Candidates(
 		}
 
 		for _, selector := range rule.CandidateSelectors {
-			filter, rejectAll := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
-			if rejectAll {
-				continue
+			filter, err := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
+			if err != nil {
+				return nil, err
 			}
 
 			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, &seen, &candidates)

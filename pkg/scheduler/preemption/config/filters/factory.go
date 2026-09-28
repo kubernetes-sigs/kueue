@@ -17,6 +17,8 @@ limitations under the License.
 package filters
 
 import (
+	"fmt"
+
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -25,34 +27,37 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters & RejectAll boolean.
-// It returns (CandidateFilters{}, true) if the selector fails to compile and all the candidates should be rejected.
+// NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters.
+// It returns an error identifying which filter failed to build if compilation fails.
 func NewCandidateFilters(
 	log logr.Logger,
 	selector *kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
-) (CandidateFilters, bool) {
+) (CandidateFilters, error) {
 	if selector == nil {
-		return CandidateFilters{}, false
+		return CandidateFilters{}, nil
 	}
 
-	cqScopeFilters, wlScopeFilters, ok := buildScopeFilters(log, selector.Scope, preemptor, snapshot)
-	if !ok {
-		return CandidateFilters{}, true
+	cqScopeFilters, wlScopeFilters, err := buildScopeFilters(selector.Scope, preemptor, snapshot)
+	if err != nil {
+		return CandidateFilters{}, err
 	}
-	cqLabelFilter, ok := buildClusterQueueLabelFilter(log, selector.ClusterQueueSelector)
-	if !ok {
-		return CandidateFilters{}, true
+	cqLabelFilter, err := buildClusterQueueLabelFilter(selector.ClusterQueueSelector)
+	if err != nil {
+		return CandidateFilters{}, err
 	}
-	wlLabelFilter, ok := buildWorkloadLabelFilter(log, selector.LabelSelector)
-	if !ok {
-		return CandidateFilters{}, true
+	wlLabelFilter, err := buildWorkloadLabelFilter(selector.LabelSelector)
+	if err != nil {
+		return CandidateFilters{}, err
 	}
-	wlNumericFilters := buildNumericLabelFilters(log, selector.NumericLabels, preemptor)
-	wlPriorityFilter, ok := buildPriorityFilter(log, selector.Priority, preemptor)
-	if !ok {
-		return CandidateFilters{}, true
+	wlNumericFilters, err := buildNumericLabelFilters(log, selector.NumericLabels, preemptor)
+	if err != nil {
+		return CandidateFilters{}, err
+	}
+	wlPriorityFilter, err := buildPriorityFilter(log, selector.Priority, preemptor)
+	if err != nil {
+		return CandidateFilters{}, err
 	}
 
 	var cqFilters []ClusterQueueFilter
@@ -74,37 +79,35 @@ func NewCandidateFilters(
 	return CandidateFilters{
 		CQFilters: cqFilters,
 		WLFilters: wlFilters,
-	}, false
+	}, nil
 }
 
 func buildScopeFilters(
-	log logr.Logger,
 	scope kueuealpha.PreemptionConfigPreemptionQueueScope,
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
-) ([]ClusterQueueFilter, []WorkloadFilter, bool) {
+) ([]ClusterQueueFilter, []WorkloadFilter, error) {
 	switch scope {
 	case kueuealpha.WithinLocalQueue:
 		// CQ Level: Prune all other ClusterQueues
 		// WL Level: Narrow down workloads to those matching exactly same LocalQueue
 		return []ClusterQueueFilter{NewWithinClusterQueueFilter(preemptor.ClusterQueue)},
-			[]WorkloadFilter{NewWithinLocalQueueFilter(preemptor.Obj.Namespace, preemptor.Obj.Spec.QueueName)}, true
+			[]WorkloadFilter{NewWithinLocalQueueFilter(preemptor.Obj.Namespace, preemptor.Obj.Spec.QueueName)}, nil
 
 	case kueuealpha.WithinClusterQueue:
-		return []ClusterQueueFilter{NewWithinClusterQueueFilter(preemptor.ClusterQueue)}, nil, true
+		return []ClusterQueueFilter{NewWithinClusterQueueFilter(preemptor.ClusterQueue)}, nil, nil
 
 	case kueuealpha.WithinParentCohort:
-		return []ClusterQueueFilter{NewWithinParentCohortFilter(preemptor.ClusterQueue, snapshot)}, nil, true
+		return []ClusterQueueFilter{NewWithinParentCohortFilter(preemptor.ClusterQueue, snapshot)}, nil, nil
 
 	case kueuealpha.WithinCohortTree:
-		return []ClusterQueueFilter{NewWithinCohortTreeFilter(preemptor.ClusterQueue, snapshot)}, nil, true
+		return []ClusterQueueFilter{NewWithinCohortTreeFilter(preemptor.ClusterQueue, snapshot)}, nil, nil
 
 	case kueuealpha.AnyClusterQueue:
-		return nil, nil, true
+		return nil, nil, nil
 
 	default:
-		log.V(3).Info("Unsupported or unhandled candidate scope evaluated; 0 candidates permitted", "scope", scope)
-		return nil, nil, false
+		return nil, nil, fmt.Errorf("unsupported scope %q", scope)
 	}
 }
 
@@ -112,60 +115,59 @@ func buildNumericLabelFilters(
 	log logr.Logger,
 	labels []kueuealpha.PreemptionConfigNumericLabelConstraint,
 	preemptor *workload.Info,
-) []WorkloadFilter {
+) ([]WorkloadFilter, error) {
 	if len(labels) == 0 {
-		return nil
+		return nil, nil
 	}
 	filters := make([]WorkloadFilter, 0, len(labels))
 	for _, numConstraint := range labels {
+		if numConstraint.Comparison != nil && !isSupportedComparison(*numConstraint.Comparison) {
+			return nil, fmt.Errorf("unsupported numeric label comparison %q for key %q", *numConstraint.Comparison, numConstraint.Key)
+		}
 		filters = append(filters, NewNumericLabelFilter(log, numConstraint, preemptor))
 	}
-	return filters
+	return filters, nil
 }
 
 func buildWorkloadLabelFilter(
-	log logr.Logger,
 	selector *metav1.LabelSelector,
-) (WorkloadFilter, bool) {
+) (WorkloadFilter, error) {
 	if selector == nil {
-		return nil, true
+		return nil, nil
 	}
 	ls, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		log.V(3).Info("Invalid LabelSelector", "error", err, "selector", selector)
-		return nil, false
+		return nil, fmt.Errorf("invalid labelSelector: %w", err)
 	}
 	if ls.Empty() {
-		return nil, true
+		return nil, nil
 	}
-	return NewWorkloadLabelFilter(ls), true
+	return NewWorkloadLabelFilter(ls), nil
 }
 
 func buildPriorityFilter(
 	log logr.Logger,
 	priority *kueuealpha.PreemptionConfigPriorityConstraint,
 	preemptor *workload.Info,
-) (WorkloadFilter, bool) {
+) (WorkloadFilter, error) {
 	if priority == nil {
-		return nil, true
+		return nil, nil
 	}
 	return NewPriorityFilter(log, *priority, preemptor)
 }
 
 func buildClusterQueueLabelFilter(
-	log logr.Logger,
 	selector *metav1.LabelSelector,
-) (ClusterQueueFilter, bool) {
+) (ClusterQueueFilter, error) {
 	if selector == nil {
-		return nil, true
+		return nil, nil
 	}
 	ls, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		log.V(3).Info("Invalid ClusterQueueSelector", "error", err, "selector", selector)
-		return nil, false
+		return nil, fmt.Errorf("invalid clusterQueueSelector: %w", err)
 	}
 	if ls.Empty() {
-		return nil, true
+		return nil, nil
 	}
-	return newClusterQueueLabelFilter(ls), true
+	return newClusterQueueLabelFilter(ls), nil
 }

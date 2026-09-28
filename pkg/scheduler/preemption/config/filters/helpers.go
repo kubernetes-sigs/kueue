@@ -22,6 +22,16 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
+// isSupportedComparison checks whether the given comparison operator is supported.
+func isSupportedComparison(comparison kueuealpha.NumericComparison) bool {
+	switch comparison {
+	case kueuealpha.LessThan, kueuealpha.LessThanOrEqual, kueuealpha.GreaterThan, kueuealpha.GreaterThanOrEqual:
+		return true
+	default:
+		return false
+	}
+}
+
 // matchesComparison evaluates comparison constraints between candidate and preemptor values.
 // It returns true if comparison is nil, and false if an unsupported comparison constraint is encountered.
 func matchesComparison(log logr.Logger, comparison *kueuealpha.NumericComparison, candidateVal, preemptorVal int64) bool {

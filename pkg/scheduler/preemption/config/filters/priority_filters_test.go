@@ -191,19 +191,19 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			candidatePriority: ptr.To[int32](-150),
 			wantMatch:         false,
 		},
-		"Unknown/unsupported comparison rejects all candidates": {
-			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
-				Mode:       kueuealpha.Base,
-				Comparison: kueuealpha.NumericComparison("InvalidComparison"),
-			},
-			preemptorPriority: ptr.To[int32](100),
-			candidatePriority: ptr.To[int32](50),
-			wantMatch:         false,
-		},
 		"Unknown/unsupported mode rejects all candidates": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
 				Mode:       kueuealpha.PreemptionConfigPriorityMode("InvalidMode"),
 				Comparison: kueuealpha.LessThan,
+			},
+			preemptorPriority: ptr.To[int32](100),
+			candidatePriority: ptr.To[int32](50),
+			wantBuildErr:      true,
+		},
+		"Unknown/unsupported comparison returns build error": {
+			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
+				Mode:       kueuealpha.Base,
+				Comparison: kueuealpha.NumericComparison("InvalidComparison"),
 			},
 			preemptorPriority: ptr.To[int32](100),
 			candidatePriority: ptr.To[int32](50),
@@ -226,15 +226,12 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			}
 			candidate := workload.NewInfo(log, candBuilder.Obj())
 
-			filter, ok := NewPriorityFilter(log, tc.constraint, preemptor)
-			if !ok {
-				if !tc.wantBuildErr {
-					t.Fatalf("NewPriorityFilter() failed unexpectedly")
-				}
-				return
+			filter, err := NewPriorityFilter(log, tc.constraint, preemptor)
+			if (err != nil) != tc.wantBuildErr {
+				t.Fatalf("NewPriorityFilter() error = %v, wantBuildErr %v", err, tc.wantBuildErr)
 			}
-			if tc.wantBuildErr {
-				t.Fatalf("NewPriorityFilter() succeeded unexpectedly, want build error")
+			if err != nil {
+				return
 			}
 			if got := filter.Matches(candidate); got != tc.wantMatch {
 				t.Errorf("Matches(candidate) = %v, want %v", got, tc.wantMatch)
@@ -361,9 +358,9 @@ func TestPriorityFilter_PriorityBoost(t *testing.T) {
 			}
 			candidate := workload.NewInfo(log, candBuilder.Obj())
 
-			filter, ok := NewPriorityFilter(log, tc.constraint, preemptor)
-			if !ok {
-				t.Fatalf("NewPriorityFilter() failed unexpectedly")
+			filter, err := NewPriorityFilter(log, tc.constraint, preemptor)
+			if err != nil {
+				t.Fatalf("NewPriorityFilter() failed unexpectedly: %v", err)
 			}
 			if got := filter.Matches(candidate); got != tc.wantMatch {
 				t.Errorf("Matches(candidate) = %v, want %v", got, tc.wantMatch)

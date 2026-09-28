@@ -65,10 +65,10 @@ func TestNewCandidateFilters(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		selector      *kueuealpha.PreemptionConfigPreemptionCandidateSelector
-		preemptor     *workload.Info
-		wantFilters   CandidateFilters
-		wantRejectAll bool
+		selector    *kueuealpha.PreemptionConfigPreemptionCandidateSelector
+		preemptor   *workload.Info
+		wantFilters CandidateFilters
+		wantErr     string
 	}{
 		"nil selector returns empty CandidateFilters": {
 			selector:    nil,
@@ -137,13 +137,12 @@ func TestNewCandidateFilters(t *testing.T) {
 			preemptor:   preemptor,
 			wantFilters: CandidateFilters{},
 		},
-		"unrecognized candidate scope returns rejectAll true": {
+		"unrecognized candidate scope returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.PreemptionConfigPreemptionQueueScope("UnknownScope"),
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErr:   `unsupported scope "UnknownScope"`,
 		},
 		"WithinClusterQueue with empty NumericLabels produces no WorkloadFilters": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
@@ -305,7 +304,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
-		"LabelSelector with invalid selector returns rejectAll true": {
+		"LabelSelector with invalid selector returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				LabelSelector: &metav1.LabelSelector{
@@ -314,9 +313,8 @@ func TestNewCandidateFilters(t *testing.T) {
 					},
 				},
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErr:   `invalid labelSelector: "InvalidOp" is not a valid label selector operator`,
 		},
 		"ClusterQueueSelector instantiates clusterQueueLabelFilter": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
@@ -347,7 +345,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
-		"ClusterQueueSelector with invalid selector returns rejectAll true": {
+		"ClusterQueueSelector with invalid selector returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				ClusterQueueSelector: &metav1.LabelSelector{
@@ -356,11 +354,10 @@ func TestNewCandidateFilters(t *testing.T) {
 					},
 				},
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErr:   `invalid clusterQueueSelector: "InvalidOp" is not a valid label selector operator`,
 		},
-		"Priority with invalid mode returns rejectAll true": {
+		"Priority with invalid mode returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
@@ -368,9 +365,32 @@ func TestNewCandidateFilters(t *testing.T) {
 					Comparison: kueuealpha.LessThan,
 				},
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErr:   `unsupported priority mode "InvalidMode"`,
+		},
+		"Priority with invalid comparison returns error": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
+					Mode:       kueuealpha.Base,
+					Comparison: kueuealpha.NumericComparison("InvalidComparison"),
+				},
+			},
+			preemptor: preemptor,
+			wantErr:   `unsupported priority comparison "InvalidComparison"`,
+		},
+		"NumericLabels with invalid comparison returns error": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
+					{
+						Key:        "tpu-size",
+						Comparison: ptr.To(kueuealpha.NumericComparison("InvalidComparison")),
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantErr:   `unsupported numeric label comparison "InvalidComparison" for key "tpu-size"`,
 		},
 	}
 
@@ -401,9 +421,16 @@ func TestNewCandidateFilters(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotFilters, gotRejectAll := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
-			if gotRejectAll != tc.wantRejectAll {
-				t.Errorf("NewCandidateFilters() rejectAll = %v, want %v", gotRejectAll, tc.wantRejectAll)
+			gotFilters, err := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
+			gotErr := ""
+			if err != nil {
+				gotErr = err.Error()
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("NewCandidateFilters() error (-want +got):\n%s", diff)
+			}
+			if tc.wantErr != "" {
+				return
 			}
 			if diff := cmp.Diff(tc.wantFilters, gotFilters, cmpOptions...); diff != "" {
 				t.Errorf("NewCandidateFilters() mismatch (-want +got):\n%s", diff)
