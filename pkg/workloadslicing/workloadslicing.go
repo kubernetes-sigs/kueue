@@ -191,9 +191,9 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, na
 // latest admitted, non-evicted slice in wl's chain other than wl itself, or
 // nil when there is none. Finished (replaced) slices are included because
 // their pods remain the running capacity baseline while a successor waits.
-// Counts come from workload.Info.TotalRequests, so reclaimed pods are
-// subtracted the same way quota accounting does: a predecessor admitted for 3
-// with 1 pod reclaimed is a baseline of 2.
+// Counts are the granted counts capped by the count after reclaim, so a
+// predecessor admitted for 3 with 1 pod reclaimed is a baseline of 2, the
+// same way quota accounting sees it.
 //
 // This is the baseline an incremental scale-up (e.g. a ProvisioningRequest or
 // a partial atomic scale-up) should subtract from wl's own counts.
@@ -202,12 +202,7 @@ func PreviousAdmittedPodSetCounts(ctx context.Context, c client.Client, wl *kueu
 	if err != nil || prev == nil || prev.Name == wl.Name {
 		return nil, err
 	}
-	info := workload.NewInfo(ctrl.LoggerFrom(ctx), prev)
-	counts := make(map[kueue.PodSetReference]int32, len(info.TotalRequests))
-	for _, req := range info.TotalRequests {
-		counts[req.Name] = req.Count
-	}
-	return counts, nil
+	return workload.ExtractGrantedPodSetCountsAfterReclaim(prev), nil
 }
 
 func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {

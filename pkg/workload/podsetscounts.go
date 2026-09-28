@@ -81,6 +81,22 @@ func ExtractGrantedPodSetCounts(wl *kueue.Workload) PodSetsCounts {
 	return granted
 }
 
+// ExtractGrantedPodSetCountsAfterReclaim is ExtractGrantedPodSetCounts with
+// each granted count additionally capped at the PodSet's count after
+// reclaimable pods are subtracted, i.e. the number of pods the Workload still
+// effectively runs. It returns nil when the Workload has no admission.
+func ExtractGrantedPodSetCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
+	granted := ExtractGrantedPodSetCounts(wl)
+	if granted == nil {
+		return nil
+	}
+	current := podSetsCountsAfterReclaim(wl)
+	for name, count := range granted {
+		granted[name] = min(count, current[name])
+	}
+	return granted
+}
+
 // ExtractPodSetCountsFromWorkload returns a PodSetsCounts map derived from the provided Workload.
 //
 // Important: This function assumes the Workload is not nil. It does not perform a nil check,
