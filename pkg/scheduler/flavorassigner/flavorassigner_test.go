@@ -4146,6 +4146,73 @@ func TestAssignFlavors(t *testing.T) {
 				}}},
 			},
 		},
+		"workload slice replacement with a non-adjacent PodSet group": {
+			// The replaced slice's requests come from its admission, which lists grouped PodSets together.
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+				*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceMemory, "1Gi").Obj(),
+				*utiltestingapi.MakePodSet("worker", 5).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("one").
+					Resource(corev1.ResourceCPU, "3").
+					Resource(corev1.ResourceMemory, "100Gi").
+					Obj()).
+				Obj(),
+			preemptWorkloadSlice: &workload.Info{
+				TotalRequests: []workload.PodSetResources{
+					{
+						Name:     "leader",
+						Count:    1,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+						Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "one"},
+					},
+					{
+						Name:     "worker",
+						Count:    3,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 3000}),
+						Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "one"},
+					},
+					{
+						Name:     "other",
+						Count:    1,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceMemory: utiltesting.Gi}),
+						Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceMemory: "one"},
+					},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:                     "leader",
+						Flavors:                  ResourceAssignment{corev1.ResourceCPU: {Name: "one", Mode: Fit, TriedFlavorIdx: -1}},
+						Requests:                 corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "one", Mode: Fit}},
+						Count:                    1,
+					},
+					{
+						Name:                     "worker",
+						Flavors:                  ResourceAssignment{corev1.ResourceCPU: {Name: "one", Mode: Fit, TriedFlavorIdx: -1}},
+						Requests:                 corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5")},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "one", Mode: Fit}},
+						Count:                    5,
+					},
+					{
+						Name:                     "other",
+						Flavors:                  ResourceAssignment{corev1.ResourceMemory: {Name: "one", Mode: Fit, TriedFlavorIdx: -1}},
+						Requests:                 corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "one", Mode: Fit}},
+						Count:                    1,
+					},
+				},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: corev1.ResourceCPU}:    resources.NewAmount(2_000),
+					{Flavor: "one", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+				}}},
+			},
+		},
 		"workload slice preemption does not fit in the original workload resource flavor": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
@@ -5400,6 +5467,116 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 			want: resources.FlavorResourceQuantities{ // Want quantities for 2 pods.
 				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(2 * 1000),
 				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(2 * 1048576),
+			},
+		},
+		"WorkloadWithNonAdjacentPodSetGroup": {
+			// The assignment lists grouped PodSets together, so its order differs from the Workload's.
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name:    "leader",
+						Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   1,
+					},
+					{
+						Name:    "worker",
+						Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   3,
+					},
+					{
+						Name:    "other",
+						Flavors: ResourceAssignment{corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   1,
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+						*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceMemory, "1Mi").Obj(),
+						*utiltestingapi.MakePodSet("worker", 3).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+					).
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(4 * 1000),
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(1048576),
+			},
+		},
+		"WorkloadWithNonAdjacentPodSetGroupAndSameResources": {
+			// Without a missing flavor to fail on, pairing by position would swap the counts of other and worker.
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name:    "leader",
+						Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   1,
+					},
+					{
+						Name:    "worker",
+						Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   4,
+					},
+					{
+						Name:    "other",
+						Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   1,
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+						*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("worker", 4).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+					).
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(8 * 1000),
+			},
+		},
+		"WorkloadWithReplacementAndNonAdjacentPodSetGroup": {
+			// The replaced slice's requests come from its admission, so they are in group order too.
+			fields: fields{
+				PodSets: []PodSetAssignment{
+					{
+						Name:    "leader",
+						Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   1,
+					},
+					{
+						Name:    "worker",
+						Flavors: ResourceAssignment{corev1.ResourceCPU: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   5,
+					},
+					{
+						Name:    "other",
+						Flavors: ResourceAssignment{corev1.ResourceMemory: {Name: "default", Mode: Fit, TriedFlavorIdx: -1}},
+						Count:   1,
+					},
+				},
+				replaceWorkloadSlice: &workload.Info{
+					TotalRequests: []workload.PodSetResources{
+						{Name: "leader", Count: 1},
+						{Name: "worker", Count: 3},
+						{Name: "other", Count: 1},
+					},
+				},
+			},
+			args: args{
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+						*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceMemory, "1Mi").Obj(),
+						*utiltestingapi.MakePodSet("worker", 5).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+					).
+					Obj()),
+			},
+			want: resources.FlavorResourceQuantities{ // Only the 2 new worker pods.
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2 * 1000),
 			},
 		},
 		"WorkloadWithPartialAdmission": {

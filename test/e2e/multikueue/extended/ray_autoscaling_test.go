@@ -130,10 +130,13 @@ func runRayClusterSequentialScaleUpTest(
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
-		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "750m").
-		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
+		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 		Image(rayv1.HeadNode, util.GetKuberayTestImage(), []string{}).
 		Image(rayv1.WorkerNode, util.GetKuberayTestImage(), []string{}).
+		TerminationGracePeriod(1).
 		Obj()
 
 	ginkgo.By("Creating the elastic RayCluster with zero initial workers", func() {
@@ -250,7 +253,13 @@ func runRayJobAutoscalingTest(
 		Image(rayv1.HeadNode, util.GetKuberayTestImage()).
 		Image(rayv1.WorkerNode, util.GetKuberayTestImage()).
 		Obj()
-	rayJob.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}
+	rayJob.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		IdleTimeoutSeconds: ptr.To[int32](1),
+		Env: []corev1.EnvVar{{
+			Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+			Value: "1",
+		}},
+	}
 	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](0)
 	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](0)
 	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
@@ -393,14 +402,23 @@ func runRayClusterAutoscalingTest(
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
+		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
+			IdleTimeoutSeconds: ptr.To[int32](1),
+			Env: []corev1.EnvVar{{
+				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+				Value: "1",
+			}},
+		}).
 		FirstWorkerGroupReplicas(0, 0, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
-		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "750m").
-		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
+		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 		Image(rayv1.HeadNode, util.GetKuberayTestImage(), []string{}).
 		Image(rayv1.WorkerNode, util.GetKuberayTestImage(), []string{}).
+		TerminationGracePeriod(1).
 		Obj()
 
 	ginkgo.By("Creating the elastic autoscaling RayCluster", func() {
@@ -578,14 +596,23 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		Queue(managerLq.Name).
 		WorkloadPriorityClass(managerLowWPC.Name).
 		WithEnableAutoscaling(new(true)).
-		WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
+		WithAutoscalerOptions(&rayv1.AutoscalerOptions{
+			IdleTimeoutSeconds: ptr.To[int32](1),
+			Env: []corev1.EnvVar{{
+				Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+				Value: "1",
+			}},
+		}).
 		FirstWorkerGroupReplicas(1, 1, 2).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "0").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
-		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "500m").
-		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "500m").
+		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 		Image(rayv1.HeadNode, util.GetKuberayTestImage(), []string{}).
 		Image(rayv1.WorkerNode, util.GetKuberayTestImage(), []string{}).
+		TerminationGracePeriod(1).
 		Obj()
 
 	ginkgo.By("Creating the low-priority elastic RayCluster with one worker in its manager spec", func() {

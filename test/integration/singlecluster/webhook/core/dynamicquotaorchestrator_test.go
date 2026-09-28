@@ -153,10 +153,10 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 				} else {
 					gomega.Expect(err).To(gomega.HaveOccurred())
 					gomega.Expect(err).To(utiltesting.BeInvalidError())
-					gomega.Expect(err.Error()).To(gomega.ContainSubstring("resource capacity must have between 1 and 64 entries"))
+					gomega.Expect(err.Error()).To(gomega.ContainSubstring("resource capacity must have at most 64 entries"))
 				}
 			},
-			ginkgo.Entry("Disallow empty resources (count 0)", 0, false),
+			ginkgo.Entry("Allow empty resources (count 0)", 0, true),
 			ginkgo.Entry("Allow minimum valid resources (count 1)", 1, true),
 			ginkgo.Entry("Allow maximum valid resources (count 64)", 64, true),
 			ginkgo.Entry("Disallow too many resources (count 65)", 65, false),
