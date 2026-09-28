@@ -79,8 +79,7 @@ type RemoteSpecSyncer[PtrT any] interface {
 // cluster. The forward direction (SyncReplicas/WorkerReplicas) pushes
 // manager-driven replica edits onto the worker copy; the reverse direction
 // (Runtime) reflects worker-side autoscaler resizes back onto the manager. A
-// type may wire the forward hooks, Runtime, or both. RayService wires neither
-// and keeps the create-once behavior.
+// type may wire the forward hooks, Runtime, or both.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// SyncReplicas copies the worker replica counts from src into dst, returning
 	// whether dst changed.
@@ -241,7 +240,16 @@ func (a *adapter[PtrT, T]) SyncJob(
 				// Repointing now would still name the pre-resize slice.
 				return false, nil
 			}
-			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
+			if err := a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob); err != nil {
+				return false, err
+			}
+			// RayService combines worker-owned replicas with manager-owned Serve
+			// configuration. Keep forwarding the latter after the runtime state and
+			// workload-slice identity are synchronized.
+			if a.remoteSpecSync != nil && features.Enabled(features.MultiKueueRemoteSpecSync) && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
+				return false, a.syncRemoteSpec(ctx, remoteClient, localJob, remoteJob)
+			}
+			return false, nil
 		}
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)

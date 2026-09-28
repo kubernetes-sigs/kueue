@@ -96,5 +96,5 @@ metadata:
       error when patching "job.yaml": admission webhook "vjob.kb.io" denied the request: spec.parallelism: Forbidden: cannot change when partial admission is enabled and the job is not suspended
       ```
 * 扩大之前已接受的 Job 时，新工作负载必须重用最初分配的规格，即使有其他符合条件且有可用容量的规格。
-* 弹性工作负载的 MultiKueue 支持目前仅适用于 `batch/v1.Job` 和 `ray.io/v1.RayCluster`（不支持 `ray.io/v1.RayJob` 或 `ray.io/v1.RayService`）。
+* MultiKueue 支持弹性 `batch/v1.Job`、`ray.io/v1.RayCluster`、`ray.io/v1.RayJob` 和 `ray.io/v1.RayService` 工作负载。Worker 端 Ray 自动扩缩需要启用 `MultiKueueRayInTreeAutoscaling` 特性门控。
 * 不支持拓扑感知调度（TAS）。
