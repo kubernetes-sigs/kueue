@@ -350,17 +350,16 @@ into `1, 3, 4, 1, 3, 4`.
 
 #### Preemption
 
-TAS recomputes a preempting workload's placement against a snapshot with the
-candidate targets' usage removed, before preemptions are issued. Chunk placement
-runs inside that recomputation, so a target set that does not leave room for
-every chunk is rejected without evicting anything.
+No change is needed. When the preemptor chooses targets, it removes the usage
+of each candidate set and runs the full TAS placement for the preempting
+workload, accepting the set only if that placement succeeds. Chunk placement
+runs inside that call, so a set that frees enough capacity in total but spreads
+it too thinly for the largest chunk is never chosen, and nothing is evicted for
+it.
 
-One existing gap is worth fixing alongside this. When the recomputation finds no
-placement, the result is stored but the assignment mode is left at `Preempt`, so
-the preemption goes ahead anyway. For equal chunks this rarely matters, because
-freeing more capacity almost always means more chunks fit. It matters more here:
-freeing room for eight pods spread thinly still cannot hold a chunk of four. A
-missing assignment after that recomputation should become `NoFit` and requeue.
+This is the same protection `size` and `podset-required-topology` rely on today.
+Uneven chunks do not make fragmentation worse than equal chunks of the same
+largest size.
 
 ### Failed Node Replacement
 
@@ -466,6 +465,8 @@ in this KEP rather than routine coverage:
   for a scalar one.
 - Capacity sufficient in total but no room for the largest chunk is reported as
   a placement failure and does not trigger preemption.
+- A preemption target set that would free enough capacity in total, but not
+  enough in one domain for the largest chunk, is not chosen.
 
 #### Integration tests
 
