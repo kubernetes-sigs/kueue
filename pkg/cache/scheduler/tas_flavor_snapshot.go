@@ -893,16 +893,11 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 		// Without an admission there is nothing to replace; take the fresh-placement path.
 		if workload.HasUnhealthyNodes(wlObj) && wlObj.Status.Admission != nil {
 			for _, tr := range trs {
-				// In case of looking for Node replacement, TopologyRequest has only
-				// PodSets with the Node to replace, so we match PodSetAssignment
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
 				}
-				if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wlObj) {
-					// The pod cannot relocate and the Workload cannot outlive it; keep
-					// the existing assignment so admit clears UnhealthyNodes without
-					// diverging from the node the pod actually runs on.
+				if shouldKeepExistingAssignment(wlObj, psa) {
 					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
 					continue
 				}
@@ -951,6 +946,17 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	return result
 }
 
+func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignment) bool {
+	if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+		// The pod cannot relocate and the Workload cannot outlive it; keep
+		// the existing assignment so admit clears UnhealthyNodes without
+		// diverging from the node the pod actually runs on.
+		return true
+	}
+	return features.Enabled(features.TASReplaceMultipleFailedNodes) &&
+		!utiltas.HasNodeInPodSetAssignment(psa, workload.FirstUnhealthyNodeName(wl))
+}
+
 func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetRequests) {
 	var leader *TASPodSetRequests = nil
 
@@ -980,8 +986,10 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	wl *workload.Info,
 	assumedUsage *assumedUsage,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
-	tr.Count = deleteDomain(existingAssignment, wl.Obj.Status.UnhealthyNodes[0].Name)
-	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
+	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
+	tr.Count = deleteDomain(existingAssignment, headNodeName)
+	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, existingAssignment)
+	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
@@ -1017,7 +1025,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		return nil, nil, reason
 	}
 	if replacementAssignment == nil || len(replacementAssignment[tr.PodSet.Name].Domains) == 0 {
-		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", wl.Obj.Status.UnhealthyNodes[0].Name)
+		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", headNodeName)
 	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
 	// Merging orders the domains by their level values, which may leave the
@@ -1030,6 +1038,32 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		return nil, nil, fmt.Sprintf("cannot replace the node %v without splitting a PodSet slice", wl.Obj.Status.UnhealthyNodes[0].Name)
 	}
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
+}
+
+func (s *TASFlavorSnapshot) replacementIgnoreNodes(
+	wl *kueue.Workload,
+	existingAssignment *utiltas.TopologyAssignment,
+) sets.Set[string] {
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		return nil
+	}
+
+	// We only replace the head; other queued unhealthy nodes that may also be
+	// missing from the snapshot must not make the assignment appear stale.
+	ignoreNodes := sets.New[string]()
+	for _, n := range wl.Status.UnhealthyNodes[1:] {
+		ignoreNodes.Insert(n.Name)
+	}
+
+	// A node can fail after this replacement attempt was queued. Treat any other
+	// missing node-level domain as pending replacement; the admission patch
+	// preserves failures added after the recorded head.
+	for _, domain := range existingAssignment.Domains {
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
+			ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
+		}
+	}
+	return ignoreNodes
 }
 
 // assumedUsage holds the usage of the placements made earlier in this
@@ -1145,20 +1179,18 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
-	domainValues := ta.Domains[0].Values
-	if len(domainValues) == 0 {
-		return ""
+	// Queued failed nodes may be missing, but a surviving assignment still pins the required domain.
+	for _, assignment := range ta.Domains {
+		domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(assignment.Values)]
+		if !found {
+			continue
+		}
+		for i := nodeLevel; i > levelIdx; i-- {
+			domain = domain.parent
+		}
+		return domain.id
 	}
-	// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
-	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
-	if !found {
-		return ""
-	}
-	// Find a domain that complies with the required policy
-	for i := nodeLevel; i > levelIdx; i-- {
-		domain = domain.parent
-	}
-	return domain.id
+	return ""
 }
 
 // domainForAssignmentValues resolves the domain referenced by a serialized
@@ -1185,6 +1217,25 @@ func (s *TASFlavorSnapshot) domainForAssignmentValues(levels, values []string) *
 func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssignment) (bool, string) {
 	for _, domain := range ta.Domains {
 		if s.domainForAssignmentValues(ta.Levels, domain.Values) == nil {
+			return true, domain.Values[0]
+		}
+	}
+	return false, ""
+}
+
+// isTopologyAssignmentStaleIgnoringNodes returns whether the topologyAssignment contains
+// node-level domains missing from the snapshot, ignoring any node names in
+// ignoreNodes. Used by the head-of-queue replacement path so that other queued
+// unhealthy nodes (which may also be missing from the snapshot) do not poison
+// the stale-check for the head we are actively replacing.
+func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoringNodes(ta *utiltas.TopologyAssignment, ignoreNodes sets.Set[string]) (bool, string) {
+	for _, domain := range ta.Domains {
+		// Node name is the lowest-level value (last entry).
+		nodeName := domain.Values[len(domain.Values)-1]
+		if ignoreNodes.Has(nodeName) {
+			continue
+		}
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
 			return true, domain.Values[0]
 		}
 	}
@@ -2926,13 +2977,14 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 	sortedDomains = append(sortedDomains, a.Domains...)
 	sortedDomains = append(sortedDomains, b.Domains...)
 	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
-		aDomain := s.domainForAssignmentValues(levels, a.Values)
-		bDomain := s.domainForAssignmentValues(levels, b.Values)
-		if aDomain == nil || bDomain == nil {
-			// Defensive: staleness is verified before merging.
-			return cmp.Compare(utiltas.DomainID(a.Values), utiltas.DomainID(b.Values))
+		aID, bID := utiltas.DomainID(a.Values), utiltas.DomainID(b.Values)
+		if aDomain := s.domainForAssignmentValues(levels, a.Values); aDomain != nil {
+			aID = utiltas.DomainID(aDomain.levelValues)
 		}
-		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
+		if bDomain := s.domainForAssignmentValues(levels, b.Values); bDomain != nil {
+			bID = utiltas.DomainID(bDomain.levelValues)
+		}
+		return cmp.Compare(aID, bID)
 	})
 	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
 	for _, domain := range sortedDomains {

@@ -17,6 +17,7 @@ limitations under the License.
 package features
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -46,6 +47,16 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 				TASFailedNodeReplacementFailFast: true,
 				TopologyAwareScheduling:          true,
 				TASFailedNodeReplacement:         true,
+			},
+		},
+		"enable multiple node replacement sets parents": {
+			input: map[featuregate.Feature]bool{
+				TASReplaceMultipleFailedNodes: true,
+			},
+			wantState: map[featuregate.Feature]bool{
+				TASReplaceMultipleFailedNodes: true,
+				TopologyAwareScheduling:       true,
+				TASFailedNodeReplacement:      true,
 			},
 		},
 		"disable parent disables child": {
@@ -158,6 +169,63 @@ func TestSetFeatureGateDuringTest(t *testing.T) {
 				if got := utilfeature.DefaultFeatureGate.Enabled(fg); got != want {
 					t.Errorf("unexpected state for feature gate %s: got %v, want %v", fg, got, want)
 				}
+			}
+		})
+	}
+}
+
+func TestTASReplaceMultipleFailedNodesDependencies(t *testing.T) {
+	cases := map[string]struct {
+		set                   map[string]bool
+		wantEnabled           bool
+		wantMissingDependency featuregate.Feature
+	}{
+		"disabled by default": {},
+		"enabled with its dependencies": {
+			set:         map[string]bool{string(TASReplaceMultipleFailedNodes): true},
+			wantEnabled: true,
+		},
+		"does not require fail-fast eviction": {
+			set: map[string]bool{
+				string(TASReplaceMultipleFailedNodes):    true,
+				string(TASFailedNodeReplacementFailFast): false,
+			},
+			wantEnabled: true,
+		},
+		"requires topology aware scheduling": {
+			set: map[string]bool{
+				string(TASReplaceMultipleFailedNodes): true,
+				string(TopologyAwareScheduling):       false,
+			},
+			wantMissingDependency: TopologyAwareScheduling,
+		},
+		"requires failed node replacement": {
+			set: map[string]bool{
+				string(TASReplaceMultipleFailedNodes): true,
+				string(TASFailedNodeReplacement):      false,
+			},
+			wantMissingDependency: TASFailedNodeReplacement,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
+			err := gate.SetFromMap(tc.set)
+			if tc.wantMissingDependency != "" {
+				if err == nil {
+					t.Fatal("expected the missing feature gate dependency to be rejected")
+				}
+				wantErr := fmt.Sprintf("%s is enabled, but depends on features that are disabled: [%s]", TASReplaceMultipleFailedNodes, tc.wantMissingDependency)
+				if !strings.Contains(err.Error(), wantErr) {
+					t.Errorf("expected dependency error %q, got: %v", wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected feature gate error: %v", err)
+			}
+			if got := gate.Enabled(TASReplaceMultipleFailedNodes); got != tc.wantEnabled {
+				t.Errorf("unexpected feature gate state: got %v, want %v", got, tc.wantEnabled)
 			}
 		})
 	}
