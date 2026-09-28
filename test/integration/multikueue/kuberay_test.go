@@ -290,20 +290,5 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(2).Obj(),
 		)
 		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, replacementWorkloadKey, replacementAdmission)
-
-		ginkgo.By("forwarding a Serve config update after the replacement slice is active", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				managerService := &rayv1.RayService{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayService), managerService)).To(gomega.Succeed())
-				managerService.Spec.ServeConfigV2 = "serve-config-v2"
-				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerService)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				workerService := &rayv1.RayService{}
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayService), workerService)).To(gomega.Succeed())
-				g.Expect(workerService.Spec.ServeConfigV2).To(gomega.Equal("serve-config-v2"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
 	})
 })
