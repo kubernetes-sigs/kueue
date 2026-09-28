@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -37,6 +38,10 @@ import (
 
 type Assignment struct {
 	PodSets []PodSetAssignment
+	// WaitingForResidualTASPods marks a deferred topology fit that depends on
+	// bound Pods leaving their nodes. The current snapshot still charges those
+	// Pods, so recomputing against it must not replace the deferred assignment.
+	WaitingForResidualTASPods bool
 	// Borrowing is the height of the smallest cohort tree that fits
 	// the additional Usage. It equals to 0 if no borrowing is required.
 	Borrowing int
@@ -74,6 +79,24 @@ type Assignment struct {
 	// ZeroCountFlavorFallback records why zero-count PodSets needed a flavor
 	// assignment without the capacity probe, for a warning after quota reservation.
 	ZeroCountFlavorFallback string
+}
+
+// FindTopologyAssignments accounts for the predecessor exactly once when placing
+// an elastic replacement. Its cached reservation must not also be counted by
+// elastic placement through PreviousAssignment.
+func (a *Assignment) FindTopologyAssignments(
+	ctx context.Context,
+	cq *schdcache.ClusterQueueSnapshot,
+	tasRequests schdcache.WorkloadTASRequests,
+	opts ...schdcache.FindTopologyAssignmentsOption,
+) schdcache.TASAssignmentsResult {
+	if features.Enabled(features.TopologyAwareScheduling) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) &&
+		cq.WorkloadUsageIsAccounted(a.replaceWorkloadSlice) {
+		predecessor := cq.Workloads[workload.Key(a.replaceWorkloadSlice.Obj)]
+		restore := cq.SimulateUsageRemoval(workload.Usage{TAS: predecessor.TASUsage()})
+		defer restore()
+	}
+	return cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, opts...)
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result

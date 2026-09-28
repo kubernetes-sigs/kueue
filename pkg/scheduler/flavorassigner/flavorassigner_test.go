@@ -8205,6 +8205,7 @@ func TestAssignTopology(t *testing.T) {
 			AdmittedAt(true, time.Now()).
 			Obj()
 		oldInfo := workload.NewInfo(log, old)
+		cq.Workloads = map[workload.Reference]*workload.Info{workload.Key(old): oldInfo}
 		cq.AddUsage(oldInfo.Usage())
 		cq.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne(otherUsage)})
 
@@ -8227,7 +8228,7 @@ func TestAssignTopology(t *testing.T) {
 		return fixture{
 			assigner: New(next, cq, bookmarkTestFlavors(), false, &testOracle{}, oldInfo,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
-			assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
+			assignment: &Assignment{PodSets: []PodSetAssignment{ps}, replaceWorkloadSlice: oldInfo},
 			cq:         cq,
 		}
 	}

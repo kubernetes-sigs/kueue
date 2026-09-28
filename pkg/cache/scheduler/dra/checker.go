@@ -67,6 +67,14 @@ func (c *Checker) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (
 	return c.inner.PreemptWorkload(ctx, wlKey)
 }
 
+func (c *Checker) PreemptPods(ctx context.Context, pods []simulator.PodRef) (func() error, error) {
+	inner, ok := c.inner.(simulator.PodPreemptingSimulator)
+	if !ok {
+		return nil, errors.New("underlying simulator cannot preempt individual Pods")
+	}
+	return inner.PreemptPods(ctx, pods)
+}
+
 func (c *Checker) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],

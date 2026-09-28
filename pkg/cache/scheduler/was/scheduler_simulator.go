@@ -37,6 +37,9 @@ var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
 	wasSnapshot *schedlib.ClusterSnapshot
+	// pods is the immutable tracked-Pod view used to identify exact Pods in
+	// temporary residual-capacity probes.
+	pods podsByKey
 	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
 	// is the only set PreemptWorkload can release.
 	podsByWorkload podsByWorkload
@@ -129,6 +132,23 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectK
 		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}
 
+	return func() error {
+		_, err := s.wasSnapshot.Unpreempt(unpreempt)
+		return err
+	}, nil
+}
+
+func (s *wasSimulator) PreemptPods(ctx context.Context, podRefs []simulator.PodRef) (func() error, error) {
+	pods := make([]*corev1.Pod, 0, len(podRefs))
+	for _, ref := range podRefs {
+		if pod := s.pods[ref.Key]; pod != nil && pod.UID == ref.UID {
+			pods = append(pods, pod)
+		}
+	}
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, pods)
+	if err != nil {
+		return nil, fmt.Errorf("failed to preempt residual Pods from WAS snapshot: %w", err)
+	}
 	return func() error {
 		_, err := s.wasSnapshot.Unpreempt(unpreempt)
 		return err

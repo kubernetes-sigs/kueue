@@ -57,7 +57,8 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "released"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "residualTASPods"),
+	cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "released"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -2430,7 +2431,21 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 			}
 			cq := snap.ClusterQueue("c1")
 			kept, released := cq.Workloads["/kept"], cq.Workloads["/released"]
+			if !cq.WorkloadUsageIsAccounted(kept) || !cq.WorkloadUsageIsAccounted(released) {
+				t.Fatal("new snapshot should account for both workloads")
+			}
+			if cq.WorkloadUsageIsAccounted(nil) || cq.WorkloadUsageIsAccounted(&workload.Info{}) {
+				t.Fatal("nil workloads should not have accounted usage")
+			}
+			recreated := kept.Obj.DeepCopy()
+			recreated.UID = "recreated-uid"
+			if cq.WorkloadUsageIsAccounted(workload.NewInfo(log, recreated)) {
+				t.Fatal("same-name workload with a different UID should not have accounted usage")
+			}
 			snap.ReleaseWorkloadUsage(released)
+			if cq.WorkloadUsageIsAccounted(released) {
+				t.Fatal("released workload should no longer have accounted usage")
+			}
 
 			revert := tc.operate(snap, kept, released)
 			if got := cq.ResourceNode.Usage[cpu]; got.CmpInt64(tc.wantUsage) != 0 {
@@ -2438,6 +2453,9 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 			}
 			if _, got := cq.Workloads["/released"]; got != tc.wantReleasedHeld {
 				t.Errorf("Unexpected presence of the released workload after the operation: got %t, want %t", got, tc.wantReleasedHeld)
+			}
+			if cq.WorkloadUsageIsAccounted(released) {
+				t.Error("operation made released workload usage accounted again")
 			}
 			if revert == nil {
 				return
@@ -2448,6 +2466,12 @@ func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 			}
 			if _, found := cq.Workloads["/released"]; !found {
 				t.Error("The released workload is missing from its ClusterQueue after the revert")
+			}
+			if cq.WorkloadUsageIsAccounted(released) {
+				t.Error("revert made released workload usage accounted again")
+			}
+			if !cq.WorkloadUsageIsAccounted(kept) {
+				t.Error("revert lost the kept workload's accounted usage")
 			}
 		})
 	}
