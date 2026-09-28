@@ -270,6 +270,7 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 		// The assignment lists PodSets in group order, which can differ from wl.TotalRequests.
 		psAssignment := a.podSetAssignmentByName(ps.Name)
 		if psAssignment == nil {
+			log.V(1).Info("PodSet not found in the assignment while computing preemption requests", "podSet", ps.Name)
 			continue
 		}
 		newCount := psAssignment.Count
@@ -1232,6 +1233,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 					// The replaced slice's requests come from its admission, which is in group order.
 					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.TotalRequests[psID].Name)
 					if preemptWorkloadRequests == nil {
+						log.V(1).Info("PodSet not found in the replaced workload slice", "podSet", a.wl.TotalRequests[psID].Name)
 						continue
 					}
 
