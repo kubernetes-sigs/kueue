@@ -154,7 +154,8 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 
 	return parallelize.Until(ctx, len(pods), func(i int) error {
 		pod := &pods[i]
-		if pod.Labels[controllerconstants.QueueLabel] == queueName {
+		// Only gated pods qualify: the pod webhook rejects the change on others.
+		if !utilpod.HasGate(pod, podconstants.SchedulingGateName) || pod.Labels[controllerconstants.QueueLabel] == queueName {
 			return nil
 		}
 		return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
