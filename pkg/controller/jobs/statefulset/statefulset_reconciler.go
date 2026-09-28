@@ -141,10 +141,6 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		var updated bool
 		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-		if r.syncQueueLabel(sts, pod) {
-			log.V(3).Info("Syncing queue label")
-			updated = true
-		}
 		if r.setDefault(sts, wlName, pod) {
 			log.V(3).Info("Updating pod in group")
 			updated = true
@@ -153,12 +149,21 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 			log.V(3).Info("Ungating pod in group")
 			updated = true
 		}
+		// Runs after ungating so that a pod ungated by this patch is seen as ungated.
+		if r.syncQueueLabel(sts, pod) {
+			log.V(3).Info("Syncing queue label")
+			updated = true
+		}
 		return updated, nil
 	}))
 }
 
 func (r *Reconciler) syncQueueLabel(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 	if sts == nil || ptr.Deref(sts.Spec.Replicas, 1) == 0 {
+		return false
+	}
+	// Only gated pods qualify: the pod webhook rejects the change on others.
+	if !utilpod.HasGate(pod, podconstants.SchedulingGateName) {
 		return false
 	}
 	queueName := string(jobframework.QueueNameForObject(sts))
