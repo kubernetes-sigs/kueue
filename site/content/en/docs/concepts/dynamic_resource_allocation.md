@@ -3,7 +3,8 @@ title: "Dynamic Resource Allocation"
 date: 2026-03-22
 weight: 7
 description: >
-  Quota management for workloads using Kubernetes Dynamic Resource Allocation (DRA).
+  Quota management and topology-aware placement for workloads using Kubernetes
+  Dynamic Resource Allocation (DRA).
 ---
 
 {{% alert title="Warning" color="warning" %}}
@@ -118,6 +119,144 @@ consumes the device), the scheduler may fail to allocate. The
 [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) feature
 provides a safety net by evicting workloads that fail to become ready within
 a configured timeout.
+
+With [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling/),
+Kueue can also check before admission that a node has the devices a Pod needs.
+See [Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra).
+
+## Topology-Aware Scheduling with DRA
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+{{% alert title="Note" color="info" %}}
+`KueueDRADeviceFeasibility` is currently an alpha feature and is disabled by default.
+
+You can enable it by editing the `KueueDRADeviceFeasibility` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates. It requires `KueueDRAIntegration`,
+`TopologyAwareScheduling` and `TASNodeFeasibilityForAllLevels` to be enabled as well.
+{{% /alert %}}
+
+`KueueDRADeviceFeasibility` adds a device check to
+[Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling/) (TAS): TAS
+places each Pod only on nodes that can allocate the devices it requests. Quota limits
+how many devices a `ClusterQueue` admits, not where they are, and without this feature
+TAS cannot tell which nodes have them. What goes wrong depends on how a Pod requests
+its devices:
+
+- **`ResourceClaimTemplate` path**: the devices are not in the Pod's resource requests,
+  so TAS places the Pod by its other resources alone. For example, a `ClusterQueue` with
+  a quota of 8 GPUs on two nodes with 4 GPUs each admits a Pod whose
+  `ResourceClaimTemplate` requests 6 GPUs: the quota allows it, but no node has 6. The
+  Pod stays `Pending` while the workload holds the quota.
+- **Extended resource path**: the Pod requests a resource such as `example.com/gpu`, and
+  TAS looks for it in each node's allocatable, where a resource that only a
+  `DeviceClass` provides never appears, so the workload fits on no node; see the
+  warning in [When the check runs](#when-the-check-runs).
+
+### How the device check works
+
+1. A workload is assigned a flavor with a `topologyName` (a TAS flavor).
+2. Because a Pod's `ResourceClaim` objects do not exist before admission, Kueue builds
+   the claims each Pod will need: from its `ResourceClaimTemplate`s, or from the
+   `DeviceClass` for an extended resource. For every node that the flavor and the Pod's
+   other scheduling constraints allow, Kueue tries to allocate these claims, using the
+   same allocator as the kube-scheduler.
+3. Nodes where the allocation fails are dropped, and TAS places the Pods on the
+   remaining nodes. For an extended resource, the check replaces TAS's lookup in node
+   allocatable, except on nodes that advertise the resource through a device plugin.
+   This works for any topology, including one whose lowest level is not
+   `kubernetes.io/hostname`.
+4. When no node is left, the workload stays pending, and its `QuotaReserved`
+   condition message counts the nodes rejected for devices as `draNoFit`:
+
+   ```
+   couldn't assign flavors to pod set main: topology "dra-topology" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: draNoFit: 2
+   ```
+
+5. Kueue checks the workload again when a `ResourceSlice` or `DeviceClass` changes,
+   or when a `ResourceClaim` releases its devices.
+
+### When the check runs
+
+| Workload | Device check |
+|---|---|
+| Assigned a flavor with a `topologyName`, on the `ResourceClaimTemplate` or extended resource path | Runs |
+| Assigned a flavor without a `topologyName` | Does not run |
+| In a `ClusterQueue` with a MultiKueue admission check | Runs on the worker cluster, where topology is assigned, not on the manager |
+| In a `ClusterQueue` with a `ProvisioningRequest` admission check | Skipped on the first scheduling pass, which assigns no topology; runs on the second pass, after quota is reserved |
+
+{{% alert title="Warning" color="warning" %}}
+A workload on the extended resource path, such as one requesting
+`example.com/gpu: 1`, requires the device check to be admitted to a TAS flavor. Without it,
+TAS looks for the resource in each node's allocatable, where a resource that only a
+`DeviceClass` provides never appears, so the workload fits on no node:
+`excluded: resource "example.com/gpu": 2`. Nodes that advertise the resource through a
+device plugin are counted as before.
+{{% /alert %}}
+
+### Prerequisites
+
+- A `Topology` and a `ResourceFlavor` with `topologyName`, as described in
+  [Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/).
+- A DRA driver that publishes each node's devices in `ResourceSlice` objects.
+- The `KueueDRADeviceFeasibility` feature gate enabled in Kueue Configuration. The
+  gates it requires are enabled by default; if one of them is disabled, Kueue does not
+  start and logs `conflicting feature gates detected`.
+
+### Device taints
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+{{% alert title="Note" color="info" %}}
+`KueueDRAIntegrationDeviceTaints` is currently an alpha feature and is disabled by
+default. It requires `KueueDRADeviceFeasibility` to be enabled as well.
+{{% /alert %}}
+
+With this gate, the check skips devices with a `NoSchedule` or `NoExecute`
+[device taint](https://kubernetes.io/docs/concepts/resource-management/dynamic-resource-allocation/device-taints/)
+that the request does not tolerate, whether a DRA driver publishes the taint in a
+`ResourceSlice` or an administrator applies it with a `DeviceTaintRule`. `None` taints
+are ignored. A change to a `DeviceTaintRule` makes Kueue check rejected workloads again.
+
+Kueue reads `DeviceTaintRule` objects only from Kubernetes 1.37 onwards, which serves them as
+`resource.k8s.io/v1`; on earlier versions it ignores taints from rules. With this gate
+disabled, it ignores all device taints. In both cases Kueue can admit a workload onto
+tainted devices that the kube-scheduler then refuses, so enable this gate together
+with `KueueDRADeviceFeasibility`.
+
+{{% alert title="Warning" color="warning" %}}
+The check runs only before admission. When a `NoExecute` taint is added to devices
+that running Pods use, the Kubernetes eviction controller can delete those Pods, and
+their replacements stay `Pending`, while Kueue keeps the workload admitted and its
+quota reserved. Device taints do not trigger node replacement the way
+[`TASReplaceNodeOnNodeTaints`](/docs/concepts/topology_aware_scheduling/#replace-node-on-node-taints)
+does for node taints. To requeue such workloads, enable
+[WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) with a
+`recoveryTimeout`; the check then keeps them pending until the taint is removed.
+{{% /alert %}}
+
+### Limitations of the check
+
+- **One Pod per node**: the check asks whether a node can serve one Pod of the
+  PodSet, not how many. Kueue can place more Pods on a node than it has devices
+  for, and the Pods that do not get a device stay `Pending`.
+- **No release on preemption**: devices held by workloads that Kueue would preempt
+  are not freed in the check, so preemption cannot make a workload fit on devices.
+- **Kubernetes DRA feature gates are read from the Kueue process**: the check follows
+  the gates of the Kubernetes version Kueue is built with, Kubernetes 1.37 for Kueue
+  v0.20, not the cluster's. This matters only when objects carry the fields of a DRA
+  feature that the kube-scheduler has disabled, for example when the feature is
+  disabled on the kube-scheduler but not on the kube-apiserver, or disabled after
+  objects already used it. Otherwise the kube-apiserver drops the fields of a disabled
+  feature, so Kueue and the kube-scheduler see the same devices.
+- **Allocation time is not bounded**: each check tries an allocation on every
+  node. A slow `DeviceClass` CEL selector makes every scheduling cycle slower,
+  rather than timing out.
+- **Not every Kubernetes DRA feature is modeled**: some, such as
+  `DRADeviceBindingConditions`, change what the kube-scheduler does but not what the
+  check predicts ([full list](https://github.com/kubernetes-sigs/kueue/tree/main/keps/2941-DRA#what-the-check-does-not-decide)).
+
+For setup instructions, see
+[Use Topology-Aware Scheduling with DRA](/docs/tasks/manage/setup_dra/#use-topology-aware-scheduling-with-dra).
 
 ## MultiKueue
 
@@ -271,11 +410,14 @@ The following limitations apply:
   and per-request `config` are not supported.
 - **No AdminAccess**: Device requests with `adminAccess: true` are not
   supported.
-- **No DRA + Topology Aware Scheduling (TAS)**: DRA resources are not
-  accounted for in TAS capacity calculations. Using both features together
-  may result in incorrect topology assignments for DRA devices.
-- **No support for DRADeviceTaints**: This Kubernetes DRA feature is not
-  factored into Kueue's quota decisions.
+- **TAS does not see devices**: without
+  [Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra), TAS may
+  place a Pod on a node without the devices its `ResourceClaimTemplate` requests, and
+  a workload that requests an extended resource only a `DeviceClass` provides fits on
+  no node.
+- **Device taints do not change quota**: A tainted device is charged like any
+  other. The per-node check can honor taints; see
+  [Device taints](#device-taints).
 - **`firstAvailable` requests are charged, within limits**: This support is
   experimental; do not enable it in production. With
   `KueueDRAIntegrationPrioritizedList` enabled, a `firstAvailable` request is
