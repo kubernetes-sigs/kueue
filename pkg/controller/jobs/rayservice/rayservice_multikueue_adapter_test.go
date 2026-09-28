@@ -27,20 +27,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	utiltestingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	utiltestingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -54,42 +50,10 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 
 	rayServiceBuilder := utiltestingrayservice.MakeService("rayservice1", TestNamespace).Suspend(false)
-	elasticManagerService := rayServiceBuilder.Clone().
-		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-		ManagedBy(kueue.MultiKueueControllerName).
-		EnableInTreeAutoscaling().
-		Obj()
-	elasticWorkerService := rayServiceBuilder.Clone().
-		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-		EnableInTreeAutoscaling().
-		PrebuiltWorkloadLabel("wl1").
-		Label(kueue.MultiKueueOriginLabel, "origin1").
-		Obj()
-	elasticWorkerService.UID = "service-uid"
-	elasticWorkerService.Status.ActiveServiceStatus.RayClusterName = "rayservice1-cluster"
-	elasticWorkerCluster := utiltestingraycluster.MakeCluster("rayservice1-cluster", TestNamespace).
-		ScaleFirstWorkerGroup(3).
-		Obj()
-	elasticWorkerCluster.UID = "child-uid"
-	elasticWorkerCluster.Generation = 2
-	elasticWorkerCluster.OwnerReferences = []metav1.OwnerReference{{
-		APIVersion: rayv1.GroupVersion.String(),
-		Kind:       "RayService",
-		Name:       elasticWorkerService.Name,
-		UID:        elasticWorkerService.UID,
-		Controller: ptr.To(true),
-	}}
-	elasticManagerReflected := elasticManagerService.DeepCopy()
-	elasticManagerReflected.Annotations[raycluster.RayClusterPodsetReplicaSizesAnnotation] = `[{"name":"workers-group-0","count":3}]`
-	elasticManagerReflected.Annotations[raycluster.RayClusterGenerationAnnotation] = "child-uid-2"
-	elasticManagerReflected.Status = *elasticWorkerService.Status.DeepCopy()
-	elasticManagerWithoutRuntime := elasticManagerService.DeepCopy()
-	elasticManagerWithoutRuntime.Status = *elasticWorkerService.Status.DeepCopy()
 
 	cases := map[string]struct {
 		managersRayServices []rayv1.RayService
 		workerRayServices   []rayv1.RayService
-		workerRayClusters   []rayv1.RayCluster
 
 		operation func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error
 
@@ -145,43 +109,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 					WithServeConfigV2("new-config").
 					Obj(),
 			},
-		},
-		"autoscaling sync reflects the active child RayCluster replicas onto the manager": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:   true,
-				features.MultiKueueRayInTreeAutoscaling: true,
-				features.WorkloadIdentifierAnnotations:  false,
-			},
-			managersRayServices: []rayv1.RayService{*elasticManagerService.DeepCopy()},
-			workerRayServices:   []rayv1.RayService{*elasticWorkerService.DeepCopy()},
-			workerRayClusters:   []rayv1.RayCluster{*elasticWorkerCluster.DeepCopy()},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "wl1", "origin1")
-				return err
-			},
-			wantManagersRayServices: []rayv1.RayService{*elasticManagerReflected.DeepCopy()},
-			wantWorkerRayServices:   []rayv1.RayService{*elasticWorkerService.DeepCopy()},
-		},
-		"autoscaling sync rejects an active RayCluster not owned by the RayService": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:   true,
-				features.MultiKueueRayInTreeAutoscaling: true,
-				features.WorkloadIdentifierAnnotations:  false,
-			},
-			managersRayServices: []rayv1.RayService{*elasticManagerService.DeepCopy()},
-			workerRayServices:   []rayv1.RayService{*elasticWorkerService.DeepCopy()},
-			workerRayClusters: []rayv1.RayCluster{*func() *rayv1.RayCluster {
-				cluster := elasticWorkerCluster.DeepCopy()
-				cluster.OwnerReferences = nil
-				return cluster
-			}()},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "wl1", "origin1")
-				return err
-			},
-			wantError:               errActiveRayClusterNotControlled,
-			wantManagersRayServices: []rayv1.RayService{*elasticManagerWithoutRuntime.DeepCopy()},
-			wantWorkerRayServices:   []rayv1.RayService{*elasticWorkerService.DeepCopy()},
 		},
 		"sync status from remote rayservice": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -364,16 +291,12 @@ func TestMultiKueueAdapter(t *testing.T) {
 			workerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 			})
-			workerBuilder = workerBuilder.WithLists(
-				&rayv1.RayServiceList{Items: tc.workerRayServices},
-				&rayv1.RayClusterList{Items: tc.workerRayClusters},
-			)
+			workerBuilder = workerBuilder.WithLists(&rayv1.RayServiceList{Items: tc.workerRayServices})
 			workerClient := workerBuilder.Build()
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-				ray.WithElasticReplicaSync(elasticRuntimeSync()),
 				ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}))
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
