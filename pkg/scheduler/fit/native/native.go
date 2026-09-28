@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package fit
+package native
 
 import (
 	"context"
@@ -23,33 +23,34 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler/fit"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// NewInternalFitFinder returns an implementation for the fit Finder
+// NewNativeFitFinder returns an implementation for the fit Finder
 // that utilizes the internal Kueue topology-assignment and preemption logic.
 // It is meant to emulate the real scheduler via internally defined heuristics.
-func NewInternalFitFinder(
+func NewNativeFitFinder(
 	wl *workload.Info,
 	snapshot *schdcache.Snapshot,
 	preemptor *preemption.Preemptor,
 	assigner *flavorassigner.FlavorAssigner,
-) Finder {
-	return &internalFitFinder{wl, snapshot, preemptor, assigner}
+) fit.Finder {
+	return &nativeFitFinder{wl, snapshot, preemptor, assigner}
 }
 
-var _ Finder = (*internalFitFinder)(nil)
+var _ fit.Finder = (*nativeFitFinder)(nil)
 
-type internalFitFinder struct {
+type nativeFitFinder struct {
 	wl        *workload.Info
 	snapshot  *schdcache.Snapshot
 	preemptor *preemption.Preemptor
 	assigner  *flavorassigner.FlavorAssigner
 }
 
-func (f *internalFitFinder) FindFit(ctx context.Context, assignment *flavorassigner.Assignment, _ ...FindFitOption) Result {
+func (f *nativeFitFinder) FindFit(ctx context.Context, assignment *flavorassigner.Assignment, _ ...fit.FindFitOption) fit.Result {
 	log := log.FromContext(ctx)
 	cq := f.snapshot.ClusterQueue(f.wl.ClusterQueue)
 
@@ -65,16 +66,16 @@ func (f *internalFitFinder) FindFit(ctx context.Context, assignment *flavorassig
 		if len(faPreemptionTargets) > 0 {
 			f.updateAssignmentForTAS(ctx, cq, assignment, faPreemptionTargets)
 			resolveNoFit(assignment, cq)
-			return Result{assignment, faPreemptionTargets}
+			return fit.Result{Assignment: assignment, PreemptionTargets: faPreemptionTargets}
 		}
 	}
 
 	f.updateAssignmentForTAS(ctx, cq, assignment, nil)
 	resolveNoFit(assignment, cq)
-	return Result{assignment, nil}
+	return fit.Result{Assignment: assignment, PreemptionTargets: nil}
 }
 
-func (f *internalFitFinder) updateAssignmentForTAS(
+func (f *nativeFitFinder) updateAssignmentForTAS(
 	ctx context.Context,
 	cq *schdcache.ClusterQueueSnapshot,
 	assignment *flavorassigner.Assignment,

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package fit
+package native
 
 import (
 	"context"
@@ -269,7 +269,7 @@ func TestFindFit(t *testing.T) {
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			// When
-			finder := NewInternalFitFinder(wl, snapshot, preemptor, assigner)
+			finder := NewNativeFitFinder(wl, snapshot, preemptor, assigner)
 			gotResult := finder.FindFit(ctx, &initialAssignment)
 
 			// Then

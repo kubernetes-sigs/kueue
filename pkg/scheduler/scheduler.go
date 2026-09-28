@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/fit"
+	fitnative "sigs.k8s.io/kueue/pkg/scheduler/fit/native"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -1477,7 +1478,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	)
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	fitFinder := fit.NewInternalFitFinder(wl, snap, s.preemptor, flvAssigner)
+	fitFinder := fitnative.NewNativeFitFinder(wl, snap, s.preemptor, flvAssigner)
 	result := fitFinder.FindFit(ctx, &initialAssignment)
 
 	if !result.CanFit() && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
