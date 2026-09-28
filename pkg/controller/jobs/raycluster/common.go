@@ -362,29 +362,18 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 		allErrors = append(allErrors, field.Required(rayClusterSpecPath.Child("headGroupSpec", "template", "spec", "containers"), "must have at least one container"))
 	}
 
-	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) {
-		// Once resources are reserved by a non-elastic workload, the Ray cluster
-		// should do its best to use them instead of changing its pod count.
-		if !workloadslicing.Enabled(object) {
-			allErrors = append(
-				allErrors,
-				field.Invalid(
-					rayClusterSpecPath.Child("enableInTreeAutoscaling"),
-					rayClusterSpec.EnableInTreeAutoscaling,
-					fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
-						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
-						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
-				),
-			)
-		} else if isManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
-			allErrors = append(
-				allErrors,
-				field.Forbidden(
-					rayClusterSpecPath.Child("enableInTreeAutoscaling"),
-					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
-				),
-			)
-		}
+	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
+	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(object) {
+		allErrors = append(
+			allErrors,
+			field.Invalid(
+				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+				rayClusterSpec.EnableInTreeAutoscaling,
+				fmt.Sprintf("a kueue-managed job can use autoscaling only as an elastic job: "+
+					"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+					workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
+			),
+		)
 	}
 
 	// Should limit the generated PodSet count to the maximum supported by Workloads.

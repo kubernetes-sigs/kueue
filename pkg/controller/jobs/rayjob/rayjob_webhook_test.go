@@ -210,23 +210,6 @@ func TestValidateCreate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wantErr:      nil,
 		},
-		"invalid MultiKueue managed elastic job with autoscaling feature disabled": {
-			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
-				WithEnableAutoscaling(new(true)).
-				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				ManagedBy(kueue.MultiKueueControllerName).
-				Obj(),
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:   true,
-				features.MultiKueueRayInTreeAutoscaling: false,
-			},
-			wantErr: field.ErrorList{
-				field.Forbidden(
-					field.NewPath("spec", "rayClusterSpec", "enableInTreeAutoscaling"),
-					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
-				),
-			}.ToAggregate(),
-		},
 		"invalid managed - too many worker groups": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
