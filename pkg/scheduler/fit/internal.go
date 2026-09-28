@@ -49,7 +49,7 @@ type internalFitFinder struct {
 	assigner  *flavorassigner.FlavorAssigner
 }
 
-func (f *internalFitFinder) FindFit(ctx context.Context, assignment *flavorassigner.Assignment, _ ...option) Result {
+func (f *internalFitFinder) FindFit(ctx context.Context, assignment *flavorassigner.Assignment, _ ...FindFitOption) Result {
 	log := log.FromContext(ctx)
 	cq := f.snapshot.ClusterQueue(f.wl.ClusterQueue)
 

@@ -26,7 +26,7 @@ import (
 type Finder interface {
 	// FindFit computes the assignment allowing admission, if one exists,
 	// alongisde the necessary preemption targets.
-	FindFit(ctx context.Context, initialAssignment *flavorassigner.Assignment, opts ...option) Result
+	FindFit(ctx context.Context, initialAssignment *flavorassigner.Assignment, opts ...FindFitOption) Result
 }
 
 type Result struct {
@@ -46,4 +46,4 @@ func (r *Result) CanFit() bool {
 
 type options struct{}
 
-type option func(*options)
+type FindFitOption func(*options)
