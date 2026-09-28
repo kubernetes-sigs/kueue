@@ -43,3 +43,54 @@ tests:
           value: true
       - notExists:
           path: spec.endpoints[0].tlsConfig.ca
+
+  - it: should skip certificate verification for a custom tlsConfig without insecureSkipVerify
+    set:
+      enablePrometheus: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            minVersion: TLS12
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            minVersion: TLS12
+            insecureSkipVerify: true
+
+  - it: should skip certificate verification for a custom tlsConfig without insecureSkipVerify when cert-manager is enabled
+    set:
+      enablePrometheus: true
+      enableCertManager: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            minVersion: TLS12
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            minVersion: TLS12
+            insecureSkipVerify: true
+
+  - it: should keep insecureSkipVerify false when set in a custom tlsConfig
+    set:
+      enablePrometheus: true
+      enableCertManager: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            insecureSkipVerify: false
+            ca:
+              secret:
+                name: custom-ca
+                key: ca.crt
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            insecureSkipVerify: false
+            ca:
+              secret:
+                name: custom-ca
+                key: ca.crt

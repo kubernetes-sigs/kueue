@@ -377,5 +377,6 @@ metrics:
   serviceMonitor:
     # -- ServiceMonitor's tlsConfig. When empty, the chart verifies the metrics certificate
     # issued by cert-manager if `enableCertManager` is true, and skips verification otherwise.
-    # When set, it replaces the generated tlsConfig.
+    # When set, it replaces the generated tlsConfig, and `insecureSkipVerify` defaults to true
+    # unless set explicitly.
     tlsConfig: {}
