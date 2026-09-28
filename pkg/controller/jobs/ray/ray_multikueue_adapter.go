@@ -119,9 +119,6 @@ type RuntimeReplicaSync[PtrT any] struct {
 	// Apply records the runtime state from the worker cluster onto the manager
 	// copy, returning whether anything changed.
 	Apply func(localJob client.Object, result FetchResult) bool
-	// RepointWorkload updates runtime children to reference the current workload
-	// slice. Optional; job types without runtime children leave it unset.
-	RepointWorkload func(ctx context.Context, remoteClient client.Client, workloadName string, remoteJob PtrT) error
 }
 
 // Option configures a Ray MultiKueue adapter.
@@ -329,11 +326,6 @@ func (a *adapter[PtrT, T]) repointPrebuiltWorkload(ctx context.Context, remoteCl
 		return true, nil
 	}); err != nil {
 		return fmt.Errorf("failed to repoint the prebuilt workload of remote %s: %w", a.gvk.Kind, err)
-	}
-	if a.elastic.Runtime.RepointWorkload != nil {
-		if err := a.elastic.Runtime.RepointWorkload(ctx, remoteClient, workloadName, remoteJob); err != nil {
-			return fmt.Errorf("failed to repoint the runtime workload of remote %s: %w", a.gvk.Kind, err)
-		}
 	}
 	return nil
 }

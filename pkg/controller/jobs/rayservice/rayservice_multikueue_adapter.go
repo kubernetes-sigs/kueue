@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
@@ -47,9 +46,8 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RaySe
 			return ptr.Deref(s.Spec.RayClusterSpec.Suspend, false)
 		},
 		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayService]{
-			Fetch:           fetchActiveRayClusterWorkerState,
-			Apply:           raycluster.SetRuntimeWorkerStateAnnotations,
-			RepointWorkload: repointActiveRayClusterWorkload,
+			Fetch: fetchActiveRayClusterWorkerState,
+			Apply: raycluster.SetRuntimeWorkerStateAnnotations,
 		},
 	}
 }
@@ -74,24 +72,6 @@ func fetchActiveRayClusterWorkerState(ctx context.Context, remoteClient client.C
 		Counts:   raycluster.WorkerGroupPodCounts(&child.Spec),
 		Revision: fmt.Sprintf("%s-%d", child.UID, child.Generation),
 	}, nil
-}
-
-func repointActiveRayClusterWorkload(ctx context.Context, remoteClient client.Client, workloadName string, remoteService *rayv1.RayService) error {
-	childName := remoteService.Status.ActiveServiceStatus.RayClusterName
-	if childName == "" {
-		return nil
-	}
-	child := &rayv1.RayCluster{}
-	if err := remoteClient.Get(ctx, types.NamespacedName{Namespace: remoteService.Namespace, Name: childName}, child); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	return clientutil.Patch(ctx, remoteClient, child, func() (bool, error) {
-		if jobframework.PrebuiltWorkloadNameFor(child) == workloadName {
-			return false, nil
-		}
-		jobframework.SetPrebuiltWorkloadName(child, workloadName)
-		return true, nil
-	})
 }
 
 // remoteSpecSyncer is RayService's RemoteSpecSyncer for MultiKueue.
