@@ -142,9 +142,11 @@ type EffectiveCapacityFlavor struct {
 	Name ResourceFlavorReference `json:"name"`
 
 	// resources contains total capacity by resource name.
+	// A resource that is not listed, including when the map is empty, has zero
+	// capacity for the flavor.
 	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="size(self) >= 1 && size(self) <= 64",message="resource capacity must have between 1 and 64 entries"
+	// +kubebuilder:validation:XValidation:rule="size(self) <= 64",message="resource capacity must have at most 64 entries"
 	Resources corev1.ResourceList `json:"resources"`
 }
 
