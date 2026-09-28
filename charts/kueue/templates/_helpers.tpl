@@ -199,7 +199,7 @@ Otherwise, structured configuration is merged with this chart's packaged default
 {{- if $values.controllerManagerConfigYaml }}
 {{- $values.controllerManagerConfigYaml }}
 {{- else }}
-{{- $config := .Files.Get "files/manager-config.yaml" | fromYaml }}
+{{- $config := include "kueue.managerConfigDefaults" . | fromYaml }}
 {{- if hasKey $values "config" }}
 {{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.config) }}
 {{- end }}
