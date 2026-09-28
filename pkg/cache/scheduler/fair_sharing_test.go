@@ -734,7 +734,7 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 		},
 		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
-		// is exact past int64. lendableCapacity then aggregates potentialAvailable
+		// is exact past int64. computeLendable then aggregates potentialAvailable
 		// and lendable["cpu"] carries the whole of it.
 		// b.PerThousandOf(lr) divides the exact operands and evaluates to a tiny
 		// positive finite number; math.Ceil rounds it up to 1. This test pins that
@@ -918,23 +918,23 @@ func TestSnapshotCarriesLendable(t *testing.T) {
 	}
 
 	for _, cohort := range snapshot.Cohorts() {
-		if cohort.lendable == nil {
+		if cohort.ResourceNode.Lendable == nil {
 			t.Errorf("Cohort %s did not carry lendable from the cache", cohort.Name)
 			continue
 		}
-		if diff := cmp.Diff(computeLendable(cohort), cohort.lendable, cmp.Comparer(resources.Equal)); diff != "" {
+		if diff := cmp.Diff(computeLendable(cohort), cohort.ResourceNode.Lendable, cmp.Comparer(resources.Equal)); diff != "" {
 			t.Errorf("Cohort %s carried lendable differs from a fresh computation (-fresh,+carried):\n%s", cohort.Name, diff)
 		}
 	}
 
 	// Preemption simulates removing usage. Lendable must not move with it.
-	before := maps.Clone(snapshot.Cohort("mid").lendable)
+	before := maps.Clone(snapshot.Cohort("mid").ResourceNode.Lendable)
 	snapshot.ClusterQueue("cq").AddUsage(workload.Usage{Quota: workload.ResourceUsage{
 		Assigned: resources.FlavorResourceQuantities{
 			{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5000),
 		},
 	}})
-	if diff := cmp.Diff(before, lendableCapacity(snapshot.Cohort("mid")), cmp.Comparer(resources.Equal)); diff != "" {
+	if diff := cmp.Diff(before, snapshot.Cohort("mid").ResourceNode.Lendable, cmp.Comparer(resources.Equal)); diff != "" {
 		t.Errorf("Lendable changed after a usage change (-before,+after):\n%s", diff)
 	}
 }

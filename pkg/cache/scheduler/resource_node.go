@@ -19,6 +19,7 @@ package scheduler
 import (
 	"maps"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -41,6 +42,17 @@ type resourceNode struct {
 	// usage. For Cohorts, this is the sum of childrens'
 	// usages past childrens' localQuota.
 	Usage resources.FlavorResourceQuantities
+	// Lendable is the capacity this node can lend, per resource, derived from
+	// SubtreeQuota and the tree shape. updateCohortLendable rebuilds it in the
+	// same pass that rebuilds SubtreeQuota, so the two cannot disagree.
+	//
+	// Set for Cohorts only. dominantResourceShare reads it from a node's parent,
+	// which is always a Cohort, so a ClusterQueue's stays nil.
+	//
+	// Replaced rather than mutated, like SubtreeQuota, so a snapshot holding the
+	// previous map never observes a change. Served directly to callers, which
+	// must not mutate it.
+	Lendable map[corev1.ResourceName]resources.Amount
 }
 
 func NewResourceNode() resourceNode {
@@ -52,12 +64,13 @@ func NewResourceNode() resourceNode {
 }
 
 // Clone clones the mutable field Usage, while returning copies to
-// Quota and SubtreeQuota (these are replaced with new maps upon update).
+// Quota, SubtreeQuota and Lendable (these are replaced with new maps upon update).
 func (r resourceNode) Clone() resourceNode {
 	return resourceNode{
 		Quotas:       r.Quotas,
 		SubtreeQuota: r.SubtreeQuota,
 		Usage:        maps.Clone(r.Usage),
+		Lendable:     r.Lendable,
 	}
 }
 
@@ -184,19 +197,10 @@ func updateCohortTreeResources(cohort *cohort) error {
 }
 
 // updateCohortResourceNode traverses the Cohort tree to accumulate
-// SubtreeQuota and Usage, then refreshes lendable capacity. It should usually be
+// SubtreeQuota and Usage, then refreshes Lendable. It should usually be
 // called via updateCohortTree, which starts at the root and includes
 // a cycle check.
 func updateCohortResourceNode(cohort *cohort) {
-	updateCohortSubtreeResources(cohort)
-	// lendable reads the root's SubtreeQuota, so it can only be computed once the
-	// accumulation above has finished. Every caller currently passes a parentless
-	// Cohort, so walking to the root is a no-op, but doing it here means the
-	// invariant does not rest on that staying true.
-	updateCohortLendable(cohort.getRootUnsafe())
-}
-
-func updateCohortSubtreeResources(cohort *cohort) {
 	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
 	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
 
@@ -204,24 +208,31 @@ func updateCohortSubtreeResources(cohort *cohort) {
 		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
 	}
 	for _, child := range cohort.ChildCohorts() {
-		updateCohortSubtreeResources(child)
+		updateCohortResourceNode(child)
 		accumulateFromChild(cohort, child)
 	}
 	for _, child := range cohort.ChildCQs() {
 		updateClusterQueueResourceNode(child)
 		accumulateFromChild(cohort, child)
 	}
+	// Lendable reads the root's SubtreeQuota, so it cannot be computed until the
+	// accumulation above has finished for the whole tree. The recursive calls
+	// above all have a parent, so this runs once, at the end of the outermost
+	// call.
+	if !cohort.HasParent() {
+		updateCohortLendable(cohort)
+	}
 }
 
-// updateCohortLendable rebuilds the lendable capacity of every Cohort in the
-// subtree. Keeping it in the same pass as SubtreeQuota is what lets
-// lendableCapacity serve the value without recomputing it per preemption
-// candidate: the two can never disagree, because nothing writes SubtreeQuota
-// outside updateCohortSubtreeResources and accumulateFromChild.
+// updateCohortLendable rebuilds Lendable for every Cohort in the subtree, top
+// down. Keeping it in the same pass as SubtreeQuota is what lets
+// dominantResourceShare read the value instead of recomputing it per preemption
+// candidate: the two cannot disagree, because nothing writes SubtreeQuota
+// outside updateCohortResourceNode and accumulateFromChild.
 //
-// ClusterQueues are skipped. Only a Cohort's lendable capacity is ever read.
+// ClusterQueues are skipped. Only a Cohort's Lendable is ever read.
 func updateCohortLendable(cohort *cohort) {
-	cohort.lendable = computeLendable(cohort)
+	cohort.resourceNode.Lendable = computeLendable(cohort)
 	for _, child := range cohort.ChildCohorts() {
 		updateCohortLendable(child)
 	}

@@ -3443,6 +3443,11 @@ func TestClusterQueueReadiness(t *testing.T) {
 	}
 }
 
+// Lendable is derived from SubtreeQuota. These subtests assert how SubtreeQuota
+// propagates, and Lendable is asserted directly in TestCohortLendable,
+// TestSnapshotCarriesLendable and TestDeleteCohortUpdatesAncestorSubtreeQuota.
+var ignoreLendable = cmpopts.IgnoreFields(resourceNode{}, "Lendable")
+
 func TestCohortCycles(t *testing.T) {
 	t.Run("self cycle", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
@@ -3539,7 +3544,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
+		if diff := cmp.Diff(wantResource, gotResource, ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 	})
@@ -3575,7 +3580,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
+		if diff := cmp.Diff(wantResource, gotResource, ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 
@@ -3596,7 +3601,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
+		if diff := cmp.Diff(wantResource, gotResource, ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 	})
@@ -3632,10 +3637,10 @@ func TestCohortCycles(t *testing.T) {
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3657,10 +3662,10 @@ func TestCohortCycles(t *testing.T) {
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3696,7 +3701,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
+		if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode(), ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 	})
@@ -3729,7 +3734,7 @@ func TestCohortCycles(t *testing.T) {
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3746,7 +3751,7 @@ func TestCohortCycles(t *testing.T) {
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3927,15 +3932,14 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
 			tc.setup(t, cache)
 
-			// Fair sharing reads lendable without recomputing it, so it has to
-			// track SubtreeQuota through every mutation. DeleteCohort is the
-			// interesting one: when the deleted cohort survives because a child
-			// still references it, it reaches updateCohortResourceNode with a
-			// cohort that is not the root.
+			// Fair sharing reads Lendable without recomputing it, so it has to track
+			// SubtreeQuota through every mutation. DeleteCohort is the interesting
+			// one, because the deleted cohort can survive when a child still
+			// references it.
 			assertLendableInSync := func(when string) {
 				t.Helper()
 				for cohortName, cohort := range cache.hm.Cohorts() {
-					if diff := cmp.Diff(computeLendable(cohort), cohort.lendable, cmp.Comparer(resources.Equal)); diff != "" {
+					if diff := cmp.Diff(computeLendable(cohort), cohort.resourceNode.Lendable, cmp.Comparer(resources.Equal)); diff != "" {
 						t.Errorf("%s deletion, %s lendable is stale (-fresh,+stored):\n%s", when, cohortName, diff)
 					}
 				}

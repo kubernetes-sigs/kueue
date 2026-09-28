@@ -247,9 +247,6 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		snap.AddCohort(cohort.Name)
 		snap.Cohort(cohort.Name).ResourceNode = cohort.resourceNode.Clone()
 		snap.Cohort(cohort.Name).FairWeight = cohort.FairWeight
-		// Carried rather than recomputed. The cache rebuilds it whenever quota
-		// changes, and quota is fixed for this snapshot's lifetime.
-		snap.Cohort(cohort.Name).lendable = cohort.lendable
 		if cohort.HasParent() {
 			snap.UpdateCohortEdge(cohort.Name, cohort.Parent().Name)
 		}
