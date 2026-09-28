@@ -260,19 +260,26 @@ managerConfig:
       frameworks: ["batch/job", "pod"]
 ```
 
-Helm merges maps with the chart defaults and replaces lists in full. In this
-example, the default client burst is retained, and only the two listed job
-integrations are enabled. The manager and job webhooks use the same configuration.
+The chart merges the structured map with its packaged defaults and replaces
+lists in full. In this example, the default client burst is retained, and only
+the two listed job integrations are enabled. The manager and job webhooks use
+the same configuration.
 
-The legacy `managerConfig.controllerManagerConfigYaml` string remains supported.
-A non-empty string takes precedence over `managerConfig.config` as a complete
-replacement. To use the structured field, remove the legacy string or set it to
-`""`. When migrating an existing release, use `helm upgrade --reset-values` with
-a values file containing all customizations you want to keep. Avoid
-`--reuse-values` for this migration because it retains the old chart defaults,
-which do not contain the structured configuration.
-Fields you do not configure follow the selected chart version's defaults, so
-review the rendered configuration when upgrading.
+Choose either `managerConfig.config` or the legacy
+`managerConfig.controllerManagerConfigYaml` string. Supplying both is an error.
+If neither is supplied, the chart uses its defaults. A legacy string, including
+an empty string, remains a complete replacement and requires no migration.
+
+To migrate, remove the legacy field from a values file containing all customizations
+you want to retain, add your structured customizations, and upgrade with
+`helm upgrade kueue <chart> --namespace kueue-system --reset-values --values values.yaml`.
+Do not use `--reuse-values` for this migration: it can carry forward the old
+chart's default string and conflict with the new `config` input.
+
+Unspecified structured settings follow the selected chart version's packaged
+defaults, including on later upgrades with `--reuse-values`. Review the rendered
+configuration when upgrading. See the chart's [manager configuration guide](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md#manager-configuration)
+for the complete input contract and migration steps.
 
 ## Change the feature gates configuration
 

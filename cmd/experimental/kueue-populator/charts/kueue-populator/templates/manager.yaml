@@ -1,10 +1,23 @@
 {{- $kueueConfig := dict -}}
+{{- if .Subcharts.kueue }}
+{{- $kueueConfig = include "kueue.managerConfig" .Subcharts.kueue | fromYaml -}}
+{{- else }}
 {{- with .Values.kueue }}
 {{- with .managerConfig }}
-{{- if .controllerManagerConfigYaml }}
+{{- if and (hasKey . "config") (hasKey . "controllerManagerConfigYaml") }}
+{{- fail "kueue.managerConfig.config and kueue.managerConfig.controllerManagerConfigYaml are mutually exclusive" }}
+{{- end }}
+{{- if hasKey . "controllerManagerConfigYaml" }}
+{{- if not (kindIs "string" .controllerManagerConfigYaml) }}
+{{- fail "kueue.managerConfig.controllerManagerConfigYaml must be a string" }}
+{{- end }}
 {{- $kueueConfig = .controllerManagerConfigYaml | fromYaml -}}
-{{- else if .config }}
+{{- else if hasKey . "config" }}
+{{- if not (kindIs "map" .config) }}
+{{- fail "kueue.managerConfig.config must be a map" }}
+{{- end }}
 {{- $kueueConfig = .config -}}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

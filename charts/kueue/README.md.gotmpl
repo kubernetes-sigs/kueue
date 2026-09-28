@@ -111,7 +111,16 @@ for more information on installing kueue with metrics using our Helm chart.
 
 #### Manager configuration
 
-Set individual manager settings with `managerConfig.config`:
+Choose one manager configuration input:
+
+| Inputs under `managerConfig` | Behavior |
+|---|---|
+| Neither input | Use this chart version's defaults. |
+| `config` only | Merge the structured map with this chart version's defaults. |
+| `controllerManagerConfigYaml` only | Use the YAML string as the complete configuration, including an empty string. |
+| Both inputs | Fail before applying the release. Neither input takes precedence. |
+
+For structured configuration, specify only your customizations:
 
 ```yaml
 managerConfig:
@@ -122,28 +131,41 @@ managerConfig:
       frameworks: ["batch/job", "pod"]
 ```
 
-Helm merges maps with the chart defaults, so this example retains the default
-client burst and other manager settings. Lists are replaced in full; the example
-enables only the two listed integrations. The manager and job webhooks use the
-same configuration. Existing certificate-management defaults still apply when
-`internalCertManagement` is not set.
+The chart merges maps recursively, replaces lists and scalars, and removes fields
+set to `null` inside `config`. This example keeps the default client burst and
+enables only the two listed integrations. `config` itself must be a map; omit an
+unused input rather than setting it to `null` or `""`.
 
-The existing `managerConfig.controllerManagerConfigYaml` string remains supported.
-When non-empty, it takes precedence over `managerConfig.config` and replaces the
-entire configuration; the two inputs are not merged. To migrate, remove the string
-or set it to `""`, and put only your intentional customizations under
-`managerConfig.config`. Do not include the YAML block-scalar marker (`|` or `|-`)
-for the structured field.
+The defaults are packaged in [files/manager-config.yaml](files/manager-config.yaml),
+separately from user inputs. Unspecified structured settings follow the selected
+chart version's defaults, **including with `--reuse-values`**. Explicitly supplied
+settings remain pinned. Review the rendered configuration when upgrading.
 
-Fields not explicitly configured follow the selected chart version's defaults.
-Review the rendered configuration when upgrading. When migrating an existing
-release to structured configuration, use
-`helm upgrade --reset-values --values overrides.yaml` with a values file containing all customizations you want to keep.
-Avoid `--reuse-values` for this migration: it retains the old chart defaults as
-well as user values, so the new structured defaults would not be loaded.
+The manager and job webhooks use the same resolved configuration. Existing
+certificate-management defaults still apply when `internalCertManagement` is not set.
+Existing YAML-only configurations require no migration; an empty legacy string
+retains its existing meaning and does not select structured mode.
 
-Charts or tools that read `managerConfig.controllerManagerConfigYaml` directly
-should use `managerConfig.config` when the string is empty.
+To migrate to structured configuration:
+
+1. Prepare a values file containing **all customizations you want to retain**.
+2. Remove `managerConfig.controllerManagerConfigYaml` entirely and put intentional
+   manager customizations under `managerConfig.config`.
+3. Upgrade using the new chart defaults:
+
+   ```shell
+   helm upgrade kueue <chart> --namespace kueue-system --reset-values --values values.yaml
+   ```
+
+Do not use `--reuse-values` for this migration. It can retain the old chart's YAML
+string even if you never set that field yourself. Adding `config` then supplies
+both inputs, and the chart rejects the upgrade with migration instructions.
+After migration, `--reuse-values` can retain structured customizations, while
+unspecified manager settings still follow the selected chart's packaged defaults.
+
+The chart no longer exposes its defaults in `controllerManagerConfigYaml` or
+`config`. Tools that previously read the default string directly should consume
+the rendered manager ConfigMap instead.
 
 #### Chart values
 
