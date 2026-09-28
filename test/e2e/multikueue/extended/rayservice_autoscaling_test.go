@@ -93,8 +93,10 @@ app = HelloWorld.bind()`,
 		WithServeConfigV2(serveConfig).
 		RayStartParam(rayv1.HeadNode, "num-cpus", "1").
 		RayStartParam(rayv1.WorkerNode, "resources", fmt.Sprintf(`'{%q: 1}'`, workerResource)).
-		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "750m").
-		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Request(rayv1.HeadNode, corev1.ResourceCPU, "750m").
+		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 		Image(rayv1.HeadNode, util.GetKuberayTestImage()).
 		Image(rayv1.WorkerNode, util.GetKuberayTestImage()).
 		Env(rayv1.HeadNode, []corev1.EnvVar{pythonPath}).
@@ -105,7 +107,13 @@ app = HelloWorld.bind()`,
 		VolumeMounts(rayv1.WorkerNode, []corev1.VolumeMount{codeMount}).
 		TerminationGracePeriod(1).
 		Obj()
-	rayService.Spec.RayClusterSpec.AutoscalerOptions.IdleTimeoutSeconds = ptr.To[int32](1)
+	rayService.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		IdleTimeoutSeconds: ptr.To[int32](1),
+		Env: []corev1.EnvVar{{
+			Name:  "AUTOSCALER_UPDATE_INTERVAL_S",
+			Value: "1",
+		}},
+	}
 	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](0)
 	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](0)
 	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
