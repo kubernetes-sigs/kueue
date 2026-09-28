@@ -107,6 +107,44 @@ for more information on installing kueue with metrics using our Helm chart.
 
 ### Configuration
 
+#### Manager configuration
+
+Set individual manager settings with `managerConfig.config`:
+
+```yaml
+managerConfig:
+  config:
+    clientConnection:
+      qps: 600
+    integrations:
+      frameworks: ["batch/job", "pod"]
+```
+
+Helm merges maps with the chart defaults, so this example retains the default
+client burst and other manager settings. Lists are replaced in full; the example
+enables only the two listed integrations. The manager and job webhooks use the
+same configuration. Existing certificate-management defaults still apply when
+`internalCertManagement` is not set.
+
+The existing `managerConfig.controllerManagerConfigYaml` string remains supported.
+When non-empty, it takes precedence over `managerConfig.config` and replaces the
+entire configuration; the two inputs are not merged. To migrate, remove the string
+or set it to `""`, and put only your intentional customizations under
+`managerConfig.config`. Do not include the YAML block-scalar marker (`|` or `|-`)
+for the structured field.
+
+Fields not explicitly configured follow the selected chart version's defaults.
+Review the rendered configuration when upgrading. When migrating an existing
+release to structured configuration, use
+`helm upgrade --reset-values --values overrides.yaml` with a values file containing all customizations you want to keep.
+Avoid `--reuse-values` for this migration: it retains the old chart defaults as
+well as user values, so the new structured defaults would not be loaded.
+
+Charts or tools that read `managerConfig.controllerManagerConfigYaml` directly
+should use `managerConfig.config` when the string is empty.
+
+#### Chart values
+
 The following table lists the configurable parameters of the kueue chart and their default values.
 
 | Key | Type | Default | Description |
@@ -197,7 +235,8 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
 | kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
 | kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
-| managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
+| managerConfig.config | object | See values.yaml | Structured manager configuration. Helm merges user-supplied maps with these defaults; lists are replaced. Ignored when controllerManagerConfigYaml is non-empty. |
+| managerConfig.controllerManagerConfigYaml | string | `""` | Optional full manager configuration as YAML. When non-empty, this replaces managerConfig.config entirely. Retained for compatibility with existing values files. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{"insecureSkipVerify":true}` | ServiceMonitor's tlsConfig |
 | metricsService.annotations | object | `{}` | metricsService's annotations |

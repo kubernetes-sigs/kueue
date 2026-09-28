@@ -1,8 +1,10 @@
 {{- $kueueConfig := dict -}}
 {{- with .Values.kueue }}
 {{- with .managerConfig }}
-{{- with .controllerManagerConfigYaml }}
-{{- $kueueConfig = . | fromYaml -}}
+{{- if .controllerManagerConfigYaml }}
+{{- $kueueConfig = .controllerManagerConfigYaml | fromYaml -}}
+{{- else if .config }}
+{{- $kueueConfig = .config -}}
 {{- end }}
 {{- end }}
 {{- end }}
