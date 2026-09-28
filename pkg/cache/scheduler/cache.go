@@ -37,8 +37,10 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -74,9 +76,17 @@ func WithPodsReadyTracking(f bool) Option {
 	}
 }
 
-func WithSchedulingSimulator(s simulator.SchedulingSimulator) Option {
+// WithDRABackedResources supplies the extended resources a DeviceClass declares, which
+// placement needs to tell them from ones a device plugin advertises.
+func WithDRABackedResources(cache *dra.ExtendedResourceCache) Option {
 	return func(c *Cache) {
-		c.schedulingSimulator = s
+		c.draBackedResources = cache
+	}
+}
+
+func WithSimulatorFactory(s simulator.Factory) Option {
+	return func(c *Cache) {
+		c.simulatorFactory = s
 	}
 }
 
@@ -96,6 +106,12 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 func WithFairSharing(enabled bool) Option {
 	return func(c *Cache) {
 		c.fairSharingEnabled = enabled
+	}
+}
+
+func WithDeviceTaintRules(served bool) Option {
+	return func(c *Cache) {
+		c.deviceTaintRulesServed = served
 	}
 }
 
@@ -157,6 +173,14 @@ type Cache struct {
 	// Tracks Workload's ClusterQueue assignment throughout its presence in the cache, which is when they reserve quota (`QuotaReserved=True`).
 	workloadAssignedQueues map[workload.Reference]kueue.ClusterQueueReference
 
+	// draBackedResources is the caller's, shared with the queue manager and written
+	// by the DeviceClass handler, which is why it arrives as an option.
+	draBackedResources *dra.ExtendedResourceCache
+	// draSelectorsCache is the Cache's own, built lazily on first use.
+	draSelectorsCache schddra.CELCache
+	// deviceTaintRulesServed is whether the cluster serves DeviceTaintRules, decided at startup.
+	deviceTaintRulesServed bool
+
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
 	tasCache tasCache
@@ -165,7 +189,7 @@ type Cache struct {
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
-	schedulingSimulator simulator.SchedulingSimulator
+	simulatorFactory simulator.Factory
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -177,12 +201,12 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
-		schedulingSimulator:    newDefaultSimulator(),
+		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.schedulingSimulator, resourceFormatter)
+	cache.tasCache = NewTASCache(client, cache.simulatorFactory, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
@@ -241,6 +265,12 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
+// DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
+// once at startup.
+func (c *Cache) DeviceTaintRulesServed() bool {
+	return c.deviceTaintRulesServed
+}
+
 // PodsReadyTracking reports whether the cache maintains each ClusterQueue's
 // admitted-but-not-ready set.
 func (c *Cache) PodsReadyTracking() bool {
@@ -289,18 +319,6 @@ func (c *Cache) updateClusterQueues(log logr.Logger) sets.Set[kueue.ClusterQueue
 		cq.updateWithAdmissionChecks(log, c.admissionChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
-			cqs.Insert(cq.Name)
-		}
-	}
-	return cqs
-}
-
-func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
-	c.RLock()
-	defer c.RUnlock()
-	cqs := sets.New[kueue.ClusterQueueReference]()
-	for _, cq := range c.hm.ClusterQueues() {
-		if cq.Status == active {
 			cqs.Insert(cq.Name)
 		}
 	}

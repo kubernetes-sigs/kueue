@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -54,7 +55,7 @@ type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
-	SimulatorSnapshot        simulator.SimulatorSnapshot
+	SchedulerSimulator       simulator.SchedulerSimulator
 
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
@@ -145,9 +146,9 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	}
 }
 
-// ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
+// forgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
 // use it after changing what the scheduling simulator reports.
-func (s *Snapshot) ForgetSimulatedFeasibility() {
+func (s *Snapshot) forgetSimulatedFeasibility() {
 	for _, cq := range s.ClusterQueues() {
 		for _, tasSnapshot := range cq.TASFlavors {
 			tasSnapshot.forgetMatchingLeaves()
@@ -230,13 +231,18 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var err error
-		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(
+		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
 		)
 		if err != nil {
 			return nil, err
+		}
+		// Wrapping here rather than inside a simulator keeps the device check on
+		// whichever one is configured, so it does not depend on the scheduler library.
+		if features.Enabled(features.KueueDRADeviceFeasibility) {
+			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed)
 		}
 	}
 
@@ -284,7 +290,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			tasSnapshots[flavor], err = cache.snapshot(
 				ctx,
 				log,
-				snap.SimulatorSnapshot,
+				snap.SchedulerSimulator,
 				aggregatedDomainUsagesForFlavor,
 			)
 			if err != nil {
@@ -392,6 +398,11 @@ func (c *Cache) snapshotClusterQueue(
 		tasOnly:                       cq.isTASOnly(),
 		flavorsForProvReqACs:          cq.flavorsWithProvReqAdmissionCheck(),
 		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
+		draBackedResources:            c.draBackedResources,
+	}
+	if features.Enabled(features.ConfigurablePreemptions) {
+		cc.Labels = maps.Clone(cq.Labels)
+		cc.PreemptionConfigName = cq.PreemptionConfigName
 	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
@@ -425,5 +436,41 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 	return &CohortSnapshot{
 		Name:   name,
 		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot](),
+	}
+}
+
+// SimulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
+// returns a function that puts them back.
+func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
+	// The default simulator reports the same cluster whatever is running, so there is
+	// nothing to take out of it and nothing cached to drop.
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+		return func() {}
+	}
+	reverts := make([]func() error, 0, len(workloads))
+	for _, w := range workloads {
+		revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		if err != nil {
+			// The simulation still holds this victim's Pods, so it can only be
+			// stricter than reality. Log it and keep scheduling.
+			log.V(2).Info("Could not remove a preempted Workload from the scheduling simulator",
+				"workload", klog.KObj(w.Obj), "error", err)
+			continue
+		}
+		reverts = append(reverts, revert)
+	}
+	if len(reverts) == 0 {
+		return func() {}
+	}
+	// The simulator reports a different cluster now, so results cached before this
+	// no longer hold. The revert changes it back, so they are dropped again there.
+	s.forgetSimulatedFeasibility()
+	return func() {
+		for _, revert := range reverts {
+			if err := revert(); err != nil {
+				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
+			}
+		}
+		s.forgetSimulatedFeasibility()
 	}
 }

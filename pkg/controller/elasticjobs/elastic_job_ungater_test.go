@@ -97,6 +97,7 @@ func makeElasticPodForPodSet(name string, podSet kueue.PodSetReference) *testing
 
 func TestReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
@@ -683,7 +684,7 @@ func TestReconcile(t *testing.T) {
 								autoscaling.ProvisioningClassPodAnnotationKey:   "atomic",
 							},
 							NodeSelector: map[string]string{
-								"autoscaling.gke.io/provisioning-request": "current-booking",
+								"cloud.example.com/provisioning-request": "current-booking",
 							},
 						}},
 					}).
@@ -722,8 +723,8 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
-				// A stale immutable consume value must keep the pod gated and
-				// must not consume capacity from the replacement request.
+				// A stale immutable consume value must keep the pod gated; it
+				// cannot consume capacity from the replacement PRQ.
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
@@ -732,13 +733,50 @@ func TestReconcile(t *testing.T) {
 					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 				// A compatible gated pod receives the current request identity
-				// and selector before its elastic gate is removed.
+				// and selector before its elastic gate is removed. The class
+				// annotation is not stamped per pod; it comes from the template.
 				*testingpod.MakePod("pod-from-scale-up", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-slice-1-provisioning-1").
+					NodeSelector("cloud.example.com/provisioning-request", "current-booking").
+					Obj(),
+			},
+		},
+		"ungates when active slice has no provisioning admission check": {
+			// Leftover consume annotations must not permanently gate pods when
+			// the active slice has no ProvisioningRequest PodSetUpdates.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "stale-request").
 					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
-					NodeSelector("autoscaling.gke.io/provisioning-request", "current-booking").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "stale-request").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
 					Obj(),
 			},
 		},
@@ -983,15 +1021,15 @@ func TestReconcile(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-0", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 				*testingpod.MakePod("pod-1", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 				*testingpod.MakePod("pod-2", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 			},
@@ -1056,13 +1094,19 @@ func TestReconcile(t *testing.T) {
 			},
 			// Reconcile keyed on the FINISHED origin slice, as a conflict-requeue would.
 			reconcileKey: client.ObjectKey{Name: "wl", Namespace: "ns"},
+			// The workload annotation is refreshed to the active replacement
+			// ("wl-2"), not left pointing at the finished, potentially-GC'd
+			// origin: it is Kueue-owned and mutable, unlike the PRQ consume/class
+			// identity. The stable workload-slice-name annotation still tracks
+			// the origin ("wl") since that identifies the chain, not a single
+			// admission.
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-0", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-2").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 				*testingpod.MakePod("pod-1", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-2").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 			},
@@ -1164,6 +1208,40 @@ func TestReconcile(t *testing.T) {
 	}
 }
 
+func TestProvisioningRequestFeatureGateDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, false)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		AdmissionChecks(kueue.AdmissionCheckState{
+			Name:  "provisioning",
+			State: kueue.CheckStateReady,
+			PodSetUpdates: []kueue.PodSetUpdate{{
+				Name: "main",
+				Annotations: map[string]string{
+					autoscaling.ProvisioningRequestPodAnnotationKey: "new-request",
+				},
+			}},
+		}).
+		Obj()
+	pod := testingpod.MakePod("pod", "ns").
+		Label(constants.PodSetLabel, "main").
+		Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "old-request").
+		Obj()
+
+	update, err := admissionUpdateForPodSet(wl, "main")
+	if err != nil {
+		t.Fatalf("admissionUpdateForPodSet() error: %v", err)
+	}
+	if _, found := update.annotations[kueue.WorkloadAnnotation]; found {
+		t.Error("feature-disabled update contains mutable workload identity")
+	}
+	if podAdmissionCompatible(pod, update) {
+		t.Error("feature-disabled compatibility should preserve the legacy annotation conflict")
+	}
+}
+
 func TestShouldUngate(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	now := time.Now().Truncate(time.Second)
@@ -1227,6 +1305,8 @@ func ensureDefaultPodSetLabel(p *corev1.Pod) {
 }
 
 func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
 	const (
 		rfName = "rf"
 		cqName = "cq"
@@ -1270,6 +1350,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", corev1.NamespaceDefault).
 					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
@@ -1304,6 +1385,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", corev1.NamespaceDefault).
 					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},

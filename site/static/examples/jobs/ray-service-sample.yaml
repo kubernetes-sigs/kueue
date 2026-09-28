@@ -6,7 +6,6 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
-  # serveConfigV2 takes a yaml multi-line scalar, which should be a Ray Serve multi-application config. See https://docs.ray.io/en/latest/serve/multi-app.html.
   serveConfigV2: |
     applications:
       - name: fruit_app
@@ -59,48 +58,36 @@ spec:
           - name: Router
             num_replicas: 1
   rayClusterConfig:
-    rayVersion: '2.46.0' # should match the Ray version in the image of the containers
-    ######################headGroupSpecs#################################
-    # Ray head pod template.
+    rayVersion: '2.55.1'
     headGroupSpec:
-      # The `rayStartParams` are used to configure the `ray start` command.
-      # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
-      # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
       rayStartParams: {}
-      #pod template
       template:
         spec:
           containers:
           - name: ray-head
-            image: rayproject/ray:2.46.0
-            resources:
-              limits:
-                cpu: 4
-                memory: 6Gi
-              requests:
-                cpu: 2
-                memory: 4Gi
-    workerGroupSpecs:
-    # the pod replicas in this group typed worker
-    - replicas: 1
-      minReplicas: 1
-      maxReplicas: 5
-      # logical group name, for this called small-group, also can be functional
-      groupName: small-group
-      # The `rayStartParams` are used to configure the `ray start` command.
-      # See https://github.com/ray-project/kuberay/blob/master/docs/guidance/rayStartParams.md for the default settings of `rayStartParams` in KubeRay.
-      # See https://docs.ray.io/en/latest/cluster/cli.html#ray-start for all available options in `rayStartParams`.
-      rayStartParams: {}
-      #pod template
-      template:
-        spec:
-          containers:
-          - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
-            image: rayproject/ray:2.46.0
+            image: rayproject/ray:2.55.1
             resources:
               limits:
                 cpu: "2"
-                memory: "4Gi"
+                memory: "5Gi"
               requests:
+                cpu: "2"
+                memory: "2Gi"
+    workerGroupSpecs:
+    - replicas: 1
+      minReplicas: 1
+      maxReplicas: 5
+      groupName: small-group
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.55.1
+            resources:
+              limits:
                 cpu: "1"
+                memory: "2Gi"
+              requests:
+                cpu: "500m"
                 memory: "2Gi"

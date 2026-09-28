@@ -302,6 +302,73 @@ if [[ "${pull_attempts}" != "2" ]]; then
   exit 1
 fi
 
+# A bare `unauthorized:` whose manifest lookup is equally inconclusive is a
+# degraded token service rather than a denial, so it is retried.
+DOCKER_FAKE_MANIFEST_STATE="${test_dir}/docker-manifest-state"
+export DOCKER_FAKE_MANIFEST_STATE
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=2
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR='unauthorized: '
+
+if ! e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v0.94.0"; then
+  echo "expected a bare unauthorized error to be retried until the pull succeeded" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "2" ]]; then
+  echo "expected a bare unauthorized error to be retried; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+# The same bare `unauthorized:` for a tag the registry does not have is settled by
+# the manifest lookup, so the pull fails fast instead of spending the full backoff.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=99
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR='no such manifest: quay.example.com/prometheus-operator/prometheus-operator:v9.99.9'
+
+if e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v9.99.9"; then
+  echo "expected a missing tag behind a bare unauthorized error to fail the pull" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "1" ]]; then
+  echo "expected a missing tag behind a bare unauthorized error to fail fast; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+# A manifest lookup that 404s on the registry's own endpoint says nothing about the
+# tag, so the bare `unauthorized:` keeps its retries.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=2
+export DOCKER_FAKE_PULL_ERROR='unauthorized: '
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR='404 page not found'
+
+if ! e2e_docker_pull_if_needed "quay.example.com/prometheus-operator/prometheus-operator:v0.94.0"; then
+  echo "expected a token-endpoint 404 to leave the retries in place" >&2
+  exit 1
+fi
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "2" ]]; then
+  echo "expected a token-endpoint 404 to be retried; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
 # A missing image is not a transient failure, so it aborts after a single attempt.
 : >"${DOCKER_FAKE_LOG}"
 printf '0' >"${DOCKER_FAKE_STATE}"
@@ -351,9 +418,6 @@ if [[ "${pull_attempts}" != "1" ]]; then
 fi
 
 # e2e_docker_manifest_available retries a transient manifest-inspect failure until it succeeds.
-DOCKER_FAKE_LOG="${test_dir}/docker.log"
-DOCKER_FAKE_MANIFEST_STATE="${test_dir}/docker-manifest-state"
-export DOCKER_FAKE_LOG DOCKER_FAKE_MANIFEST_STATE
 : >"${DOCKER_FAKE_LOG}"
 printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
 export DOCKER_FAKE_MANIFEST_OK_AFTER=2
@@ -386,6 +450,25 @@ fi
 manifest_attempts=$(grep -c "^manifest inspect " "${DOCKER_FAKE_LOG}" || true)
 if [[ "${manifest_attempts}" != "1" ]]; then
   echo "expected a non-retriable manifest-inspect failure to fail fast without retrying; got ${manifest_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
+# An unauthorized error that names a reason is a genuine denial, so it fails fast.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR="unauthorized: authentication required"
+
+if e2e_docker_manifest_available "registry.example.com/kueue:private"; then
+  echo "expected e2e_docker_manifest_available to fail for a denied manifest" >&2
+  exit 1
+fi
+
+manifest_attempts=$(grep -c "^manifest inspect " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${manifest_attempts}" != "1" ]]; then
+  echo "expected a denied manifest inspect to fail fast without retrying; got ${manifest_attempts} attempt(s)" >&2
   exit 1
 fi
 

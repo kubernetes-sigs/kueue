@@ -121,7 +121,7 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulator())
 			domains := addDomainsWithState(s, tc.domains)
 			got := selectOptimalDomainSetToFit(s, domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
@@ -150,7 +150,7 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulator())
 			equalState := domainState{podCount: 3, sliceCount: 3, podCountWithLeader: 3, sliceCountWithLeader: 3}
 			domains := []*domain{
 				addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}}, equalState),
@@ -215,7 +215,7 @@ func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulator())
 			got := tc.domains(s)
 			slices.SortFunc(got, func(a, b *domain) int {
 				return s.compareDomainCapacityAndEntropy(a, b, true)
@@ -327,7 +327,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulator())
 			domains := addDomainsWithState(s, tc.domains)
 
 			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
@@ -345,7 +345,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 
 func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+	s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulator())
 	equalState := domainState{podCount: 3, sliceCount: 3, podCountWithLeader: 3, sliceCountWithLeader: 3}
 	domains := []*domain{
 		addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}}, equalState),
@@ -449,7 +449,7 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulator())
 			domains, domainsByName := tc.domains(s)
 
 			s.pruneDomainsBelowThreshold(domains, tc.threshold, tc.sliceSize, tc.sliceLevelIdx, tc.level, tc.leaderRequired)
@@ -467,7 +467,7 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 
 func TestPruneDomainsBelowThresholdPreservesAffinityScore(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulatorSnapshot())
+	s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{}, nil, 0), newDefaultSimulator())
 	prunedLeaf := addDomainWithState(s, &domain{id: "pruned-leaf"}, domainState{
 		sliceCount:    1,
 		affinityScore: 100,
@@ -556,7 +556,7 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{"block", "rack"}, nil, 0), newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "dummy"}, newTopologyTree([]string{"block", "rack"}, nil, 0), newDefaultSimulator())
 			domainsByID := make(map[string]*domain, len(tc.domains))
 			for _, spec := range tc.domains {
 				d := addDomainWithState(s, &domain{

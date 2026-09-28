@@ -70,7 +70,8 @@ double counting the same device.
 With `KueueDRAIntegrationExtendedResource` enabled, Kueue detects the matching `DeviceClass`,
 uses `extendedResourceName` as the quota key, and drops the auto-created claim
 from accounting. No `deviceClassMappings` configuration is needed — the
-mapping is discovered from the `DeviceClass` automatically.
+mapping is discovered from the `DeviceClass` automatically. A `deviceClassMappings`
+entry covering that `DeviceClass` moves the charge to the mapping's logical name.
 
 {{% alert title="Note" color="info" %}}
 The extended resource path additionally requires the Kubernetes

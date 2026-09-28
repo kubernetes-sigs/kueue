@@ -1062,6 +1062,11 @@ const (
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
 	// due to reclamation within the cohort while borrowing.
 	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
+
+	// ConfigurablePreemptionReason indicates the Workload was preempted due to
+	// the configured PreemptionConfig rules (alpha, requires the
+	// ConfigurablePreemptions feature gate).
+	ConfigurablePreemptionReason string = "ConfigurablePreemption"
 )
 
 const (

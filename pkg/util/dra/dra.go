@@ -17,6 +17,12 @@ limitations under the License.
 package dra
 
 import (
+	"context"
+
+	resourcev1 "k8s.io/api/resource/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	kubefeatures "k8s.io/kubernetes/pkg/features"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -35,4 +41,21 @@ func CheckResourceSliceAPIAvailable(mgr ctrl.Manager) bool {
 		}
 	}
 	return false
+}
+
+// RegisterDeviceTaintRuleInformer registers the DeviceTaintRule informer before the
+// manager starts, and reports whether the rules are served. Otherwise the first scheduling
+// cycle starts the informer and blocks on its sync, which never completes when RBAC denies it.
+func RegisterDeviceTaintRuleInformer(ctx context.Context, mgr ctrl.Manager) (bool, error) {
+	if !utilfeature.DefaultFeatureGate.Enabled(kubefeatures.DRADeviceTaintRules) {
+		return false, nil
+	}
+	if _, err := mgr.GetCache().GetInformer(ctx, &resourcev1.DeviceTaintRule{}); err != nil {
+		if !apimeta.IsNoMatchError(err) {
+			return false, err
+		}
+		ctrl.Log.V(0).Info("DeviceTaintRules not served as resource.k8s.io/v1, ignoring them; this needs Kubernetes 1.37 or later")
+		return false, nil
+	}
+	return true, nil
 }

@@ -64,6 +64,8 @@ const (
 // labeled workload if this is desired.
 // If neither comparison, minValue, nor maxValue are specified, the constraint checks only that
 // candidate workloads possess the designated label key with a valid integer.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.minValue) || !has(self.maxValue) || self.minValue <= self.maxValue",message="minValue must be less than or equal to maxValue"
 type PreemptionConfigNumericLabelConstraint struct {
 	// key is the label key that stores the integer value in the workload that will
 	// be used for candidate selection.

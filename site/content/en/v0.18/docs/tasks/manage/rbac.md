@@ -27,9 +27,15 @@ When you install Kueue, the following set of ClusterRoles are created for the
 two main personas that we assume will interact with Kueue:
 
 - `kueue-batch-admin-role` includes the permissions to manage ClusterQueues,
-  Queues, Workloads, and ResourceFlavors.
+  LocalQueues, Workloads, ResourceFlavors, Cohorts, Topologies, AdmissionChecks,
+  MultiKueueClusters, MultiKueueConfigs, ProvisioningRequestConfigs,
+  WorkloadPriorityClasses, and the job CRDs supported by Kueue integrations
+  (for example, Jobs, JobSets, RayJobs, and AppWrappers), and to view pending
+  workloads.
 - `kueue-batch-user-role` includes the permissions to manage [Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
-  and to view Queues and Workloads.
+  and the other job types supported by Kueue integrations (for example, JobSets,
+  RayJobs, and AppWrappers), and to view LocalQueues, Workloads, and pending
+  workloads in LocalQueues.
 
 In addition, Kueue creates a set of per-resource editor and viewer ClusterRoles
 (for example, `kueue-clusterqueue-viewer-role`, `kueue-workload-editor-role`).

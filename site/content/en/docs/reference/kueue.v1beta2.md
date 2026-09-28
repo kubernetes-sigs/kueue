@@ -931,6 +931,11 @@ Each resource group defines the list of resources and a list of flavors
 that provide quotas for these resources.
 Each resource and each flavor can only form part of one resource group.
 resourceGroups can be up to 16, with a max of 256 total flavors across all groups.</p>
+<p>Many flavors can increase admission latency, especially with many
+ClusterQueues or frequent workload submissions. Depending on
+flavorFungibility, the scheduler may try every flavor and simulate
+preemption for each. Configure only necessary flavors and evaluate
+performance under representative peak load.</p>
 </td>
 </tr>
 <tr><td><code>cohortName</code><br/>
@@ -1037,6 +1042,11 @@ if FairSharing is enabled in the Kueue configuration.</p>
 Its main capability is to allow Workloads pursuing multiple flavors at the same time, and starting on the first flavor that led to admission.
 Additionally after the admission, Workloads can still try to pursue capacity on the more preferable flavors while running.
 It enables them to migrate to more preferable, whenever capacity appears.</p>
+<p>When set, resourceGroups must contain exactly one group with at most
+32 flavors, and queueingStrategy must be BestEffortFIFO. Kueue creates
+a Variant Workload for each flavor, even if unsuitable, multiplying the
+number of Workloads that the scheduler and controllers process.
+This field is immutable.</p>
 </td>
 </tr>
 </tbody>

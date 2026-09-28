@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
+	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -173,23 +174,31 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		constants.SafeToForcefullyDeleteAnnotationKey,
 	)
 
+	recoveryCondition := corev1.PodCondition{
+		Type:    KueueFailureRecoveryConditionType,
+		Status:  corev1.ConditionTrue,
+		Reason:  KueueForcefulTerminationReason,
+		Message: eventMessage,
+	}
+
+	conditionChanged := false
 	err := utilclient.PatchStatus(ctx, r.client, pod, func() (bool, error) {
+		updated := false
 		if !utilpod.IsTerminated(pod) {
 			pod.Status.Phase = corev1.PodFailed
+			updated = true
 		}
-		pod.Status.Conditions = append(pod.Status.Conditions, corev1.PodCondition{
-			Type:    KueueFailureRecoveryConditionType,
-			Status:  corev1.ConditionTrue,
-			Reason:  KueueForcefulTerminationReason,
-			Message: eventMessage,
-		})
-		return true, nil
+		// Reports false when the condition is already up to date, so the event is not emitted again.
+		conditionChanged = podutil.UpdatePodCondition(&pod.Status, &recoveryCondition)
+		return updated || conditionChanged, nil
 	})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	r.recorder.Eventf(pod, nil, corev1.EventTypeWarning, KueueForcefulTerminationReason, "ForcefulTermination", "%s", eventMessage)
+	if conditionChanged {
+		r.recorder.Eventf(pod, nil, corev1.EventTypeWarning, KueueForcefulTerminationReason, "ForcefulTermination", "%s", eventMessage)
+	}
 	log.V(4).Info("Forcefully terminating pod", "pod", klog.KObj(pod), "message", eventMessage)
 
 	// Forcefully delete the pod object

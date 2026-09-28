@@ -107,6 +107,18 @@ func (d *DeviceRequestWrapper) CELSelector(expression string) *DeviceRequestWrap
 	return d
 }
 
+// Toleration lets the request use devices carrying a taint with this key and effect.
+func (d *DeviceRequestWrapper) Toleration(key string, effect resourcev1.DeviceTaintEffect) *DeviceRequestWrapper {
+	if d.Exactly != nil {
+		d.Exactly.Tolerations = append(d.Exactly.Tolerations, resourcev1.DeviceToleration{
+			Key:      key,
+			Operator: resourcev1.DeviceTolerationOpExists,
+			Effect:   effect,
+		})
+	}
+	return d
+}
+
 // AdminAccess sets admin access on the exact request.
 func (d *DeviceRequestWrapper) AdminAccess(enabled bool) *DeviceRequestWrapper {
 	if d.Exactly != nil {

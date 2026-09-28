@@ -17,7 +17,7 @@ limitations under the License.
 package tas
 
 import (
-	"fmt"
+	"cmp"
 	"maps"
 	"slices"
 	"strconv"
@@ -31,9 +31,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -3411,110 +3409,6 @@ func TestIsTAS(t *testing.T) {
 	}
 }
 
-func TestElasticTopologyRegrowth(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
-	for name, staleRequest := range map[string]bool{
-		"reconcile the latest slice": false,
-		"reconcile the origin slice": true,
-	} {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			gvk := batchv1.SchemeGroupVersion.WithKind("Job")
-			kc := utiltesting.NewClientBuilder().
-				WithStatusSubresource(&kueue.Workload{}).
-				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
-				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).Build()
-			r := newTopologyUngater(kc, nil, nil)
-			h := podHandler{expectationsStore: r.expectationsStore}
-			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-			defer q.ShutDown()
-			var previous *kueue.Workload
-			survivors := map[string]string{}
-			for step, count := range []int32{2, 4, 2, 6} {
-				name := fmt.Sprintf("slice-%d", step)
-				if previous != nil {
-					previous.Status.Conditions = append(
-						previous.Status.Conditions,
-						metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "Scaled", LastTransitionTime: metav1.Now()},
-					)
-					if err := kc.Status().Update(ctx, previous); err != nil {
-						t.Fatal(err)
-					}
-				}
-				wl := utiltestingapi.MakeWorkload(name, "ns").
-					Annotation(workloadslicing.EnabledAnnotationKey, "true").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
-					ControllerReference(gvk, "elastic", "job-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, int(count)).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(count).
-						Assignment(corev1.ResourceCPU, "flavor", fmt.Sprint(count)).
-						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, count).Obj()).Obj()).
-						Obj()).Obj(), time.Now()).
-					AdmittedAt(true, time.Now()).Obj()
-				wl.CreationTimestamp = metav1.NewTime(time.Unix(int64(step), 0))
-				if err := kc.Create(ctx, wl); err != nil {
-					t.Fatal(err)
-				}
-				for i := range int32(6) {
-					key := client.ObjectKey{Namespace: "ns", Name: fmt.Sprintf("pod-%d", i)}
-					p := &corev1.Pod{}
-					err := kc.Get(ctx, key, p)
-					if i >= count {
-						if err == nil {
-							if err := kc.Delete(ctx, p); err != nil {
-								t.Fatal(err)
-							}
-							delete(survivors, key.Name)
-						}
-						continue
-					}
-					if err != nil {
-						p = testingpod.MakePod(key.Name, "ns").
-							Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
-							Annotation(kueue.WorkloadAnnotation, name).
-							Annotation(kueue.WorkloadSliceNameAnnotation, "slice-0").
-							Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
-							Label(batchv1.JobCompletionIndexAnnotation, fmt.Sprint(i)).
-							TopologySchedulingGate().
-							Obj()
-						p.UID = types.UID(fmt.Sprintf("%d-%d", step, i))
-						if err := kc.Create(ctx, p); err != nil {
-							t.Fatal(err)
-						}
-					}
-				}
-				requestName := name
-				if staleRequest {
-					requestName = "slice-0"
-				}
-				req := reconcile.Request{Namespace: "ns", Name: requestName}
-				if _, err := r.Reconcile(ctx, req); err != nil {
-					t.Fatalf("resize to %d: %v", count, err)
-				}
-				for i := range count {
-					p := &corev1.Pod{}
-					if err := kc.Get(ctx, client.ObjectKey{Namespace: "ns", Name: fmt.Sprintf("pod-%d", i)}, p); err != nil {
-						t.Fatal(err)
-					}
-					if utilpod.HasGate(p, kueue.TopologySchedulingGate) {
-						t.Fatalf("resize to %d left %s gated", count, p.Name)
-					}
-					if old, ok := survivors[p.Name]; ok && old != string(p.UID)+p.Spec.NodeSelector[corev1.LabelHostname] {
-						t.Fatalf("survivor changed: %s", p.Name)
-					}
-					survivors[p.Name] = string(p.UID) + p.Spec.NodeSelector[corev1.LabelHostname]
-					h.Update(ctx, event.UpdateEvent{ObjectNew: p}, q)
-				}
-				if _, err := r.Reconcile(ctx, req); err != nil {
-					t.Fatalf("resize to %d: observed pod updates did not clear expectations: %v", count, err)
-				}
-				previous = wl
-			}
-		})
-	}
-}
-
 func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	// Workload and Pod events are both keyed by the slice chain name.
@@ -3541,6 +3435,26 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 2).Obj()).Obj()).Obj(),
 		).Obj(), now).
 		AdmittedAt(true, now)
+	// The slice chain shrinks back to one Pod and then regrows to three Pods.
+	scaledDown := baseWorkload.Clone().Name("scaled-down").
+		Creation(now.Add(2*time.Second)).
+		PodSets(*utiltestingapi.MakePodSet("workers", 1).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("workers").Count(1).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj()).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now).
+		Finished()
+	regrown := baseWorkload.Clone().Name("regrown").
+		Creation(now.Add(3*time.Second)).
+		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("workers").Count(3).
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 3).Obj()).Obj()).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now)
 
 	basePod := testingpod.MakePod("", "ns").
 		Annotation(kueue.WorkloadSliceNameAnnotation, sliceKey.Name).
@@ -3551,10 +3465,14 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 	// The late Pod is created after the replacement slice is admitted.
 	latePod := basePod.Clone().Name("late").UID("late-uid").
 		Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true")
+	secondLatePod := latePod.Clone().Name("second-late").UID("second-late-uid")
 
 	testCases := map[string]struct {
-		workloads        []kueue.Workload
-		pods             []corev1.Pod
+		workloads []kueue.Workload
+		pods      []corev1.Pod
+		// requestName is the Workload name the reconcile request is keyed by.
+		// Defaults to the slice chain name.
+		requestName      string
 		wantPods         []corev1.Pod
 		wantExpectedUIDs []types.UID
 	}{
@@ -3593,6 +3511,48 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 				*runningPod.Clone().Obj(),
 			},
 			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"late Pod referencing the origin slice is ungated when reconciling by the replacement slice name": {
+			workloads:   []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
+			requestName: "replacement",
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "origin").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+			},
+			wantExpectedUIDs: []types.UID{"late-uid"},
+		},
+		"late Pods are ungated after the slice chain shrinks and regrows": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Finished().Obj(), *scaledDown.Clone().Obj(), *regrown.Clone().Obj()},
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+				*secondLatePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+				*secondLatePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			},
+			wantExpectedUIDs: []types.UID{"late-uid", "second-late-uid"},
+		},
+		"late Pods are ungated after the slice chain shrinks and regrows when reconciling by the regrown slice name": {
+			workloads:   []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Finished().Obj(), *scaledDown.Clone().Obj(), *regrown.Clone().Obj()},
+			requestName: "regrown",
+			pods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").TopologySchedulingGate().Obj(),
+				*runningPod.Clone().Obj(),
+				*secondLatePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").TopologySchedulingGate().Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*latePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").NodeSelector(corev1.LabelHostname, "node").Obj(),
+				*runningPod.Clone().Obj(),
+				*secondLatePod.Clone().Annotation(kueue.WorkloadAnnotation, "regrown").NodeSelector(corev1.LabelHostname, "node").Obj(),
+			},
+			wantExpectedUIDs: []types.UID{"late-uid", "second-late-uid"},
 		},
 		"late Pod that is already ungated leaves no pending expectations": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *replacement.Clone().Obj()},
@@ -3660,7 +3620,8 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			kClient := clientBuilder.Build()
 			topologyUngater := newTopologyUngater(kClient, nil, nil)
 
-			if _, err := topologyUngater.Reconcile(ctx, reconcile.Request{NamespacedName: sliceKey}); err != nil {
+			req := reconcile.Request{Namespace: sliceKey.Namespace, Name: cmp.Or(tc.requestName, sliceKey.Name)}
+			if _, err := topologyUngater.Reconcile(ctx, req); err != nil {
 				t.Fatalf("Reconcile returned error: %v", err)
 			}
 

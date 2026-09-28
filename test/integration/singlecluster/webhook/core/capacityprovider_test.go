@@ -70,15 +70,31 @@ var _ = ginkgo.Describe("CapacityProvider Validation", func() {
 			ginkgo.Entry("Disallow empty name", "example.com", "Config", ""),
 		)
 
-		ginkgo.It("Should disallow empty orchestratedFlavors", func() {
-			cp := utiltestingalpha.MakeCapacityProvider("cp-empty-flavors").
-				ControllerName("test-controller").
-				Obj()
+		ginkgo.DescribeTable("Validate orchestratedFlavors on creation",
+			func(flavors []kueuealpha.CapacityProviderOrchestratedFlavor, isValid bool) {
+				cp := utiltestingalpha.MakeCapacityProvider("cp-orchestrated-flavors").
+					ControllerName("test-controller").
+					Obj()
+				cp.Spec.OrchestratedFlavors = flavors
 
-			err := k8sClient.Create(ctx, cp)
-			gomega.Expect(err).To(gomega.HaveOccurred())
-			gomega.Expect(err).To(utiltesting.BeInvalidError())
-		})
+				err := k8sClient.Create(ctx, cp)
+				if isValid {
+					gomega.Expect(err).To(gomega.Succeed())
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
+				} else {
+					gomega.Expect(err).To(gomega.HaveOccurred())
+					gomega.Expect(err).To(utiltesting.BeInvalidError())
+				}
+			},
+			ginkgo.Entry("Disallow omitted orchestratedFlavors", nil, false),
+			ginkgo.Entry("Disallow empty orchestratedFlavors", []kueuealpha.CapacityProviderOrchestratedFlavor{}, false),
+			ginkgo.Entry("Disallow duplicate flavor names", orchestratedFlavors("flavor-1", "flavor-1"), false),
+			ginkgo.Entry("Disallow empty flavor name", orchestratedFlavors(""), false),
+			ginkgo.Entry("Disallow invalid flavor name", orchestratedFlavors("Bad_Name"), false),
+			ginkgo.Entry("Allow a single flavor", orchestratedFlavors("flavor-1"), true),
+			ginkgo.Entry("Allow maximum flavors (count 64)", numberedOrchestratedFlavors(64), true),
+			ginkgo.Entry("Disallow too many flavors (count 65)", numberedOrchestratedFlavors(65), false),
+		)
 	})
 
 	ginkgo.When("Updating CapacityProvider spec", func() {
@@ -147,13 +163,29 @@ var _ = ginkgo.Describe("CapacityProvider Validation", func() {
 				} else {
 					gomega.Expect(err).To(gomega.HaveOccurred())
 					gomega.Expect(err).To(utiltesting.BeInvalidError())
-					gomega.Expect(err.Error()).To(gomega.ContainSubstring("resource capacity must have between 1 and 64 entries"))
+					gomega.Expect(err.Error()).To(gomega.ContainSubstring("resource capacity must have at most 64 entries"))
 				}
 			},
-			ginkgo.Entry("Disallow empty resources (count 0)", 0, false),
+			ginkgo.Entry("Allow empty resources (count 0)", 0, true),
 			ginkgo.Entry("Allow minimum valid resources (count 1)", 1, true),
 			ginkgo.Entry("Allow maximum valid resources (count 64)", 64, true),
 			ginkgo.Entry("Disallow too many resources (count 65)", 65, false),
 		)
 	})
 })
+
+func orchestratedFlavors(names ...string) []kueuealpha.CapacityProviderOrchestratedFlavor {
+	flavors := make([]kueuealpha.CapacityProviderOrchestratedFlavor, len(names))
+	for i, name := range names {
+		flavors[i] = kueuealpha.CapacityProviderOrchestratedFlavor{Name: kueuealpha.ResourceFlavorReference(name)}
+	}
+	return flavors
+}
+
+func numberedOrchestratedFlavors(count int) []kueuealpha.CapacityProviderOrchestratedFlavor {
+	names := make([]string, count)
+	for i := range count {
+		names[i] = fmt.Sprintf("flavor-%d", i)
+	}
+	return orchestratedFlavors(names...)
+}

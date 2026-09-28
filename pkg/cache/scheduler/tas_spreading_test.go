@@ -35,7 +35,7 @@ func newSpreadingTestSnapshot(t *testing.T) *TASFlavorSnapshot {
 		newTopologyTree(levels, []*corev1.Node{
 			makeTreeTestNode("n1", "b1", "r1"),
 			makeTreeTestNode("n2", "b2", "r2"),
-		}, 0), newDefaultSimulatorSnapshot())
+		}, 0), newDefaultSimulator())
 }
 
 func spreadingRule(key string, mode utiltas.TopologySpreadingEnforcementMode) utiltas.SpreadingRule {

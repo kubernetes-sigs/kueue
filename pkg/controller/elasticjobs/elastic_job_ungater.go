@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -153,7 +154,12 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		pod := pods[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
-			changed, err := refreshPodAdmission(pod, active)
+			podSetName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
+			update, err := admissionUpdateForPodSet(active, podSetName)
+			if err != nil {
+				return false, err
+			}
+			changed, err := refreshPodAdmission(pod, update)
 			if err != nil {
 				return false, err
 			}
@@ -188,21 +194,23 @@ func admissionUpdateForPodSet(wl *kueue.Workload, podSetName kueue.PodSetReferen
 		annotations:  make(map[string]string),
 		nodeSelector: make(map[string]string),
 	}
+	if workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		update.annotations[kueue.WorkloadAnnotation] = wl.Name
+		update.annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(wl)
+	}
 	for _, check := range wl.Status.AdmissionChecks {
 		for _, psUpdate := range check.PodSetUpdates {
 			if psUpdate.Name != podSetName {
 				continue
 			}
-			for _, key := range []string{
-				autoscaling.ProvisioningRequestPodAnnotationKey,
-				autoscaling.ProvisioningClassPodAnnotationKey,
-			} {
-				if value, found := psUpdate.Annotations[key]; found {
-					if old, exists := update.annotations[key]; exists && old != value {
-						return podAdmissionUpdate{}, fmt.Errorf("conflicting %q annotation updates for PodSet %q", key, podSetName)
-					}
-					update.annotations[key] = value
+			// consume-provisioning-request is the only admission annotation that
+			// changes per ProvisioningRequest; everything else reaches the Pod via
+			// the job template.
+			if value, found := psUpdate.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; found {
+				if old, exists := update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; exists && old != value {
+					return podAdmissionUpdate{}, fmt.Errorf("conflicting %q annotation updates for PodSet %q", autoscaling.ProvisioningRequestPodAnnotationKey, podSetName)
 				}
+				update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey] = value
 			}
 			for key, value := range psUpdate.NodeSelector {
 				if old, exists := update.nodeSelector[key]; exists && old != value {
@@ -215,9 +223,15 @@ func admissionUpdateForPodSet(wl *kueue.Workload, podSetName kueue.PodSetReferen
 	return update, nil
 }
 
+// podAdmissionCompatible reports whether the Pod can still take update. Only the
+// consume-provisioning-request annotation is checked among annotations: it is
+// the Pod's immutable request identity, whereas the workload / slice-name
+// annotations inherited from the template are meant to be overwritten with the
+// active slice. A gated Pod may only gain nodeSelector keys (the API server
+// rejects changing an existing one), so a conflicting value is incompatible.
 func podAdmissionCompatible(pod *corev1.Pod, update podAdmissionUpdate) bool {
-	for key, value := range update.annotations {
-		if existing, found := pod.Annotations[key]; found && existing != value {
+	if wanted, specified := update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; specified {
+		if existing, found := pod.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; found && existing != wanted {
 			return false
 		}
 	}
@@ -229,34 +243,15 @@ func podAdmissionCompatible(pod *corev1.Pod, update podAdmissionUpdate) bool {
 	return true
 }
 
-func refreshPodAdmission(pod *corev1.Pod, wl *kueue.Workload) (bool, error) {
-	update, err := admissionUpdateForPodSet(wl, kueue.PodSetReference(pod.Labels[constants.PodSetLabel]))
-	if err != nil {
-		return false, err
-	}
+func refreshPodAdmission(pod *corev1.Pod, update podAdmissionUpdate) (bool, error) {
 	if !podAdmissionCompatible(pod, update) {
 		return false, fmt.Errorf("pod %s/%s has immutable admission metadata from a different ProvisioningRequest", pod.Namespace, pod.Name)
 	}
-	if pod.Annotations == nil {
-		pod.Annotations = make(map[string]string, len(update.annotations))
-	}
-	changed := false
-	for key, value := range update.annotations {
-		// PRQ consume/class identity is immutable after first assignment.
-		if _, exists := pod.Annotations[key]; exists {
-			continue
-		}
-		pod.Annotations[key] = value
-		changed = true
-	}
-	if pod.Spec.NodeSelector == nil && len(update.nodeSelector) != 0 {
-		pod.Spec.NodeSelector = make(map[string]string, len(update.nodeSelector))
-	}
-	for key, value := range update.nodeSelector {
-		if pod.Spec.NodeSelector[key] != value {
-			pod.Spec.NodeSelector[key] = value
-			changed = true
-		}
+	changed := !utilmaps.Contains(pod.Annotations, update.annotations) ||
+		!utilmaps.Contains(pod.Spec.NodeSelector, update.nodeSelector)
+	if changed {
+		utilmaps.Copy(&pod.Annotations, update.annotations)
+		utilmaps.Copy(&pod.Spec.NodeSelector, update.nodeSelector)
 	}
 	return changed, nil
 }
@@ -394,7 +389,7 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", sliceKey.String())
 		h.expectationsStore.ObservedUID(log, *sliceKey, pod.UID)
 	}
-	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, sliceKey.Namespace, sliceKey.Name, false)
+	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, sliceKey.Namespace, sliceKey.Name)
 	if err != nil || active == nil {
 		return
 	}

@@ -98,6 +98,22 @@ func TestReconcileGenericJob(t *testing.T) {
 	// No pod set assignments, so equivalence compares against the workload spec.
 	reservedIn := &kueue.Admission{ClusterQueue: "cq"}
 	reservedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	runningAdmittedElasticWorkload := baseWl.Clone().Name("job-test-job-1").
+		Annotations(map[string]string{
+			workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+			kueue.WorkloadSliceNameAnnotation:    "job-test-job-root",
+		}).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("default-cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
+				Obj(),
+			reservedAt,
+		).
+		AdmittedAt(true, reservedAt).
+		Obj()
+	wantRunningAdmittedElasticWorkload := runningAdmittedElasticWorkload.DeepCopy()
+	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].Flavors = nil
+	wantRunningAdmittedElasticWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage = nil
 
 	elasticJob := baseJob.Clone().
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -393,6 +409,24 @@ func TestReconcileGenericJob(t *testing.T) {
 				*baseWl.Clone().Name("job-test-job-1").
 					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 					Obj(),
+			},
+			wantEvents: nil,
+		},
+		"running admitted elastic job does not refresh PodSets or emit another admission event": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			req: baseReq,
+			job: baseJob.Clone().
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				runningAdmittedElasticWorkload.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*wantRunningAdmittedElasticWorkload,
 			},
 			wantEvents: nil,
 		},
@@ -2623,8 +2657,8 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	prevWl := utiltestingapi.MakeWorkload("job-multi-prev", "ns").
 		PodSets(
 			kueue.PodSet{Name: kueue.PodSetReference("head"), Count: 1},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 20},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
 		).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("head")).
@@ -2649,6 +2683,10 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		existingObjects []client.Object
 		wantCounts      map[kueue.PodSetReference]int32
 		wantMinCounts   map[kueue.PodSetReference]*int32
+		// wantExtra, when non-nil, is the full extra string the constructed workload's name
+		// should be generated from (job generation, plus a "-scale-up-probe-<admitted>" suffix
+		// for a continued chain).
+		wantExtra *string
 	}{
 		"initial creation without previous admitted workload": {
 			job: job,
@@ -2668,7 +2706,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
 		},
-		"scale-up with previous admitted workload sets minCount to the granted baseline and probe extra": {
+		"scale-up with previous admitted workload copies minCount forward from its own recorded floor": {
 			job: job,
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
@@ -2682,11 +2720,119 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-spot"):        20,
 			},
 			wantMinCounts: map[kueue.PodSetReference]*int32{
-				// head was granted its full count, so it stays fixed; the growing podSets get the
-				// counts granted to them, not those counts plus one.
+				// Copied forward from prevWl's own MinCount, not recomputed from what it was
+				// actually granted (1 and 4 respectively) - the predecessor's own floor traces
+				// back to the chain's origin, which a live grant snapshot wouldn't.
 				kueue.PodSetReference("head"):                nil,
-				kueue.PodSetReference("workers-reservation"): new(int32(1)),
-				kueue.PodSetReference("workers-spot"):        new(int32(4)),
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+			},
+		},
+		"scale-up with reordered podsets copies minCount by name": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 8, MinCount: new(int32(8))},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 8,
+				kueue.PodSetReference("workers-spot"):        20,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+			},
+		},
+		"defensive: an unmatched podset retains its initialized minCount": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 8, MinCount: new(int32(8))},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
+				{Name: kueue.PodSetReference("workers-new"), Count: 2, MinCount: new(int32(2))},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 8,
+				kueue.PodSetReference("workers-spot"):        20,
+				kueue.PodSetReference("workers-new"):         2,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+				kueue.PodSetReference("workers-new"):         new(int32(2)),
+			},
+		},
+		"an added podset alone does not break the scale-up-probe naming chain": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20},
+				{Name: kueue.PodSetReference("workers-new"), Count: 1},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 4,
+				kueue.PodSetReference("workers-spot"):        20,
+				kueue.PodSetReference("workers-new"):         1,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+				kueue.PodSetReference("workers-new"):         nil,
+			},
+			// prevWl's own granted counts: head=1, workers-reservation=1, workers-spot=4.
+			wantExtra: new("0-scale-up-probe-6"),
+		},
+		"a genuine count mismatch on a matched podset still breaks the naming chain, even alongside an added podset": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 9},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20},
+				{Name: kueue.PodSetReference("workers-new"), Count: 1},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 9,
+				kueue.PodSetReference("workers-spot"):        20,
+				kueue.PodSetReference("workers-new"):         1,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+				kueue.PodSetReference("workers-new"):         nil,
+			},
+			wantExtra: new("0"),
+		},
+		"a matched podset shrinking below the predecessor's own floor caps minCount at its new count": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 2},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 2,
+				kueue.PodSetReference("workers-spot"):        20,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(2)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
 		},
 	}
@@ -2736,6 +2882,13 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 						t.Errorf("expected minCount=%d for podset %q, got nil", *wantMin, ps.Name)
 					} else if *ps.MinCount != *wantMin {
 						t.Errorf("expected minCount=%d for podset %q, got %d", *wantMin, ps.Name, *ps.MinCount)
+					}
+				}
+
+				if tc.wantExtra != nil {
+					wantName := GenerateWorkloadNameWithExtra(tc.job.GetName(), tc.job.GetUID(), gvk, *tc.wantExtra)
+					if wl.Name != wantName {
+						t.Errorf("expected workload name %q, got %q", wantName, wl.Name)
 					}
 				}
 			}

@@ -213,8 +213,8 @@ func (s *SpreadingSpec) compileSelector(defaultJobUID string) error {
 // omitted selector is not an error - it is how the user asks for the job-uid
 // default. Per-field, field.Path-scoped checks (bad topology keys,
 // out-of-range shares, unknown enforcement modes, duplicate keys, alpha
-// restrictions on the selector) are the webhook's responsibility and are
-// re-validated there.
+// restrictions on the selector) are ValidateSpreadingAnnotation's
+// responsibility.
 func ParseSpreadingAnnotation(value, defaultJobUID string) (*SpreadingSpec, error) {
 	var spec SpreadingSpec
 	if err := json.Unmarshal([]byte(value), &spec); err != nil {
