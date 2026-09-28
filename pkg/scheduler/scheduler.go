@@ -48,8 +48,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/scheduler/fit"
-	fitnative "sigs.k8s.io/kueue/pkg/scheduler/fit/native"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
+	nativeplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -1450,7 +1450,7 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 }
 
 func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
-	assignment flavorassigner.Assignment,
+	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
 ) {
 	log := log.FromContext(ctx)
@@ -1473,17 +1473,17 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	)
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	fitFinder := fitnative.NewNativeFitFinder(wl, snap, s.preemptor, flvAssigner)
-	result := fitFinder.FindFit(ctx, &initialAssignment)
+	planner := nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
-	if !result.CanFit() && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if !assignmentPlan.CanFit() && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
-		var bestPartialResult *fit.Result
+		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts []int32) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if result := fitFinder.FindFit(ctx, &initialAssignment); result.CanFit() {
-				bestPartialResult = &result
+			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
+				bestPartialPlan = &partialPlan
 				return true
 			}
 			return false
@@ -1493,12 +1493,12 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
 		reducer := flavorassigner.NewOrderedPodSetReducer(effectiveReducerPodSets(wl.Obj.Spec.PodSets, replaceableWorkloadSlice, mustGrow), fitsFn)
 		if _, found := reducer.Reduce(mustGrow); found {
-			result = *bestPartialResult
+			assignmentPlan = *bestPartialPlan
 		}
 	}
 
-	assignment, targets = *result.Assignment, result.PreemptionTargets
-	if result.CanFit() {
+	fullAssignment, targets = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets
+	if assignmentPlan.CanFit() {
 		targets = append(slicePreemptTargets, targets...)
 	}
 	return

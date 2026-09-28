@@ -140,11 +140,11 @@ func targetNames(targets []*preemption.Target) []string {
 	return names
 }
 
-// TestFindFit runs FindFit with the real flavor assigner and preemptor. The
+// TestPlan runs Plan with the real flavor assigner and preemptor. The
 // initial assignment is computed by the flavor assigner, as in the scheduler,
 // so that only the combinations of quota, topology and preemption outcomes that
 // can happen in practice are covered.
-func TestFindFit(t *testing.T) {
+func TestPlan(t *testing.T) {
 	onNode := &utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 		Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{tasTestNode}, 1).Obj()).
 		TopologyAssignment
@@ -269,30 +269,30 @@ func TestFindFit(t *testing.T) {
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
 			// When
-			finder := NewNativeFitFinder(wl, snapshot, preemptor, assigner)
-			gotResult := finder.FindFit(ctx, &initialAssignment)
+			planner := NewPlanner(wl, snapshot, preemptor, assigner)
+			gotPlan := planner.Plan(ctx, &initialAssignment)
 
 			// Then
-			if gotResult.Assignment != &initialAssignment {
-				t.Errorf("FindFit() returned a different assignment object than the initial one")
+			if gotPlan.Assignment != &initialAssignment {
+				t.Errorf("Plan() returned a different assignment object than the initial one")
 			}
-			if gotMode := gotResult.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
-				t.Errorf("FindFit() assignment mode mismatch: want %v, got %v", tc.wantMode, gotMode)
+			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
+				t.Errorf("Plan() assignment mode mismatch: want %v, got %v", tc.wantMode, gotMode)
 			}
-			if diff := cmp.Diff(tc.wantTargets, targetNames(gotResult.PreemptionTargets)); diff != "" {
-				t.Errorf("FindFit() preemption targets mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantTargets, targetNames(gotPlan.PreemptionTargets)); diff != "" {
+				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
 			}
-			if tc.wantFit != gotResult.CanFit() {
-				t.Errorf("FindFit() returned unexpected verdict - want fit: %v, got: %v", tc.wantFit, gotResult.CanFit())
+			if tc.wantFit != gotPlan.CanFit() {
+				t.Errorf("Plan() returned unexpected verdict - want fit: %v, got: %v", tc.wantFit, gotPlan.CanFit())
 			}
-			if gotResult.Assignment.NoFitReason != tc.wantNoFitReason {
-				t.Errorf("FindFit() assignment NoFitReason mismatch: want %q, got %q", tc.wantNoFitReason, gotResult.Assignment.NoFitReason)
+			if gotPlan.Assignment.NoFitReason != tc.wantNoFitReason {
+				t.Errorf("Plan() assignment NoFitReason mismatch: want %q, got %q", tc.wantNoFitReason, gotPlan.Assignment.NoFitReason)
 			}
-			if diff := cmp.Diff(tc.wantTopologyAssignment, gotResult.Assignment.PodSets[0].TopologyAssignment); diff != "" {
-				t.Errorf("FindFit() topology assignment mismatch (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantTopologyAssignment, gotPlan.Assignment.PodSets[0].TopologyAssignment); diff != "" {
+				t.Errorf("Plan() topology assignment mismatch (-want +got):\n%s", diff)
 			}
 			if freeCapacityAfter := freeCapacity(t, snapshot); freeCapacityAfter != freeCapacityBefore {
-				t.Errorf("FindFit() did not restore the snapshot TAS free capacity: before %s, after %s", freeCapacityBefore, freeCapacityAfter)
+				t.Errorf("Plan() did not restore the snapshot TAS free capacity: before %s, after %s", freeCapacityBefore, freeCapacityAfter)
 			}
 		})
 	}

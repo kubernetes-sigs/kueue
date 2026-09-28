@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package fit
+package assignment
 
 import (
 	"context"
@@ -23,14 +23,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 )
 
-type Finder interface {
-	// FindFit computes the assignment allowing admission, if one exists,
-	// alongisde the necessary preemption targets.
-	FindFit(ctx context.Context, initialAssignment *flavorassigner.Assignment, opts ...FindFitOption) Result
+type Planner interface {
+	// Plan computes the assignment allowing admission, if one exists,
+	// alongside the necessary preemption targets.
+	// Requires providing the initial flavor assignment.
+	Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, opts ...PlannerOption) Plan
 }
 
-type Result struct {
-	// Assignment - the updated workload asssignment.
+type Plan struct {
+	// Assignment - the updated workload assignment.
 	Assignment *flavorassigner.Assignment
 	// PreemptionTargets - the list of preemption targets necessary
 	// to make the admission based on the returned assignment possible.
@@ -39,11 +40,11 @@ type Result struct {
 	PreemptionTargets []*preemption.Target
 }
 
-func (r *Result) CanFit() bool {
-	arm := r.Assignment.RepresentativeMode()
-	return arm == flavorassigner.Fit || (arm == flavorassigner.Preempt && len(r.PreemptionTargets) > 0)
+func (p *Plan) CanFit() bool {
+	arm := p.Assignment.RepresentativeMode()
+	return arm == flavorassigner.Fit || (arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
 }
 
 type options struct{}
 
-type FindFitOption func(*options)
+type PlannerOption func(*options)

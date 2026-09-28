@@ -21,87 +21,88 @@ import (
 
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/scheduler/fit"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// NewNativeFitFinder returns an implementation for the fit Finder
+// NewPlanner returns a native implementation of assignment.Planner
 // that utilizes the internal Kueue topology-assignment and preemption logic.
 // It is meant to emulate the real scheduler via internally defined heuristics.
-func NewNativeFitFinder(
+func NewPlanner(
 	wl *workload.Info,
 	snapshot *schdcache.Snapshot,
 	preemptor *preemption.Preemptor,
 	assigner *flavorassigner.FlavorAssigner,
-) fit.Finder {
-	return &nativeFitFinder{wl, snapshot, preemptor, assigner}
+) assignment.Planner {
+	return &nativePlanner{wl, snapshot, preemptor, assigner}
 }
 
-var _ fit.Finder = (*nativeFitFinder)(nil)
+var _ assignment.Planner = (*nativePlanner)(nil)
 
-type nativeFitFinder struct {
+type nativePlanner struct {
 	wl        *workload.Info
 	snapshot  *schdcache.Snapshot
 	preemptor *preemption.Preemptor
 	assigner  *flavorassigner.FlavorAssigner
 }
 
-func (f *nativeFitFinder) FindFit(ctx context.Context, assignment *flavorassigner.Assignment, _ ...fit.FindFitOption) fit.Result {
+func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignment, _ ...assignment.PlannerOption) assignment.Plan {
 	log := log.FromContext(ctx)
-	cq := f.snapshot.ClusterQueue(f.wl.ClusterQueue)
+	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
 
-	if assignment.RepresentativeMode() != flavorassigner.NoFit {
-		f.assigner.AssignTopology(ctx, log, assignment)
+	if asgn.RepresentativeMode() != flavorassigner.NoFit {
+		p.assigner.AssignTopology(ctx, log, asgn)
 	}
 
-	arm := assignment.RepresentativeMode()
+	arm := asgn.RepresentativeMode()
 
 	if arm == flavorassigner.Preempt {
-		strategies := f.preemptor.GetPreemptionStrategyIterator(ctx, *f.wl, f.snapshot, *assignment)
-		faPreemptionTargets := f.preemptor.GetTargetsWithStrategy(ctx, strategies)
+		strategies := p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *asgn)
+		faPreemptionTargets := p.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
-			f.updateAssignmentForTAS(ctx, cq, assignment, faPreemptionTargets)
-			resolveNoFit(assignment, cq)
-			return fit.Result{Assignment: assignment, PreemptionTargets: faPreemptionTargets}
+			p.updateAssignmentForTAS(ctx, cq, asgn, faPreemptionTargets)
+			resolveNoFit(asgn, cq)
+			return assignment.Plan{Assignment: asgn, PreemptionTargets: faPreemptionTargets}
 		}
 	}
 
-	f.updateAssignmentForTAS(ctx, cq, assignment, nil)
-	resolveNoFit(assignment, cq)
-	return fit.Result{Assignment: assignment, PreemptionTargets: nil}
+	p.updateAssignmentForTAS(ctx, cq, asgn, nil)
+	resolveNoFit(asgn, cq)
+	return assignment.Plan{Assignment: asgn, PreemptionTargets: nil}
 }
 
-func (f *nativeFitFinder) updateAssignmentForTAS(
+func (p *nativePlanner) updateAssignmentForTAS(
 	ctx context.Context,
 	cq *schdcache.ClusterQueueSnapshot,
-	assignment *flavorassigner.Assignment,
+	asgn *flavorassigner.Assignment,
 	targets []*preemption.Target,
 ) {
 	log := log.FromContext(ctx)
 
-	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
-		(workload.IsExplicitlyRequestingTAS(f.wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(f.wl.Obj) {
-		tasRequests := assignment.WorkloadsTopologyRequests(log, f.wl, cq)
+	if features.Enabled(features.TopologyAwareScheduling) && asgn.RepresentativeMode() == flavorassigner.Preempt &&
+		(workload.IsExplicitlyRequestingTAS(p.wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(p.wl.Obj) {
+		tasRequests := asgn.WorkloadsTopologyRequests(log, p.wl, cq)
 		var tasResult schdcache.TASAssignmentsResult
-		log = log.WithValues("workload", klog.KRef(f.wl.Obj.Namespace, f.wl.Obj.Name))
+		log = log.WithValues("workload", klog.KRef(p.wl.Obj.Namespace, p.wl.Obj.Name))
 
 		if len(targets) > 0 {
 			var targetWorkloads []*workload.Info
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := f.snapshot.SimulateWorkloadRemoval(targetWorkloads)
+			revertUsage := p.snapshot.SimulateWorkloadRemoval(targetWorkloads)
 			// Freeing the victims' quota is not enough. Until the simulator is told,
 			// it still reports their Pods and their nodes still look occupied.
-			revertPods := f.snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
+			revertPods := p.snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
-				schdcache.WithWorkloadInfo(f.wl),
+				schdcache.WithWorkloadInfo(p.wl),
 			)
 			revertPods()
 			revertUsage()
@@ -116,15 +117,15 @@ func (f *nativeFitFinder) updateAssignmentForTAS(
 				ctx,
 				tasRequests,
 				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkloadInfo(f.wl),
+				schdcache.WithWorkloadInfo(p.wl),
 			)
 		}
-		assignment.UpdateForTASResult(log, cq, f.wl, tasResult)
+		asgn.UpdateForTASResult(log, cq, p.wl, tasResult)
 	}
 }
 
-func resolveNoFit(assignment *flavorassigner.Assignment, cq *schdcache.ClusterQueueSnapshot) {
+func resolveNoFit(asgn *flavorassigner.Assignment, cq *schdcache.ClusterQueueSnapshot) {
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		assignment.ResolveNoFitReason(cq)
+		asgn.ResolveNoFitReason(cq)
 	}
 }
