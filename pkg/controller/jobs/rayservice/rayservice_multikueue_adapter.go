@@ -36,10 +36,6 @@ var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
 	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
 )
 
-// elasticRuntimeSync wires worker-side autoscaling for RayService. KubeRay
-// stores the live worker replicas on the active child RayCluster in the worker
-// cluster, so the counts are reflected onto the manager RayService as
-// annotations consumed by PodSets derivation and workload-slice naming.
 func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RayService] {
 	return &ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RayService]{
 		WorkloadNameExtraPart: func(s *rayv1.RayService) string { return raycluster.GetWorkloadNameExtraPart(s.GetObjectMeta()) },
