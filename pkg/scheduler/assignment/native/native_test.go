@@ -154,9 +154,9 @@ func TestPlan(t *testing.T) {
 		evictableBlocker bool
 		// cpu is the CPU requested by the single pod of the incoming workload.
 		cpu string
+		// initialMode documents the quota-based mode computed by the flavor assigner.
+		initialMode flavorassigner.FlavorAssignmentMode
 
-		// wantInitialMode documents the quota-based mode computed by the flavor assigner.
-		wantInitialMode        flavorassigner.FlavorAssignmentMode
 		wantMode               flavorassigner.FlavorAssignmentMode
 		wantTargets            []string
 		wantFit                bool
@@ -166,7 +166,7 @@ func TestPlan(t *testing.T) {
 		"quota and topology fit: fits without preemption": {
 			quota:                  "20",
 			cpu:                    "2",
-			wantInitialMode:        flavorassigner.Fit,
+			initialMode:            flavorassigner.Fit,
 			wantMode:               flavorassigner.Fit,
 			wantFit:                true,
 			wantTopologyAssignment: onNode,
@@ -174,7 +174,7 @@ func TestPlan(t *testing.T) {
 		"quota fits, topology does not: fits by preempting the lower-priority workload": {
 			quota:                  "20",
 			cpu:                    "3",
-			wantInitialMode:        flavorassigner.Fit,
+			initialMode:            flavorassigner.Fit,
 			wantMode:               flavorassigner.Preempt,
 			wantTargets:            []string{victimName},
 			wantFit:                true,
@@ -183,7 +183,7 @@ func TestPlan(t *testing.T) {
 		"quota fits, topology does not and preemption cannot free enough: reserves topology assuming an empty cluster": {
 			quota:                  "20",
 			cpu:                    "5",
-			wantInitialMode:        flavorassigner.Fit,
+			initialMode:            flavorassigner.Fit,
 			wantMode:               flavorassigner.Preempt,
 			wantFit:                false,
 			wantTopologyAssignment: onNode,
@@ -191,7 +191,7 @@ func TestPlan(t *testing.T) {
 		"quota fits, topology does not fit even in an empty cluster: does not fit": {
 			quota:           "20",
 			cpu:             "7",
-			wantInitialMode: flavorassigner.Fit,
+			initialMode:     flavorassigner.Fit,
 			wantMode:        flavorassigner.NoFit,
 			wantFit:         false,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
@@ -199,7 +199,7 @@ func TestPlan(t *testing.T) {
 		"quota requires preemption, topology does not fit even in an empty cluster: does not fit": {
 			quota:           "8",
 			cpu:             "7",
-			wantInitialMode: flavorassigner.Preempt,
+			initialMode:     flavorassigner.Preempt,
 			wantMode:        flavorassigner.NoFit,
 			wantFit:         false,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
@@ -207,7 +207,7 @@ func TestPlan(t *testing.T) {
 		"quota requires preemption: fits by preempting the lower-priority workload": {
 			quota:                  "4",
 			cpu:                    "2",
-			wantInitialMode:        flavorassigner.Preempt,
+			initialMode:            flavorassigner.Preempt,
 			wantMode:               flavorassigner.Preempt,
 			wantTargets:            []string{victimName},
 			wantFit:                true,
@@ -216,7 +216,7 @@ func TestPlan(t *testing.T) {
 		"quota requires preemption, only a higher-priority workload could free it: reserves topology assuming an empty cluster": {
 			quota:                  "4",
 			cpu:                    "4",
-			wantInitialMode:        flavorassigner.Preempt,
+			initialMode:            flavorassigner.Preempt,
 			wantMode:               flavorassigner.Preempt,
 			wantFit:                false,
 			wantTopologyAssignment: onNode,
@@ -224,7 +224,7 @@ func TestPlan(t *testing.T) {
 		"request exceeds quota: does not fit": {
 			quota:           "4",
 			cpu:             "5",
-			wantInitialMode: flavorassigner.NoFit,
+			initialMode:     flavorassigner.NoFit,
 			wantMode:        flavorassigner.NoFit,
 			wantFit:         false,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
@@ -262,8 +262,8 @@ func TestPlan(t *testing.T) {
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
 			)
 			initialAssignment := assigner.AssignFlavors(ctx, log, nil)
-			if gotMode := initialAssignment.RepresentativeMode(); gotMode != tc.wantInitialMode {
-				t.Fatalf("AssignFlavors() mode mismatch: want %v, got %v", tc.wantInitialMode, gotMode)
+			if initialMode := initialAssignment.RepresentativeMode(); initialMode != tc.initialMode {
+				t.Fatalf("AssignFlavors() misconfigured - incorrect initial mode: want %v, got %v", tc.initialMode, initialMode)
 			}
 			freeCapacityBefore := freeCapacity(t, snapshot)
 
