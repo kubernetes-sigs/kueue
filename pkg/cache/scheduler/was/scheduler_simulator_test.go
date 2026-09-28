@@ -527,6 +527,102 @@ func TestPreemptWorkload(t *testing.T) {
 	}
 }
 
+func TestPreemptPodsOnlyRemovesSelectedPod(t *testing.T) {
+	ctx := t.Context()
+	node := testingnode.MakeNode("node1").Label(corev1.LabelHostname, "node1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourcePods: resource.MustParse("10"),
+		}).Ready().Obj()
+	first := testingpod.MakePod("first", "default").UID("first-uid").
+		Annotation(kueue.WorkloadAnnotation, "shared").NodeName("node1").
+		StatusPhase(corev1.PodRunning).Port(8080, 8080, corev1.ProtocolTCP).Obj()
+	second := testingpod.MakePod("second", "default").UID("second-uid").
+		Annotation(kueue.WorkloadAnnotation, "shared").NodeName("node1").
+		StatusPhase(corev1.PodRunning).Port(9090, 9090, corev1.ProtocolTCP).Obj()
+	factory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("creating WAS factory: %v", err)
+	}
+	podTracker := &podtracker.Tracker{}
+	podTracker.Track(first)
+	podTracker.Track(second)
+	sim, err := factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker)
+	if err != nil {
+		t.Fatalf("creating WAS snapshot: %v", err)
+	}
+	podSimulator := sim.(simulator.PodPreemptingSimulator)
+	feasible := func(port int32) bool {
+		candidate := corev1.PodTemplateSpec{Spec: *first.Spec.DeepCopy()}
+		candidate.Spec.Containers[0].Ports[0].HostPort = port
+		candidate.Spec.Containers[0].Ports[0].ContainerPort = port
+		results, err := sim.FindFeasibleNodes(ctx, func(yield func(simulator.Candidate) bool) {
+			yield(&testCandidate{node: node, id: utiltas.TopologyDomainID(node.Name)})
+		}, &simulator.PodRequirements{PodTemplate: &candidate}, &simulator.NodeExclusionStats{})
+		if err != nil {
+			t.Fatalf("checking node feasibility: %v", err)
+		}
+		return len(results) != 0
+	}
+	if feasible(8080) || feasible(9090) {
+		t.Fatal("both host ports should initially be occupied")
+	}
+	// Updating the live tracker must not replace the observation in this cycle.
+	replacement := first.DeepCopy()
+	replacement.UID = "replaced-uid"
+	podTracker.Track(replacement)
+	wrongRevert, err := podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: "replaced-uid"}})
+	if err != nil {
+		t.Fatalf("probing a replaced Pod: %v", err)
+	}
+	if feasible(8080) || feasible(9090) {
+		t.Fatal("a same-name Pod with a different UID must not be released")
+	}
+	if err := wrongRevert(); err != nil {
+		t.Fatalf("restoring replaced-Pod probe: %v", err)
+	}
+	revert, err := podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: first.UID}})
+	if err != nil {
+		t.Fatalf("removing selected Pod: %v", err)
+	}
+	if !feasible(8080) || feasible(9090) {
+		t.Fatal("only the selected Pod's host port should be released")
+	}
+	if err := revert(); err != nil {
+		t.Fatalf("restoring selected Pod: %v", err)
+	}
+	if feasible(8080) || feasible(9090) {
+		t.Fatal("both host ports should be occupied after restoration")
+	}
+	sim, err = factory.NewSimulator(ctx, []*corev1.Node{node}, podTracker)
+	if err != nil {
+		t.Fatalf("creating replacement snapshot: %v", err)
+	}
+	podSimulator = sim.(simulator.PodPreemptingSimulator)
+	wrongRevert, err = podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(first), UID: first.UID}})
+	if err != nil {
+		t.Fatalf("probing the old UID in the next snapshot: %v", err)
+	}
+	if feasible(8080) || feasible(9090) {
+		t.Fatal("the next snapshot must not release a replacement Pod for an old UID")
+	}
+	if err := wrongRevert(); err != nil {
+		t.Fatalf("restoring old-UID probe: %v", err)
+	}
+	revert, err = podSimulator.PreemptPods(ctx, []simulator.PodRef{{Key: client.ObjectKeyFromObject(replacement), UID: replacement.UID}})
+	if err != nil {
+		t.Fatalf("probing the new UID in the next snapshot: %v", err)
+	}
+	if !feasible(8080) || feasible(9090) {
+		t.Fatal("the next snapshot must release only the selected replacement Pod")
+	}
+	if err := revert(); err != nil {
+		t.Fatalf("restoring replacement-Pod probe: %v", err)
+	}
+	if feasible(8080) || feasible(9090) {
+		t.Fatal("replacement-Pod probe did not restore both host ports")
+	}
+}
+
 func TestSimulate(t *testing.T) {
 	ctx := t.Context()
 

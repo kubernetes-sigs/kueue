@@ -725,6 +725,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASResidualPodAccounting
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: TASRespectNodeAffinityPreferred
   versionedSpecs:
   - default: false

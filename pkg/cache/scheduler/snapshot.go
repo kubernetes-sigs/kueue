@@ -63,6 +63,11 @@ type Snapshot struct {
 
 	// candidateOrderCache memoizes per-CQ preemption candidate ordering per snapshot.
 	candidateOrderCache *CandidateOrderCache
+
+	// residualTASPods are bound Pods charged as physical usage because no active
+	// reservation covers them. Retained only for this scheduling cycle so the
+	// planner can distinguish eventual release from capacity to preempt.
+	residualTASPods []tasPodUsageValue
 }
 
 func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
@@ -339,7 +344,21 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	if features.Enabled(features.TopologyAwareScheduling) {
 		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 		flvTASCache := c.tasCache.Clone()
-
+		var reserved map[workload.Reference]*workload.Info
+		if features.Enabled(features.TASResidualPodAccounting) {
+			reserved = make(map[workload.Reference]*workload.Info)
+			for _, flavorCache := range flvTASCache {
+				flavorCache.RLock()
+				for ref := range flavorCache.wlUsage {
+					if cq := c.hm.ClusterQueue(c.workloadAssignedQueues[ref]); cq != nil {
+						if info := cq.Workloads[ref]; info != nil {
+							reserved[ref] = info
+						}
+					}
+				}
+				flavorCache.RUnlock()
+			}
+		}
 		if features.Enabled(features.TASHandleOverlappingFlavors) {
 			snap.hostnameLeafTASFlavors = make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 			aggregatedDomainUsages = make(map[utiltas.TopologyDomainID]resources.Requests)
@@ -367,6 +386,15 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			}
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tasSnapshots[flavor].declaresHostnameLevel() {
 				snap.hostnameLeafTASFlavors[flavor] = tasSnapshots[flavor]
+			}
+		}
+		unreservedTASUsage, residualTASPods := c.tasCache.nonTasUsageCache.unreservedTASUsageAndPods(reserved)
+		snap.residualTASPods = residualTASPods
+		for _, snapshot := range tasSnapshots {
+			for nodeName, usage := range unreservedTASUsage {
+				if domainID, ok := snapshot.nodeToDomain[nodeName]; ok {
+					snapshot.addNonTASUsage(domainID, usage)
+				}
 			}
 		}
 	}
@@ -542,4 +570,81 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 		}
 		s.forgetSimulatedFeasibility()
 	}
+}
+
+// SimulateResidualTASPodRelease temporarily removes selected residual Pods'
+// physical usage from topology capacity and, when enabled, the scheduler
+// library. Select only deleting Pods, Pods awaiting eviction/deactivation cleanup, or Pods
+// provably owned by wl. The result
+// may justify deferred admission, never admission while the Pods remain bound.
+// The caller must restore before using the snapshot again.
+func (s *Snapshot) SimulateResidualTASPodRelease(ctx context.Context, log logr.Logger, wl *workload.Info) (func(), bool) {
+	if !features.Enabled(features.TASResidualPodAccounting) || wl == nil || wl.Obj == nil {
+		return func() {}, false
+	}
+	owner := newTASReservationOwnerIndex(wl.Obj)
+	ref := workload.Key(wl.Obj)
+	sliceRef := workload.Reference("")
+	if name := wl.Obj.Annotations[kueue.WorkloadSliceNameAnnotation]; name != "" {
+		sliceRef = workload.NewReference(wl.Obj.Namespace, name)
+	}
+	selected := make(map[string]resources.Requests)
+	var podRefs []simulator.PodRef
+	for _, pod := range s.residualTASPods {
+		owned := (pod.workload == ref || (sliceRef != "" && pod.sliceWorkload == sliceRef)) && owner.owns(pod)
+		if !pod.deleting && !pod.releasing && !owned {
+			continue
+		}
+		if selected[pod.node] == nil {
+			selected[pod.node] = resources.NewRequests()
+		}
+		selected[pod.node].Add(pod.usage)
+		selected[pod.node].Add(resources.OnePodRequest)
+		podRefs = append(podRefs, simulator.PodRef{Key: pod.podKey, UID: pod.podUID})
+	}
+	if len(selected) == 0 {
+		return func() {}, false
+	}
+	var revertPods func() error
+	if features.Enabled(features.SchedulerLibraryIntegration) {
+		podSimulator, ok := s.SchedulerSimulator.(simulator.PodPreemptingSimulator)
+		if !ok {
+			return func() {}, false
+		}
+		var err error
+		revertPods, err = podSimulator.PreemptPods(ctx, podRefs)
+		if err != nil {
+			log.V(2).Info("Could not simulate residual TAS Pod release", "error", err)
+			return func() {}, false
+		}
+		s.forgetSimulatedFeasibility()
+	}
+	seen := make(map[*TASFlavorSnapshot]struct{})
+	for _, cq := range s.ClusterQueues() {
+		for _, flavor := range cq.TASFlavors {
+			if _, found := seen[flavor]; found {
+				continue
+			}
+			seen[flavor] = struct{}{}
+		}
+	}
+	adjust := func(release bool) {
+		for flavor := range seen {
+			for node, usage := range selected {
+				if domainID, found := flavor.nodeToDomain[node]; found {
+					flavor.adjustNonTASUsage(domainID, usage, release)
+				}
+			}
+		}
+	}
+	adjust(true)
+	return func() {
+		adjust(false)
+		if revertPods != nil {
+			if err := revertPods(); err != nil {
+				log.V(2).Info("Could not restore residual TAS Pods in the scheduling simulator", "error", err)
+			}
+			s.forgetSimulatedFeasibility()
+		}
+	}, true
 }
