@@ -70,9 +70,10 @@ type PreemptionConfigNumericLabelConstraint struct {
 	// key is the label key that stores the integer value in the workload that will
 	// be used for candidate selection.
 	//
-	// +kubebuilder:validation:Required
+	// +required
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=316
-	Key string `json:"key"`
+	Key string `json:"key,omitempty"`
 
 	// fallbackValue is used when a workload does not have the label key
 	// or the value under the key cannot be parsed as an integer.
@@ -113,9 +114,15 @@ type PreemptionConfigNumericLabelConstraint struct {
 
 // PreemptionConfig is the Schema for the preemptionconfigs API
 type PreemptionConfig struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec              PreemptionConfigSpec `json:"spec,omitempty"`
+
+	// spec defines the preemption rules of the PreemptionConfig.
+	// +required
+	Spec PreemptionConfigSpec `json:"spec,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -177,8 +184,8 @@ type PreemptionConfigActivationPolicy struct {
 	// - candidates selected by applicable rules in the referenced PreemptionConfig
 	//   whose activationPolicy.trigger is Always.
 	//
-	// +kubebuilder:validation:Required
-	Trigger PreemptionConfigActivationTrigger `json:"trigger"`
+	// +required
+	Trigger PreemptionConfigActivationTrigger `json:"trigger,omitempty"`
 }
 
 // PreemptionConfigPreemptionRule defines a single rule under which preemptions can be triggered
@@ -186,7 +193,7 @@ type PreemptionConfigActivationPolicy struct {
 type PreemptionConfigPreemptionRule struct {
 	// name is the identifier of the preemption rule.
 	//
-	// +kubebuilder:validation:Required
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
@@ -201,14 +208,16 @@ type PreemptionConfigPreemptionRule struct {
 	// activationPolicy determines when this rule contributes matching
 	// candidates to preemption evaluation.
 	//
-	// +kubebuilder:validation:Required
-	ActivationPolicy PreemptionConfigActivationPolicy `json:"activationPolicy"`
+	// +required
+	ActivationPolicy PreemptionConfigActivationPolicy `json:"activationPolicy,omitzero"`
 
 	// candidateSelectors specifies the selection rules for workloads that are candidates for preemption.
 	// Candidates resulting from multiple selectors are summed into one set.
 	// No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.
 	//
 	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=32
 	CandidateSelectors []PreemptionConfigPreemptionCandidateSelector `json:"candidateSelectors,omitempty"`
 }
 
@@ -251,8 +260,8 @@ const (
 type PreemptionConfigPreemptionCandidateSelector struct {
 	// scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
 	//
-	// +kubebuilder:validation:Required
-	Scope PreemptionConfigPreemptionQueueScope `json:"scope"`
+	// +required
+	Scope PreemptionConfigPreemptionQueueScope `json:"scope,omitempty"`
 
 	// clusterQueueSelector defines label selector constraints on candidate ClusterQueues.
 	// Accepts all if not set.
@@ -272,6 +281,7 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 	//
 	// +optional
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=32
 	NumericLabels []PreemptionConfigNumericLabelConstraint `json:"numericLabels,omitempty"`
 
 	// priority defines the requirements for the priority of candidates.
@@ -286,15 +296,15 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 type PreemptionConfigPriorityConstraint struct {
 	// mode specifies whether priority comparison uses base or boosted (effective) priority.
 	//
-	// +kubebuilder:validation:Required
-	Mode PreemptionConfigPriorityMode `json:"mode"`
+	// +required
+	Mode PreemptionConfigPriorityMode `json:"mode,omitempty"`
 
 	// comparison defines how the candidate's priority compares to the preemptor's priority.
 	// For example, "LessThan" means that only workloads with lower
 	// priority will be allowed as preemption candidates.
 	//
-	// +kubebuilder:validation:Required
-	Comparison NumericComparison `json:"comparison"`
+	// +required
+	Comparison NumericComparison `json:"comparison,omitempty"`
 }
 
 // PreemptionConfigPriorityMode defines whether base or boosted (effective) priority is used when comparing candidates against the preemptor.
