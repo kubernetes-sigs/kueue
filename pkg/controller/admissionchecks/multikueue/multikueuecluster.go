@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -700,10 +701,13 @@ func (rc *remoteClient) StopWatchers() {
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
-	localWl := &kueue.Workload{}
-	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
+	// Runtime children can retain the first slice's prebuilt-workload marker after
+	// their parent is repointed to a replacement slice. Resolve the marker through
+	// the slice chain so their events wake the currently admitted Workload.
+	localWl, err := workloadslicing.FindActiveWorkload(ctx, rc.localClient, wlKey, false)
+	if err == nil && localWl != nil {
 		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
-	} else if !apierrors.IsNotFound(err) {
+	} else if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
 	}
 }

@@ -359,12 +359,13 @@ worker object and maps it back to a workload through its prebuilt-workload marke
 
 - **RayCluster** — the autoscaler edits the watched RayCluster itself, so the
   reconcile wakes directly.
-- **RayJob** — the autoscaler edits the child RayCluster. The wake-up relies on
-  KubeRay mirroring the child's status into `RayJob.status`.
-
-As a possible follow-up, the child RayCluster event could wake the RayJob
-reconcile directly, removing the dependency on KubeRay's status mirroring. This
-is not a priority, since KubeRay always performs that status mirroring.
+- **RayJob** — the autoscaler edits the child RayCluster. KubeRay copies the
+  MultiKueue origin and prebuilt-workload markers from the RayJob onto that
+  child, so the existing RayCluster watch receives the event directly. The
+  copied prebuilt-workload marker can name an older slice after the parent is
+  repointed; the manager resolves it through the workload-slice chain index and
+  wakes the latest admitted slice. This removes the dependency on KubeRay first
+  mirroring the child's status into `RayJob.status`.
 
 ### Test Plan
 
