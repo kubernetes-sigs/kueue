@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -707,5 +708,21 @@ func TestGVK(t *testing.T) {
 	}
 	if gvk.Kind != "RayService" {
 		t.Errorf("GVK().Kind = %v, want RayService", gvk.Kind)
+	}
+}
+
+func TestRestorePodSetsInfoClearsRuntimeWorkerState(t *testing.T) {
+	service := (*RayService)(testingrayservice.MakeService("rayservice", "ns").
+		Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+		Annotation(raycluster.RayClusterGenerationAnnotation, "child-uid-2").
+		Obj())
+
+	if changed := service.RestorePodSetsInfo(t.Context(), nil); !changed {
+		t.Fatal("RestorePodSetsInfo() changed = false, want true")
+	}
+	for _, key := range []string{raycluster.RayClusterPodsetReplicaSizesAnnotation, raycluster.RayClusterGenerationAnnotation} {
+		if _, found := service.Annotations[key]; found {
+			t.Errorf("RestorePodSetsInfo() left runtime annotation %q", key)
+		}
 	}
 }
