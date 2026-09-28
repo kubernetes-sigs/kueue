@@ -109,7 +109,7 @@ an optional per-job-type `Finalize()` callback and does nothing generic to
 the owner's metadata).
 
 An alternative considered and rejected: simply require
-`jobs.afterFinished > workloads.afterFinished` as a validated configuration
+`jobs.afterFinished <= workloads.afterFinished` as a validated configuration
 constraint, avoiding the need for the stamping mechanism entirely. This was
 rejected as too restrictive for the common case administrators actually
 want (see [Alternatives](#alternatives)).
@@ -164,9 +164,36 @@ type JobRetentionPolicy struct {
 
 ### Behavior
 
-1. At the point a Workload's `WorkloadFinished` condition is set, and before
-   any Workload-retention deletion could remove the Workload itself, Kueue
-   stamps the finish timestamp as an annotation on the owner object.
+1. When a Workload's `WorkloadFinished` condition is set with reason
+   `Succeeded` or `Failed`, Kueue stamps the finish timestamp as an
+   annotation on the owner object. The stamp is written in `finalizeJob`
+   (`pkg/controller/jobframework/reconciler.go`), which gains a
+   `*kueue.Workload` parameter; both of its call sites in
+   `ReconcileGenericJob` already have the Workload in scope.
+
+   The reason check is required rather than incidental. `finalizeJob` is
+   also reached from the `wl != nil && workloadfinish.IsFinished(wl)`
+   branch, which fires for every finish reason — including several that do
+   not mean the job ended:
+
+   - `kueue.WorkloadSliceReplaced` — `normalizeActiveSlices` finishes a
+     replaced slice to release quota it still holds, while the job
+     continues on the surviving slice.
+   - `kueue.WorkloadFinishedReasonOutOfSync` — set by
+     `normalizeActiveSlices` and by `ensurePrebuiltWorkloadInSync`.
+   - `FailedToStartFinishedReason` — the job never started.
+   - `kueue.WorkloadFinishedReasonOwnerNotFound` — the owner is already
+     gone.
+
+   That branch is also how the motivating MultiKueue case arrives:
+   `pkg/controller/admissionchecks/multikueue/workload.go` finishes the
+   manager-side Workload directly, propagating the remote reason verbatim,
+   and the job reconciler's `For(...).Owns(&kueue.Workload{})` watch maps
+   that status write back to the owning job. No MultiKueue-specific
+   handling is needed.
+
+   The stamp is written only when the annotation is absent, so repeated
+   reconciles do not move the timestamp forward.
 2. During Kueue's reconciliation loop, an owner carrying this annotation is
    evaluated against `jobs.afterFinished`: if the retention period has
    elapsed, the owner is deleted (cascading to its dependent objects via
@@ -177,6 +204,28 @@ type JobRetentionPolicy struct {
 3. As with KEP-1618, during Kueue's initial reconciliation loop, all
    previously finished owners carrying the annotation are evaluated the same
    way.
+4. `Finish` patches the Workload's status and the stamp is a separate write
+   to a different object, so the two cannot be atomic. If the stamp write
+   fails, the Workload is Finished and the owner unstamped. This retries on
+   its own: while the Workload exists, any subsequent event on it or its job
+   reaches `finalizeJob` again. A permanent leak therefore requires the
+   write to fail continuously for the whole of `workloads.afterFinished`,
+   and in that case the owner is simply never collected — today's behavior,
+   not a regression.
+5. Owner deletion uses `client.Preconditions{UID: ...}` so that a same-named
+   owner recreated between the fetch and the delete is not deleted by
+   mistake. Note the existing deactivation path does not do this today:
+   `handleWorkloadAfterDeactivatedPolicy` calls `r.client.Delete` with only
+   a propagation policy. Applying the precondition to both paths is
+   proposed, but can be split into a separate change if preferred.
+
+6. No integration or namespace filtering is applied in the retention path
+   itself. `ReconcileGenericJob` enforces `managedJobsNamespaceSelector`
+   and returns early for namespaces not opted in before any retention logic
+   runs, and the reconciler is only registered for enabled integrations, so
+   owner deletion applies only to jobs Kueue already manages. Behavior is
+   unchanged when retention is unset: the path returns early when the new
+   field is nil, mirroring `shouldHandleDeletionOfDeactivatedWorkload`.
 
 ### Test Plan
 
@@ -192,11 +241,13 @@ established in KEP-1618's own unit test plan (`pkg/controller/core/workload_cont
 
 #### Integration tests
 
-TBD — to be filled in during implementation, covering at minimum: the
-stamping mechanism firing correctly at Workload-finish time, the owner being
-correctly deleted once its retention period elapses even after the Workload
-itself has already been deleted under a shorter retention policy, and the
-default-disabled backward-compatible behavior.
+- the stamp firing at Workload-finish time for `Succeeded`/`Failed`, and not
+  firing for `WorkloadSliceReplaced` or `OutOfSync`
+- a MultiKueue manager-side owner: the manager Workload is finished by remote
+  propagation, the Workload is deleted under a shorter
+  `workloads.afterFinished`, and the owner is still deleted correctly when
+  `jobs.afterFinished` later elapses
+- default-disabled backward-compatible behavior
 
 ### Graduation Criteria
 
@@ -215,7 +266,7 @@ not expecting it, even when explicitly opted in.
 
 ## Alternatives
 
-- Require `jobs.afterFinished > workloads.afterFinished` as a validated
+- Require `jobs.afterFinished <= workloads.afterFinished` as a validated
   configuration constraint, avoiding the need for the annotation-stamping
   mechanism. Rejected: this forces an artificial floor on how long Workload
   objects must be retained purely to serve the owner's retention window,
