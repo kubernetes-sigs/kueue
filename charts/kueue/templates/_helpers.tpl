@@ -153,3 +153,18 @@ kind: Issuer
 name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
 {{- end }}
 {{- end }}
+
+{{/*
+Select the manager configuration.
+The legacy YAML string takes precedence as a full replacement.
+*/}}
+{{- define "kueue.managerConfig" -}}
+{{- if .Values.managerConfig.controllerManagerConfigYaml }}
+{{- .Values.managerConfig.controllerManagerConfigYaml }}
+{{- else }}
+{{- if not (kindIs "map" .Values.managerConfig.config) }}
+{{- fail "managerConfig.config must be a map" }}
+{{- end }}
+{{- toYaml .Values.managerConfig.config }}
+{{- end }}
+{{- end }}

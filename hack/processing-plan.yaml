@@ -299,8 +299,8 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- $integrationsConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml).integrations }}
-          {{- $managerConfig := (fromYaml .Values.managerConfig.controllerManagerConfigYaml) }}
+          {{- $managerConfig := include "kueue.managerConfig" . | fromYaml }}
+          {{- $integrationsConfig := $managerConfig.integrations }}
         onFileCondition: '.kind == "MutatingWebhookConfiguration"'
       - type: INSERT_TEXT
         key: .metadata

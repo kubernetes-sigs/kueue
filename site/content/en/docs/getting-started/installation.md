@@ -249,6 +249,31 @@ make undeploy
 
 To install and configure Kueue with [Helm](https://helm.sh/), follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
 
+Set manager configuration fields in a values file passed to Helm with `--values`:
+
+```yaml
+managerConfig:
+  config:
+    clientConnection:
+      qps: 600
+    integrations:
+      frameworks: ["batch/job", "pod"]
+```
+
+Helm merges maps with the chart defaults and replaces lists in full. In this
+example, the default client burst is retained, and only the two listed job
+integrations are enabled. The manager and job webhooks use the same configuration.
+
+The legacy `managerConfig.controllerManagerConfigYaml` string remains supported.
+A non-empty string takes precedence over `managerConfig.config` as a complete
+replacement. To use the structured field, remove the legacy string or set it to
+`""`. When migrating an existing release, use `helm upgrade --reset-values` with
+a values file containing all customizations you want to keep. Avoid
+`--reuse-values` for this migration because it retains the old chart defaults,
+which do not contain the structured configuration.
+Fields you do not configure follow the selected chart version's defaults, so
+review the rendered configuration when upgrading.
+
 ## Change the feature gates configuration
 
 Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).

@@ -117,10 +117,11 @@ controllerManager:
     # -- PodDisruptionBudget's minAvailable
     minAvailable: 1
 managerConfig:
-  # -- controller_manager_config.yaml.
-  # ControllerManager utilizes this yaml via manager-config Configmap.
-  # @default -- controllerManagerConfigYaml
-  controllerManagerConfigYaml: |-
+  # -- Optional full manager configuration as YAML. When non-empty, this replaces managerConfig.config entirely. Retained for compatibility with existing values files.
+  controllerManagerConfigYaml: ""
+  # -- Structured manager configuration. Helm merges user-supplied maps with these defaults; lists are replaced. Ignored when controllerManagerConfigYaml is non-empty.
+  # @default -- See values.yaml
+  config:
     apiVersion: config.kueue.x-k8s.io/v1beta2
     kind: Configuration
     health:
