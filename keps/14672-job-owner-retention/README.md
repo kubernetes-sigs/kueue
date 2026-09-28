@@ -182,6 +182,13 @@ type JobRetentionPolicy struct {
     AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
 }
 ```
+When the `JobOwnerRetentionPolicy` feature gate is disabled, `jobs.afterFinished`
+is ignored rather than rejected. Config validation checks only that the duration
+is non-negative, mirroring `validateObjectRetentionPolicies`
+(`pkg/config/validation.go`), which does not consult its own gate either. This
+keeps a config valid across enabling and disabling the gate, and avoids making
+the feature gate a breaking change for anyone who sets the field ahead of
+enabling it.
 
 ### RBAC
 
@@ -290,6 +297,7 @@ the blast radius noted under Risks.
 existing tests to make this code solid enough prior to committing the changes
 necessary to implement this enhancement.
 
+
 #### Unit Tests
 
 TBD — to be filled in during implementation, following the pattern
@@ -300,6 +308,9 @@ established in KEP-1618's own unit test plan (`pkg/controller/core/workload_cont
 
 - the stamp firing at Workload-finish time for `Succeeded`/`Failed`, and not
   firing for `WorkloadSliceReplaced` or `OutOfSync`
+- an elastic job with multiple slices: one finishing as `WorkloadSliceReplaced`
+  while another remains active, asserting no stamp appears until the surviving
+  slice finishes as `Succeeded`  
 - a MultiKueue manager-side owner: the manager Workload is finished by remote
   propagation, the Workload is deleted under a shorter
   `workloads.afterFinished`, and the owner is still deleted correctly when
