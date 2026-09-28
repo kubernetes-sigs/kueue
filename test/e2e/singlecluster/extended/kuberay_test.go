@@ -720,6 +720,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the RayCluster", func() {
@@ -763,6 +764,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the RayCluster", func() {
