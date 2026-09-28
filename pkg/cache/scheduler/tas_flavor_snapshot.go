@@ -471,7 +471,7 @@ type topologyAssignmentPodRequirements struct {
 // topologyAssignmentParameters stores placement-specific inputs that remain
 // relevant after domain capacities are computed.
 type topologyAssignmentParameters struct {
-	sliceSizeAtLevel      map[int]int32
+	sliceSizeAtLevel map[int]int32
 
 	// sizesAtLevel maps a topology level index to the chunk list that cuts up
 	// each parent domain's pods at that level. It is empty unless an inner
@@ -479,7 +479,7 @@ type topologyAssignmentParameters struct {
 	// handled before the level walk starts.
 	sizesAtLevel map[int][]int32
 
-	sliceSize int32
+	sliceSize             int32
 	count                 int32
 	leaderCount           int32
 	requestedLevelIdx     int
@@ -1098,15 +1098,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained)
 
 			if sliceSizeOnLevel > 1 {
-				// For inner slice layers, recompute sliceCount on the
-				// child domains based on the current inner slice size.
-				// The pre-populated sliceCount was computed for the
-				// outermost slice level and is not valid here.
-				for _, d := range sortedLowerDomains {
-					domainState := s.domainStateOf(d)
-					domainState.sliceCount = domainState.podCount / sliceSizeOnLevel
-					domainState.sliceCountWithLeader = domainState.podCountWithLeader / sliceSizeOnLevel
-				}
+				s.recomputeSliceCounts(sortedLowerDomains, sliceSizeOnLevel)
 			}
 
 			domainState := s.domainStateOf(domain)
@@ -1792,6 +1784,17 @@ func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *utiltas.Topology
 		levelIdx = len(s.levelKeys) - 1
 	}
 	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
+}
+
+// recomputeSliceCounts sets the slice counts of the given domains for an inner
+// slice layer. The pre-populated sliceCount was computed for the outermost
+// slice level and is not valid below it.
+func (s *TASFlavorSnapshot) recomputeSliceCounts(domains []*domain, sliceSize int32) {
+	for _, d := range domains {
+		domainState := s.domainStateOf(d)
+		domainState.sliceCount = domainState.podCount / sliceSize
+		domainState.sliceCountWithLeader = domainState.podCountWithLeader / sliceSize
+	}
 }
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {

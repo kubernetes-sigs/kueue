@@ -7596,6 +7596,48 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: `topology slice sizes do not fit: chunk of 3 pods could not be placed, largest free domain holds 8 pods (sizes [1 3 4 1 3 4], free capacity [2 6 8]) within b1`,
 			}},
 		},
+		"slice sizes: a size layer below the chunk list keeps its pairs whole": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: true,
+			},
+			// The rack's chunk of four has to be cut into pairs, one pair per
+			// host. Either host has room for three pods, so placing one pod at
+			// a time would put three on x1 and one on x2 and split a pair.
+			//        b1
+			//        |
+			//        r1
+			//      /    \
+			//   x1(3)  x2(3)
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasRackLabel, Sizes: []int32{4}},
+						{Topology: corev1.LabelHostname, Size: 2},
+					},
+				},
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    4,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 2, Values: []string{"x1"}},
+						{Count: 2, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
 		"slice sizes: rejected when a level sits between the chunk list and the layer above": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASMultiLayerTopology:        true,

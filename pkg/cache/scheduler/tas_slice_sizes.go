@@ -189,6 +189,11 @@ func describeScope(scope *domain) string {
 // expandDomainsToLeaves walks each selected domain's assigned pod count down to
 // the leaves using the existing placement, so that below the chunk level
 // nothing about this feature applies.
+//
+// Any size layers listed below the chunk list still apply on the way down, so
+// each level distributes in multiples of that level's slice size rather than
+// one pod at a time. Without this a pair requested with size: 2 on hostname
+// could be split three-and-one across two hosts.
 func (s *TASFlavorSnapshot) expandDomainsToLeaves(
 	selected []*domain,
 	fromLevelIdx int,
@@ -196,6 +201,10 @@ func (s *TASFlavorSnapshot) expandDomainsToLeaves(
 ) []*domain {
 	current := selected
 	for levelIdx := fromLevelIdx; levelIdx < len(s.domainsPerLevel)-1; levelIdx++ {
+		sliceSize := int32(1)
+		if sz, ok := state.sliceSizeAtLevel[levelIdx+1]; ok {
+			sliceSize = sz
+		}
 		next := make([]*domain, 0, len(current))
 		for _, d := range current {
 			assigned := s.domainStateOf(d).podCount
@@ -203,7 +212,10 @@ func (s *TASFlavorSnapshot) expandDomainsToLeaves(
 				continue
 			}
 			children := s.sortedDomains(d.children, state.unconstrained)
-			next = append(next, s.updateCountsToMinimumGeneric(children, assigned, 0, 1, state.unconstrained, false)...)
+			if sliceSize > 1 {
+				s.recomputeSliceCounts(children, sliceSize)
+			}
+			next = append(next, s.updateCountsToMinimumGeneric(children, assigned, 0, sliceSize, state.unconstrained, sliceSize > 1)...)
 		}
 		current = next
 	}
