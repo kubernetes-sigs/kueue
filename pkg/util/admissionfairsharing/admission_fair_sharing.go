@@ -57,6 +57,13 @@ func CalculateEntryPenalty(totalRequests corev1.ResourceList, afs *config.Admiss
 	return resource.MulByFloat(totalRequests, alpha)
 }
 
+func LQWeightAsFloat64(lq *kueue.LocalQueue) float64 {
+	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
+		return lq.Spec.FairSharing.Weight.AsApproximateFloat64()
+	}
+	return 1
+}
+
 // ResolveLQWeight returns the fair-sharing weight of the referenced LocalQueue.
 // A missing LocalQueue falls back to the default weight (1.0) so that its
 // Workloads keep participating in fair-sharing comparisons.
@@ -69,10 +76,7 @@ func ResolveLQWeight(ctx context.Context, c client.Client, lqObjKey client.Objec
 		}
 		return 0, err
 	}
-	if lq.Spec.FairSharing != nil && lq.Spec.FairSharing.Weight != nil {
-		return lq.Spec.FairSharing.Weight.AsApproximateFloat64(), nil
-	}
-	return 1, nil
+	return LQWeightAsFloat64(&lq), nil
 }
 
 func Enabled(afsConfig *config.AdmissionFairSharing) bool {
