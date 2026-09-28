@@ -59,7 +59,7 @@ spec:
     activationPolicy:
       trigger: "Always"
     candidateSelectors:
-    - scope: "WithinCohortTree"
+    - scope: "AnyClusterQueue"
       priority:
         mode: "Base"
         comparison: "LessThan"
