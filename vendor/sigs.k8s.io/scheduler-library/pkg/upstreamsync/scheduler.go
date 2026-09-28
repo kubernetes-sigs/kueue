@@ -32,10 +32,12 @@ import (
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/scheduler"
+	schedulerapi "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/parallelize"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/dynamicresources"
+	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
 	utiltrace "k8s.io/utils/trace"
 )
@@ -57,6 +59,7 @@ or on the exact line that differs. See pkg/upstreamsync/doc.go and CONTRIBUTING.
 
 */
 
+// ScheduleResult represents the result of scheduling a pod.
 type ScheduleResult = scheduler.ScheduleResult
 
 // Scheduler holds the state a single scheduling attempt needs.
@@ -72,6 +75,47 @@ type Scheduler struct {
 	currentCycle       int64
 	nextStartNodeIndex int
 	numNodesToFind     int32
+	cache              cache.Cache
+}
+
+type schedulerOptions struct {
+	profiles                   []schedulerapi.KubeSchedulerProfile
+	extenders                  []schedulerapi.Extender
+	frameworkOutOfTreeRegistry frameworkruntime.Registry
+	parallelism                int32
+	applyDefaultProfile        bool
+}
+
+// Option configures scheduler framework components and profiles.
+type Option func(*schedulerOptions)
+
+// WithProfiles sets profiles for the scheduler framework.
+func WithProfiles(p ...schedulerapi.KubeSchedulerProfile) Option {
+	return func(o *schedulerOptions) {
+		o.profiles = p
+		o.applyDefaultProfile = false
+	}
+}
+
+// WithExtenders sets extenders for the scheduler.
+func WithExtenders(e ...schedulerapi.Extender) Option {
+	return func(o *schedulerOptions) {
+		o.extenders = e
+	}
+}
+
+// WithParallelism sets the parallelism for scheduler plugins.
+func WithParallelism(threads int32) Option {
+	return func(o *schedulerOptions) {
+		o.parallelism = threads
+	}
+}
+
+// WithFrameworkOutOfTreeRegistry registers out-of-tree plugins with the in-tree registry.
+func WithFrameworkOutOfTreeRegistry(registry frameworkruntime.Registry) Option {
+	return func(o *schedulerOptions) {
+		o.frameworkOutOfTreeRegistry = registry
+	}
 }
 
 // NewScheduler creates a Scheduler operating on the given snapshot.
@@ -84,12 +128,14 @@ type Scheduler struct {
 func NewScheduler(nodeInfoSnapshot *cache.Snapshot,
 	currentCycle int64,
 	nextStartNodeIndex int,
-	numNodesToFind int32) *Scheduler {
+	numNodesToFind int32,
+	cache cache.Cache) *Scheduler {
 	return &Scheduler{
 		nodeInfoSnapshot:   nodeInfoSnapshot,
 		currentCycle:       currentCycle,
 		nextStartNodeIndex: nextStartNodeIndex,
 		numNodesToFind:     numNodesToFind,
+		cache:              cache,
 	}
 }
 
@@ -110,10 +156,46 @@ type PendingPod struct {
 // scheduling duration, the pod scheduling context and the permit status are dropped: the library
 // records no scheduling metrics and runs no Permit plugins (see SchedulePod).
 type AlgorithmResult struct {
-	ScheduleResult ScheduleResult
-	Pod            *v1.Pod
-	Status         *fwk.Status
-	CycleState     fwk.CycleState
+	scheduleResult ScheduleResult
+	pod            *v1.Pod
+	podInfo        *framework.PodInfo
+	status         *fwk.Status
+	cycleState     fwk.CycleState
+}
+
+// GetPod returns the pod associated with the algorithm result.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func (ar *AlgorithmResult) GetPod() *v1.Pod {
+	return ar.pod
+}
+
+// GetPodInfo returns the PodInfo associated with the algorithm result.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func (ar *AlgorithmResult) GetPodInfo() fwk.PodInfo {
+	return ar.podInfo
+}
+
+// GetNodeName returns the suggested host name from the algorithm result.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func (ar *AlgorithmResult) GetNodeName() string {
+	return ar.scheduleResult.SuggestedHost
+}
+
+// GetCycleState returns the scheduling cycle state from the algorithm result.
+//
+// UPSTREAM-DIFF: none, copied verbatim.
+func (ar *AlgorithmResult) GetCycleState() fwk.CycleState {
+	return ar.cycleState
+}
+
+// GetStatus returns the scheduling status from the algorithm result.
+//
+// UPSTREAM-DIFF: Added getter since AlgorithmResult fields are unexported and status gets inspected beyond package boundaries.
+func (ar *AlgorithmResult) GetStatus() *fwk.Status {
+	return ar.status
 }
 
 // SchedulePod runs a scheduling algorithm for individual pod from a pod group.
@@ -136,26 +218,30 @@ func (sched *Scheduler) SchedulePod(ctx context.Context, schedFwk framework.Fram
 	scheduleResult, err := sched.schedulePod(ctx, schedFwk, podInfo)
 	if err != nil {
 		var status *fwk.Status
-		if err == scheduler.ErrNoNodesAvailable {
+		if errors.Is(err, scheduler.ErrNoNodesAvailable) {
 			status = fwk.NewStatus(fwk.UnschedulableAndUnresolvable).WithError(err)
-		} else if _, ok := err.(*framework.FitError); !ok {
+		} else if _, ok := errors.AsType[*framework.FitError](err); !ok {
 			status = fwk.AsStatus(err)
 		} else {
 			status = fwk.NewStatus(fwk.Unschedulable).WithError(err)
 		}
 
 		return AlgorithmResult{
-			Pod:            pod,
-			ScheduleResult: scheduleResult,
-			Status:         status,
+			pod:            pod,
+			podInfo:        podInfo.PodInfo,
+			scheduleResult: scheduleResult,
+			status:         status,
+			cycleState:     state,
 		}, nil
 	}
 	assumedPodInfo, assumeStatus := sched.assumeAndReserve(ctx, state, schedFwk, podInfo.PodInfo, scheduleResult)
 	if !assumeStatus.IsSuccess() {
 		return AlgorithmResult{
-			Pod:            pod,
-			ScheduleResult: ScheduleResult{},
-			Status:         assumeStatus,
+			pod:            pod,
+			podInfo:        podInfo.PodInfo,
+			scheduleResult: ScheduleResult{},
+			status:         assumeStatus,
+			cycleState:     state,
 		}, nil
 	}
 
@@ -167,10 +253,81 @@ func (sched *Scheduler) SchedulePod(ctx context.Context, schedFwk framework.Fram
 	}
 
 	return AlgorithmResult{
-		Pod:            pod,
-		ScheduleResult: scheduleResult,
-		Status:         nil,
+		pod:            pod,
+		podInfo:        podInfo.PodInfo,
+		scheduleResult: scheduleResult,
+		status:         nil,
+		cycleState:     state,
 	}, revertFn
+}
+
+// AssumeAndReserveInCache assumes and reserves the pod in scheduler's cache.
+//
+// UPSTREAM-DIFF: identical to Scheduler.assumeAndReserve for non-pod-group pods, except that it takes and returns
+// *framework.PodInfo instead of *framework.QueuedPodInfo (see PendingPod) and takes nodeName string instead of ScheduleResult.
+// NOTE: This assumes that pod.Spec.NodeName is set.
+func (sched *Scheduler) AssumeAndReserveInCache(ctx context.Context, state fwk.CycleState,
+	schedFramework framework.Framework, podInfo *framework.PodInfo,
+	nodeName string) (*framework.PodInfo, *fwk.Status) {
+
+	logger := klog.FromContext(ctx)
+	if sched.cache == nil {
+		return nil, fwk.AsStatus(errors.New("Scheduler was built without a cache: " +
+			"pass one to NewScheduler, or assume into the snapshot instead"))
+	}
+
+	assumedPodInfo := podInfo.DeepCopy()
+	assumedPodInfo.Pod.Spec.NodeName = nodeName
+	assumedPod := assumedPodInfo.Pod
+	if utilfeature.DefaultFeatureGate.Enabled(features.DRANodeAllocatableResources) {
+		assumedPodInfo.Pod.Status.NodeAllocatableResourceClaimStatuses = dynamicresources.ExtractPodNodeAllocatableResourceClaimStatus(logger, state, nodeName)
+	}
+
+	if err := sched.cache.AssumePod(logger, assumedPod); err != nil {
+		return nil, fwk.AsStatus(err)
+	}
+
+	// Run the Reserve method of reserve plugins.
+	if sts := schedFramework.RunReservePluginsReserve(ctx, state, assumedPod, nodeName); !sts.IsSuccess() {
+		// trigger un-reserve to clean up state associated with the reserved Pod
+		err := sched.UnreserveAndForgetFromCache(ctx, state, schedFramework, assumedPodInfo, nodeName)
+		if err != nil {
+			utilruntime.HandleErrorWithContext(ctx, err, "ForgetPod failed")
+		}
+
+		if sts.IsRejected() {
+			fitErr := &framework.FitError{
+				NumAllNodes: 1,
+				Pod:         podInfo.Pod,
+				Diagnosis: framework.Diagnosis{
+					NodeToStatus: framework.NewDefaultNodeToStatus(),
+				},
+			}
+			fitErr.Diagnosis.NodeToStatus.Set(nodeName, sts)
+			fitErr.Diagnosis.AddPluginStatus(sts)
+			return assumedPodInfo, fwk.NewStatus(sts.Code()).WithError(fitErr)
+		}
+		return assumedPodInfo, sts
+	}
+
+	return assumedPodInfo, nil
+}
+
+// UnreserveAndForgetFromCache unreserves and forgets the pod from scheduler's cache.
+//
+// UPSTREAM-DIFF: upstream branches on state.IsPodGroupSchedulingCycle() and forgets the pod either
+// from the snapshot or from the scheduler cache. This function always forgets from the cache.
+// Restoring the pod's nomination is dropped as well, since there is no scheduling queue holding nominated pods.
+func (sched *Scheduler) UnreserveAndForgetFromCache(ctx context.Context, state fwk.CycleState,
+	schedFramework framework.Framework, assumedPodInfo *framework.PodInfo, nodeName string) error {
+	logger := klog.FromContext(ctx)
+	schedFramework.RunReservePluginsUnreserve(ctx, state, assumedPodInfo.Pod, nodeName)
+
+	if err := sched.cache.ForgetPod(logger, assumedPodInfo.Pod); err != nil {
+		return fmt.Errorf("failed to forget pod: %w", err)
+	}
+
+	return nil
 }
 
 // assumeAndReserve assumes and reserves the pod in scheduler's memory.
@@ -230,7 +387,7 @@ func (sched *Scheduler) assumeAndReserve(
 // but this shouldn't happen, because such pods with such state cannot reach binding.
 //
 // UPSTREAM-DIFF: upstream branches on state.IsPodGroupSchedulingCycle() and forgets the pod either
-// from the snapshot or from the scheduler cache. The library always forgets from the snapshot,
+// from the snapshot or from the scheduler cache. The function always forgets from the snapshot,
 // because it has no scheduler cache to bind through. Restoring the pod's nomination is dropped
 // as well, since there is no scheduling queue holding nominated pods.
 func (sched *Scheduler) unreserveAndForget(
