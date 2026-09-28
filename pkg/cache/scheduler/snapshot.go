@@ -146,9 +146,9 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	}
 }
 
-// ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
+// forgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
 // use it after changing what the scheduling simulator reports.
-func (s *Snapshot) ForgetSimulatedFeasibility() {
+func (s *Snapshot) forgetSimulatedFeasibility() {
 	for _, cq := range s.ClusterQueues() {
 		for _, tasSnapshot := range cq.TASFlavors {
 			tasSnapshot.forgetMatchingLeaves()
@@ -464,13 +464,13 @@ func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, work
 	}
 	// The simulator reports a different cluster now, so results cached before this
 	// no longer hold. The revert changes it back, so they are dropped again there.
-	s.ForgetSimulatedFeasibility()
+	s.forgetSimulatedFeasibility()
 	return func() {
 		for _, revert := range reverts {
 			if err := revert(); err != nil {
 				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
 			}
 		}
-		s.ForgetSimulatedFeasibility()
+		s.forgetSimulatedFeasibility()
 	}
 }
