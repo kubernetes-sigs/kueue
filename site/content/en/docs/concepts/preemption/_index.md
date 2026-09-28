@@ -69,7 +69,7 @@ Kueue offers two built-in preemption algorithms, alongside a declarative configu
   until the preempting ClusterQueue obtains an equal or weighted share of the borrowable resources.
   The borrowable resources are the unused nominal quota of all the ClusterQueues in the cohort.
 
-- **[Configurable Preemptions](/docs/concepts/preemption/configurable_preemption)** {{< feature-state state="alpha" for_version="v0.20" >}}:
+- **[Configurable Preemptions](/docs/concepts/preemption/configurable_preemption)**: {{< feature-state state="alpha" for_version="v0.20" >}}
   ClusterQueues can declare custom preemption triggers (such as insufficient topology when using Topology-Aware Scheduling)
   and candidate selectors (priority comparisons, relational scopes, custom numeric labels, and workload/queue selectors)
   via the `PreemptionConfig` CRD. In Alpha, candidate outputs from `PreemptionConfig` are merged with candidates from Classic or Fair Sharing preemption.
