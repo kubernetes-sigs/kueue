@@ -127,6 +127,7 @@ type preemptionCtx struct {
 	snapshot              *schdcache.Snapshot
 	workloadUsage         workload.Usage
 	tasRequests           schdcache.WorkloadTASRequests
+	assignment            flavorassigner.Assignment
 	frsNeedPreemption     sets.Set[resources.FlavorResource]
 	configurableEvaluator *configurable.PreemptionEvaluator
 }
@@ -203,6 +204,7 @@ func (p *Preemptor) buildContext(
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
 		tasRequests:       tasRequests,
+		assignment:        assignment,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
@@ -585,8 +587,9 @@ func workloadQuotaFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 // workload, given the simulated usage of the snapshot. It always succeeds if the
 // workload has no topology requests.
 func workloadTopologyFits(ctx context.Context, preemptionCtx *preemptionCtx) bool {
-	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
+	tasResult := preemptionCtx.assignment.FindTopologyAssignments(
 		ctx,
+		preemptionCtx.preemptorCQ,
 		preemptionCtx.tasRequests,
 		schdcache.WithWorkloadInfo(&preemptionCtx.preemptor),
 	)

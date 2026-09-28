@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -237,6 +238,47 @@ func TestPodUsageReconcilerUpdatePredicate(t *testing.T) {
 				StatusPhase(corev1.PodRunning).
 				Obj(),
 			want: false,
+		},
+		{
+			name: "reconciles when a TAS pod gains a Workload annotation",
+			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj(),
+			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				Annotation(kueue.WorkloadAnnotation, "wl").Obj(),
+			want: true,
+		},
+		{
+			name: "reconciles when a TAS pod changes slice annotation",
+			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj(),
+			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				Annotation(kueue.WorkloadSliceNameAnnotation, "slice").Obj(),
+			want: true,
+		},
+		{
+			name: "reconciles when a TAS pod starts deleting without a spec update",
+			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj(),
+			newPod: func() *corev1.Pod {
+				pod := testingpod.MakePod("pod", "ns").NodeName("node-a").
+					Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").Obj()
+				now := metav1.Now()
+				pod.DeletionTimestamp = &now
+				return pod
+			}(),
+			want: true,
+		},
+		{
+			name: "reconciles when a TAS pod changes owners",
+			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				OwnerReferenceWithUID("job", corev1.SchemeGroupVersion.WithKind("Pod"), "old").Obj(),
+			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+				OwnerReferenceWithUID("job", corev1.SchemeGroupVersion.WithKind("Pod"), "new").Obj(),
+			want: true,
 		},
 		{
 			name:   "ignores unscheduled non-TAS update",

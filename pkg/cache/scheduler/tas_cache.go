@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type tasCache struct {
@@ -54,9 +55,13 @@ func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resou
 		flavorCache:       make(map[kueue.ResourceFlavorReference]*TASFlavorCache),
 		resourceFormatter: resourceFormatter,
 		nonTasUsageCache: &nonTasUsageCache{
-			podUsage:  make(map[types.NamespacedName]podUsageValue),
-			nodeUsage: make(map[string]resources.Requests),
-			lock:      sync.RWMutex{},
+			podUsage:               make(map[types.NamespacedName]podUsageValue),
+			nodeUsage:              make(map[string]resources.Requests),
+			tasPodUsage:            make(map[types.NamespacedName]tasPodUsageValue),
+			tasPodsByWorkload:      make(map[workload.Reference]map[types.NamespacedName]tasPodUsageValue),
+			tasPodsBySliceWorkload: make(map[workload.Reference]map[types.NamespacedName]tasPodUsageValue),
+			tasNodeUsage:           make(map[workload.Reference]map[string]resources.Requests),
+			lock:                   sync.RWMutex{},
 		},
 		nodesCache:       newNodesCache(),
 		simulatorFactory: simulatorFactory,
@@ -153,6 +158,16 @@ func (t *tasCache) UpdateNonTASUsage(pod *corev1.Pod, log logr.Logger) string {
 // Returns the node name when an entry is removed.
 func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger) string {
 	return t.nonTasUsageCache.delete(key, log)
+}
+
+// UpdateTASPodUsage tracks a bound TAS Pod until it terminates or is deleted.
+func (t *tasCache) UpdateTASPodUsage(pod *corev1.Pod, log logr.Logger) string {
+	return t.nonTasUsageCache.updateTAS(pod, log)
+}
+
+// DeleteTASPodUsageByKey removes a TAS Pod's physical usage from the cache.
+func (t *tasCache) DeleteTASPodUsageByKey(key client.ObjectKey, log logr.Logger) string {
+	return t.nonTasUsageCache.deleteTAS(key, log)
 }
 
 // TrackPod notifies the scheduling simulator that a pod is running on a node.
