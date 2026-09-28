@@ -88,7 +88,13 @@ guarantee `size` already provides, with the chunk sizes written out.
 - Guaranteeing which pod ranks end up in which chunk.
 - Selecting topology domains by explicit label value, such as `rack-a`.
 - Expressing node counts. The values are pod counts.
-- More than one `sizes` layer in a single constraints list.
+- More than one `sizes` layer in a single constraints list. The layer above a
+  second list would itself produce chunks of different sizes, so one inner list
+  cannot sum to all of them. A later change could treat the inner list as a
+  pattern repeated inside each chunk, which only needs the checks relaxed. A
+  different cut for each chunk needs a nested field, and depends on the
+  distinctness work, because two chunks sharing a domain are recorded as one
+  combined count.
 - Partial admission or elastic changes to the PodSet count.
 
 ## Proposal
@@ -157,8 +163,15 @@ write that once rather than enumerating every group across both blocks.
 5. Duplicate values are allowed, and describe separate chunks of the same size.
    `[2, 2, 4]` is three chunks, not two.
 6. A constraints list may contain at most one layer using `sizes`. Layers above
-   and below it use `size` as they do today.
-7. Below the `sizes` layer, Kueue uses its existing capacity-based placement.
+   and below it use `size` as they do today. A `size` layer below the `sizes`
+   layer must divide every chunk: `[8, 4]` works with `size: 4` below it, but
+   `[8, 3]` does not.
+7. When a `sizes` layer sits below another layer, its topology level must be
+   exactly one level below that layer's. With a level in between, the pods of
+   the layer above would be split across those in-between domains before the
+   chunks are formed, and a chunk could end up straddling two of them.
+8. Below the `sizes` layer, Kueue uses its existing capacity-based placement,
+   including any `size` layers listed below it.
 
 `sizes: [8]` for an eight-pod PodSet is a single chunk in one domain, which is
 what `podset-required-topology` already gives. It is accepted rather than
@@ -262,6 +275,7 @@ Creation-time validation enforces:
 - At most one layer in the constraints list uses `sizes`.
 - The sum, computed using `int64`, equals the `size` of the layer above, or
   `PodSet.Count` when the `sizes` layer is first.
+- A `size` layer below the `sizes` layer divides every chunk in the list.
 - The PodSet does not use partial admission (`MinCount` is unset).
 - The parent workload has not opted into elastic workload slicing with
   `kueue.x-k8s.io/elastic-job: "true"`, even when
@@ -294,7 +308,9 @@ validation already makes the whole PodSet immutable once quota is reserved, so
   `sizes` PodSets. Otherwise the sum stops matching.
 
 Scheduling-time validation enforces that the topology key of each layer exists
-in the selected ResourceFlavor's `Topology`, which is the existing check.
+in the selected ResourceFlavor's `Topology`, which is the existing check. It
+also enforces the one-level-below rule for an inner `sizes` layer, since how
+many levels sit between two topology keys is only known once the `Topology` is.
 
 ### Scheduling
 
@@ -326,6 +342,11 @@ proportional to chunk count times domain count.
 Because chunks may share a domain, the domain that ends up holding two chunks
 records a single combined count in the `TopologyAssignment`, exactly as it would
 with two equal chunks today. No new status is written.
+
+The same can happen one layer up. If an outer `size: 8` layer puts two of its
+chunks in the same block, that block holds sixteen pods, and an inner
+`sizes: [1, 3, 4]` list is applied to each chunk of eight, so the block is cut
+into `1, 3, 4, 1, 3, 4`.
 
 #### Preemption
 
