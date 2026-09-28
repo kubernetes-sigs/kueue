@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -152,7 +153,8 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 
 	return parallelize.Until(ctx, len(pods), func(i int) error {
 		pod := &pods[i]
-		if pod.Labels[controllerconstants.QueueLabel] == queueName {
+		// Only gated pods qualify: the pod webhook rejects the change on others.
+		if !utilpod.HasGate(pod, podconstants.SchedulingGateName) || pod.Labels[controllerconstants.QueueLabel] == queueName {
 			return nil
 		}
 		return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
