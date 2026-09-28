@@ -38,7 +38,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 		preemptorPriority *int32
 		candidatePriority *int32
 		wantMatch         bool
-		wantBuildErr      error
+		wantBuildErr      *FilterBuildError
 	}{
 		"LessThan: candidate strictly lower matches": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
@@ -193,7 +193,7 @@ func TestPriorityFilter_Matches(t *testing.T) {
 			candidatePriority: ptr.To[int32](-150),
 			wantMatch:         false,
 		},
-		"Unknown/unsupported mode rejects all candidates": {
+		"Unknown/unsupported mode returns build error": {
 			constraint: kueuealpha.PreemptionConfigPriorityConstraint{
 				Mode:       kueuealpha.PreemptionConfigPriorityMode("InvalidMode"),
 				Comparison: kueuealpha.LessThan,

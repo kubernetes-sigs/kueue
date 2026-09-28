@@ -39,12 +39,12 @@ type priorityFilter struct {
 
 // NewPriorityFilter creates a WorkloadFilter to evaluate candidate workloads
 // based on the priority constraint compared against the preemptor workload.
-func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, error) {
+func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, *FilterBuildError) {
 	if !isSupportedComparison(constraint.Comparison) {
 		return nil, &FilterBuildError{
-			Filter:  FilterPriority,
-			Reason:  ReasonUnsupportedComparison,
-			Message: fmt.Sprintf("unsupported comparison %q", constraint.Comparison),
+			Filter: FilterPriority,
+			Reason: ReasonUnsupportedComparison,
+			Err:    fmt.Errorf("unsupported comparison %q", constraint.Comparison),
 		}
 	}
 
@@ -63,9 +63,9 @@ func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPr
 		}
 	default:
 		return nil, &FilterBuildError{
-			Filter:  FilterPriority,
-			Reason:  ReasonUnsupportedMode,
-			Message: fmt.Sprintf("unsupported mode %q", constraint.Mode),
+			Filter: FilterPriority,
+			Reason: ReasonUnsupportedMode,
+			Err:    fmt.Errorf("unsupported mode %q", constraint.Mode),
 		}
 	}
 

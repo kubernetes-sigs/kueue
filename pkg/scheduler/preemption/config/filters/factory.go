@@ -17,7 +17,6 @@ limitations under the License.
 package filters
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -29,18 +28,18 @@ import (
 )
 
 // NewCandidateFilters compiles PreemptionConfigPreemptionCandidateSelector rules into CandidateFilters.
-// It returns an error identifying which filter failed to build if compilation fails.
+// It returns a slice of errors identifying all filters that failed to build if compilation fails.
 func NewCandidateFilters(
 	log logr.Logger,
 	selector *kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
-) (CandidateFilters, error) {
+) (CandidateFilters, []*FilterBuildError) {
 	if selector == nil {
 		return CandidateFilters{}, nil
 	}
 
-	var errs []error
+	var errs []*FilterBuildError
 
 	cqScopeFilters, wlScopeFilters, err := buildScopeFilters(selector.Scope, preemptor, snapshot)
 	if err != nil {
@@ -54,9 +53,9 @@ func NewCandidateFilters(
 	if err != nil {
 		errs = append(errs, err)
 	}
-	wlNumericFilters, err := buildNumericLabelFilters(log, selector.NumericLabels, preemptor)
-	if err != nil {
-		errs = append(errs, err)
+	wlNumericFilters, nErrs := buildNumericLabelFilters(log, selector.NumericLabels, preemptor)
+	if len(nErrs) > 0 {
+		errs = append(errs, nErrs...)
 	}
 	wlPriorityFilter, err := buildPriorityFilter(log, selector.Priority, preemptor)
 	if err != nil {
@@ -64,7 +63,7 @@ func NewCandidateFilters(
 	}
 
 	if len(errs) > 0 {
-		return CandidateFilters{}, errors.Join(errs...)
+		return CandidateFilters{}, errs
 	}
 
 	var cqFilters []ClusterQueueFilter
@@ -93,7 +92,7 @@ func buildScopeFilters(
 	scope kueuealpha.PreemptionConfigPreemptionQueueScope,
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
-) ([]ClusterQueueFilter, []WorkloadFilter, error) {
+) ([]ClusterQueueFilter, []WorkloadFilter, *FilterBuildError) {
 	switch scope {
 	case kueuealpha.WithinLocalQueue:
 		return []ClusterQueueFilter{NewWithinClusterQueueFilter(preemptor.ClusterQueue)},
@@ -113,9 +112,9 @@ func buildScopeFilters(
 
 	default:
 		return nil, nil, &FilterBuildError{
-			Filter:  FilterScope,
-			Reason:  ReasonUnsupportedScope,
-			Message: fmt.Sprintf("unsupported scope %q", scope),
+			Filter: FilterScope,
+			Reason: ReasonUnsupportedScope,
+			Err:    fmt.Errorf("unsupported scope %q", scope),
 		}
 	}
 }
@@ -124,39 +123,39 @@ func buildNumericLabelFilters(
 	log logr.Logger,
 	labels []kueuealpha.PreemptionConfigNumericLabelConstraint,
 	preemptor *workload.Info,
-) ([]WorkloadFilter, error) {
+) ([]WorkloadFilter, []*FilterBuildError) {
 	if len(labels) == 0 {
 		return nil, nil
 	}
-	var errs []error
+	var errs []*FilterBuildError
 	filters := make([]WorkloadFilter, 0, len(labels))
 	for _, numConstraint := range labels {
 		if numConstraint.Comparison != nil && !isSupportedComparison(*numConstraint.Comparison) {
 			errs = append(errs, &FilterBuildError{
-				Filter:  FilterNumericLabels,
-				Reason:  ReasonUnsupportedComparison,
-				Message: fmt.Sprintf("unsupported comparison %q for key %q", *numConstraint.Comparison, numConstraint.Key),
+				Filter: FilterNumericLabels,
+				Reason: ReasonUnsupportedComparison,
+				Err:    fmt.Errorf("unsupported comparison %q for key %q", *numConstraint.Comparison, numConstraint.Key),
 			})
 			continue
 		}
 		filters = append(filters, NewNumericLabelFilter(log, numConstraint, preemptor))
 	}
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		return nil, errs
 	}
 	return filters, nil
 }
 
 func buildWorkloadLabelFilter(
 	selector *metav1.LabelSelector,
-) (WorkloadFilter, error) {
+) (WorkloadFilter, *FilterBuildError) {
 	if selector == nil {
 		return nil, nil
 	}
 	ls, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
 		return nil, &FilterBuildError{
-			Filter: FilterWorkloadSelector,
+			Filter: FilterLabelSelector,
 			Reason: ReasonInvalidSelector,
 			Err:    err,
 		}
@@ -171,7 +170,7 @@ func buildPriorityFilter(
 	log logr.Logger,
 	priority *kueuealpha.PreemptionConfigPriorityConstraint,
 	preemptor *workload.Info,
-) (WorkloadFilter, error) {
+) (WorkloadFilter, *FilterBuildError) {
 	if priority == nil {
 		return nil, nil
 	}
@@ -180,7 +179,7 @@ func buildPriorityFilter(
 
 func buildClusterQueueLabelFilter(
 	selector *metav1.LabelSelector,
-) (ClusterQueueFilter, error) {
+) (ClusterQueueFilter, *FilterBuildError) {
 	if selector == nil {
 		return nil, nil
 	}

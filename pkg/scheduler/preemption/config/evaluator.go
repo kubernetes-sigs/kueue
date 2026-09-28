@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -79,7 +80,10 @@ func (p *PreemptionEvaluator) Candidates(
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 ) ([]*workload.Info, error) {
-	var candidates []*workload.Info
+	var (
+		candidates []*workload.Info
+		errs       []error
+	)
 	// Several rules, or several selectors of a rule, can select the same workload.
 	seen := sets.New[types.UID]()
 	for _, rule := range p.config.Spec.Rules {
@@ -88,20 +92,28 @@ func (p *PreemptionEvaluator) Candidates(
 		}
 		matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
 		if err != nil {
-			return nil, fmt.Errorf("rule %q preemptorSelector: %w", rule.Name, err)
+			errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q: %w", p.config.Name, rule.Name, err))
+			continue
 		}
 		if !matches {
 			continue
 		}
 
 		for i, selector := range rule.CandidateSelectors {
-			filter, err := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
-			if err != nil {
-				return nil, fmt.Errorf("rule %q candidateSelectors[%d]: %w", rule.Name, i, err)
+			filter, buildErrs := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
+			if len(buildErrs) > 0 {
+				for _, bErr := range buildErrs {
+					errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q candidateSelectors[%d]: %w", p.config.Name, rule.Name, i, bErr))
+				}
+				continue
 			}
 
 			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, &seen, &candidates)
 		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 
 	return candidates, nil
@@ -149,13 +161,17 @@ func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) bool {
 // workloadMatchesSelector returns whether the labels of the workload match the
 // selector. A nil selector accepts every workload, which differs from
 // LabelSelectorAsSelector(nil), matching none.
-func workloadMatchesSelector(selector *metav1.LabelSelector, wlInfo *workload.Info) (bool, error) {
+func workloadMatchesSelector(selector *metav1.LabelSelector, wlInfo *workload.Info) (bool, *filters.FilterBuildError) {
 	if selector == nil {
 		return true, nil
 	}
 	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		return false, err
+		return false, &filters.FilterBuildError{
+			Filter: filters.FilterPreemptorSelector,
+			Reason: filters.ReasonInvalidSelector,
+			Err:    err,
+		}
 	}
 
 	return labelSelector.Matches(labels.Set(wlInfo.Obj.Labels)), nil

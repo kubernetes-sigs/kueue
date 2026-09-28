@@ -17,7 +17,6 @@ limitations under the License.
 package filters
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -69,7 +68,7 @@ func TestNewCandidateFilters(t *testing.T) {
 		selector    *kueuealpha.PreemptionConfigPreemptionCandidateSelector
 		preemptor   *workload.Info
 		wantFilters CandidateFilters
-		wantErr     error
+		wantErrs    []*FilterBuildError
 	}{
 		"nil selector returns empty CandidateFilters": {
 			selector:    nil,
@@ -143,9 +142,11 @@ func TestNewCandidateFilters(t *testing.T) {
 				Scope: kueuealpha.PreemptionConfigPreemptionQueueScope("UnknownScope"),
 			},
 			preemptor: preemptor,
-			wantErr: &FilterBuildError{
-				Filter: FilterScope,
-				Reason: ReasonUnsupportedScope,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterScope,
+					Reason: ReasonUnsupportedScope,
+				},
 			},
 		},
 		"WithinClusterQueue with empty NumericLabels produces no WorkloadFilters": {
@@ -318,9 +319,11 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 			preemptor: preemptor,
-			wantErr: &FilterBuildError{
-				Filter: FilterWorkloadSelector,
-				Reason: ReasonInvalidSelector,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterLabelSelector,
+					Reason: ReasonInvalidSelector,
+				},
 			},
 		},
 		"ClusterQueueSelector instantiates clusterQueueLabelFilter": {
@@ -362,9 +365,11 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 			preemptor: preemptor,
-			wantErr: &FilterBuildError{
-				Filter: FilterClusterQueueSelector,
-				Reason: ReasonInvalidSelector,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterClusterQueueSelector,
+					Reason: ReasonInvalidSelector,
+				},
 			},
 		},
 		"Priority with invalid mode returns error": {
@@ -376,9 +381,11 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 			preemptor: preemptor,
-			wantErr: &FilterBuildError{
-				Filter: FilterPriority,
-				Reason: ReasonUnsupportedMode,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterPriority,
+					Reason: ReasonUnsupportedMode,
+				},
 			},
 		},
 		"Priority with invalid comparison returns error": {
@@ -390,9 +397,11 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 			preemptor: preemptor,
-			wantErr: &FilterBuildError{
-				Filter: FilterPriority,
-				Reason: ReasonUnsupportedComparison,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterPriority,
+					Reason: ReasonUnsupportedComparison,
+				},
 			},
 		},
 		"NumericLabels with invalid comparison returns error": {
@@ -406,9 +415,11 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 			preemptor: preemptor,
-			wantErr: &FilterBuildError{
-				Filter: FilterNumericLabels,
-				Reason: ReasonUnsupportedComparison,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterNumericLabels,
+					Reason: ReasonUnsupportedComparison,
+				},
 			},
 		},
 		"Multiple invalid filters in a selector aggregate all errors": {
@@ -421,16 +432,16 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 			preemptor: preemptor,
-			wantErr: errors.Join(
-				&FilterBuildError{
+			wantErrs: []*FilterBuildError{
+				{
 					Filter: FilterScope,
 					Reason: ReasonUnsupportedScope,
 				},
-				&FilterBuildError{
+				{
 					Filter: FilterClusterQueueSelector,
 					Reason: ReasonInvalidSelector,
 				},
-			),
+			},
 		},
 	}
 
@@ -461,24 +472,12 @@ func TestNewCandidateFilters(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotFilters, err := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
-			if tc.wantErr != nil {
-				if err == nil {
-					t.Fatalf("NewCandidateFilters() expected error, got nil")
-				}
-				if joinErr, ok := tc.wantErr.(interface{ Unwrap() []error }); ok {
-					for _, expected := range joinErr.Unwrap() {
-						if !errors.Is(err, expected) {
-							t.Errorf("NewCandidateFilters() missing expected error %v in %v", expected, err)
-						}
-					}
-				} else if !errors.Is(err, tc.wantErr) {
-					t.Errorf("NewCandidateFilters() error = %v, want %v", err, tc.wantErr)
-				}
-				return
+			gotFilters, gotErrs := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
+			if diff := cmp.Diff(tc.wantErrs, gotErrs, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("NewCandidateFilters() error mismatch (-want +got):\n%s", diff)
 			}
-			if err != nil {
-				t.Fatalf("NewCandidateFilters() unexpected error: %v", err)
+			if len(tc.wantErrs) > 0 {
+				return
 			}
 			if diff := cmp.Diff(tc.wantFilters, gotFilters, cmpOptions...); diff != "" {
 				t.Errorf("NewCandidateFilters() mismatch (-want +got):\n%s", diff)

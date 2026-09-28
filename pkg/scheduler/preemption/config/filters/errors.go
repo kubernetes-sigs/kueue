@@ -24,9 +24,10 @@ import (
 const (
 	FilterScope                = "Scope"
 	FilterClusterQueueSelector = "ClusterQueueSelector"
-	FilterWorkloadSelector     = "LabelSelector"
+	FilterLabelSelector        = "LabelSelector"
 	FilterPriority             = "Priority"
 	FilterNumericLabels        = "NumericLabels"
+	FilterPreemptorSelector    = "PreemptorSelector"
 
 	ReasonUnsupportedScope      = "UnsupportedScope"
 	ReasonInvalidSelector       = "InvalidSelector"
@@ -36,19 +37,12 @@ const (
 
 // FilterBuildError describes a failure while building a candidate filter.
 type FilterBuildError struct {
-	Filter  string
-	Reason  string
-	Message string
-	Err     error
+	Filter string
+	Reason string
+	Err    error
 }
 
 func (e *FilterBuildError) Error() string {
-	if e.Message != "" {
-		if e.Err != nil {
-			return fmt.Sprintf("building %s filter (%s): %s: %v", e.Filter, e.Reason, e.Message, e.Err)
-		}
-		return fmt.Sprintf("building %s filter (%s): %s", e.Filter, e.Reason, e.Message)
-	}
 	if e.Err != nil {
 		return fmt.Sprintf("building %s filter (%s): %v", e.Filter, e.Reason, e.Err)
 	}
@@ -62,20 +56,10 @@ func (e *FilterBuildError) Unwrap() error {
 // Is permits semantic matching with errors.Is.
 func (e *FilterBuildError) Is(target error) bool {
 	other, ok := target.(*FilterBuildError)
-	if !ok {
-		return false
-	}
-	if e == nil || other == nil {
+	if !ok || e == nil || other == nil {
 		return e == other
 	}
-	if other.Filter != "" && e.Filter != other.Filter {
-		return false
-	}
-	if other.Reason != "" && e.Reason != other.Reason {
-		return false
-	}
-	if other.Err != nil && !errors.Is(e.Err, other.Err) {
-		return false
-	}
-	return true
+	return other.Filter == e.Filter &&
+		other.Reason == e.Reason &&
+		(other.Err == nil || errors.Is(e.Err, other.Err))
 }
