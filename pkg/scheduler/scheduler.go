@@ -48,6 +48,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
+	nativeplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -918,11 +920,6 @@ func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resou
 	return reservedUsage
 }
 
-type partialAssignment struct {
-	assignment        flavorassigner.Assignment
-	preemptionTargets []*preemption.Target
-}
-
 // flavorScanStateOutdated reports whether the recorded flavor assignment no longer describes
 // the current state, in which case the flavor scan has to start over.
 func flavorScanStateOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
@@ -968,56 +965,6 @@ func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *sc
 	return func() {
 		revertPods()
 		revertUsage()
-	}
-}
-
-func updateAssignmentForTAS(
-	ctx context.Context,
-	snapshot *schdcache.Snapshot,
-	cq *schdcache.ClusterQueueSnapshot,
-	wl *workload.Info,
-	assignment *flavorassigner.Assignment,
-	targets []*preemption.Target,
-) {
-	log := log.FromContext(ctx)
-
-	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
-		(workload.IsExplicitlyRequestingTAS(wl.Obj.Spec.PodSets...) || cq.IsTASOnly()) && !workload.HasTopologyAssignmentWithUnhealthyNode(wl.Obj) {
-		tasRequests := assignment.WorkloadsTopologyRequests(log, wl, cq)
-		var tasResult schdcache.TASAssignmentsResult
-		log = log.WithValues("workload", klog.KRef(wl.Obj.Namespace, wl.Obj.Name))
-
-		if len(targets) > 0 {
-			var targetWorkloads []*workload.Info
-			for _, target := range targets {
-				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
-			}
-			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
-			// Freeing the victims' quota is not enough. Until the simulator is told,
-			// it still reports their Pods and their nodes still look occupied.
-			revertPods := snapshot.SimulatePodRemoval(ctx, log, targetWorkloads)
-			tasResult = cq.FindTopologyAssignmentsForWorkload(
-				ctx,
-				tasRequests,
-				schdcache.WithWorkloadInfo(wl),
-			)
-			revertPods()
-			revertUsage()
-		} else {
-			// In this scenario we don't have any preemption candidates, yet we need
-			// to reserve the TAS resources to avoid the situation when a lower
-			// priority workload further in the queue gets admitted and preempted
-			// in the next scheduling cycle by the waiting workload. To obtain
-			// a TAS assignment for reserving the resources we run the algorithm
-			// assuming the cluster is empty.
-			tasResult = cq.FindTopologyAssignmentsForWorkload(
-				ctx,
-				tasRequests,
-				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkloadInfo(wl),
-			)
-		}
-		assignment.UpdateForTASResult(log, cq, wl, tasResult)
 	}
 }
 
@@ -1502,7 +1449,10 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 	return idx, nil
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
+	fullAssignment flavorassigner.Assignment,
+	targets []*preemption.Target,
+) {
 	log := log.FromContext(ctx)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in FlavorScanState, so it has to be
@@ -1523,30 +1473,17 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	)
 
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	assignment, targets, fits := findFit(
-		ctx,
-		wl,
-		snap,
-		s.preemptor,
-		flvAssigner,
-		initialAssignment,
-	)
+	planner := nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
-	if !fits && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if !assignmentPlan.CanFit() && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
-		var bestPA *partialAssignment
+		var bestPartialPlan *assignment.Plan
 		fitsFn := func(nextCounts []int32) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
-			if assignment, targets, fits := findFit(
-				ctx,
-				wl,
-				snap,
-				s.preemptor,
-				flvAssigner,
-				initialAssignment,
-			); fits {
-				bestPA = &partialAssignment{assignment: assignment, preemptionTargets: targets}
+			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
+				bestPartialPlan = &partialPlan
 				return true
 			}
 			return false
@@ -1556,54 +1493,15 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
 		reducer := flavorassigner.NewOrderedPodSetReducer(effectiveReducerPodSets(wl.Obj.Spec.PodSets, replaceableWorkloadSlice, mustGrow), fitsFn)
 		if _, found := reducer.Reduce(mustGrow); found {
-			assignment, targets, fits = bestPA.assignment, bestPA.preemptionTargets, true
+			assignmentPlan = *bestPartialPlan
 		}
 	}
 
-	if fits {
+	fullAssignment, targets = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets
+	if assignmentPlan.CanFit() {
 		targets = append(slicePreemptTargets, targets...)
 	}
-
-	return assignment, targets
-}
-
-func findFit(
-	ctx context.Context,
-	wl *workload.Info,
-	snapshot *schdcache.Snapshot,
-	preemptor *preemption.Preemptor,
-	flavorAssigner *flavorassigner.FlavorAssigner,
-	initialAssignment flavorassigner.Assignment,
-) (assignment flavorassigner.Assignment, targets []*preemption.Target, fits bool) {
-	log := log.FromContext(ctx)
-	cq := snapshot.ClusterQueue(wl.ClusterQueue)
-	assignment = initialAssignment
-
-	if assignment.RepresentativeMode() != flavorassigner.NoFit {
-		flavorAssigner.AssignTopology(ctx, log, &assignment)
-	}
-
-	arm := assignment.RepresentativeMode()
-
-	if arm == flavorassigner.Preempt {
-		strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wl, snapshot, assignment)
-		faPreemptionTargets := preemptor.GetTargetsWithStrategy(ctx, strategies)
-		if len(faPreemptionTargets) > 0 {
-			updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, faPreemptionTargets)
-			resolveNoFit(&assignment, cq)
-			return assignment, faPreemptionTargets, true
-		}
-	}
-
-	updateAssignmentForTAS(ctx, snapshot, cq, wl, &assignment, nil)
-	resolveNoFit(&assignment, cq)
-	return assignment, nil, arm == flavorassigner.Fit
-}
-
-func resolveNoFit(assignment *flavorassigner.Assignment, cq *schdcache.ClusterQueueSnapshot) {
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		assignment.ResolveNoFitReason(cq)
-	}
+	return
 }
 
 // effectiveReducerPodSets swaps in the live predecessor's granted count (by PodSet name) as the
