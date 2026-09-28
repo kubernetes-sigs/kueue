@@ -52,10 +52,6 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RaySe
 	}
 }
 
-// fetchActiveRayClusterWorkerState reads the active child RayCluster on the
-// worker and returns its effective worker counts and a unique revision. A
-// missing child is expected while KubeRay creates or replaces the active
-// cluster, so it is treated as no runtime state yet.
 func fetchActiveRayClusterWorkerState(ctx context.Context, remoteClient client.Client, remoteService *rayv1.RayService) (*ray.FetchResult, error) {
 	if ptr.Deref(remoteService.Spec.RayClusterSpec.Suspend, false) {
 		return nil, nil
