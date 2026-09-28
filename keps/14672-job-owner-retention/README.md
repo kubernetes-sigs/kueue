@@ -82,7 +82,7 @@ in most clusters.
   to `GenericJob` and implementing it across every integration, or reading
   each job type's own status from generic code. Both couple the framework to
   per-type details it deliberately abstracts.
-  
+
 ## Proposal
 
 Add a new field, `Jobs`, to `ObjectRetentionPolicies`, sibling to the existing
@@ -256,12 +256,19 @@ the blast radius noted under Risks.
    the feature was enabled — are skipped; see [Non-Goals](#non-goals).
 4. `Finish` patches the Workload's status and the stamp is a separate write
    to a different object, so the two cannot be atomic. If the stamp write
-   fails, the Workload is Finished and the owner unstamped. This retries on
-   its own: while the Workload exists, any subsequent event on it or its job
-   reaches `finalizeJob` again. A permanent leak therefore requires the
-   write to fail continuously for the whole of `workloads.afterFinished`,
-   and in that case the owner is simply never collected — today's behavior,
-   not a regression.
+   fails, the Workload is Finished and the owner unstamped.
+
+   The stamp is retried whenever a subsequent event on the Workload or its
+   job reaches `finalizeJob`, but this is not guaranteed to happen: a
+   finished Workload is quiet, so a single failed write followed by no
+   further events leaves the owner unstamped until the Workload is deleted
+   under `workloads.afterFinished`, after which it can never be stamped.
+
+   This is accepted as best-effort rather than mitigated. The consequence is
+   that the owner is never collected — the behavior today, not a regression —
+   and the alternative, making Workload deletion wait on the stamp, would
+   couple the Workload retention controller in `pkg/controller/core` to the
+   jobframework reconciler.
 5. Owner deletion uses `client.Preconditions{UID: ...}` so that a same-named
    owner recreated between the fetch and the delete is not deleted by
    mistake. Note the existing deactivation path does not do this today:
@@ -298,6 +305,11 @@ established in KEP-1618's own unit test plan (`pkg/controller/core/workload_cont
   `workloads.afterFinished`, and the owner is still deleted correctly when
   `jobs.afterFinished` later elapses
 - default-disabled backward-compatible behavior
+- the stamp write failing: the owner is left unstamped and is not collected,
+  and no error propagates that would block the Workload's own retention
+- the owner being deleted concurrently with the stamp: the write is skipped
+  when `DeletionTimestamp` is set, and a delete landing between fetch and
+  patch does not produce an error
 
 ### Graduation Criteria
 
