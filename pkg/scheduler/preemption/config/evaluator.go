@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -87,16 +88,16 @@ func (p *PreemptionEvaluator) Candidates(
 		}
 		matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("rule %q preemptorSelector: %w", rule.Name, err)
 		}
 		if !matches {
 			continue
 		}
 
-		for _, selector := range rule.CandidateSelectors {
+		for i, selector := range rule.CandidateSelectors {
 			filter, err := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("rule %q candidateSelectors[%d]: %w", rule.Name, i, err)
 			}
 
 			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, &seen, &candidates)

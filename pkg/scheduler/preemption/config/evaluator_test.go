@@ -118,7 +118,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantError:   "\"invalid\" is not a valid label selector operator",
+			wantError:   "rule \"test\" preemptorSelector: \"invalid\" is not a valid label selector operator",
 		},
 		"returns error for candidate selector with invalid label selector operator": {
 			clusterQueues: baseCqs,
@@ -136,7 +136,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantError:   "invalid labelSelector: \"invalid\" is not a valid label selector operator",
+			wantError:   "rule \"test\" candidateSelectors[0]: invalid labelSelector: \"invalid\" is not a valid label selector operator",
 		},
 		"returns error for candidate selector with unsupported scope": {
 			clusterQueues: baseCqs,
@@ -149,7 +149,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantError:   "unsupported scope \"InvalidScope\"",
+			wantError:   "rule \"test\" candidateSelectors[0]: unsupported scope \"InvalidScope\"",
 		},
 		"returns error for candidate selector with unsupported priority mode": {
 			clusterQueues: baseCqs,
@@ -163,7 +163,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantError:   "unsupported priority mode \"InvalidMode\"",
+			wantError:   "rule \"test\" candidateSelectors[0]: unsupported priority mode \"InvalidMode\"",
 		},
 		"selects candidates for CQ without cohort": {
 			clusterQueues: []*kueue.ClusterQueue{
