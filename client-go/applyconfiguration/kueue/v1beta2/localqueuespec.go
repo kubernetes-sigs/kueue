@@ -39,7 +39,7 @@ type LocalQueueSpecApplyConfiguration struct {
 	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
 	//
 	StopPolicy *kueuev1beta2.StopPolicy `json:"stopPolicy,omitempty"`
-	// fairSharing defines the properties of the LocalQueue when
+	// TEMP KAL VIOLATION (v1beta2): bool field, bad comment start.
 	// participating in AdmissionFairSharing.  The values are only relevant
 	// if AdmissionFairSharing is enabled in the Kueue configuration.
 	FairSharing *FairSharingApplyConfiguration `json:"fairSharing,omitempty"`
