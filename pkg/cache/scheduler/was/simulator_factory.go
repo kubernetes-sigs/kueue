@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -58,32 +59,37 @@ type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*core
 
 func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*wasSimulatorFactory, error) {
 	cfg := newWASSchedulerConfig()
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+
+	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
+	_ = informerFactory.Core().V1().Nodes().Informer()
+	_ = informerFactory.Core().V1().Pods().Informer()
+
+	comps, err := upstreamsync.NewFrameworkComponents(
+		ctx,
+		client,
+		informerFactory,
+		upstreamsync.WithProfiles(cfg.Profiles...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	informerFactory.StartWithContext(ctx)
+	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
+		return nil, err
+	}
+	if err := comps.WaitForHandlersSync(ctx); err != nil {
+		return nil, err
+	}
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
-		// Building the framework registers a DRA index on the factory it is given, so it
-		// cannot be shared across snapshots, and the enabled plugins read the snapshot
-		// rather than the informers, so it is not needed once the framework is built.
-		buildCtx, cancelBuild := context.WithCancel(ctx)
-		informerFactory := informers.NewSharedInformerFactory(client, 0)
-		// Without the wait the goroutines outlive the call and keep logging through
-		// the caller's context. Shutdown blocks, so it must follow cancelBuild.
-		defer func() {
-			cancelBuild()
-			informerFactory.Shutdown()
-		}()
-
-		// Register node and pod informers with the factory; sync errors are caught by AsError() below.
-		_ = informerFactory.Core().V1().Nodes().Informer()
-		_ = informerFactory.Core().V1().Pods().Informer()
-		informerFactory.StartWithContext(buildCtx)
-		if err := informerFactory.WaitForCacheSyncWithContext(buildCtx).AsError(); err != nil {
-			return nil, err
-		}
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := framework.NewProfileMap(buildCtx, client, informerFactory, snap, cfg)
+		profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
 		if err != nil {
 			return nil, err
 		}
+		framework.ApplySimulationNeutralizers(profiles)
 		return schedLibSnapshot.New(snap, profiles), nil
 	}
 
