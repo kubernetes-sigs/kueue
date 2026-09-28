@@ -7638,6 +7638,55 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
+		"slice sizes: a pending request stays pending when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: false,
+			},
+			// A Workload accepted while the gate was enabled. Scheduling it as if
+			// the chunk list were absent would put two pods in r1 and six in r2,
+			// splitting a chunk of four across both racks.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("6"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasRackLabel, Sizes: []int32{4, 4}},
+					},
+				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      8,
+				wantReason: "topology slice sizes require the TASExactTopologyDistribution feature gate",
+			}},
+		},
+		"slice sizes: an inner chunk list also stays pending when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASMultiLayerTopology:        true,
+				features.TASExactTopologyDistribution: false,
+			},
+			nodes:  defaultNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+						{Topology: tasBlockLabel, Size: 4},
+						{Topology: tasRackLabel, Sizes: []int32{1, 3}},
+					},
+				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      4,
+				wantReason: "topology slice sizes require the TASExactTopologyDistribution feature gate",
+			}},
+		},
 		"slice sizes: rejected when a level sits between the chunk list and the layer above": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TASMultiLayerTopology:        true,

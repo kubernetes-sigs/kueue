@@ -68,13 +68,28 @@ func chunksLargestFirst(sizes []int32) []int32 {
 	return ordered
 }
 
+// sliceSizesGateReason refuses to place a request that lists chunk sizes while
+// the TASExactTopologyDistribution gate is disabled. New requests are already
+// rejected at admission, but a Workload accepted while the gate was enabled can
+// still be pending when it is turned off. Placing it as if the chunk list were
+// absent would split the groups it asked to keep together, so it stays pending
+// instead.
+func sliceSizesGateReason(tr *kueue.PodSetTopologyRequest) string {
+	if features.Enabled(features.TASExactTopologyDistribution) {
+		return ""
+	}
+	for _, c := range utiltas.PodSetSliceRequiredTopologyConstraints(tr) {
+		if len(c.Sizes) > 0 {
+			return fmt.Sprintf("topology slice sizes require the %s feature gate", features.TASExactTopologyDistribution)
+		}
+	}
+	return ""
+}
+
 // outermostSliceSizes returns the chunk list of the first constraint layer, or
 // nil when that layer uses the scalar size. Reads through the shared helper so
 // Workloads persisted with the legacy slice fields are handled too.
 func outermostSliceSizes(tr *kueue.PodSetTopologyRequest) []int32 {
-	if !features.Enabled(features.TASExactTopologyDistribution) {
-		return nil
-	}
 	constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr)
 	if len(constraints) == 0 {
 		return nil

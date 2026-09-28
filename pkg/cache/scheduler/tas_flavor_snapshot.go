@@ -924,6 +924,10 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 	}
 
+	if reason := sliceSizesGateReason(workersTasPodSetRequests.PodSet.TopologyRequest); len(reason) > 0 {
+		return nil, reason
+	}
+
 	// If slice topology is not requested then we can assume that slice is a single pod
 	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(workersTasPodSetRequests.PodSet.TopologyRequest)
 	if len(reason) > 0 {
