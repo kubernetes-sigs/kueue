@@ -166,6 +166,39 @@ spec:
   hood, the annotation works when set in their Pod template(s) (for `LeaderWorkerSet`, in
   both the leader and worker templates). Kueue does not propagate it from the parent object
   in Alpha.
+- **Role-agnostic budget.** The budget applies to the Pod group as a whole, not per role
+  or Pod template. Leader and worker Pods of a `LeaderWorkerSet` group are counted together,
+  and a not-ready leader consumes the budget exactly like a not-ready worker. If the
+  templates carry different values, the strictest one applies to the whole group. For
+  example, with the following `LeaderWorkerSet`, each group of 10 Pods tolerates at most
+  `1` not-ready Pod (leader or worker), not `1` leader plus `5` workers:
+
+  ```yaml
+  apiVersion: leaderworkerset.x-k8s.io/v1
+  kind: LeaderWorkerSet
+  spec:
+    replicas: 2
+    leaderWorkerTemplate:
+      size: 10
+      leaderTemplate:
+        metadata:
+          annotations:
+            kueue.x-k8s.io/pod-group-max-not-ready-count: "1"
+      workerTemplate:
+        metadata:
+          annotations:
+            kueue.x-k8s.io/pod-group-max-not-ready-count: "5"
+  ```
+
+  Per-role budgets are out of scope for Alpha (see [Non-Goals](#non-goals)) and are
+  tracked as future work under `evictionCriteria` (see
+  [Future work ideas](#future-work-ideas)).
+- **Annotation updates on running Pods.** Pod annotations are mutable, so
+  `pod-group-max-not-ready-count` can be changed on running Pods (for example with
+  `kubectl annotate pods ... --overwrite`). In Alpha, Kueue accepts such updates without
+  validation and re-evaluates `PodsReady` using the strictest value in the group (see
+  [Pod Controller](#pod-controller)). Validating updates is deferred (see
+  [Validation](#validation)).
 
 ### Risks and Mitigations
 
@@ -179,6 +212,15 @@ spec:
   Pods to be ready), and the annotation is ignored on unsupported integrations.
   *Mitigation:* Documented in the annotation reference; admission-time validation/warnings
   are a Beta graduation criterion (see [Validation](#validation)).
+- **Stuck replacements for serving Pod groups:** In a serving Pod group
+  (`kueue.x-k8s.io/pod-group-serving: "true"`), Kueue keeps the finalizer on a failed Pod,
+  and today `recoveryTimeout` eviction is what releases it. When the failed Pods stay
+  within the budget, `PodsReady` stays `True` and no eviction happens, so the finalizers
+  stay in place. An external controller that creates replacement Pods under the same name
+  (for example a `StatefulSet`, or a custom controller that manages the Pod group
+  directly) then cannot create the replacements. The group keeps running below capacity
+  until enough Pods fail to exceed the budget, which then triggers `recoveryTimeout`
+  eviction. This limitation is accepted for Alpha.
 
 ## Design Details
 
@@ -224,9 +266,17 @@ Pods (requiring all `totalCount` Pods to be ready).
 In Alpha, no webhook validation is added; invalid values safely fall back to `0`
 not-ready Pods tolerated.
 
-For Beta, admission-time validation or warnings can be added for:
+Pod annotations are mutable, so `pod-group-max-not-ready-count` can also be changed after
+Pods are created. In Alpha, such updates are accepted as-is. Evaluating the group minimum
+keeps the behavior deterministic and fail-safe while the update rolls out across the
+group's Pods.
+
+For a follow-up Alpha iteration or Beta, admission-time validation or warnings can be
+added for:
 - non-integer values or values outside `[0, pod-group-total-count - 1]` on Pod group Pods,
-- annotations placed on unsupported job integrations or their Pod templates.
+- annotations placed on unsupported job integrations or their Pod templates,
+- updates to the annotation on existing Pods (for example, validating the new value, or
+  warning when Pods in the same group carry different values).
 
 ### Future work ideas
 
@@ -291,7 +341,10 @@ None.
 #### Beta
 
 - Feature gate enabled by default.
-- Webhook validation or warnings for invalid values and unsupported integrations.
+- Webhook validation or warnings for invalid values, unsupported integrations, and
+  annotation updates on existing Pods.
+- Resolve stuck same-name replacements for serving Pod groups whose failed Pods stay
+  within the budget (see [Risks and Mitigations](#risks-and-mitigations)).
 - Make the `PodsReady=False` condition message explain why the condition is not satisfied
   (for example, the not-ready Pod count versus the allowed
   `pod-group-max-not-ready-count` budget). This may land in an intermediate Alpha
