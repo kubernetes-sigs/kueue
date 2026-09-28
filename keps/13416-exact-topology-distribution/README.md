@@ -412,6 +412,11 @@ A separate gate is used because `TASMultiLayerTopology` is already beta while
 `sizes` is new. Disabling the gate preserves all existing scalar behavior and
 rejects new requests containing `sizes`.
 
+Workloads that already carry `sizes` when the gate is disabled are not
+scheduled. They stay pending with a reason naming the gate, rather than being
+placed as if the chunk list were absent, which would split the groups the user
+asked to keep together. Workloads already running keep their placement.
+
 ### Upgrade, Downgrade, and Backwards Compatibility
 
 Adding `sizes` preserves existing manifests and Go clients using `Size`, and
