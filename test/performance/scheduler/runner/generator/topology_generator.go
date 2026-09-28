@@ -125,6 +125,9 @@ func generateNodesRecursive(levels []TopologyLevel, currentLevelIdx int, labelVa
 			// We need to split and apply
 			node = node.Label(levels[i].NodeLabel, labelValues[i])
 		}
+		// The per-level value repeats across racks, and TAS keys a hostname-lowest
+		// topology by the hostname alone, so it has to be the unique node name.
+		node = node.Label(corev1.LabelHostname, nodeName)
 
 		*nodes = append(*nodes, *node.Obj())
 		return
