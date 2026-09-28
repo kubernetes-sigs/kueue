@@ -123,9 +123,10 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 				Suspend(true).
 				Queue(managerLq.Name).
 				RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+				TerminationGracePeriod(1).
 				Obj()
 
 			ginkgo.By("Creating the RayCluster", func() {
@@ -155,10 +156,13 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Queue(managerLq.Name).
 				ScaleFirstWorkerGroup(1).
-				RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
-				RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+				Request(rayv1.HeadNode, corev1.ResourceCPU, "500m").
+				Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+				Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+				Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 				Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 				Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+				TerminationGracePeriod(1).
 				Obj()
 
 			ginkgo.By("Creating the elastic RayCluster", func() {
@@ -407,11 +411,12 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 		Queue(managerLq.Name).
 		WorkloadPriorityClass(managerLowWPC.Name).
 		ScaleFirstWorkerGroup(1).
-		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "500m").
 		RequestAndLimit(rayv1.HeadNode, corev1.ResourceName(extraResourceGPUHighCost), "2").
-		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
+		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 		Image(rayv1.HeadNode, util.GetKuberayTestImage(), []string{}).
 		Image(rayv1.WorkerNode, util.GetKuberayTestImage(), []string{}).
+		TerminationGracePeriod(1).
 		Obj()
 
 	ginkgo.By("Creating the low-priority elastic RayCluster with one worker", func() {
