@@ -63,11 +63,11 @@ const (
 	WaitForPodsReadyUnscheduledTimeout featuregate.Feature = "WaitForPodsReadyUnscheduledTimeout"
 
 	// owner: @j-skiba
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/15423-wait-for-pods-ready-min-ready-count
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/15423-wait-for-pods-ready-max-not-ready
 	//
-	// Enables the kueue.x-k8s.io/pod-group-min-ready-count annotation, which sets the
-	// minimum number of ready Pods required for a Pod group to satisfy PodsReady.
-	WaitForPodsReadyMinReadyCount featuregate.Feature = "WaitForPodsReadyMinReadyCount"
+	// Enables the kueue.x-k8s.io/pod-group-max-not-ready-count annotation, which sets the
+	// maximum number of not-ready Pods tolerated for a Pod group to satisfy PodsReady.
+	WaitForPodsReadyMaxNotReady featuregate.Feature = "WaitForPodsReadyMaxNotReady"
 
 	// owner: @yaroslava-serdiuk
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
@@ -1221,7 +1221,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	WaitForPodsReadyMinReadyCount: {
+	WaitForPodsReadyMaxNotReady: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

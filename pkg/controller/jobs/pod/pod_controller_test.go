@@ -237,147 +237,159 @@ func TestPodsReady(t *testing.T) {
 			},
 			want: false,
 		},
-		"pod group reaching min pods count with gate enabled": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("2").Obj(),
+		"pod group within max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("2").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("2").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("2").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: true,
 		},
-		"pod group reaching min pods count even when fewer than total pods are created": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("2").Obj(),
+		"pod group within max not-ready count even when fewer than total pods are created": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("2").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("2").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: true,
 		},
-		"pod group reaching min pods count with succeeded and ready pods": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("2").Obj(),
+		"pod group within max not-ready count with succeeded and ready pods": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
 			groupPods: []corev1.Pod{
-				*succeededPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("2").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("2").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("2").Obj(),
+				*succeededPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.PodIntegrationCountSucceededPodsAsReady: true,
-				features.WaitForPodsReadyMinReadyCount:           true,
+				features.WaitForPodsReadyMaxNotReady:             true,
 			},
 			want: true,
 		},
-		"pod group reaching min pods count with gate disabled": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("2").Obj(),
+		"pod group within max not-ready count with gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("2").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("2").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("2").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: false,
+				features.WaitForPodsReadyMaxNotReady: false,
 			},
 			want: false,
 		},
-		"pod group below min pods count with gate enabled": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("2").Obj(),
+		"pod group exceeding max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("2").Obj(),
-				*basePodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("2").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("2").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: false,
 		},
-		"pod group with divergent min pods count annotations uses the strictest": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("1").Obj(),
+		"pod group with divergent max not-ready count annotations uses the strictest": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("2").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("1").Obj(),
-				*basePodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("3").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("3").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("2").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: false,
 		},
-		"pod group with partially propagated min pods count falls back to total count": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("2").Obj(),
+		"pod group with partially propagated max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("2").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*basePodWrapper.Clone().Name("worker-2").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: false,
 		},
-		"pod group with zero min pods count falls back to total count": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("0").Obj(),
+		"pod group with zero max not-ready count requires all pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("0").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("0").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("0").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("0").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("0").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: false,
 		},
-		"pod group with negative min pods count falls back to total count": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("-1").Obj(),
+		"pod group with negative max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("-1").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("-1").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("-1").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("-1").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("-1").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: false,
 		},
-		"pod group with min pods count exceeding total count falls back to total count": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("5").Obj(),
+		"pod group with max not-ready count equal to total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("3").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("5").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("5").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("3").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("3").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("3").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: false,
 		},
-		"pod group with min pods count exceeding total count succeeds when all total pods ready": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("5").Obj(),
+		"pod group with max not-ready count exceeding total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("5").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("5").Obj(),
-				*readyPodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count exceeding total count succeeds when all total pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: true,
 		},
-		"pod group with malformed min pods count falls back to total count": {
-			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupPodsReadyMinCount("invalid").Obj(),
+		"pod group with malformed max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("invalid").Obj(),
 			groupPods: []corev1.Pod{
-				*readyPodWrapper.Clone().Name("driver").GroupPodsReadyMinCount("invalid").Obj(),
-				*readyPodWrapper.Clone().Name("worker-1").GroupPodsReadyMinCount("invalid").Obj(),
-				*basePodWrapper.Clone().Name("worker-2").GroupPodsReadyMinCount("invalid").Obj(),
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("invalid").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("invalid").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("invalid").Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			want: false,
 		},
@@ -7512,9 +7524,9 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"pod group with WaitForPodsReady marks workload PodsReady when GroupPodsReadyMinCount is met": {
+		"pod group with WaitForPodsReady marks workload PodsReady when within GroupMaxNotReadyCount": {
 			featureGates: map[featuregate.Feature]bool{
-				features.WaitForPodsReadyMinReadyCount: true,
+				features.WaitForPodsReadyMaxNotReady: true,
 			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
@@ -7529,7 +7541,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					GroupPodsReadyMinCount("1").
+					GroupMaxNotReadyCount("1").
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -7539,7 +7551,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					GroupPodsReadyMinCount("1").
+					GroupMaxNotReadyCount("1").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -7566,7 +7578,7 @@ func TestReconciler(t *testing.T) {
 					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					GroupPodsReadyMinCount("1").
+					GroupMaxNotReadyCount("1").
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -7576,7 +7588,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodPending).
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					GroupPodsReadyMinCount("1").
+					GroupMaxNotReadyCount("1").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{

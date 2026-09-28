@@ -3229,15 +3229,15 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 	})
 
-	ginkgo.It("should mark workload PodsReady when min pods count is reached and only evict on recoveryTimeout when ready pods drop below min count", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinReadyCount, true)
-		podGroupName := "pod-group-min-count"
+	ginkgo.It("should mark workload PodsReady when within max not-ready count and only evict on recoveryTimeout when not-ready pods exceed max count", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMaxNotReady, true)
+		podGroupName := "pod-group-max-not-ready"
 		pods := make([]*corev1.Pod, 3)
 		for i := range pods {
 			pods[i] = testingpod.MakePod(fmt.Sprintf("pod-%d", i), ns.Name).
 				GroupNameLabel(podGroupName).
 				GroupTotalCount("3").
-				GroupPodsReadyMinCount("2").
+				GroupMaxNotReadyCount("1").
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
@@ -3266,7 +3266,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
-		ginkgo.By("running only 1 pod (below min count of 2) and verifying workload is not PodsReady yet", func() {
+		ginkgo.By("running only 1 pod (2 not-ready pods > max not-ready count of 1) and verifying workload is not PodsReady yet", func() {
 			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[0])
 			setPodReady(ctx, k8sClient, pods[0], corev1.ConditionTrue)
 
@@ -3278,8 +3278,8 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			})
 		})
 
-		ginkgo.By("updating min count annotation to 1 and verifying workload becomes PodsReady with 1 ready pod", func() {
-			setGroupPodsReadyMinCount(ctx, k8sClient, pods, "1")
+		ginkgo.By("updating max not-ready count annotation to 2 and verifying workload becomes PodsReady with 1 ready pod", func() {
+			setGroupMaxNotReadyCount(ctx, k8sClient, pods, "2")
 
 			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -3289,10 +3289,10 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			})
 		})
 
-		ginkgo.By("running the 2nd pod and updating min count annotation back to 2 while 3rd pod stays Pending", func() {
+		ginkgo.By("running the 2nd pod and updating max not-ready count annotation back to 1 while 3rd pod stays Pending", func() {
 			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[1])
 			setPodReady(ctx, k8sClient, pods[1], corev1.ConditionTrue)
-			setGroupPodsReadyMinCount(ctx, k8sClient, pods, "2")
+			setGroupMaxNotReadyCount(ctx, k8sClient, pods, "1")
 
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
@@ -3300,7 +3300,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("running the 3rd pod and then making it unready (2 of 3 still ready >= min count of 2)", func() {
+		ginkgo.By("running the 3rd pod and then making it unready (1 of 3 not ready <= max not-ready count of 1)", func() {
 			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[2])
 			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionTrue)
 			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionFalse)
@@ -3313,8 +3313,8 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("updating min count annotation to 3 (while 2 of 3 pods are ready) and verifying workload becomes PodsReady=False and is evicted on recoveryTimeout", func() {
-			setGroupPodsReadyMinCount(ctx, k8sClient, pods, "3")
+		ginkgo.By("updating max not-ready count annotation to 0 (while 1 of 3 pods is not ready) and verifying workload becomes PodsReady=False and is evicted on recoveryTimeout", func() {
+			setGroupMaxNotReadyCount(ctx, k8sClient, pods, "0")
 
 			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
 				metav1.Condition{
@@ -3333,16 +3333,16 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 	})
 
-	ginkgo.It("should respect both pod-group-min-ready-count and per-workload wait-for-pods-ready annotation", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMinReadyCount, true)
+	ginkgo.It("should respect both pod-group-max-not-ready-count and per-workload wait-for-pods-ready annotation", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMaxNotReady, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
-		podGroupName := "pod-group-min-count-wfpr"
+		podGroupName := "pod-group-max-not-ready-wfpr"
 		pods := make([]*corev1.Pod, 3)
 		for i := range pods {
 			pods[i] = testingpod.MakePod(fmt.Sprintf("pod-%d", i), ns.Name).
 				GroupNameLabel(podGroupName).
 				GroupTotalCount("3").
-				GroupPodsReadyMinCount("2").
+				GroupMaxNotReadyCount("1").
 				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60,"recoveryTimeoutSeconds":300}`).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
@@ -3376,7 +3376,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
-		ginkgo.By("making 2 of 3 pods ready (>= min ready count of 2) and verifying workload becomes PodsReady", func() {
+		ginkgo.By("making 2 of 3 pods ready (1 not-ready pod <= max not-ready count of 1) and verifying workload becomes PodsReady", func() {
 			for _, pod := range pods[:2] {
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
 				setPodReady(ctx, k8sClient, pod, corev1.ConditionTrue)
@@ -3390,7 +3390,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			})
 		})
 
-		ginkgo.By("making 1 ready pod unready (1 of 3 ready < min ready count of 2) and verifying per-workload recoveryTimeoutSeconds=300 prevents TinyTimeout eviction", func() {
+		ginkgo.By("making 1 ready pod unready (2 of 3 not ready > max not-ready count of 1) and verifying per-workload recoveryTimeoutSeconds=300 prevents TinyTimeout eviction", func() {
 			setPodReady(ctx, k8sClient, pods[1], corev1.ConditionFalse)
 
 			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
@@ -4986,13 +4986,13 @@ func setPodReady(ctx context.Context, k8sClient client.Client, pod *corev1.Pod, 
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
-func setGroupPodsReadyMinCount(ctx context.Context, k8sClient client.Client, pods []*corev1.Pod, minCount string) {
+func setGroupMaxNotReadyCount(ctx context.Context, k8sClient client.Client, pods []*corev1.Pod, maxNotReady string) {
 	ginkgo.GinkgoHelper()
 	for _, pod := range pods {
 		updatedPod := &corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), updatedPod)).To(gomega.Succeed())
-			updatedPod.Annotations[podconstants.GroupPodsReadyMinCountAnnotation] = minCount
+			updatedPod.Annotations[podconstants.GroupMaxNotReadyCountAnnotation] = maxNotReady
 			g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}

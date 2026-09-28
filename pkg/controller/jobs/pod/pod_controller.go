@@ -531,8 +531,8 @@ func (p *Pod) isPodReadyOrSucceeded(pod *corev1.Pod) bool {
 
 // PodsReady reports whether the pod or pod group has reached the required number
 // of ready (or succeeded) pods. For pod groups (plain Pod groups, StatefulSet,
-// LeaderWorkerSet), the count is evaluated across all pods in the group without
-// distinguishing between PodSet roles (e.g., leader vs. worker).
+// LeaderWorkerSet), the not-ready count is evaluated across all pods in the
+// group without distinguishing between PodSet roles (e.g., leader vs. worker).
 func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
 		return p.isPodReadyOrSucceeded(&p.pod)
@@ -543,7 +543,7 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
 		return false
 	}
-	requiredCount := p.podsReadyThreshold(tc)
+	allowedNotReady := p.groupMaxNotReadyCount(tc)
 
 	var readyCount int
 	for i := range p.list.Items {
@@ -551,12 +551,13 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 			readyCount++
 		}
 	}
-	if readyCount >= requiredCount {
-		if readyCount < tc {
-			ctrl.LoggerFrom(ctx).V(4).Info("Not all pods in the group are ready, but the minimum ready pods threshold is met",
+	notReady := tc - readyCount
+	if notReady <= allowedNotReady {
+		if notReady > 0 {
+			ctrl.LoggerFrom(ctx).V(4).Info("Not all pods in the group are ready, but the not-ready pods count is within the allowed maximum",
 				"podGroup", utilpod.GetPodGroupName(&p.pod),
-				"readyPods", readyCount,
-				"minReadyPods", requiredCount,
+				"notReadyPods", notReady,
+				"maxNotReadyPods", allowedNotReady,
 				"totalPods", tc,
 			)
 		}
@@ -736,36 +737,36 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
-// podsReadyThreshold returns how many pods in the group must satisfy
-// isPodReadyOrSucceeded for the group to be PodsReady. It is totalCount unless
-// the WaitForPodsReadyMinReadyCount feature gate is enabled, in which case it is
-// the strictest GroupPodsReadyMinCountAnnotation threshold across the group,
-// falling back to totalCount for any pod whose annotation is missing, malformed,
-// or outside [1, totalCount]. Reading the whole group - rather than only the
+// groupMaxNotReadyCount returns how many not-ready pods in the group are
+// tolerated for the group to be PodsReady. It is 0 unless the
+// WaitForPodsReadyMaxNotReady feature gate is enabled, in which case it is the
+// lowest (strictest) GroupMaxNotReadyCountAnnotation value across the group,
+// falling back to 0 for any pod whose annotation is missing, malformed, or
+// outside [0, totalCount-1]. Reading the whole group - rather than only the
 // reconciled pod - keeps the result independent of which pod triggered the
-// reconcile while the annotation is being propagated, and a missing or malformed
+// reconcile while the annotation is being updated, and a missing or malformed
 // annotation never marks an incomplete group as PodsReady.
-func (p *Pod) podsReadyThreshold(totalCount int) int {
-	if !features.Enabled(features.WaitForPodsReadyMinReadyCount) || len(p.list.Items) == 0 {
-		return totalCount
+func (p *Pod) groupMaxNotReadyCount(totalCount int) int {
+	if !features.Enabled(features.WaitForPodsReadyMaxNotReady) || len(p.list.Items) == 0 {
+		return 0
 	}
-	threshold := 1
+	allowed := totalCount - 1
 	for i := range p.list.Items {
-		threshold = max(threshold, podPodsReadyMinCount(&p.list.Items[i], totalCount))
+		allowed = min(allowed, podMaxNotReadyCount(&p.list.Items[i], totalCount))
 	}
-	return threshold
+	return allowed
 }
 
-// podPodsReadyMinCount returns the GroupPodsReadyMinCountAnnotation threshold of a
-// single pod, or totalCount when the annotation is missing, malformed, or
-// outside [1, totalCount].
-func podPodsReadyMinCount(pod *corev1.Pod, totalCount int) int {
-	if v, ok := pod.GetAnnotations()[podconstants.GroupPodsReadyMinCountAnnotation]; ok {
-		if n, err := strconv.Atoi(v); err == nil && n >= 1 && n <= totalCount {
+// podMaxNotReadyCount returns the GroupMaxNotReadyCountAnnotation value of a
+// single pod, or 0 when the annotation is missing, malformed, or outside
+// [0, totalCount-1].
+func podMaxNotReadyCount(pod *corev1.Pod, totalCount int) int {
+	if v, ok := pod.GetAnnotations()[podconstants.GroupMaxNotReadyCountAnnotation]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n < totalCount {
 			return n
 		}
 	}
-	return totalCount
+	return 0
 }
 
 // getRoleHash will filter all the fields of the pod that are relevant to admission (pod role) and return a sha256

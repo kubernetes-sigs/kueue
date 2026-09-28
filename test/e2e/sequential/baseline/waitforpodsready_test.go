@@ -248,7 +248,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			if cfg.FeatureGates == nil {
 				cfg.FeatureGates = make(map[string]bool)
 			}
-			cfg.FeatureGates[string(features.WaitForPodsReadyMinReadyCount)] = true
+			cfg.FeatureGates[string(features.WaitForPodsReadyMaxNotReady)] = true
 			cfg.WaitForPodsReady = &configapi.WaitForPodsReady{
 				Timeout:         metav1.Duration{Duration: 5 * time.Minute},
 				BlockAdmission:  new(true),
@@ -360,16 +360,16 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		})
 	})
 
-	ginkgo.It("should keep StatefulSet workload PodsReady when ready pods stay above min count and evict when dropping below min count", func() {
+	ginkgo.It("should keep StatefulSet workload PodsReady when not-ready pods stay within max count and evict when exceeding max count", func() {
 		var sts *appsv1.StatefulSet
-		ginkgo.By("creating a StatefulSet with 3 replicas and pod-group-min-ready-count=2 in the Pod template", func() {
-			sts = statefulsettesting.MakeStatefulSet("sts-min-pods", ns.Name).
+		ginkgo.By("creating a StatefulSet with 3 replicas and pod-group-max-not-ready-count=1 in the Pod template", func() {
+			sts = statefulsettesting.MakeStatefulSet("sts-max-not-ready", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Replicas(3).
 				Queue(lq.Name).
-				PodTemplateAnnotation(podconstants.GroupPodsReadyMinCountAnnotation, "2").
+				PodTemplateAnnotation(podconstants.GroupMaxNotReadyCountAnnotation, "1").
 				Obj()
 			util.MustCreate(ctx, k8sClient, sts)
 		})
@@ -389,7 +389,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("terminating 1 pod (sts-min-pods-2) while 2 pods remain ready (>= min count of 2)", func() {
+		ginkgo.By("terminating 1 pod (sts-max-not-ready-2) while 1 pod is not ready (<= max not-ready count of 1)", func() {
 			util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 1, client.MatchingLabels{appsv1.PodIndexLabel: "2"})
 		})
 
@@ -410,7 +410,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("deleting 2 pods (sts-min-pods-1 and sts-min-pods-2) so ready pods drop to 1 (< min count of 2)", func() {
+		ginkgo.By("deleting 2 pods (sts-max-not-ready-1 and sts-max-not-ready-2) so not-ready pods reach 2 (> max not-ready count of 1)", func() {
 			for _, podName := range []string{sts.Name + "-1", sts.Name + "-2"} {
 				gomega.Expect(k8sClient.Delete(ctx, testingjobspod.MakePod(podName, ns.Name).Obj())).To(gomega.Succeed())
 			}
