@@ -132,7 +132,7 @@ type EffectiveCapacity struct {
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=128
-	Flavors []EffectiveCapacityFlavor `json:"flavors,omitempty"`
+	Flavors []EffectiveCapacityFlavor `json:"flavors"`
 }
 
 type EffectiveCapacityFlavor struct {

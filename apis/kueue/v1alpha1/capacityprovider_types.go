@@ -104,7 +104,7 @@ type CapacityProviderNormalizedCapacity struct {
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=64
-	Flavors []CapacityProviderNormalizedCapacityFlavor `json:"flavors,omitempty"`
+	Flavors []CapacityProviderNormalizedCapacityFlavor `json:"flavors"`
 }
 
 type CapacityProviderNormalizedCapacityFlavor struct {
@@ -155,6 +155,7 @@ const (
 // CapacityProvider is the Schema for the capacityproviders API
 type CapacityProvider struct {
 	metav1.TypeMeta `json:",inline"`
+
 	// metadata is the standard object metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -162,6 +163,7 @@ type CapacityProvider struct {
 	// spec defines the desired state of the CapacityProvider.
 	// +required
 	Spec CapacityProviderSpec `json:"spec,omitzero"`
+
 	// status defines the capacity observed and published by the provider.
 	// +optional
 	Status CapacityProviderStatus `json:"status,omitempty"`
