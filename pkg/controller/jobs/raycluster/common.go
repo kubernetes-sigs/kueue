@@ -376,7 +376,7 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 		)
 	}
 	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) &&
-		isRayJobOrServiceManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+		isRayObjectManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
 		allErrors = append(
 			allErrors,
 			field.Forbidden(
@@ -404,8 +404,10 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 	return allErrors
 }
 
-func isRayJobOrServiceManagedByMultiKueue(object client.Object) bool {
+func isRayObjectManagedByMultiKueue(object client.Object) bool {
 	switch job := object.(type) {
+	case *rayv1.RayCluster:
+		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 	case *rayv1.RayJob:
 		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 	case *rayv1.RayService:
