@@ -408,7 +408,7 @@ capacities (10,10) will be placed (10,2). However, in some applications, a more 
 be more efficient. Some examples of such cases would be all-to-all communication procedures (e.g. Allgather)
 since more balanced placement leads to more efficient cross-domain traffic.
 
-To use this feature, use the `kueue.x-k8s.io/podset-preferred-topology` annotation on the Job. Kueue TAS makes 
+To use this feature, use the `kueue.x-k8s.io/podset-preferred-topology` annotation on the PodTemplate. Kueue TAS makes
 sure that the minimum number of pods (or slices) placed on any domain **one level below** the indicated level
 will be maximied. Also (as a second criterion) the number of domains used on the indicated level will be
 minimized. However, if the Job would not fit within a single domain **one level above** the indicated level,
@@ -438,11 +438,15 @@ For example, if you have 64 pods and want groups of 32 pods within the same bloc
 groups of 16 pods within the same rack, you can express this with a single annotation:
 
 ```yaml
-kueue.x-k8s.io/podset-slice-required-topology-constraints: |
-  [
-    {"topology": "cloud.provider.com/topology-block", "size": 32},
-    {"topology": "cloud.provider.com/topology-rack", "size": 16}
-  ]
+spec:
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-slice-required-topology-constraints: |
+          [
+            {"topology": "cloud.provider.com/topology-block", "size": 32},
+            {"topology": "cloud.provider.com/topology-rack", "size": 16}
+          ]
 ```
 
 The constraints are specified as a JSON array ordered from the outermost (coarsest) to
@@ -472,15 +476,21 @@ of a large model is itself a group of co-located Pods - a shape Kubernetes
 cannot express.
 
 To use this feature, add the `kueue.x-k8s.io/podset-topology-spreading` annotation
-alongside `kueue.x-k8s.io/podset-required-topology` on the Job:
+alongside `kueue.x-k8s.io/podset-required-topology` on the PodTemplate, which for a
+Job means `spec.template.metadata.annotations` rather than the Job's own
+`metadata.annotations`:
 
 ```yaml
-kueue.x-k8s.io/podset-required-topology: "topology.kubernetes.io/zone"
-kueue.x-k8s.io/podset-topology-spreading: |
-  {
-    "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}],
-    "rules": [{"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "0.45", "enforcementMode": "Preferred"}]
-  }
+spec:
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-required-topology: "topology.kubernetes.io/zone"
+        kueue.x-k8s.io/podset-topology-spreading: |
+          {
+            "workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}],
+            "rules": [{"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "0.45", "enforcementMode": "Preferred"}]
+          }
 ```
 
 `workloadLabelSelectors` picks the admitted Workloads that count against each
@@ -517,9 +527,34 @@ holds at most `maxShareAllowingPlacement` of what is already placed, so a value
 of `V` opens `ceil(1 / V)` domains before any is reused. `Required` (the default)
 makes the workload wait rather than crowd a domain; `Preferred` only ranks
 crowded domains last. Multi-Pod replicas must share one
-`kueue.x-k8s.io/podset-group-name` so a replica counts once, and spreading is
-evaluated per namespace at admission time - admitted workloads are never
-rebalanced.
+`kueue.x-k8s.io/podset-group-name` so a replica counts once. Note that
+`ValidatePodSetGroupingTopology` requires exactly two PodSets in a shared group
+and requires at least one PodSet with `Count == 1`. Spreading is evaluated per
+namespace at admission time - admitted workloads are never rebalanced.
+
+### Partial slices
+
+When the slice size does not evenly divide the number of pods in the PodSet,
+the trailing pods form one partial slice, which is placed in a single
+topology domain just like a full slice. For example, 10 pods with a slice size
+of 4 are placed as two slices of 4 pods and one slice of 2 pods. This behavior
+is controlled by the `TASPartialSlices` feature gate, which is enabled by
+default.
+
+The partial slice is charged for the pods it actually holds, so a PodSet is
+admitted into a topology that has exactly as many free slots as the PodSet has
+pods. Kueue takes it into account while it chooses the domains, so a domain that
+has room for the full slices but not for the trailing pods is passed over, and
+the trailing pods share a domain with full slices whenever one of them has room
+for them.
+
+The partial slice is always the last one, so that the pod ranks of every
+other slice stay within a single domain.
+
+Partial slices are supported for a single slice layer only. The inner layers
+of `kueue.x-k8s.io/podset-slice-required-topology-constraints` subdivide a slice
+further, and the trailing pods generally do not divide by their sizes, so the
+outermost size still has to evenly divide the PodSet.
 
 ## Drawbacks
 

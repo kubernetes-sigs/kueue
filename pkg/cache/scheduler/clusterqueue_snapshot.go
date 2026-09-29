@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -51,12 +52,18 @@ const (
 )
 
 type ClusterQueueSnapshot struct {
-	Name                      kueue.ClusterQueueReference
-	ResourceGroups            []resourcegroups.ResourceGroup
-	Workloads                 map[workload.Reference]*workload.Info
-	WorkloadsNotReady         sets.Set[workload.Reference]
-	NamespaceSelector         labels.Selector
-	Preemption                kueue.ClusterQueuePreemption
+	Name kueue.ClusterQueueReference
+	// Labels are only populated when the ConfigurablePreemptions feature gate is enabled.
+	Labels             map[string]string
+	draBackedResources *dra.ExtendedResourceCache
+	ResourceGroups     []resourcegroups.ResourceGroup
+	Workloads          map[workload.Reference]*workload.Info
+	WorkloadsNotReady  sets.Set[workload.Reference]
+	NamespaceSelector  labels.Selector
+	Preemption         kueue.ClusterQueuePreemption
+	// PreemptionConfigName is the name of the PreemptionConfig referenced by the ClusterQueue.
+	// Only present when the ConfigurablePreemptions feature gate is enabled.
+	PreemptionConfigName      *string
 	FairWeight                float64
 	FlavorFungibility         kueue.FlavorFungibility
 	AdmissionScope            kueue.AdmissionScope
@@ -219,6 +226,10 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	}
 
 	result := make(TASAssignmentsResult)
+	var spreadCountsOpts []TopologySpreadCountsOption
+	if opts.simulateEmpty {
+		spreadCountsOpts = []TopologySpreadCountsOption{WithSpreadCountsSimulateEmpty(true)}
+	}
 	for _, tasFlavor := range slices.Sorted(maps.Keys(tasRequestsByFlavor)) {
 		flavorTASRequests := tasRequestsByFlavor[tasFlavor]
 		// We assume the `tasFlavor` is already in the snapshot as this was
@@ -228,7 +239,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// options is cloned only when there is something to append, so the
 		// common path adds no allocation per flavor.
 		flvOpts := options
-		if spreadCounts := c.topologySpreadCountsForFlavor(opts.workload, tasFlavor, flavorTASRequests); len(spreadCounts) > 0 {
+		if spreadCounts := c.topologySpreadCountsForFlavor(opts.workload, tasFlavor, flavorTASRequests, spreadCountsOpts...); len(spreadCounts) > 0 {
 			flvOpts = append(slices.Clone(flvOpts), WithTopologySpreadCounts(spreadCounts))
 		}
 		// The aggregation is limited to flavors with a user-declared hostname
@@ -270,4 +281,10 @@ func (c *ClusterQueueSnapshot) PathParentToRoot() iter.Seq[*CohortSnapshot] {
 			a = a.Parent()
 		}
 	}
+}
+
+// DRABackedResources is the set of extended resources a DeviceClass declares, which is
+// what makes them DRA-backed rather than advertised by a device plugin.
+func (c *ClusterQueueSnapshot) DRABackedResources() *dra.ExtendedResourceCache {
+	return c.draBackedResources
 }

@@ -75,9 +75,21 @@ type domainState struct {
 	// domains.
 	sliceCount int32
 
+	// Leader capacities are populated only for requests with a leader PodSet.
 	podCountWithLeader   int32
 	sliceCountWithLeader int32
 	leaderCount          int32
+
+	// sliceCountWithTail is the number of whole slices that fit in the domain
+	// when it also holds the partial slice of a PodSet whose count is not a
+	// multiple of the slice size, and noTailFit when the partial slice does
+	// not fit in it at all. sliceCountWithLeaderAndTail additionally reserves
+	// room for the leader.
+	//
+	// Both are only computed when the PodSet has a partial slice, and are
+	// left at their zero value otherwise; see tas_partial_slices.go.
+	sliceCountWithTail          int32
+	sliceCountWithLeaderAndTail int32
 
 	// affinityScore is the sum of weights of all preferred affinity terms that match the node.
 	// For non-leaf domains, it is the sum of affinity scores of all children.
@@ -92,6 +104,26 @@ type domainState struct {
 	// capacityBound is set by recordUsageDomainCaps, and read only at the level
 	// it writes.
 	capacityBound domainCapacityBound
+}
+
+func (s *domainState) sliceCapacity(withLeader, withTail bool) int32 {
+	switch {
+	case withLeader && withTail:
+		return s.sliceCountWithLeaderAndTail
+	case withTail:
+		return s.sliceCountWithTail
+	case withLeader:
+		return s.sliceCountWithLeader
+	default:
+		return s.sliceCount
+	}
+}
+
+func (s *domainState) fitsSlices(sliceCount, leaderCount int32, hasTail bool) bool {
+	if leaderCount > 0 && s.leaderCount < leaderCount {
+		return false
+	}
+	return s.sliceCapacity(leaderCount > 0, hasTail) >= sliceCount
 }
 
 // domainCapacityBound bounds the counts rolled up from a domain's leaves by what
@@ -204,8 +236,8 @@ type TASFlavorSnapshot struct {
 	// snapshot() calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
-	// simulatorSnapshot stores enough data to run a WAS scheduling simulation.
-	simulatorSnapshot simulator.SimulatorSnapshot
+	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
+	schedulerSimulator simulator.SchedulerSimulator
 
 	resourceFormatter *resources.ResourceFormatter
 }
@@ -281,7 +313,7 @@ func newTASFlavorSnapshot(
 	log logr.Logger,
 	flavor flavorInformation,
 	tree *topologyTree,
-	simulatorSnapshot simulator.SimulatorSnapshot,
+	schedulerSimulator simulator.SchedulerSimulator,
 	opts ...tasFlavorSnapshotOption,
 ) *TASFlavorSnapshot {
 	options := &tasFlavorSnapshotOptions{}
@@ -301,7 +333,7 @@ func newTASFlavorSnapshot(
 		leafCapacities:       make([]leafCapacity, len(tree.leaves)),
 		leafCandidates:       make([]leafCandidate, len(tree.leaves)),
 		tolerations:          slices.Clone(flavor.Tolerations),
-		simulatorSnapshot:    simulatorSnapshot,
+		schedulerSimulator:   schedulerSimulator,
 		resourceFormatter:    options.resourceFormatter,
 	}
 	for _, leaf := range tree.leaves {
@@ -548,10 +580,12 @@ type TASPodSetRequests struct {
 	PodSet            *kueue.PodSet
 	PodSetUpdates     []*kueue.PodSetUpdate
 	SinglePodRequests resources.Requests
-	Count             int32
-	Flavor            kueue.ResourceFlavorReference
-	Implied           bool
-	PodSetGroupName   *string
+	// DRADelegation is nil when the PodSet requests no DRA-backed extended resource.
+	DRADelegation   *DRADelegation
+	Count           int32
+	Flavor          kueue.ResourceFlavorReference
+	Implied         bool
+	PodSetGroupName *string
 	// PreviousAssignment holds the topology assignment from a workload slice
 	// that this workload is replacing.
 	PreviousAssignment *kueue.TopologyAssignment
@@ -637,8 +671,8 @@ type tasExclusionStats struct {
 }
 
 type topologyAssignmentPodRequirements struct {
+	podRequests
 	podRequirements           simulator.PodRequirements
-	requests                  resources.Requests
 	leader                    *leaderRequirements
 	assumedUsage              *assumedUsage
 	requiredReplacementDomain utiltas.TopologyDomainID
@@ -647,19 +681,43 @@ type topologyAssignmentPodRequirements struct {
 
 // leaderRequirements is what TAS needs to place the leader Pod of a PodSet group.
 type leaderRequirements struct {
-	// requests covers one leader Pod, its Pod count included.
-	requests resources.Requests
+	// podRequests covers one leader Pod, its Pod count included.
+	podRequests
 	// podRequirements are the leader's own node filters, applied on top of the
 	// workers' when choosing its domain. Nil when TASLeaderPodSetFeasibility is off.
 	podRequirements *simulator.PodRequirements
 }
 
+// sliceShape describes how a PodSet is cut into slices.
+//
+// It is passed to the placement helpers as a single value rather than as a
+// loose int32, so that it cannot be transposed with the neighbouring counts and
+// so that the figures describing the cut stay together. The two always travel
+// together: every capacity that accounts for the partial slice is expressed
+// in whole slices of size, with tailSize pods charged on top.
+type sliceShape struct {
+	// size is the number of pods in a whole slice. It is 1 when slices are not
+	// requested, in which case there is no partial slice either.
+	size int32
+	// tailSize is the number of pods in the partial slice, that is
+	// count % size. It is zero when the count divides evenly into whole
+	// slices, and whenever the feature is disabled.
+	tailSize int32
+}
+
 // topologyAssignmentParameters stores placement-specific inputs that remain
 // relevant after domain capacities are computed.
 type topologyAssignmentParameters struct {
-	sliceSizeAtLevel      map[int]int32
-	sliceSize             int32
-	count                 int32
+	sliceSizeAtLevel map[int]int32
+	sliceSize        int32
+	// count is the number of pods to place.
+	count int32
+	// tailSize is the number of pods in the partial slice, that is
+	// count % sliceSize. It is zero when the count divides evenly into whole
+	// slices. The placement algorithm treats the partial slice as a slice
+	// that has to be held by a single domain like any other, and charges the
+	// domain holding it for tailSize pods rather than for a whole slice.
+	tailSize              int32
 	leaderCount           int32
 	requestedLevelIdx     int
 	sliceLevelIdx         int
@@ -675,6 +733,12 @@ type topologyAssignmentParameters struct {
 	// spreadCounts is the occupancy those rules are evaluated against, copied
 	// into domainState by fillInCounts.
 	spreadCounts *SpreadTreeCount
+}
+
+// shape returns how the PodSet is cut into slices. The two figures are always
+// consumed together, see sliceShape.
+func (p *topologyAssignmentParameters) shape() sliceShape {
+	return sliceShape{size: p.sliceSize, tailSize: p.tailSize}
 }
 
 // findTopologyAssignmentState stores the derived state for a single run of the
@@ -697,7 +761,8 @@ func newTASExclusionStats() *tasExclusionStats {
 }
 
 func (s *tasExclusionStats) hasExclusions() bool {
-	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 || len(s.Resources) > 0
+	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 ||
+		len(s.Resources) > 0 || s.SchedulerLibraryNoFit > 0 || s.DRANoFit > 0
 }
 
 func (s *tasExclusionStats) formatReasons() string {
@@ -713,6 +778,9 @@ func (s *tasExclusionStats) formatReasons() string {
 	}
 	if s.SchedulerLibraryNoFit > 0 {
 		reasons = append(reasons, fmt.Sprintf("schedulerLibraryNoFit: %d", s.SchedulerLibraryNoFit))
+	}
+	if s.DRANoFit > 0 {
+		reasons = append(reasons, fmt.Sprintf("draNoFit: %d", s.DRANoFit))
 	}
 	for _, taint := range slices.Sorted(maps.Keys(s.Taints)) {
 		reasons = append(reasons, fmt.Sprintf("taint %q: %d", taint, s.Taints[taint]))
@@ -737,6 +805,7 @@ func (s *tasExclusionStats) add(other *tasExclusionStats) {
 	s.Affinity += other.Affinity
 	s.TopologyDomain += other.TopologyDomain
 	s.SchedulerLibraryNoFit += other.SchedulerLibraryNoFit
+	s.DRANoFit += other.DRANoFit
 	for k, v := range other.Taints {
 		if s.Taints == nil {
 			s.Taints = make(map[string]int)
@@ -824,16 +893,11 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 		// Without an admission there is nothing to replace; take the fresh-placement path.
 		if workload.HasUnhealthyNodes(wlObj) && wlObj.Status.Admission != nil {
 			for _, tr := range trs {
-				// In case of looking for Node replacement, TopologyRequest has only
-				// PodSets with the Node to replace, so we match PodSetAssignment
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
 					continue
 				}
-				if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wlObj) {
-					// The pod cannot relocate and the Workload cannot outlive it; keep
-					// the existing assignment so admit clears UnhealthyNodes without
-					// diverging from the node the pod actually runs on.
+				if shouldKeepExistingAssignment(wlObj, psa) {
 					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: utiltas.InternalFrom(psa.TopologyAssignment)}
 					continue
 				}
@@ -882,6 +946,17 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	return result
 }
 
+func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignment) bool {
+	if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+		// The pod cannot relocate and the Workload cannot outlive it; keep
+		// the existing assignment so admit clears UnhealthyNodes without
+		// diverging from the node the pod actually runs on.
+		return true
+	}
+	return features.Enabled(features.TASReplaceMultipleFailedNodes) &&
+		!utiltas.HasNodeInPodSetAssignment(psa, workload.FirstUnhealthyNodeName(wl))
+}
+
 func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetRequests) {
 	var leader *TASPodSetRequests = nil
 
@@ -911,11 +986,16 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	wl *workload.Info,
 	assumedUsage *assumedUsage,
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
-	tr.Count = deleteDomain(existingAssignment, wl.Obj.Status.UnhealthyNodes[0].Name)
-	if isStale, staleDomain := s.IsTopologyAssignmentStale(existingAssignment); isStale {
+	headNodeName := workload.FirstUnhealthyNodeName(wl.Obj)
+	tr.Count = deleteDomain(existingAssignment, headNodeName)
+	ignoreNodes := s.replacementIgnoreNodes(wl.Obj, existingAssignment)
+	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoringNodes(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
 	requiredReplacementDomain := s.requiredReplacementDomain(tr, existingAssignment)
+	if isRequired(tr.PodSet.TopologyRequest) && len(existingAssignment.Domains) > 0 && requiredReplacementDomain == "" {
+		return nil, nil, "cannot replace the node: required topology domain of the remaining assignment cannot be determined"
+	}
 	trCopy := *tr
 	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
 	if reason != "" {
@@ -948,10 +1028,45 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 		return nil, nil, reason
 	}
 	if replacementAssignment == nil || len(replacementAssignment[tr.PodSet.Name].Domains) == 0 {
-		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", wl.Obj.Status.UnhealthyNodes[0].Name)
+		return nil, nil, fmt.Sprintf("cannot find replacement assignment for unhealthy node: %v", headNodeName)
 	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
+	// Merging orders the domains by their level values, which may leave the
+	// partial slice somewhere other than last.
+	s.normalizeTailLast(newAssignment, tr.PodSet.TopologyRequest, sliceSize)
+	if !s.assignmentSliceAligned(newAssignment, tr.PodSet.TopologyRequest, sliceSize) {
+		// The repair could not keep the slices whole, which the rank-based
+		// ungating relies on. Reject it and let the workload be rescheduled
+		// from scratch instead of publishing a misaligned assignment.
+		return nil, nil, fmt.Sprintf("cannot replace the node %v without splitting a PodSet slice", wl.Obj.Status.UnhealthyNodes[0].Name)
+	}
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
+}
+
+func (s *TASFlavorSnapshot) replacementIgnoreNodes(
+	wl *kueue.Workload,
+	existingAssignment *utiltas.TopologyAssignment,
+) sets.Set[string] {
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		return nil
+	}
+
+	// We only replace the head; other queued unhealthy nodes that may also be
+	// missing from the snapshot must not make the assignment appear stale.
+	ignoreNodes := sets.New[string]()
+	for _, n := range wl.Status.UnhealthyNodes[1:] {
+		ignoreNodes.Insert(n.Name)
+	}
+
+	// A node can fail after this replacement attempt was queued. Treat any other
+	// missing node-level domain as pending replacement; the admission patch
+	// preserves failures added after the recorded head.
+	for _, domain := range existingAssignment.Domains {
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
+			ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
+		}
+	}
+	return ignoreNodes
 }
 
 // assumedUsage holds the usage of the placements made earlier in this
@@ -1055,11 +1170,11 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 		if len(constraints) > 1 {
 			for _, v := range slices.Backward(constraints) {
 				if tr.Count%v.Size != 0 {
-					return s.findIncompleteSliceDomain(tr, ta, tr.Count, v.Size, v.Topology)
+					return s.findIncompleteSliceDomain(ta, tr.Count, v.Size, v.Topology)
 				}
 			}
 		}
-		return s.findIncompleteSliceDomain(tr, ta, tr.Count, sliceSize, s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.explicitLowestLevel()))
+		return s.findIncompleteSliceDomain(ta, tr.Count, sliceSize, s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.explicitLowestLevel()))
 	}
 
 	if !isRequired(tr.PodSet.TopologyRequest) {
@@ -1067,20 +1182,18 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 	}
 
 	nodeLevel := len(s.levelKeys) - 1
-	domainValues := ta.Domains[0].Values
-	if len(domainValues) == 0 {
-		return ""
+	// Queued failed nodes may be missing, but a surviving assignment still pins the required domain.
+	for _, assignment := range ta.Domains {
+		domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(assignment.Values)]
+		if !found {
+			continue
+		}
+		for i := nodeLevel; i > levelIdx; i-- {
+			domain = domain.parent
+		}
+		return domain.id
 	}
-	// Look up domain using full DomainID path (e.g., "b2,r1,b2-r1")
-	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
-	if !found {
-		return ""
-	}
-	// Find a domain that complies with the required policy
-	for i := nodeLevel; i > levelIdx; i-- {
-		domain = domain.parent
-	}
-	return domain.id
+	return ""
 }
 
 // domainForAssignmentValues resolves the domain referenced by a serialized
@@ -1113,6 +1226,25 @@ func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssign
 	return false, ""
 }
 
+// isTopologyAssignmentStaleIgnoringNodes returns whether the topologyAssignment contains
+// node-level domains missing from the snapshot, ignoring any node names in
+// ignoreNodes. Used by the head-of-queue replacement path so that other queued
+// unhealthy nodes (which may also be missing from the snapshot) do not poison
+// the stale-check for the head we are actively replacing.
+func (s *TASFlavorSnapshot) isTopologyAssignmentStaleIgnoringNodes(ta *utiltas.TopologyAssignment, ignoreNodes sets.Set[string]) (bool, string) {
+	for _, domain := range ta.Domains {
+		// Node name is the lowest-level value (last entry).
+		nodeName := domain.Values[len(domain.Values)-1]
+		if ignoreNodes.Has(nodeName) {
+			continue
+		}
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
+			return true, domain.Values[0]
+		}
+	}
+	return false, ""
+}
+
 // deleteDomain deletes the domain the has faulty node and returns number of affected pods by the node
 func deleteDomain(currentTopologyAssignment *utiltas.TopologyAssignment, unhealthyNode string) int32 {
 	var noAffectedPods int32 = 0
@@ -1128,32 +1260,80 @@ func deleteDomain(currentTopologyAssignment *utiltas.TopologyAssignment, unhealt
 	return noAffectedPods
 }
 
-func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment, missingCount int32, sliceSize int32, topologyKey string) utiltas.TopologyDomainID {
+// sliceLevelUsage is the number of pods an assignment places in one domain at
+// the slice level.
+type sliceLevelUsage struct {
+	domainID utiltas.TopologyDomainID
+	count    int32
+}
+
+// sliceLevelUsages groups the assignment by domain at the slice level,
+// preserving the order in which the domains appear in the assignment. That
+// order is the lexicographic order of the level values, established by
+// buildAssignment and preserved by mergeTopologyAssignments, and it is the
+// order the ungater ranks pods in.
+func (s *TASFlavorSnapshot) sliceLevelUsages(ta *utiltas.TopologyAssignment, sliceLevelIdx int) []sliceLevelUsage {
+	var usages []sliceLevelUsage
+	indexByDomain := make(map[utiltas.TopologyDomainID]int)
+
+	for _, domainFromAssignment := range ta.Domains {
+		domain := s.sliceLevelDomain(ta.Levels, domainFromAssignment.Values, sliceLevelIdx)
+		if domain == nil {
+			continue
+		}
+		if idx, seen := indexByDomain[domain.id]; seen {
+			usages[idx].count += domainFromAssignment.Count
+			continue
+		}
+		indexByDomain[domain.id] = len(usages)
+		usages = append(usages, sliceLevelUsage{domainID: domain.id, count: domainFromAssignment.Count})
+	}
+	return usages
+}
+
+// findIncompleteSliceDomain returns the domain that lost pods and now holds an
+// incomplete slice, so that the replacement pods can be confined to it.
+//
+// A healthy assignment holds a multiple of sliceSize pods in every domain at
+// the slice level, except that with partial slices enabled the last domain may
+// hold the trailing pods. A single unhealthy node perturbs exactly one domain,
+// so the damaged one is the domain whose pod count is restored to its expected
+// residue by the missing pods.
+//
+// The match is unique: an undamaged domain already holds its expected residue,
+// so it could only match if missingCount were a multiple of sliceSize, and the
+// callers only reach this function when it is not.
+func (s *TASFlavorSnapshot) findIncompleteSliceDomain(ta *utiltas.TopologyAssignment, missingCount int32, sliceSize int32, topologyKey string) utiltas.TopologyDomainID {
 	// this function assumes that all assignments are at the hostname level
 	sliceLevelIdx, found := s.resolveLevelIdx(topologyKey)
 	if !found {
 		return ""
 	}
 
-	// domainToUsage maps a domain at sliceLevel to the number of pods in it
-	domainToUsage := make(map[utiltas.TopologyDomainID]int32)
-	nodeLevel := len(s.levelKeys) - 1
+	usages := s.sliceLevelUsages(ta, sliceLevelIdx)
 
-	for _, domainFromAssignment := range ta.Domains {
-		domain, ok := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainFromAssignment.Values)]
-		if !ok {
-			continue
-		}
-
-		for i := nodeLevel; i > sliceLevelIdx; i-- {
-			domain = domain.parent
-		}
-		domainToUsage[domain.id] += domainFromAssignment.Count
+	// The PodSet count is recovered from the assignment itself rather than read
+	// from the PodSet, whose count may have moved on, e.g. for elastic jobs.
+	total := missingCount
+	for _, usage := range usages {
+		total += usage.count
+	}
+	tailResidue := int32(0)
+	if features.Enabled(features.TASPartialSlices) {
+		tailResidue = total % sliceSize
 	}
 
-	for domainID, count := range domainToUsage {
-		if (count+missingCount)%sliceSize == 0 {
-			return domainID
+	for i, usage := range usages {
+		expected := int32(0)
+		if i == len(usages)-1 {
+			// Only the last domain may hold a partial slice. When the
+			// domain that held it lost all of its pods, this is the domain
+			// that takes over as the last one, and confining the replacement
+			// to it restores the invariant.
+			expected = tailResidue
+		}
+		if (usage.count+missingCount)%sliceSize == expected {
+			return usage.domainID
 		}
 	}
 	return ""
@@ -1188,18 +1368,13 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		requiredReplacementDomain: requiredReplacementDomain,
 	}
 	state := &findTopologyAssignmentState{
-		topologyAssignmentParameters: topologyAssignmentParameters{
-			count: workersTasPodSetRequests.Count,
-		},
+		count: workersTasPodSetRequests.Count,
 		stats: &tasExclusionStats{},
 	}
-	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
-	requirements.requests.Add(resources.OnePodRequest)
+	requirements.podRequests = newPodRequests(workersTasPodSetRequests)
 
 	if leaderTasPodSetRequests != nil {
-		leaderRequests := leaderTasPodSetRequests.SinglePodRequests.Clone()
-		leaderRequests.Add(resources.OnePodRequest)
-		requirements.leader = &leaderRequirements{requests: leaderRequests}
+		requirements.leader = &leaderRequirements{podRequests: newPodRequests(*leaderTasPodSetRequests)}
 		// PodSet grouping validation requires the leader PodSet to have one replica.
 		state.leaderCount = 1
 	}
@@ -1214,7 +1389,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if len(reason) > 0 {
 		return nil, nil, reason
 	}
-	state.sliceSize = sliceSize
+	shape := newSliceShape(workersTasPodSetRequests.PodSet.TopologyRequest, state.count, sliceSize)
+	state.sliceSize = shape.size
+	state.tailSize = shape.tailSize
 
 	state.required = isRequired(workersTasPodSetRequests.PodSet.TopologyRequest)
 	state.unconstrained = isUnconstrained(workersTasPodSetRequests.PodSet.TopologyRequest, &workersTasPodSetRequests)
@@ -1263,7 +1440,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
-	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet)
+	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet, workloadNamespace(wl))
 	if reason != "" {
 		return nil, nil, reason
 	}
@@ -1286,7 +1463,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if reason != "" {
 			return nil, nil, reason
 		}
-		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet)
+		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet, workloadNamespace(wl))
 		if reason != "" {
 			return nil, nil, reason
 		}
@@ -1305,7 +1482,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	var currFitDomain []*domain
 	var fitLevelIdx int
 	var useBalancedPlacement bool
-	if features.Enabled(features.TASBalancedPlacement) && !state.required && !state.unconstrained {
+
+	// TODO: teach balanced placement about the partial slice. It
+	// distributes whole slices only, so until then a PodSet that has one falls
+	// back to the default path below, which places the partial slice for
+	// what it is.
+	if features.Enabled(features.TASBalancedPlacement) && !state.required && !state.unconstrained && !state.shape().hasTail() {
 		var bestThreshold int32
 		currFitDomain, bestThreshold = findBestDomainsForBalancedPlacement(s, &state.topologyAssignmentParameters)
 		useBalancedPlacement = bestThreshold > 0
@@ -1327,15 +1509,14 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	// phase 2b: traverse the tree down level-by-level optimizing the number of
 	// topology domains at each level
 	// if unconstrained is set, we'll only do it once
-	currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, state.count, state.leaderCount, state.sliceSize, state.unconstrained, true)
+	currFitDomain = s.updateCountsToMinimumGeneric(currFitDomain, state.count, state.leaderCount, state.shape(), state.unconstrained, true)
 	currentLevelIdx := fitLevelIdx
 	for ; currentLevelIdx < min(len(s.domainsPerLevel)-1, state.sliceLevelIdx) && !useBalancedPlacement; currentLevelIdx++ {
 		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
 		lowerDomains := s.lowerLevelDomains(currFitDomain)
-		lowerDomains = s.filterOutBannedDomains(lowerDomains, state.spreadRules)
 		sortedLowerDomains := s.sortedDomains(lowerDomains, state.unconstrained, state.spreadRules)
-		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.sliceSize, state.unconstrained, true)
+		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.shape(), state.unconstrained, true)
 	}
 
 	for ; currentLevelIdx < len(s.domainsPerLevel)-1; currentLevelIdx++ {
@@ -1355,8 +1536,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 		newCurrFitDomain := make([]*domain, 0)
 		for _, domain := range currFitDomain {
-			children := s.filterOutBannedDomains(domain.children, state.spreadRules)
-			sortedLowerDomains := s.sortedDomains(children, state.unconstrained, state.spreadRules)
+			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained, state.spreadRules)
 
 			if sliceSizeOnLevel > 1 {
 				// For inner slice layers, recompute sliceCount on the
@@ -1366,12 +1546,25 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 				for _, d := range sortedLowerDomains {
 					domainState := s.domainStateOf(d)
 					domainState.sliceCount = domainState.podCount / sliceSizeOnLevel
-					domainState.sliceCountWithLeader = domainState.podCountWithLeader / sliceSizeOnLevel
+					if state.leaderCount > 0 {
+						domainState.sliceCountWithLeader = domainState.podCountWithLeader / sliceSizeOnLevel
+					}
 				}
 			}
 
 			domainState := s.domainStateOf(domain)
-			addCurrFitDomain := s.updateCountsToMinimumGeneric(sortedLowerDomains, domainState.podCount, domainState.leaderCount, sliceSizeOnLevel, state.unconstrained, sliceSizeOnLevel > 1)
+			// The pod count of a domain holding the partial slice is not a
+			// multiple of the slice size, and the pods below the slice level
+			// are distributed one by one, so the partial slice needs no
+			// further tracking here.
+			addCurrFitDomain := s.updateCountsToMinimumGeneric(
+				sortedLowerDomains,
+				domainState.podCount,
+				domainState.leaderCount,
+				sliceShape{size: sliceSizeOnLevel},
+				state.unconstrained,
+				sliceSizeOnLevel > 1,
+			)
 			newCurrFitDomain = append(newCurrFitDomain, addCurrFitDomain...)
 		}
 		currFitDomain = newCurrFitDomain
@@ -1401,7 +1594,23 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		currFitDomain = workerFitDomains
 	}
 
-	assignments[workersTasPodSetRequests.PodSet.Name], leafAssignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(currFitDomain)
+	workerPodSetName := workersTasPodSetRequests.PodSet.Name
+	assignments[workerPodSetName], leafAssignments[workerPodSetName] = s.buildAssignment(currFitDomain)
+
+	if state.tailSize > 0 {
+		workerAssignment := assignments[workerPodSetName]
+		topologyRequest := workersTasPodSetRequests.PodSet.TopologyRequest
+		// The partial slice may have landed in any of the domains, while the
+		// ungater expects it last in the published order.
+		s.normalizeTailLast(workerAssignment, topologyRequest, state.sliceSize)
+		if utiltas.CountPodsInAssignment(workerAssignment) != state.count || !s.assignmentSliceAligned(workerAssignment, topologyRequest, state.sliceSize) {
+			// Defensive: the domains were selected knowing where the partial
+			// slice would go, so this means the descent disagreed with that
+			// choice. Reject the placement rather than publish an assignment
+			// the ungater would read as splitting a slice across domains.
+			return nil, nil, fmt.Sprintf("cannot place the partial slice of PodSet %s in a single topology domain", workerPodSetName)
+		}
+	}
 
 	return assignments, leafAssignments, ""
 }
@@ -1616,7 +1825,7 @@ func (s *TASFlavorSnapshot) findBestFitDomainBy(domains []*domain, needed int32,
 	found := false
 
 	for _, domain := range candidates {
-		if s.domainStateOf(domain).leaderCount < leaderCount {
+		if leaderCount > 0 && s.domainStateOf(domain).leaderCount < leaderCount {
 			continue
 		}
 		domainCount := countForDomain(domain)
@@ -1638,6 +1847,12 @@ func (s *TASFlavorSnapshot) findBestFitDomainBy(domains []*domain, needed int32,
 // findLevelWithFitDomains finds the highest-priority set of domains at or
 // above the searched level that can accommodate the requested slices and
 // leaders.
+//
+// A PodSet whose count is not a multiple of the slice size also has a
+// partial slice to place. It is not counted among the whole slices; instead
+// the capacity of a domain is read as the number of whole slices it holds while
+// it also holds the partial one, so that a set of domains is only selected
+// when the partial slice has a home inside it.
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	searchLevelIdx int,
 	state *findTopologyAssignmentState,
@@ -1647,17 +1862,41 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
+	// The only place spreading bans apply: rules can't be below this level, so
+	// the domains visited when descending from here are never banned.
 	levelDomains = s.filterOutBannedDomains(levelDomains, state.spreadRules)
 	if len(levelDomains) == 0 {
 		return 0, nil, fmt.Sprintf("topology spreading excludes all topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
-	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained, state.spreadRules)
+	var sortedDomain []*domain
+	if state.leaderCount > 0 {
+		sortedDomain = s.sortedDomainsWithLeader(levelDomains, state.unconstrained, state.spreadRules)
+	} else {
+		sortedDomain = s.sortedDomains(levelDomains, state.unconstrained, state.spreadRules)
+	}
 	topDomain := sortedDomain[0]
 
 	sliceCount := state.count / state.sliceSize
-	if useBestFitAlgorithm(state.unconstrained) && s.domainStateOf(topDomain).sliceCountWithLeader >= sliceCount && s.domainStateOf(topDomain).leaderCount >= state.leaderCount {
+	hasTail := state.tailSize > 0
+	// requestedSliceCount counts the partial slice as a slice of its own,
+	// which is how the PodSet reads in the failure messages.
+	requestedSliceCount := sliceCount
+	if hasTail {
+		requestedSliceCount++
+	}
+	// The domains are sorted by the slices they hold without the partial
+	// one, so the first of them is not necessarily able to hold it. The scan
+	// below is what finds a domain that can, which is why it also runs when the
+	// first domain does not fit the PodSet.
+	if useBestFitAlgorithm(state.unconstrained) && s.domainStateOf(topDomain).leaderCount >= state.leaderCount &&
+		(s.domainStateOf(topDomain).fitsSlices(sliceCount, state.leaderCount, hasTail) || hasTail) {
 		// optimize the potentially last domain
-		topDomain = s.findBestFitDomainForSlices(s.topSpreadTierDomains(sortedDomain, state.spreadRules), sliceCount, state.leaderCount)
+		candidates := s.topSpreadTierDomains(sortedDomain, state.spreadRules)
+		if hasTail {
+			topDomain = s.findBestFitDomainForSlicesWithTail(candidates, sliceCount, state.leaderCount)
+		} else {
+			topDomain = s.findBestFitDomainForSlices(candidates, sliceCount, state.leaderCount)
+		}
 	}
 	notFitReason := func(slicesFitCount, totalRequestsSlicesCount int32) string {
 		if len(state.multiLayerConstraints) > 0 {
@@ -1668,24 +1907,16 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 
 	if useLeastFreeCapacityAlgorithm(state.unconstrained) {
 		for _, candidateDomain := range sortedDomain {
-			candidateDomainState := s.domainStateOf(candidateDomain)
-			candidateCapacity := candidateDomainState.sliceCount
-			if state.leaderCount > 0 {
-				if candidateDomainState.leaderCount < state.leaderCount {
-					continue
-				}
-				candidateCapacity = candidateDomainState.sliceCountWithLeader
-			}
-			if candidateCapacity >= sliceCount {
+			if s.domainStateOf(candidateDomain).fitsSlices(sliceCount, state.leaderCount, hasTail) {
 				return searchLevelIdx, []*domain{candidateDomain}, ""
 			}
 		}
 		if state.required {
 			maxCapacityFound := s.domainStateOf(sortedDomain[len(sortedDomain)-1]).podCount
-			return 0, nil, notFitReason(maxCapacityFound, sliceCount)
+			return 0, nil, notFitReason(maxCapacityFound, requestedSliceCount)
 		}
 	}
-	if s.domainStateOf(topDomain).sliceCountWithLeader < sliceCount || s.domainStateOf(topDomain).leaderCount < state.leaderCount {
+	if !s.domainStateOf(topDomain).fitsSlices(sliceCount, state.leaderCount, hasTail) {
 		if state.required {
 			// topDomain is the roomiest domain only while the order stays
 			// capacity-descending. Preferred affinity and topology spreading
@@ -1694,23 +1925,31 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 			if features.Enabled(features.TASRespectNodeAffinityPreferred) || len(state.spreadRules) > 0 {
 				for i := 1; i < len(sortedDomain); i++ {
 					d := sortedDomain[i]
-					if s.domainStateOf(d).sliceCountWithLeader >= sliceCount && s.domainStateOf(d).leaderCount >= state.leaderCount {
-						return searchLevelIdx, []*domain{s.findBestFitDomainForSlices(s.topSpreadTierDomains(sortedDomain[i:], state.spreadRules), sliceCount, state.leaderCount)}, ""
+					if s.domainStateOf(d).fitsSlices(sliceCount, state.leaderCount, hasTail) {
+						candidates := s.topSpreadTierDomains(sortedDomain[i:], state.spreadRules)
+						if hasTail {
+							return searchLevelIdx, []*domain{s.findBestFitDomainForSlicesWithTail(candidates, sliceCount, state.leaderCount)}, ""
+						}
+						return searchLevelIdx, []*domain{s.findBestFitDomainForSlices(candidates, sliceCount, state.leaderCount)}, ""
 					}
 				}
 			}
-			return 0, nil, notFitReason(s.domainStateOf(topDomain).sliceCount, sliceCount)
+			return 0, nil, notFitReason(s.domainStateOf(topDomain).sliceCount, requestedSliceCount)
 		}
 		if searchLevelIdx > 0 && !state.unconstrained {
 			return s.findLevelWithFitDomains(searchLevelIdx-1, state)
 		}
 		results := []*domain{}
+		// assignedSlices[i] is what results[i] is expected to take, which the
+		// partial slice has to fit next to.
+		assignedSlices := []int32{}
+		takesLeader := []bool{}
 		remainingSliceCount := sliceCount
 		remainingLeaderCount := state.leaderCount
 		// Prioritize before selecting the fitting set, since later descent cannot
 		// recover a feasible leader domain omitted here. updateCountsToMinimumGeneric
 		// repeats this for each newly produced domain set during descent.
-		sortedDomain = s.prioritizeLeaderDomain(sortedDomain, state.count, state.leaderCount, state.sliceSize, true)
+		sortedDomain = s.prioritizeLeaderDomain(sortedDomain, state.count, state.leaderCount, state.shape(), true)
 
 		// Assign leaders first from a domain that preserves total worker capacity.
 		// After assigning all leaders, sort the remaining domains by worker capacity
@@ -1723,12 +1962,14 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 				domain = s.findBestFitDomainForSlices(s.topSpreadTierDomains(sortedDomain[idx:], state.spreadRules), remainingSliceCount, remainingLeaderCount)
 			}
 			results = append(results, domain)
+			assignedSlices = append(assignedSlices, min(s.domainStateOf(domain).sliceCountWithLeader, remainingSliceCount))
+			takesLeader = append(takesLeader, true)
 
 			remainingLeaderCount -= s.domainStateOf(domain).leaderCount
 			remainingSliceCount -= s.domainStateOf(domain).sliceCountWithLeader
 		}
 		if remainingLeaderCount > 0 {
-			return 0, nil, notFitReason(state.leaderCount-remainingLeaderCount, sliceCount)
+			return 0, nil, notFitReason(state.leaderCount-remainingLeaderCount, requestedSliceCount)
 		}
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
@@ -1741,11 +1982,30 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 				domain = s.findBestFitDomainForSlices(s.topSpreadTierDomains(sortedDomain[idx:], state.spreadRules), remainingSliceCount, 0)
 			}
 			results = append(results, domain)
+			assignedSlices = append(assignedSlices, min(s.domainStateOf(domain).sliceCount, remainingSliceCount))
+			takesLeader = append(takesLeader, false)
 
 			remainingSliceCount -= s.domainStateOf(domain).sliceCount
 		}
 		if remainingSliceCount > 0 {
-			return 0, nil, notFitReason(sliceCount-remainingSliceCount, sliceCount)
+			return 0, nil, notFitReason(sliceCount-remainingSliceCount, requestedSliceCount)
+		}
+		if hasTail && !s.selectionHoldsTail(results, assignedSlices, takesLeader) {
+			// None of the selected domains has room for the partial slice
+			// next to the whole ones, so the set has to be widened by a domain
+			// that can hold it. Every domain is a candidate, not only those
+			// past the last one visited: best fit takes the closing domain out
+			// of order, leaving earlier ones unused.
+			//
+			// One of them is always able to hold the partial slice when a
+			// placement exists at all. A domain holding a whole slice holds the
+			// partial one too, since that is smaller, so the greedy above
+			// leaves a domain out only when the slices it holds are not needed.
+			extra := s.firstDomainHostingTail(sortedDomain, results)
+			if extra == nil {
+				return 0, nil, notFitReason(sliceCount, requestedSliceCount)
+			}
+			results = append(results, extra)
 		}
 		return searchLevelIdx, results, ""
 	}
@@ -1842,7 +2102,12 @@ func (s *TASFlavorSnapshot) consumeWithLeadersGeneric(
 // prioritizeLeaderDomain preserves the capacity summarized by fillInCountsHelper.
 // That summary subtracts the smallest eligible child leader penalty, so descent
 // must select a leader-capable domain whose penalty fits within the available slack.
-func (s *TASFlavorSnapshot) prioritizeLeaderDomain(domains []*domain, count, leaderCount, sliceSize int32, slicesEnabled bool) []*domain {
+//
+// When the shape has a partial slice, the summary subtracts the cost of
+// holding the leader and the partial slice together, so the two are costed
+// together here as well: a domain that is the only home left for the partial
+// slice is not given the leader.
+func (s *TASFlavorSnapshot) prioritizeLeaderDomain(domains []*domain, count, leaderCount int32, shape sliceShape, slicesEnabled bool) []*domain {
 	if leaderCount == 0 || len(domains) < 2 {
 		return domains
 	}
@@ -1850,7 +2115,7 @@ func (s *TASFlavorSnapshot) prioritizeLeaderDomain(domains []*domain, count, lea
 	requiredCapacity := count
 	availableCapacity := int32(0)
 	if slicesEnabled {
-		requiredCapacity /= sliceSize
+		requiredCapacity /= shape.size
 		for _, domain := range domains {
 			availableCapacity += s.domainStateOf(domain).sliceCount
 		}
@@ -1858,6 +2123,12 @@ func (s *TASFlavorSnapshot) prioritizeLeaderDomain(domains []*domain, count, lea
 		for _, domain := range domains {
 			availableCapacity += s.domainStateOf(domain).podCount
 		}
+	}
+
+	hasTail := slicesEnabled && shape.hasTail()
+	var tailCosts cheapestChild
+	if hasTail {
+		tailCosts = s.cheapestTailDomains(domains)
 	}
 
 	for i, domain := range domains {
@@ -1868,6 +2139,13 @@ func (s *TASFlavorSnapshot) prioritizeLeaderDomain(domains []*domain, count, lea
 		leaderPenalty := domainState.podCount - domainState.podCountWithLeader
 		if slicesEnabled {
 			leaderPenalty = domainState.sliceCount - domainState.sliceCountWithLeader
+		}
+		if hasTail {
+			penalty, ok := s.leaderPenaltyWithTail(domains, &tailCosts, i)
+			if !ok {
+				continue
+			}
+			leaderPenalty = penalty
 		}
 		if availableCapacity-leaderPenalty < requiredCapacity {
 			continue
@@ -1884,20 +2162,36 @@ func (s *TASFlavorSnapshot) prioritizeLeaderDomain(domains []*domain, count, lea
 	return domains
 }
 
-func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, count int32, leaderCount int32, sliceSize int32, unconstrained bool, slices bool) []*domain {
-	domains = s.prioritizeLeaderDomain(domains, count, leaderCount, sliceSize, slices)
+// updateCountsToMinimumGeneric distributes count over the domains, in whole
+// slices or in single pods, and returns the domains it used.
+//
+// The shape's partial slice is placed alongside the whole ones. It is empty
+// unless slices are being distributed and the PodSet count is not a multiple of
+// the slice size.
+func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, count int32, leaderCount int32, shape sliceShape, unconstrained bool, distributeSlices bool) []*domain {
+	domains = s.prioritizeLeaderDomain(domains, count, leaderCount, shape, distributeSlices)
 	result := make([]*domain, 0)
 	remainingPrimary := count
-	if slices {
-		remainingPrimary = count / sliceSize
+	if distributeSlices {
+		remainingPrimary = count / shape.size
 	}
 	remainingLeaderCount := leaderCount
+	// The partial slice is only tracked while whole slices are distributed.
+	// Below the slice level the pods of the domain holding it, including its
+	// own, are distributed one by one.
+	tailPending := distributeSlices && shape.hasTail()
+	tailHosted := false
 
 	for i, dom := range domains {
+		if tailPending && !tailHosted {
+			if tailDom, ok := s.closingDomainWithTail(domains[i:], remainingPrimary, remainingLeaderCount, shape, unconstrained); ok {
+				return append(result, tailDom)
+			}
+		}
 		if remainingLeaderCount > 0 {
 			var d *domain
 			var completed bool
-			if slices {
+			if distributeSlices {
 				d, completed = s.consumeWithLeadersGeneric(
 					dom,
 					domains[i:],
@@ -1906,7 +2200,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 					unconstrained,
 					&s.domainStateOf(dom).sliceCountWithLeader,
 					&s.domainStateOf(dom).sliceCount,
-					sliceSize,
+					shape.size,
 					true,
 				)
 			} else {
@@ -1923,14 +2217,15 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 				)
 			}
 			result = append(result, d)
+			tailHosted = tailHosted || (tailPending && s.hostsTailWithAssignedSlices(d))
 			if completed {
-				return result
+				return s.finishSliceDistribution(result, domains, shape, count, tailPending)
 			}
 			continue
 		}
 
 		// No leaders remaining: handle tail without leaders
-		if slices {
+		if distributeSlices {
 			if useBestFitAlgorithm(unconstrained) && s.domainStateOf(dom).sliceCount >= remainingPrimary {
 				// optimize the last domain
 				dom = s.findBestFitDomainForSlices(domains[i:], remainingPrimary, 0)
@@ -1938,14 +2233,15 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 			domainState := s.domainStateOf(dom)
 			domainState.leaderCount = 0
 			if domainState.sliceCount >= remainingPrimary {
-				domainState.podCount = remainingPrimary * sliceSize
+				domainState.podCount = remainingPrimary * shape.size
 				domainState.sliceCount = remainingPrimary
 				result = append(result, dom)
-				return result
+				return s.finishSliceDistribution(result, domains, shape, count, tailPending)
 			}
-			domainState.podCount = domainState.sliceCount * sliceSize
+			domainState.podCount = domainState.sliceCount * shape.size
 			remainingPrimary -= domainState.sliceCount
 			result = append(result, dom)
+			tailHosted = tailHosted || (tailPending && s.hostsTailWithAssignedSlices(dom))
 			continue
 		}
 
@@ -1970,7 +2266,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		"remainingLeaderCount", remainingLeaderCount,
 		"count", count,
 		"leaderCount", leaderCount,
-		"sliceSize", sliceSize,
+		"sliceSize", shape.size,
 		"unconstrained", unconstrained,
 		"topologyName", s.topologyName,
 		"domainCount", len(domains),
@@ -2172,7 +2468,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		}
 		s.fillLeaderOnlyLeafCounts(requirements, state, matchingLeaves, cachingRemainingResourcesEnabled)
 	case s.leafIsNode():
-		feasibleLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
+		feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &state.stats.NodeExclusionStats)
 		if err != nil {
 			return err
 		}
@@ -2197,7 +2493,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		s.recordUsageDomainCaps(requirements)
 	}
 	for _, root := range s.roots {
-		s.fillInCountsHelper(root, state.sliceSize, state.sliceLevelIdx, 0, state.sliceSizeAtLevel, state.leaderCount > 0)
+		s.fillInCountsHelper(root, state.shape(), state.sliceLevelIdx, 0, state.sliceSizeAtLevel, state.leaderCount > 0)
 	}
 	// Populated here, rather than by the caller, because this function clears
 	// domainStates at its start - anywhere earlier would be wiped out.
@@ -2213,9 +2509,12 @@ func (s *TASFlavorSnapshot) recordUsageDomainCaps(requirements *topologyAssignme
 		remaining := s.domainRemainingCapacity(dom, requirements.assumedUsage.perDomain[domainID], requirements.podRequirements.SimulateEmpty)
 		domainState := s.domainStateOf(dom)
 		domainState.capacityBound.podCount = requirements.requests.CountIn(remaining.Get())
+		if requirements.leader == nil {
+			continue
+		}
 
 		domainState.capacityBound.leaderCount = 0
-		if requirements.leader != nil && requirements.leader.requests.CountIn(remaining.Get()) > 0 {
+		if requirements.leader.requests.CountIn(remaining.Get()) > 0 {
 			domainState.capacityBound.leaderCount = 1
 			remaining.Sub(requirements.leader.requests)
 		}
@@ -2240,10 +2539,19 @@ func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string)
 	return info, ""
 }
 
+// workloadNamespace returns the namespace the PodSet's claims live in, empty when
+// there is no Workload to take it from.
+func workloadNamespace(wl *workload.Info) string {
+	if wl == nil {
+		return ""
+	}
+	return wl.Obj.Namespace
+}
+
 // buildPodRequirements turns a PodSet into the node filters TAS applies to it, in the
 // field form the default simulator reads and in the Pod template the scheduler library
 // reads. A non-empty second return value is the reason the PodSet cannot be placed.
-func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
+func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet, namespace string) (simulator.PodRequirements, string) {
 	var podRequirements simulator.PodRequirements
 	podRequirements.Tolerations = utiltolerations.Merge(info.Tolerations, s.tolerations)
 
@@ -2283,6 +2591,9 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	podRequirements.PodTemplate = podSet.Template.DeepCopy()
 	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
 	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
+	// A PodSet template carries no namespace, and the simulator resolves the
+	// Workload's namespaced ResourceClaims through it.
+	podRequirements.PodTemplate.Namespace = namespace
 	return podRequirements, ""
 }
 
@@ -2312,7 +2623,7 @@ func (s *TASFlavorSnapshot) fillLeaderFeasibleLeaves(
 		scores[i] = leaf.GetAffinityScore()
 	}
 	leaderStats := newTASExclusionStats()
-	leaderLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx,
+	leaderLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx,
 		simulator.AsCandidates(slices.Values(allLeaves)),
 		requirements.leader.podRequirements,
 		&leaderStats.NodeExclusionStats)
@@ -2384,7 +2695,7 @@ func (s *TASFlavorSnapshot) fillLeaderOnlyLeafCounts(
 			continue
 		}
 		remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
-		if requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
+		if requirements.leader.forLeaf(leaf).CountIn(remainingCapacity.Get()) > 0 {
 			// podCount stays zero: the domain gains a place for the leader, not room
 			// for workers.
 			s.domainStateOf(&leaf.domain).leaderCount = 1
@@ -2411,7 +2722,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 
 	leafStats := newTASExclusionStats()
 	var err error
-	feasibleLeaves, err := s.simulatorSnapshot.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
+	feasibleLeaves, err := s.schedulerSimulator.FindFeasibleNodes(ctx, simulator.AsCandidates(s.candidates()), &requirements.podRequirements, &leafStats.NodeExclusionStats)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2467,32 +2778,40 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	remainingCapacity := s.availableCapacityForLeaf(leaf, requirements, cachingRemainingResourcesEnabled)
 	var limitingRes corev1.ResourceName
 	leafDomainState := s.domainStateOf(&leaf.domain)
-	leafDomainState.podCount, limitingRes = requirements.requests.CountInWithLimitingResource(remainingCapacity.Get())
+	leafDomainState.podCount, limitingRes = requirements.forLeaf(leaf).CountInWithLimitingResource(remainingCapacity.Get())
 
 	// Track resource exclusions: if this node can't fit even one pod,
 	// identify which resource is the bottleneck.
 	if leafDomainState.podCount == 0 && limitingRes != "" {
 		state.stats.recordResourceExclusion(limitingRes)
 	}
-
-	leafDomainState.leaderCount = 0
-	if requirements.leader != nil && state.leaderFeasibleFor(leaf) &&
-		requirements.leader.requests.CountIn(remainingCapacity.Get()) > 0 {
-		leafDomainState.leaderCount = 1
-		remainingCapacity.Sub(requirements.leader.requests)
+	if requirements.leader == nil {
+		return
 	}
 
-	leafDomainState.podCountWithLeader = requirements.requests.CountIn(remainingCapacity.Get())
+	leafDomainState.leaderCount = 0
+	if state.leaderFeasibleFor(leaf) &&
+		requirements.leader.forLeaf(leaf).CountIn(remainingCapacity.Get()) > 0 {
+		leafDomainState.leaderCount = 1
+		remainingCapacity.Sub(requirements.leader.forLeaf(leaf))
+	}
+
+	leafDomainState.podCountWithLeader = requirements.forLeaf(leaf).CountIn(remainingCapacity.Get())
 }
 
-func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {
+func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {
 	domainState := s.domainStateOf(domain)
 	// logic for a leaf
 	if len(domain.children) == 0 {
 		if level == sliceLevelIdx {
 			// initialize the sliceCount if leaf is the request slice level
-			domainState.sliceCount = domainState.podCount / sliceSize
-			domainState.sliceCountWithLeader = domainState.podCountWithLeader / sliceSize
+			domainState.sliceCount = domainState.podCount / shape.size
+			if leaderRequired {
+				domainState.sliceCountWithLeader = domainState.podCountWithLeader / shape.size
+			}
+			if shape.hasTail() {
+				fillTailCountsAtSliceLevel(domainState, shape)
+			}
 		}
 		return
 	}
@@ -2504,6 +2823,10 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	minSliceCountWithLeaderDifference := int32(math.MaxInt32)
 	leaderCount := int32(0)
 	affinityScore := int64(0)
+	// tracksTail is false below the slice level, where a domain is too
+	// fine-grained to hold a slice and the slice counts carry no meaning.
+	tracksTail := shape.hasTail() && level < sliceLevelIdx
+	var tailPenalties tailPenaltyTracker
 
 	// When multi-layer constraints exist, children at a constrained level
 	// can only contribute pods in multiples of the inner slice size.
@@ -2512,53 +2835,68 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, 
 	childLevel := level + 1
 	innerSize, hasInnerConstraint := sliceSizeAtLevel[childLevel]
 
-	for _, child := range domain.children {
-		s.fillInCountsHelper(child, sliceSize, sliceLevelIdx, childLevel, sliceSizeAtLevel, leaderRequired)
+	for childIdx, child := range domain.children {
+		s.fillInCountsHelper(child, shape, sliceLevelIdx, childLevel, sliceSizeAtLevel, leaderRequired)
 
 		childDomainState := s.domainStateOf(child)
 		childPodCount := childDomainState.podCount
-		childPodCountWithLeader := childDomainState.podCountWithLeader
 		if hasInnerConstraint {
 			childPodCount = (childDomainState.podCount / innerSize) * innerSize
-			childPodCountWithLeader = (childDomainState.podCountWithLeader / innerSize) * innerSize
 		}
 
 		childrenCapacity += childPodCount
 		sliceCapacity += childDomainState.sliceCount
-		if !leaderRequired || childDomainState.leaderCount > 0 {
+		leaderEligible := leaderRequired && childDomainState.leaderCount > 0
+		if leaderEligible {
+			childPodCountWithLeader := childDomainState.podCountWithLeader
+			if hasInnerConstraint {
+				childPodCountWithLeader = (childPodCountWithLeader / innerSize) * innerSize
+			}
 			hasWithLeaderCapacityContributor = true
 			minPodCountWithLeaderDifference = min(childPodCount-childPodCountWithLeader, minPodCountWithLeaderDifference)
 			minSliceCountWithLeaderDifference = min(childDomainState.sliceCount-childDomainState.sliceCountWithLeader, minSliceCountWithLeaderDifference)
+			leaderCount = max(childDomainState.leaderCount, leaderCount)
 		}
-		leaderCount = max(childDomainState.leaderCount, leaderCount)
+		if tracksTail {
+			tailPenalties.add(childIdx, childDomainState, leaderEligible)
+		}
 		affinityScore += childDomainState.affinityScore
 	}
 	domainState.podCount = childrenCapacity
-	sliceCountWithLeader := int32(0)
-	if hasWithLeaderCapacityContributor {
-		domainState.podCountWithLeader = childrenCapacity - minPodCountWithLeaderDifference
-		sliceCountWithLeader = sliceCapacity - minSliceCountWithLeaderDifference
-	} else {
-		domainState.podCountWithLeader = 0
-	}
-	domainState.leaderCount = leaderCount
+	domainState.sliceCount = sliceCapacity
 	domainState.affinityScore = affinityScore
+	childrenSliceCapacity := sliceCapacity
 	if s.virtualHostname && level == s.usageLevelIdx() {
 		domainState.podCount = min(domainState.podCount, domainState.capacityBound.podCount)
-		domainState.leaderCount = min(domainState.leaderCount, domainState.capacityBound.leaderCount)
-		// The leader's cost is measured against a leaf, so it can exceed the
-		// bounded pod count and drive the difference below zero.
-		domainState.podCountWithLeader = min(max(0, domainState.podCountWithLeader), domainState.capacityBound.podCountWithLeader)
-		sliceCapacity = min(sliceCapacity, domainState.podCount/sliceSize)
-		sliceCountWithLeader = min(max(0, sliceCountWithLeader), domainState.podCountWithLeader/sliceSize)
+		domainState.sliceCount = min(sliceCapacity, domainState.podCount/shape.size)
 	}
 	if level == sliceLevelIdx {
-		// initialize the sliceCount for the requested slice level.
-		sliceCapacity = domainState.podCount / sliceSize
-		sliceCountWithLeader = domainState.podCountWithLeader / sliceSize
+		domainState.sliceCount = domainState.podCount / shape.size
 	}
-	domainState.sliceCount = sliceCapacity
-	domainState.sliceCountWithLeader = sliceCountWithLeader
+	if leaderRequired {
+		sliceCountWithLeader := int32(0)
+		if hasWithLeaderCapacityContributor {
+			domainState.podCountWithLeader = childrenCapacity - minPodCountWithLeaderDifference
+			sliceCountWithLeader = sliceCapacity - minSliceCountWithLeaderDifference
+		} else {
+			domainState.podCountWithLeader = 0
+		}
+		domainState.leaderCount = leaderCount
+		if s.virtualHostname && level == s.usageLevelIdx() {
+			domainState.leaderCount = min(domainState.leaderCount, domainState.capacityBound.leaderCount)
+			// The leader's cost is measured against a leaf, so it can exceed the
+			// bounded pod count and drive the difference below zero.
+			domainState.podCountWithLeader = min(max(0, domainState.podCountWithLeader), domainState.capacityBound.podCountWithLeader)
+			sliceCountWithLeader = min(max(0, sliceCountWithLeader), domainState.podCountWithLeader/shape.size)
+		}
+		if level == sliceLevelIdx {
+			sliceCountWithLeader = domainState.podCountWithLeader / shape.size
+		}
+		domainState.sliceCountWithLeader = sliceCountWithLeader
+	}
+	if shape.hasTail() && level <= sliceLevelIdx {
+		fillTailCounts(domainState, shape, level == sliceLevelIdx, childrenSliceCapacity, &tailPenalties)
+	}
 }
 
 func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, stats *tasExclusionStats) string {
@@ -2642,13 +2980,14 @@ func (s *TASFlavorSnapshot) mergeTopologyAssignments(a, b *utiltas.TopologyAssig
 	sortedDomains = append(sortedDomains, a.Domains...)
 	sortedDomains = append(sortedDomains, b.Domains...)
 	slices.SortFunc(sortedDomains, func(a, b utiltas.TopologyDomainAssignment) int {
-		aDomain := s.domainForAssignmentValues(levels, a.Values)
-		bDomain := s.domainForAssignmentValues(levels, b.Values)
-		if aDomain == nil || bDomain == nil {
-			// Defensive: staleness is verified before merging.
-			return cmp.Compare(utiltas.DomainID(a.Values), utiltas.DomainID(b.Values))
+		aID, bID := utiltas.DomainID(a.Values), utiltas.DomainID(b.Values)
+		if aDomain := s.domainForAssignmentValues(levels, a.Values); aDomain != nil {
+			aID = utiltas.DomainID(aDomain.levelValues)
 		}
-		return cmp.Compare(utiltas.DomainID(aDomain.levelValues), utiltas.DomainID(bDomain.levelValues))
+		if bDomain := s.domainForAssignmentValues(levels, b.Values); bDomain != nil {
+			bID = utiltas.DomainID(bDomain.levelValues)
+		}
+		return cmp.Compare(aID, bID)
 	})
 	mergedDomains := make([]utiltas.TopologyDomainAssignment, 0, len(sortedDomains))
 	for _, domain := range sortedDomains {

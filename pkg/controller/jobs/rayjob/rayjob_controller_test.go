@@ -381,10 +381,8 @@ func TestPodSets(t *testing.T) {
 						},
 						RestartPolicy: corev1.RestartPolicyNever,
 					},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 				}).
 				Obj()),

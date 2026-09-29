@@ -39,6 +39,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 // TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing verifies the
@@ -55,9 +56,9 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 		requeueAfterBackoff bool
 		preprocessingRead   int
 	}{
-		"initial DRA queue insertion": {preprocessingRead: 1},
 		// Reconcile first reads defaults in needsDRAReconcile; handleDRA
 		// takes the preprocessing snapshot on the second read.
+		"initial DRA queue insertion":       {preprocessingRead: 2},
 		"DRA queue insertion after backoff": {requeueAfterBackoff: true, preprocessingRead: 2},
 	}
 	for name, tc := range cases {
@@ -71,7 +72,7 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 			wl := wlBuilder.Obj()
 			const gpu corev1.ResourceName = "example.com/gpu"
 			lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("DefaultRequest", gpu, "1").Obj()
-			dc := utiltesting.MakeDeviceClass("gpu.example.com").ExtendedResourceName(string(gpu)).Obj()
+			dc := testingdra.MakeDeviceClass("gpu.example.com").ExtendedResourceName(string(gpu)).Obj()
 			reads := 0
 			cl := utiltesting.NewClientBuilder().WithObjects(lr, dc).
 				WithStatusSubresource(wl).
@@ -97,7 +98,10 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 					}}).Build()
 			cache := schdcache.New(cl)
 			queues := qcache.NewManagerForUnitTests(cl, cache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
-			cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+			cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+			if err := cl.Create(ctx, cq); err != nil {
+				t.Fatal(err)
+			}
 			if err := cache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatal(err)
 			}
@@ -105,6 +109,9 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 				t.Fatal(err)
 			}
 			lq := utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj()
+			if err := cl.Create(ctx, lq); err != nil {
+				t.Fatal(err)
+			}
 			if err := queues.AddLocalQueue(ctx, lq); err != nil {
 				t.Fatal(err)
 			}
@@ -119,11 +126,7 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 			backedResources.Add(gpu, dc.Name)
 			reconciler := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{}, WithDRAMapper(mapper), WithDRABackedResources(backedResources))
 			reconciler.clock = testingclock.NewFakeClock(now)
-			if tc.requeueAfterBackoff {
-				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
-					t.Fatal(err)
-				}
-			} else if _, _, _, err := reconciler.handleDRA(ctx, wl); err != nil {
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
 				t.Fatal(err)
 			}
 			infos := queues.PendingWorkloadsInfo("cq")

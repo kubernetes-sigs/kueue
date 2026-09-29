@@ -256,6 +256,8 @@ func TestParseSpreadingAnnotation(t *testing.T) {
 func TestNewSpreadingSpec(t *testing.T) {
 	testCases := map[string]struct {
 		selectors     []metav1.LabelSelectorRequirement
+		rules         []SpreadingRule
+		wantRules     []SpreadingRule
 		defaultJobUID string
 		matchLabels   labels.Set
 		wantMatch     bool
@@ -300,11 +302,38 @@ func TestNewSpreadingSpec(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		"omitted enforcement mode defaults to Required": {
+			rules: []SpreadingRule{{TopologyKey: "a"}},
+			wantRules: []SpreadingRule{{
+				TopologyKey:     "a",
+				EnforcementMode: TopologySpreadingEnforcementModeRequired,
+			}},
+		},
+		"explicit Preferred enforcement mode is preserved": {
+			rules: []SpreadingRule{{
+				TopologyKey:     "a",
+				EnforcementMode: TopologySpreadingEnforcementModePreferred,
+			}},
+			wantRules: []SpreadingRule{{
+				TopologyKey:     "a",
+				EnforcementMode: TopologySpreadingEnforcementModePreferred,
+			}},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			rules := []SpreadingRule{{TopologyKey: "a"}}
+			rules := tc.rules
+			if rules == nil {
+				rules = []SpreadingRule{{TopologyKey: "a"}}
+			}
+			wantRules := tc.wantRules
+			if wantRules == nil {
+				wantRules = []SpreadingRule{{
+					TopologyKey:     "a",
+					EnforcementMode: TopologySpreadingEnforcementModeRequired,
+				}}
+			}
 
 			spec, err := NewSpreadingSpec(tc.selectors, rules, tc.defaultJobUID)
 
@@ -320,7 +349,7 @@ func TestNewSpreadingSpec(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewSpreadingSpec() unexpected error: %v", err)
 			}
-			if diff := cmp.Diff(rules, spec.Rules); diff != "" {
+			if diff := cmp.Diff(wantRules, spec.Rules); diff != "" {
 				t.Errorf("NewSpreadingSpec() Rules mismatch (-want +got):\n%s", diff)
 			}
 			if got := spec.Selector().Matches(tc.matchLabels); got != tc.wantMatch {
@@ -351,10 +380,14 @@ func TestExceedsShare(t *testing.T) {
 		"exactly at the share":         {maxShare: "0.5", count: 1, total: 2, want: false},
 		"exactly at a repeating share": {maxShare: "0.1", count: 1, total: 10, want: false},
 
-		// The comparison is cross-multiplied against the share reduced to
-		// milli, so it resolves 0.1% differences without rounding a float.
-		"just over a milli-precision share":  {maxShare: "0.333", count: 1, total: 3, want: true},
-		"just under a milli-precision share": {maxShare: "0.334", count: 1, total: 3, want: false},
+		// The comparison is evaluated exactly without upward rounding from
+		// Quantity.ScaledValue(resource.Milli), so it resolves precision
+		// finer than 0.1% without permitting occupancy over the share.
+		"just over a milli-precision share":                    {maxShare: "0.333", count: 1, total: 3, want: true},
+		"just under a milli-precision share":                   {maxShare: "0.334", count: 1, total: 3, want: false},
+		"over sub-milli share that ScaledValue would round up": {maxShare: "0.4501", count: 451, total: 1000, want: true},
+		"under sub-milli share":                                {maxShare: "0.4501", count: 450, total: 1000, want: false},
+		"exactly at sub-milli share":                           {maxShare: "0.4501", count: 4501, total: 10000, want: false},
 	}
 
 	for name, tc := range cases {
@@ -366,6 +399,77 @@ func TestExceedsShare(t *testing.T) {
 			if got := rule.ExceedsShare(tc.count, tc.total); got != tc.want {
 				t.Errorf("ExceedsShare(%d, %d) with maxShareAllowingPlacement %s = %t, want %t",
 					tc.count, tc.total, tc.maxShare, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSpreadingAnnotationsAgree(t *testing.T) {
+	const compact = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+	testCases := map[string]struct {
+		a, b string
+		want bool
+	}{
+		"identical valid strings": {
+			a: compact, b: compact, want: true,
+		},
+		"whitespace and property order": {
+			a:    compact,
+			b:    `{ "rules" : [ { "maxShareAllowingPlacement" : "0.45", "topologyKey" : "cloud.com/block" } ] }`,
+			want: true,
+		},
+		"omitted enforcement mode versus explicit Required": {
+			a:    compact,
+			b:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"}]}`,
+			want: true,
+		},
+		"equivalent quantity spellings": {
+			a:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.5"}]}`,
+			b:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"500m"}]}`,
+			want: true,
+		},
+		"omitted selectors versus an empty selector list": {
+			a:    compact,
+			b:    `{"workloadLabelSelectors":[],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			want: true,
+		},
+		"unknown fields discarded by the parser": {
+			a:    compact,
+			b:    `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}],"unknown":"field"}`,
+			want: true,
+		},
+		"different shares": {
+			a: compact,
+			b: `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.5"}]}`,
+		},
+		"rule array order is significant": {
+			a: `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"},{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.22"}]}`,
+			b: `{"rules":[{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.22"},{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+		},
+		"equivalent In values regardless of order": {
+			a:    `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["a","b"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			b:    `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["b","a"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			want: true,
+		},
+		"different selector values": {
+			a: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["a"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+			b: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["b"]}],"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`,
+		},
+		"differing unparseable input": {
+			a: "not-json", b: "also-not-json",
+		},
+		"identical malformed strings": {
+			a: "not-json", b: "not-json", want: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := SpreadingAnnotationsAgree(tc.a, tc.b); got != tc.want {
+				t.Errorf("SpreadingAnnotationsAgree() = %t, want %t", got, tc.want)
+			}
+			if got := SpreadingAnnotationsAgree(tc.b, tc.a); got != tc.want {
+				t.Errorf("SpreadingAnnotationsAgree() is not symmetric: reverse = %t, want %t", got, tc.want)
 			}
 		})
 	}

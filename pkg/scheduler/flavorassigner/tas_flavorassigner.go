@@ -112,6 +112,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	podSet.Template.Spec = *wl.PodSpec(podSetIndex)
 	// Use PodSpec directly for TAS placement, not quota-filtered admission values.
 	singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpec(podSetIndex))
+	draDelegation := delegateDRABackedExtendedResources(wl.PodSpec(podSetIndex), cq.DRABackedResources(), singlePodRequests)
 	var podSetUpdates []*kueue.PodSetUpdate
 	for _, ac := range wl.Obj.Status.AdmissionChecks {
 		if ac.State == kueue.CheckStateReady {
@@ -125,6 +126,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	return &schdcache.TASPodSetRequests{
 		Count:              podCount,
 		SinglePodRequests:  singlePodRequests,
+		DRADelegation:      draDelegation,
 		PodSet:             podSet,
 		PodSetUpdates:      podSetUpdates,
 		Flavor:             *tasFlvr,
@@ -177,7 +179,13 @@ func checkPodSetAndFlavorMatchForTAS(
 		if isTASImplied(ps, cq) {
 			// If this is a TAS-only CQ, then we don't need to check the flavor because
 			// all flavors in the ClusterQueue are TAS flavors, and all Workloads submitted
-			// to this ClusterQueue are expected to use TAS, and it's a match.
+			// to this ClusterQueue are expected to use TAS. However, when topology spreading
+			// is enabled, verify that required spreading levels are satisfied.
+			if features.Enabled(features.TASTopologySpreading) {
+				if reason := checkRequiredSpreadingLevels(cq.TASFlavors[kueue.ResourceFlavorReference(flavor.Name)], topologySpreading, ps, flavor.Name); reason != nil {
+					return reason
+				}
+			}
 			return nil
 		}
 		// PodSet explicitly requires TAS, so we need to check if the flavor supports it.
@@ -202,9 +210,8 @@ func checkPodSetAndFlavorMatchForTAS(
 			return new(fmt.Sprintf("Flavor %q does not contain the requested level", flavor.Name))
 		}
 		if features.Enabled(features.TASTopologySpreading) {
-			spec := topologySpreading[tas.GroupKeyForPodSet(ps)]
-			if !s.HasRequiredSpreadingLevels(spec) {
-				return new(fmt.Sprintf("Flavor %q does not contain a topology level required by topology spreading", flavor.Name))
+			if reason := checkRequiredSpreadingLevels(s, topologySpreading, ps, flavor.Name); reason != nil {
+				return reason
 			}
 		}
 		// PodSet requires TAS and the flavor supports it, so it's a match.
@@ -215,6 +222,22 @@ func checkPodSetAndFlavorMatchForTAS(
 		return new(fmt.Sprintf("Flavor %q supports only TopologyAwareScheduling", flavor.Name))
 	}
 	// PodSet doesn't require TAS and the flavor doesn't support it, so it's a match.
+	return nil
+}
+
+func checkRequiredSpreadingLevels(
+	s *schdcache.TASFlavorSnapshot,
+	topologySpreading map[tas.PodSetGroupKey]*tas.SpreadingSpec,
+	ps *kueue.PodSet,
+	flavorName string,
+) *string {
+	if s == nil {
+		return nil
+	}
+	spec := topologySpreading[tas.GroupKeyForPodSet(ps)]
+	if !s.HasRequiredSpreadingLevels(spec) {
+		return new(fmt.Sprintf("Flavor %q does not contain a topology level required by topology spreading", flavorName))
+	}
 	return nil
 }
 

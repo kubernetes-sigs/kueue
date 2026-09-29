@@ -193,8 +193,8 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 
 func (o *LocalQueueOptions) createLocalQueue() *kueue.LocalQueue {
 	return &kueue.LocalQueue{
-		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "LocalQueue"},
-		ObjectMeta: metav1.ObjectMeta{Name: o.Name, Namespace: o.Namespace},
-		Spec:       kueue.LocalQueueSpec{ClusterQueue: o.ClusterQueue},
+		APIVersion: kueue.SchemeGroupVersion.String(), Kind: "LocalQueue",
+		Name: o.Name, Namespace: o.Namespace,
+		Spec: kueue.LocalQueueSpec{ClusterQueue: o.ClusterQueue},
 	}
 }

@@ -35,15 +35,9 @@ type DynamicQuotaOrchestratorWrapper struct {
 // MakeDynamicQuotaOrchestrator creates a DynamicQuotaOrchestrator wrapper.
 func MakeDynamicQuotaOrchestrator(name string) *DynamicQuotaOrchestratorWrapper {
 	return &DynamicQuotaOrchestratorWrapper{
-		DynamicQuotaOrchestrator: kueuealpha.DynamicQuotaOrchestrator{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: kueuealpha.SchemeGroupVersion.String(),
-				Kind:       "DynamicQuotaOrchestrator",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		APIVersion: kueuealpha.SchemeGroupVersion.String(),
+		Kind:       "DynamicQuotaOrchestrator",
+		Name:       name,
 	}
 }
 
@@ -127,15 +121,9 @@ type CapacityProviderWrapper struct {
 // MakeCapacityProvider creates a CapacityProvider wrapper.
 func MakeCapacityProvider(name string) *CapacityProviderWrapper {
 	return &CapacityProviderWrapper{
-		CapacityProvider: kueuealpha.CapacityProvider{
-			TypeMeta: metav1.TypeMeta{
-				APIVersion: kueuealpha.SchemeGroupVersion.String(),
-				Kind:       "CapacityProvider",
-			},
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		APIVersion: kueuealpha.SchemeGroupVersion.String(),
+		Kind:       "CapacityProvider",
+		Name:       name,
 	}
 }
 
@@ -224,10 +212,8 @@ type CapacityProviderNormalizedCapacityFlavorWrapper struct {
 // MakeNormalizedCapacityFlavor creates a CapacityProviderNormalizedCapacityFlavor wrapper.
 func MakeNormalizedCapacityFlavor(name string) *CapacityProviderNormalizedCapacityFlavorWrapper {
 	return &CapacityProviderNormalizedCapacityFlavorWrapper{
-		CapacityProviderNormalizedCapacityFlavor: kueuealpha.CapacityProviderNormalizedCapacityFlavor{
-			Name:      kueuealpha.ResourceFlavorReference(name),
-			Resources: corev1.ResourceList{},
-		},
+		Name:      kueuealpha.ResourceFlavorReference(name),
+		Resources: corev1.ResourceList{},
 	}
 }
 
@@ -274,10 +260,8 @@ type EffectiveCapacityFlavorWrapper struct {
 // MakeEffectiveCapacityFlavor creates an EffectiveCapacityFlavor wrapper.
 func MakeEffectiveCapacityFlavor(name string) *EffectiveCapacityFlavorWrapper {
 	return &EffectiveCapacityFlavorWrapper{
-		EffectiveCapacityFlavor: kueuealpha.EffectiveCapacityFlavor{
-			Name:      kueuealpha.ResourceFlavorReference(name),
-			Resources: corev1.ResourceList{},
-		},
+		Name:      kueuealpha.ResourceFlavorReference(name),
+		Resources: corev1.ResourceList{},
 	}
 }
 
@@ -293,4 +277,101 @@ func (f *EffectiveCapacityFlavorWrapper) Resource(name corev1.ResourceName, qty 
 // Obj returns the inner EffectiveCapacityFlavor.
 func (f *EffectiveCapacityFlavorWrapper) Obj() *kueuealpha.EffectiveCapacityFlavor {
 	return &f.EffectiveCapacityFlavor
+}
+
+// PreemptionConfigWrapper wraps a PreemptionConfig.
+type PreemptionConfigWrapper struct {
+	kueuealpha.PreemptionConfig
+}
+
+// MakePreemptionConfig creates a PreemptionConfig wrapper.
+func MakePreemptionConfig(name string) *PreemptionConfigWrapper {
+	return &PreemptionConfigWrapper{
+		Name: name,
+	}
+}
+
+// Rule appends a rule to the PreemptionConfig.
+func (pc *PreemptionConfigWrapper) Rule(
+	name string,
+	trigger kueuealpha.PreemptionConfigActivationTrigger,
+	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
+) *PreemptionConfigWrapper {
+	return pc.RuleWithPreemptorSelector(name, trigger, nil, selectors...)
+}
+
+// RuleWithPreemptorSelector appends a rule with a custom PreemptorSelector to the PreemptionConfig.
+func (pc *PreemptionConfigWrapper) RuleWithPreemptorSelector(
+	name string,
+	trigger kueuealpha.PreemptionConfigActivationTrigger,
+	preemptorSelector *metav1.LabelSelector,
+	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
+) *PreemptionConfigWrapper {
+	pc.Spec.Rules = append(pc.Spec.Rules, kueuealpha.PreemptionConfigPreemptionRule{
+		Name:               name,
+		ActivationPolicy:   kueuealpha.PreemptionConfigActivationPolicy{Trigger: trigger},
+		PreemptorSelector:  preemptorSelector,
+		CandidateSelectors: selectors,
+	})
+	return pc
+}
+
+// Rules sets the rules of the PreemptionConfig.
+func (pc *PreemptionConfigWrapper) Rules(rules ...kueuealpha.PreemptionConfigPreemptionRule) *PreemptionConfigWrapper {
+	pc.Spec.Rules = rules
+	return pc
+}
+
+// Clone returns a deep copy of the PreemptionConfigWrapper.
+func (pc *PreemptionConfigWrapper) Clone() *PreemptionConfigWrapper {
+	return &PreemptionConfigWrapper{PreemptionConfig: *pc.DeepCopy()}
+}
+
+// Obj returns the inner PreemptionConfig.
+func (pc *PreemptionConfigWrapper) Obj() *kueuealpha.PreemptionConfig {
+	return &pc.PreemptionConfig
+}
+
+// CandidateSelectorWrapper wraps a PreemptionConfigPreemptionCandidateSelector.
+type CandidateSelectorWrapper struct {
+	kueuealpha.PreemptionConfigPreemptionCandidateSelector
+}
+
+// MakeCandidateSelector creates a CandidateSelectorWrapper with the given scope.
+func MakeCandidateSelector(scope kueuealpha.PreemptionConfigPreemptionQueueScope) *CandidateSelectorWrapper {
+	return &CandidateSelectorWrapper{
+		Scope: scope,
+	}
+}
+
+// LabelSelector sets the candidate workload label selector.
+func (w *CandidateSelectorWrapper) LabelSelector(ls *metav1.LabelSelector) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.LabelSelector = ls
+	return w
+}
+
+// ClusterQueueSelector sets the candidate ClusterQueue label selector.
+func (w *CandidateSelectorWrapper) ClusterQueueSelector(cqs *metav1.LabelSelector) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.ClusterQueueSelector = cqs
+	return w
+}
+
+// Priority sets the priority constraint for preemption candidates.
+func (w *CandidateSelectorWrapper) Priority(mode kueuealpha.PreemptionConfigPriorityMode, cmp kueuealpha.NumericComparison) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{
+		Mode:       mode,
+		Comparison: cmp,
+	}
+	return w
+}
+
+// NumericLabels sets the numeric label constraints for preemption candidates.
+func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.PreemptionConfigNumericLabelConstraint) *CandidateSelectorWrapper {
+	w.PreemptionConfigPreemptionCandidateSelector.NumericLabels = constraints
+	return w
+}
+
+// Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
+func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
+	return w.PreemptionConfigPreemptionCandidateSelector
 }

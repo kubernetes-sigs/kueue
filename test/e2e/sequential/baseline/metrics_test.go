@@ -61,7 +61,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 		util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
-			ObjectMeta: metav1.ObjectMeta{Name: "lq-metrics-reader-rolebinding-" + ns.Name},
+			Name: "lq-metrics-reader-rolebinding-" + ns.Name,
 			Subjects: []rbacv1.Subject{
 				{
 					Kind:      "ServiceAccount",

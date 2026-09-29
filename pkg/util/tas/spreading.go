@@ -20,7 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
+	"gopkg.in/inf.v0"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -56,15 +59,6 @@ const (
 
 	minSpreadingRules = 1
 	maxSpreadingRules = 2
-
-	// shareScale is the fixed-point scale maxShareAllowingPlacement is reduced
-	// to, so thresholds are evaluated in integer arithmetic. Milli is the
-	// natural granularity of resource.Quantity, giving a resolution of 0.1%.
-	shareScale = resource.Milli
-
-	// shareScaleFactor is shareScale expressed as a multiplier: a share of 1
-	// (a domain holding everything) is shareScaleFactor scaled units.
-	shareScaleFactor = 1000
 )
 
 var (
@@ -102,12 +96,17 @@ type SpreadingRule struct {
 // PodSet group. Whether being over the share bans the domain or merely
 // deprioritizes it is the caller's decision, per EnforcementMode.
 //
-// The comparison is cross-multiplied against the share reduced to shareScale,
-// so it stays in integer arithmetic and never rounds a float. total == 0 (the
-// cold-start case, nothing admitted yet) is never over the share.
+// The comparison is evaluated exactly without upward rounding, avoiding the
+// ceiling rounding of Quantity.ScaledValue. total == 0 (the cold-start case,
+// nothing admitted yet) is never over the share.
 func (r *SpreadingRule) ExceedsShare(count, total int32) bool {
-	maxShareScaled := r.MaxShareAllowingPlacement.ScaledValue(shareScale)
-	return int64(count)*shareScaleFactor > maxShareScaled*int64(total)
+	if total == 0 {
+		return false
+	}
+	countDec := new(inf.Dec).SetUnscaled(int64(count))
+	totalDec := new(inf.Dec).SetUnscaled(int64(total))
+	threshold := new(inf.Dec).Mul(r.MaxShareAllowingPlacement.AsDec(), totalDec)
+	return countDec.Cmp(threshold) > 0
 }
 
 // SpreadingSpec is the parsed form of the
@@ -140,13 +139,18 @@ func (s *SpreadingSpec) Selector() labels.Selector {
 	return s.selector
 }
 
-// NewSpreadingSpec builds a spec from already-decoded parts, compiling the
-// label selector. ParseSpreadingAnnotation is the usual way in; this exists
-// for callers holding the parts directly, such as tests in other packages
+// NewSpreadingSpec builds a spec from already-decoded parts, applying defaults
+// and compiling the label selector. ParseSpreadingAnnotation is the usual way in;
+// this exists for callers holding the parts directly, such as tests in other packages
 // that cannot reach the unexported selector. defaultJobUID is as in
 // ParseSpreadingAnnotation.
 func NewSpreadingSpec(selectors []metav1.LabelSelectorRequirement, rules []SpreadingRule, defaultJobUID string) (*SpreadingSpec, error) {
-	spec := &SpreadingSpec{WorkloadLabelSelectors: selectors, Rules: rules}
+	spec := &SpreadingSpec{WorkloadLabelSelectors: selectors, Rules: slices.Clone(rules)}
+	for i := range spec.Rules {
+		if spec.Rules[i].EnforcementMode == "" {
+			spec.Rules[i].EnforcementMode = defaultEnforcementMode
+		}
+	}
 	if err := spec.compileSelector(defaultJobUID); err != nil {
 		return nil, err
 	}
@@ -207,8 +211,8 @@ func (s *SpreadingSpec) compileSelector(defaultJobUID string) error {
 // omitted selector is not an error - it is how the user asks for the job-uid
 // default. Per-field, field.Path-scoped checks (bad topology keys,
 // out-of-range shares, unknown enforcement modes, duplicate keys, alpha
-// restrictions on the selector) are the webhook's responsibility and are
-// re-validated there.
+// restrictions on the selector) are ValidateSpreadingAnnotation's
+// responsibility.
 func ParseSpreadingAnnotation(value, defaultJobUID string) (*SpreadingSpec, error) {
 	var spec SpreadingSpec
 	if err := json.Unmarshal([]byte(value), &spec); err != nil {
@@ -230,4 +234,21 @@ func ParseSpreadingAnnotation(value, defaultJobUID string) (*SpreadingSpec, erro
 	}
 
 	return &spec, nil
+}
+
+// SpreadingAnnotationsAgree reports whether two spreading annotation values
+// describe the same configuration. Identical strings agree even when they are
+// invalid. Annotation validation is separate. Selectors are compared using
+// their compiled string representation.
+func SpreadingAnnotationsAgree(a, b string) bool {
+	if a == b {
+		return true
+	}
+	sa, errA := ParseSpreadingAnnotation(a, "")
+	sb, errB := ParseSpreadingAnnotation(b, "")
+	if errA != nil || errB != nil {
+		return false
+	}
+	return equality.Semantic.DeepEqual(sa.Rules, sb.Rules) &&
+		sa.Selector().String() == sb.Selector().String()
 }

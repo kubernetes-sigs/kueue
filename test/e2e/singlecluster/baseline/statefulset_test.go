@@ -139,20 +139,18 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 			ginkgo.By("Delete the potentially conflicting stateful-set and await for is Pod and workload deletion", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, conflictingStatefulSet, true)
-				conflictingPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				conflictingPod := &corev1.Pod{
 					Name:      conflictingStatefulSet.Name + "-0",
-					Namespace: ns.Name,
-				}}
+					Namespace: ns.Name}
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingPod, false, util.LongTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingWorkload, false, util.MediumTimeout)
 			})
 
 			ginkgo.By("Delete the first stateful-set and await for is Pod and workload deletion", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, statefulSet, true)
-				stsPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				stsPod := &corev1.Pod{
 					Name:      statefulSet.Name + "-0",
-					Namespace: ns.Name,
-				}}
+					Namespace: ns.Name}
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, stsPod, false, util.LongTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
 			})

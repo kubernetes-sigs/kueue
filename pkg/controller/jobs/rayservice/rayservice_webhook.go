@@ -20,6 +20,7 @@ import (
 	"context"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -51,6 +52,7 @@ type RayServiceWebhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func fromObject(obj runtime.Object) *RayService {
@@ -70,6 +72,7 @@ func SetupRayServiceWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &rayv1.RayService{}
 	if options.NoopWebhook {
@@ -94,7 +97,9 @@ func (w *RayServiceWebhook) Default(ctx context.Context, obj *rayv1.RayService) 
 	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
+	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object(), w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
@@ -122,7 +127,7 @@ var _ admission.Validator[*rayv1.RayService] = &RayServiceWebhook{}
 func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayService) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(10).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +139,7 @@ func isAnElasticJob(job *rayv1.RayService) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService) (field.ErrorList, error) {
+func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayService)(job)
 
@@ -146,9 +151,12 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		clusterSpecPath := specPath.Child("rayClusterSpec")
 		rayClusterSpecErrors := raycluster.ValidateCreate(job, clusterSpec, clusterSpecPath)
 		allErrors = append(allErrors, rayClusterSpecErrors...)
+		if len(rayClusterSpecErrors) > 0 {
+			return allErrors, nil
+		}
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
@@ -174,8 +182,8 @@ func (w *RayServiceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *
 	}
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(5).Info("Validating update")
-	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
-	validationErrs, err := w.validateCreate(ctx, newObj)
+	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, newObj, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,6 +33,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 func Test_GetResourceRequests(t *testing.T) {
@@ -46,7 +46,7 @@ func Test_GetResourceRequests(t *testing.T) {
 		Obj()
 
 	wl := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+		Name: "wl", Namespace: "ns1",
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{{
 				Name:  "main",
@@ -250,11 +250,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
-				&resourcev1.DeviceClass{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
-				},
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "slice-1"},
+					Name: "slice-1",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "test-driver",
 						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
@@ -284,16 +282,11 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "gpu-class", 1).
 					WithCELSelectors("device.driver == \"gpu-driver\"").
 					Obj(),
-				&resourcev1.DeviceClass{
-					ObjectMeta: metav1.ObjectMeta{Name: "gpu-class"},
-					Spec: resourcev1.DeviceClassSpec{
-						Selectors: []resourcev1.DeviceSelector{
-							{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"gpu-driver\""}},
-						},
-					},
-				},
+				testingdra.MakeDeviceClass("gpu-class").
+					CELSelector("device.driver == \"gpu-driver\"").
+					Obj(),
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "gpu-slice"},
+					Name: "gpu-slice",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "gpu-driver",
 						Pool:   resourcev1.ResourcePool{Name: "gpu-pool", Generation: 1, ResourceSliceCount: 1},
@@ -303,7 +296,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					},
 				},
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "nic-slice"},
+					Name: "nic-slice",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "nic-driver",
 						Pool:   resourcev1.ResourcePool{Name: "nic-pool", Generation: 1, ResourceSliceCount: 1},
@@ -339,11 +332,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "test-deviceclass-1", 2).
 					WithCELSelectors("device.driver == \"nonexistent-driver\"").
 					Obj(),
-				&resourcev1.DeviceClass{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
-				},
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "slice-2"},
+					Name: "slice-2",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "test-driver",
 						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
@@ -373,11 +364,9 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "test-deviceclass-1", 3).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
-				&resourcev1.DeviceClass{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
-				},
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "slice-3"},
+					Name: "slice-3",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "test-driver",
 						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
@@ -405,44 +394,15 @@ func Test_GetResourceRequests(t *testing.T) {
 			name: "Multi-request CEL selectors do not double-count devices",
 			extraObjects: []runtime.Object{
 				// Two requests each wanting 1 device, but only 1 device exists.
-				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-multi", Namespace: "ns1"},
-					Spec: resourcev1.ResourceClaimTemplateSpec{
-						Spec: resourcev1.ResourceClaimSpec{
-							Devices: resourcev1.DeviceClaim{
-								Requests: []resourcev1.DeviceRequest{
-									{
-										Name: "req-a",
-										Exactly: &resourcev1.ExactDeviceRequest{
-											DeviceClassName: "test-deviceclass-1",
-											AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-											Count:           1,
-											Selectors: []resourcev1.DeviceSelector{
-												{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"test-driver\""}},
-											},
-										},
-									},
-									{
-										Name: "req-b",
-										Exactly: &resourcev1.ExactDeviceRequest{
-											DeviceClassName: "test-deviceclass-1",
-											AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-											Count:           1,
-											Selectors: []resourcev1.DeviceSelector{
-												{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"test-driver\""}},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				&resourcev1.DeviceClass{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-multi", "ns1").
+					DeviceRequest("req-a", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					DeviceRequest("req-b", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "slice-multi"},
+					Name: "slice-multi",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "test-driver",
 						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
@@ -472,9 +432,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "test-deviceclass-1", 1).
 					WithCELSelectors("this is not valid CEL!!!").
 					Obj(),
-				&resourcev1.DeviceClass{
-					ObjectMeta: metav1.ObjectMeta{Name: "test-deviceclass-1"},
-				},
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -530,7 +488,7 @@ func Test_GetResourceRequests(t *testing.T) {
 			name: "Exactly and FirstAvailable are nil returns error",
 			extraObjects: []runtime.Object{
 				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-empty", Namespace: "ns1"},
+					Name: "claim-tmpl-empty", Namespace: "ns1",
 					Spec: resourcev1.ResourceClaimTemplateSpec{
 						Spec: resourcev1.ResourceClaimSpec{
 							Devices: resourcev1.DeviceClaim{
@@ -570,34 +528,11 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "Mixed AdminAccess and normal requests counts only normal",
 			extraObjects: []runtime.Object{
-				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-mixed", Namespace: "ns1"},
-					Spec: resourcev1.ResourceClaimTemplateSpec{
-						Spec: resourcev1.ResourceClaimSpec{
-							Devices: resourcev1.DeviceClaim{
-								Requests: []resourcev1.DeviceRequest{
-									{
-										Name: "normal-req",
-										Exactly: &resourcev1.ExactDeviceRequest{
-											DeviceClassName: "test-deviceclass-1",
-											AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-											Count:           2,
-										},
-									},
-									{
-										Name: "admin-req",
-										Exactly: &resourcev1.ExactDeviceRequest{
-											DeviceClassName: "test-deviceclass-1",
-											AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-											Count:           1,
-											AdminAccess:     new(true),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed", "ns1").
+					DeviceRequest("normal-req", "test-deviceclass-1", 2).
+					DeviceRequest("admin-req", "test-deviceclass-1", 1).
+					WithAdminAccess(true).
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -617,7 +552,7 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "slice-noclass"},
+					Name: "slice-noclass",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "test-driver",
 						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
@@ -645,29 +580,12 @@ func Test_GetResourceRequests(t *testing.T) {
 		{
 			name: "CEL selectors with empty DeviceClassName succeeds",
 			extraObjects: []runtime.Object{
-				&resourcev1.ResourceClaimTemplate{
-					ObjectMeta: metav1.ObjectMeta{Name: "claim-tmpl-nodc", Namespace: "ns1"},
-					Spec: resourcev1.ResourceClaimTemplateSpec{
-						Spec: resourcev1.ResourceClaimSpec{
-							Devices: resourcev1.DeviceClaim{
-								Requests: []resourcev1.DeviceRequest{
-									{
-										Name: "req",
-										Exactly: &resourcev1.ExactDeviceRequest{
-											AllocationMode: resourcev1.DeviceAllocationModeExactCount,
-											Count:          1,
-											Selectors: []resourcev1.DeviceSelector{
-												{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == \"test-driver\""}},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-nodc", "ns1").
+					DeviceRequest("req", "", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
 				&resourcev1.ResourceSlice{
-					ObjectMeta: metav1.ObjectMeta{Name: "slice-nodc"},
+					Name: "slice-nodc",
 					Spec: resourcev1.ResourceSliceSpec{
 						Driver: "test-driver",
 						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
@@ -768,28 +686,23 @@ func Test_GetResourceRequests(t *testing.T) {
 	}
 }
 
-func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
-	return resourcev1.DeviceRequest{
-		Name: name,
-		Exactly: &resourcev1.ExactDeviceRequest{
-			DeviceClassName: deviceClass,
-			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
-			Count:           count,
-		},
-	}
-}
-
 func Test_countDevicesPerClass_overflow(t *testing.T) {
 	cases := map[string]struct {
 		requests  []resourcev1.DeviceRequest
 		wantCount int64
 	}{
 		"normal sum across requests": {
-			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", 2), exactReq("r1", "gpu", 3)},
+			requests: []resourcev1.DeviceRequest{
+				testingdra.MakeDeviceRequest("r0", "gpu", 2).Obj(),
+				testingdra.MakeDeviceRequest("r1", "gpu", 3).Obj(),
+			},
 			wantCount: 5,
 		},
 		"sum saturates at MaxInt64 instead of wrapping negative": {
-			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", math.MaxInt64), exactReq("r1", "gpu", math.MaxInt64)},
+			requests: []resourcev1.DeviceRequest{
+				testingdra.MakeDeviceRequest("r0", "gpu", math.MaxInt64).Obj(),
+				testingdra.MakeDeviceRequest("r1", "gpu", math.MaxInt64).Obj(),
+			},
 			wantCount: math.MaxInt64,
 		},
 	}

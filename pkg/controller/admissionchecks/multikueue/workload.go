@@ -371,10 +371,15 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 1. Ignore Elastic workloads Finished when:
 	// - Workload is "Finished" as a result workload slice replacement, OR
-	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress.
+	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress,
+	//   unless it was evicted and its remote objects need cleanup.
+	scaleUpInProgress := !group.IsFinished() &&
+		!workload.HasQuotaReservation(group.local) &&
+		workloadslicing.ScaledUp(group.local) &&
+		!workloadevict.IsEvicted(group.local)
 	if group.IsElasticWorkload() &&
 		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			(!group.IsFinished() && !workload.HasQuotaReservation(group.local) && workloadslicing.ScaledUp(group.local))) {
+			scaleUpInProgress) {
 		return reconcile.Result{}, nil
 	}
 
@@ -1181,10 +1186,9 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
+			q.AddAfter(reconcile.Request{
 				Namespace: e.Object.GetNamespace(),
-				Name:      e.Object.GetName(),
-			}}, w.eventsBatchPeriod)
+				Name:      e.Object.GetName()}, w.eventsBatchPeriod)
 		},
 	}
 

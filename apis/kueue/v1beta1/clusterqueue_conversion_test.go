@@ -441,9 +441,7 @@ func TestClusterQueueConversion_RoundTrip(t *testing.T) {
 	}{
 		"complete ClusterQueue with cohort and FlavorFungibility": {
 			v1beta1Obj: &ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-clusterqueue",
-				},
+				Name: "test-clusterqueue",
 				Spec: ClusterQueueSpec{
 					Cohort: "prod-cohort",
 					FlavorFungibility: &FlavorFungibility{
@@ -466,9 +464,7 @@ func TestClusterQueueConversion_RoundTrip(t *testing.T) {
 		},
 		"minimal ClusterQueue": {
 			v1beta1Obj: &ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "minimal-cq",
-				},
+				Name: "minimal-cq",
 			},
 		},
 	}

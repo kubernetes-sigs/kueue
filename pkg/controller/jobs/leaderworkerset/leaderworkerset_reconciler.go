@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
@@ -62,6 +61,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -449,6 +449,16 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
+	var waitForPodsReadyUpdated bool
+	var err error
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(lws, wl)
+		if err != nil {
+			return err
+		}
+		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
+	}
+
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			log.Error(err, "Updating workload")
@@ -458,8 +468,11 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
 	}
+	if waitForPodsReadyUpdated {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, lws)
+	}
 
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
+	err = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
 	if err != nil {
 		log.Error(err, "Failed to update workload priority")
 		return err
@@ -665,10 +678,8 @@ func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q w
 			)
 			q.AddAfter(
 				reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Namespace: wl.Namespace,
-						Name:      ownerRef.Name,
-					},
+					Namespace: wl.Namespace,
+					Name:      ownerRef.Name,
 				},
 				constants.UpdatesBatchPeriod,
 			)
@@ -726,10 +737,8 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 
 	q.AddAfter(
 		reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: pod.Namespace,
-				Name:      lwsName,
-			},
+			Namespace: pod.Namespace,
+			Name:      lwsName,
 		},
 		constants.UpdatesBatchPeriod,
 	)
@@ -794,10 +803,8 @@ func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 
 	q.AddAfter(
 		reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: sts.Namespace,
-				Name:      lwsName,
-			},
+			Namespace: sts.Namespace,
+			Name:      lwsName,
 		},
 		constants.UpdatesBatchPeriod,
 	)

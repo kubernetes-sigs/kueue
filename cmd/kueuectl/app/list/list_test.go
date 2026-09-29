@@ -63,9 +63,9 @@ func TestListCmd(t *testing.T) {
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-ns1         lq1    cq1            1                   1                    60m
-ns2         lq2    cq2            2                   2                    120m
+			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+ns1         lq1    cq1            1                   1                    false    60m
+ns2         lq2    cq2            2                   2                    false    120m
 `,
 		},
 		"should print local queue list with all namespaces (short command and flag)": {
@@ -84,9 +84,9 @@ ns2         lq2    cq2            2                   2                    120m
 					Creation(testStartTime.Add(-2 * time.Hour).Truncate(time.Second)).
 					Obj(),
 			},
-			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-ns1         lq1    cq1            1                   1                    60m
-ns2         lq2    cq2            2                   2                    120m
+			wantOut: `NAMESPACE   NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+ns1         lq1    cq1            1                   1                    false    60m
+ns2         lq2    cq2            2                   2                    false    120m
 `,
 		},
 		"should print cluster queue list": {

@@ -556,8 +556,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					return err
 				}
 				clusterQueues := []kueue.ClusterQueue{
-					{ObjectMeta: metav1.ObjectMeta{Name: "a"}},
-					{ObjectMeta: metav1.ObjectMeta{Name: "d"}},
+					{Name: "a"},
+					{Name: "d"},
 				}
 				for _, c := range clusterQueues {
 					cache.DeleteClusterQueue(&c)
@@ -2326,7 +2326,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("2"))),
 						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi"))),
 					},
@@ -2339,7 +2339,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "model-a", Resource: "example.com/gpu"}: resources.NewAmount(resources.ResourceValue("example.com/gpu", resource.MustParse("7"))),
 					},
 					admittedUsage: resources.FlavorResourceQuantities{
@@ -2350,7 +2350,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
 					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("5"))),
 						{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi"))),
 					},
@@ -2382,7 +2382,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("2"))),
 						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi"))),
 						{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.NewAmount(resources.ResourceValue("example.com/gpu", resource.MustParse("0"))),
@@ -2397,7 +2397,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0"))),
 						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0"))),
 						{Flavor: "model-a", Resource: "example.com/gpu"}:  resources.NewAmount(resources.ResourceValue("example.com/gpu", resource.MustParse("7"))),
@@ -2412,7 +2412,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
 					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("5"))),
 						{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi"))),
 					},
@@ -2430,7 +2430,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("2"))),
 						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi"))),
 					},
@@ -2443,7 +2443,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "model-a", Resource: "example.com/gpu"}: resources.NewAmount(resources.ResourceValue("example.com/gpu", resource.MustParse("7"))),
 					},
 					admittedUsage: resources.FlavorResourceQuantities{
@@ -2454,7 +2454,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
 					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("5"))),
 						{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi"))),
 					},
@@ -2482,7 +2482,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/alpha",
 					reservingWorkloads: 1,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("2"))),
 						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi"))),
 					},
@@ -2518,7 +2518,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/alpha",
 					reservingWorkloads: 0,
 					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "spot", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("0"))),
 						{Flavor: "spot", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("0"))),
 					},
@@ -2531,7 +2531,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "model-a", Resource: "example.com/gpu"}: resources.NewAmount(resources.ResourceValue("example.com/gpu", resource.MustParse("7"))),
 					},
 					admittedUsage: resources.FlavorResourceQuantities{
@@ -2542,7 +2542,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
 					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("5"))),
 						{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi"))),
 					},
@@ -2564,7 +2564,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
 					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("5"))),
 						{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi"))),
 					},
@@ -2586,7 +2586,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns2/beta",
 					reservingWorkloads: 2,
 					admittedWorkloads:  1,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "model-a", Resource: "example.com/gpu"}: resources.NewAmount(resources.ResourceValue("example.com/gpu", resource.MustParse("7"))),
 					},
 					admittedUsage: resources.FlavorResourceQuantities{
@@ -2597,7 +2597,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					key:                "ns1/gamma",
 					reservingWorkloads: 1,
 					admittedWorkloads:  0,
-					totalReserved: resources.FlavorResourceQuantities{
+					reservedUsage: resources.FlavorResourceQuantities{
 						{Flavor: "ondemand", Resource: corev1.ResourceCPU}:    resources.NewAmount(resources.ResourceValue(corev1.ResourceCPU, resource.MustParse("5"))),
 						{Flavor: "ondemand", Resource: corev1.ResourceMemory}: resources.NewAmount(resources.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi"))),
 					},
@@ -2926,7 +2926,7 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 	go cache.CleanUpOnContext(ctx)
 
 	cq := kueue.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "one"},
+		Name: "one",
 	}
 	if err := cache.AddClusterQueue(ctx, &cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue: %v", err)
@@ -2954,10 +2954,10 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	clusterQueues := []kueue.ClusterQueue{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "one"},
+			Name: "one",
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "two"},
+			Name: "two",
 		},
 	}
 
@@ -3156,20 +3156,16 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 					Name: "ClusterQueue1",
 					Workloads: map[workload.Reference]*workload.Info{"workload_namespace/workload_name": {
 						Obj: &kueue.Workload{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      "workload_name",
-								Namespace: "workload_namespace",
-							},
+							Name:      "workload_name",
+							Namespace: "workload_namespace",
 						},
 					}},
 				}},
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "workload_name",
-						Namespace: "workload_namespace",
-					},
+					Name:      "workload_name",
+					Namespace: "workload_namespace",
 				},
 			},
 			expected: true,
@@ -3181,10 +3177,8 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 					Name: "ClusterQueue1",
 					Workloads: map[workload.Reference]*workload.Info{"workload_namespace2/workload_name2": {
 						Obj: &kueue.Workload{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:      "workload_name2",
-								Namespace: "workload_namespace2",
-							},
+							Name:      "workload_name2",
+							Namespace: "workload_namespace2",
 						},
 					}},
 				}},
@@ -3192,10 +3186,8 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 			workload: workload.Info{
 				ClusterQueue: "ClusterQueue1",
 				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "workload_name",
-						Namespace: "workload_namespace",
-					},
+					Name:      "workload_name",
+					Namespace: "workload_namespace",
 				},
 			},
 			expected: false,
@@ -3443,6 +3435,11 @@ func TestClusterQueueReadiness(t *testing.T) {
 	}
 }
 
+// Lendable is derived from SubtreeQuota. These subtests assert how SubtreeQuota
+// propagates, and Lendable is asserted directly in TestCohortLendable,
+// TestSnapshotCarriesLendable and TestDeleteCohortUpdatesAncestorSubtreeQuota.
+var ignoreLendable = cmpopts.IgnoreFields(resourceNode{}, "Lendable")
+
 func TestCohortCycles(t *testing.T) {
 	t.Run("self cycle", func(t *testing.T) {
 		cache := New(utiltesting.NewFakeClient())
@@ -3539,7 +3536,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
+		if diff := cmp.Diff(wantResource, gotResource, ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 	})
@@ -3575,7 +3572,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
+		if diff := cmp.Diff(wantResource, gotResource, ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 
@@ -3596,7 +3593,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantResource, gotResource); diff != "" {
+		if diff := cmp.Diff(wantResource, gotResource, ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 	})
@@ -3632,10 +3629,10 @@ func TestCohortCycles(t *testing.T) {
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3657,10 +3654,10 @@ func TestCohortCycles(t *testing.T) {
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot1, cache.hm.Cohort("root1").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot2, cache.hm.Cohort("root2").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3696,7 +3693,7 @@ func TestCohortCycles(t *testing.T) {
 			},
 			Usage: resources.FlavorResourceQuantities{},
 		}
-		if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
+		if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode(), ignoreLendable); diff != "" {
 			t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 		}
 	})
@@ -3729,7 +3726,7 @@ func TestCohortCycles(t *testing.T) {
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3746,7 +3743,7 @@ func TestCohortCycles(t *testing.T) {
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode()); diff != "" {
+			if diff := cmp.Diff(wantRoot, cache.hm.Cohort("root").getResourceNode(), ignoreLendable); diff != "" {
 				t.Errorf("Unexpected resource (-want,+got):\n%s", diff)
 			}
 		}
@@ -3927,11 +3924,25 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
 			tc.setup(t, cache)
 
+			// Fair sharing reads Lendable without recomputing it, so it has to track
+			// SubtreeQuota through every mutation. DeleteCohort is the interesting
+			// one, because the deleted cohort can survive when a child still
+			// references it.
+			assertLendableInSync := func(when string) {
+				t.Helper()
+				for cohortName, cohort := range cache.hm.Cohorts() {
+					if diff := cmp.Diff(computeLendable(cohort), cohort.resourceNode.Lendable, cmp.Comparer(resources.Equal)); diff != "" {
+						t.Errorf("%s deletion, %s lendable is stale (-fresh,+stored):\n%s", when, cohortName, diff)
+					}
+				}
+			}
+
 			for cohortName, wantSubtreeQuota := range tc.wantBefore {
 				if diff := cmp.Diff(wantSubtreeQuota, cache.hm.Cohort(cohortName).getResourceNode().SubtreeQuota); diff != "" {
 					t.Errorf("before deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
 				}
 			}
+			assertLendableInSync("before")
 
 			cache.DeleteCohort(tc.deleteName)
 
@@ -3940,6 +3951,7 @@ func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
 					t.Errorf("after deletion, %s unexpected SubtreeQuota (-want,+got):\n%s", cohortName, diff)
 				}
 			}
+			assertLendableInSync("after")
 		})
 	}
 }

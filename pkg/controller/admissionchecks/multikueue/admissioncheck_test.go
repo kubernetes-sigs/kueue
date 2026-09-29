@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -297,7 +296,7 @@ func TestReconcile(t *testing.T) {
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 			reconciler := newACReconciler(c, helper, nil)
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}

@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -157,6 +156,7 @@ func (r *ClusterQueueReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=preemptionconfigs,verbs=get;list;watch
 
 func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var cqObj kueue.ClusterQueue
@@ -497,9 +497,8 @@ func (h *nonCQObjectHandler) Delete(context.Context, event.TypedDeleteEvent[iter
 }
 func (h *nonCQObjectHandler) Generic(_ context.Context, e event.TypedGenericEvent[iter.Seq[kueue.ClusterQueueReference]], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	for cq := range e.Object {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-			Name: string(cq),
-		}}, constants.UpdatesBatchPeriod)
+		q.AddAfter(reconcile.Request{
+			Name: string(cq)}, constants.UpdatesBatchPeriod)
 	}
 }
 

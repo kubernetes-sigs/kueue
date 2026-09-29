@@ -145,11 +145,11 @@ cq1    cohort1   1                   2                    true     60m
 			args: []string{"-o", "yaml"},
 			listPages: []runtime.Object{
 				&kueue.ClusterQueueList{
-					ListMeta: metav1.ListMeta{Continue: "page2"},
-					Items:    []kueue.ClusterQueue{{ObjectMeta: metav1.ObjectMeta{Name: "a"}}},
+					Continue: "page2",
+					Items:    []kueue.ClusterQueue{{Name: "a"}},
 				},
 				&kueue.ClusterQueueList{
-					Items: []kueue.ClusterQueue{{ObjectMeta: metav1.ObjectMeta{Name: "b"}}},
+					Items: []kueue.ClusterQueue{{Name: "b"}},
 				},
 			},
 			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2

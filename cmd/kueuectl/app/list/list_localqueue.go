@@ -58,6 +58,9 @@ type LocalQueueOptions struct {
 	FieldSelector      string
 	LabelSelector      string
 	ClusterQueueFilter string
+	// Active is an optional flag to filter true/false (active/inactive) local queues.
+	// Active means the local queue has kueue.LocalQueueActive condition with status=metav1.ConditionTrue.
+	Active []bool
 
 	Client kueuev1beta2.KueueV1beta2Interface
 
@@ -76,7 +79,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 	o := NewLocalQueueOptions(streams, clock)
 
 	cmd := &cobra.Command{
-		Use: "localqueue [-–clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--all-namespaces]",
+		Use: "localqueue [--clusterqueue CLUSTER_QUEUE_NAME] [--selector key1=value1] [--field-selector key1=value1] [--active=true|false] [--all-namespaces]",
 		// To do not add "[flags]" suffix on the end of usage line
 		DisableFlagsInUseLine: true,
 		Aliases:               []string{"lq"},
@@ -86,6 +89,10 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter)
+			if err != nil {
+				return err
+			}
+			err = o.Validate()
 			if err != nil {
 				return err
 			}
@@ -99,6 +106,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 	addFieldSelectorFlagVar(cmd, &o.FieldSelector)
 	addLabelSelectorFlagVar(cmd, &o.LabelSelector)
 	addClusterQueueFilterFlagVar(cmd, &o.ClusterQueueFilter)
+	addActiveFilterFlagVar(cmd, &o.Active)
 
 	cobra.CheckErr(cmd.RegisterFlagCompletionFunc("clusterqueue", completion.ClusterQueueNameFunc(clientGetter, nil)))
 
@@ -126,6 +134,13 @@ func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter) err
 
 	o.Client = clientset.KueueV1beta2()
 
+	return nil
+}
+
+func (o *LocalQueueOptions) Validate() error {
+	if len(o.Active) > 1 {
+		return errMultipleActiveFlags
+	}
 	return nil
 }
 
@@ -208,13 +223,18 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 }
 
 func (o *LocalQueueOptions) filterList(list *kueue.LocalQueueList) {
-	if len(o.ClusterQueueFilter) > 0 {
-		filteredItems := make([]kueue.LocalQueue, 0, len(o.ClusterQueueFilter))
-		for _, lq := range list.Items {
-			if lq.Spec.ClusterQueue == kueue.ClusterQueueReference(o.ClusterQueueFilter) {
-				filteredItems = append(filteredItems, lq)
-			}
-		}
-		list.Items = filteredItems
+	if len(o.ClusterQueueFilter) == 0 && len(o.Active) == 0 {
+		return
 	}
+	filteredItems := make([]kueue.LocalQueue, 0, len(list.Items))
+	for _, lq := range list.Items {
+		if len(o.ClusterQueueFilter) > 0 && lq.Spec.ClusterQueue != kueue.ClusterQueueReference(o.ClusterQueueFilter) {
+			continue
+		}
+		if len(o.Active) > 0 && isLocalQueueActive(&lq) != o.Active[0] {
+			continue
+		}
+		filteredItems = append(filteredItems, lq)
+	}
+	list.Items = filteredItems
 }

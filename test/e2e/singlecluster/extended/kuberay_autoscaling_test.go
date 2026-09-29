@@ -131,6 +131,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
 			WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: new(int32(1))}).
+			TerminationGracePeriod(1).
 			Obj()
 
 		workerA := rayCluster.Spec.WorkerGroupSpecs[0].DeepCopy()

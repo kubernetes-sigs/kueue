@@ -629,11 +629,9 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 							updatedDeployment.Spec.Template.Spec.Volumes,
 							corev1.Volume{
 								Name: volumeName,
-								VolumeSource: corev1.VolumeSource{
-									Image: &corev1.ImageVolumeSource{
-										Reference:  util.GetClusterProfilePluginImage(),
-										PullPolicy: corev1.PullIfNotPresent,
-									},
+								Image: &corev1.ImageVolumeSource{
+									Reference:  util.GetClusterProfilePluginImage(),
+									PullPolicy: corev1.PullIfNotPresent,
 								},
 							},
 						)
@@ -650,10 +648,8 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 						updatedDeployment.Spec.Template.Spec.Volumes = append(
 							updatedDeployment.Spec.Template.Spec.Volumes,
 							corev1.Volume{
-								Name: volumeName,
-								VolumeSource: corev1.VolumeSource{
-									EmptyDir: &corev1.EmptyDirVolumeSource{},
-								},
+								Name:     volumeName,
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
 						)
 					}

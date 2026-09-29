@@ -357,7 +357,7 @@ func TestClusterQueueReconcile(t *testing.T) {
 				t.Fatalf("Failed to delete ClusterQueue: %v", err)
 			}
 
-			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: cqName}}); err != nil {
+			if _, err := r.Reconcile(ctx, ctrl.Request{Name: cqName}); err != nil {
 				t.Fatalf("Reconcile failed: %v", err)
 			}
 
@@ -445,9 +445,7 @@ func workloadForReservation(cqName string, reservation []kueue.FlavorUsage) *kue
 
 func TestRecordResourceMetrics(t *testing.T) {
 	baseQueue := &kueue.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "name",
-		},
+		Name: "name",
 		Spec: kueue.ClusterQueueSpec{
 			CohortName: "cohort",
 			ResourceGroups: []kueue.ResourceGroup{

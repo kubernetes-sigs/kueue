@@ -100,11 +100,9 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 
 	ginkgo.By("checking a second non-matching workload is deleted")
 	secondWl := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobframework.GetWorkloadNameForOwnerWithGVK("second-workload", "test-uid", job.GVK()),
-			Namespace: createdWorkload.Namespace,
-		},
-		Spec: *createdWorkload.Spec.DeepCopy(),
+		Name:      jobframework.GetWorkloadNameForOwnerWithGVK("second-workload", "test-uid", job.GVK()),
+		Namespace: createdWorkload.Namespace,
+		Spec:      *createdWorkload.Spec.DeepCopy(),
 	}
 	gomega.Expect(ctrl.SetControllerReference(createdJob.Object(), secondWl, k8sClient.Scheme())).Should(gomega.Succeed())
 	secondWl.Spec.PodSets[0].Count++

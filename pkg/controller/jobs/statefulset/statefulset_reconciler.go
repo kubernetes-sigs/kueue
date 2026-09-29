@@ -28,7 +28,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -56,6 +55,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
@@ -141,10 +141,6 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		var updated bool
 		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-		if r.syncQueueLabel(sts, pod) {
-			log.V(3).Info("Syncing queue label")
-			updated = true
-		}
 		if r.setDefault(sts, wlName, pod) {
 			log.V(3).Info("Updating pod in group")
 			updated = true
@@ -153,12 +149,21 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 			log.V(3).Info("Ungating pod in group")
 			updated = true
 		}
+		// Runs after ungating so that a pod ungated by this patch is seen as ungated.
+		if r.syncQueueLabel(sts, pod) {
+			log.V(3).Info("Syncing queue label")
+			updated = true
+		}
 		return updated, nil
 	}))
 }
 
 func (r *Reconciler) syncQueueLabel(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 	if sts == nil || ptr.Deref(sts.Spec.Replicas, 1) == 0 {
+		return false
+	}
+	// Only gated pods qualify: the pod webhook rejects the change on others.
+	if !utilpod.HasGate(pod, podconstants.SchedulingGateName) {
 		return false
 	}
 	queueName := string(jobframework.QueueNameForObject(sts))
@@ -309,6 +314,15 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
+	var waitForPodsReadyUpdated bool
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(sts, wl)
+		if err != nil {
+			return err
+		}
+		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
+	}
+
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
@@ -318,6 +332,9 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
+	if waitForPodsReadyUpdated {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
+	}
 	if shouldReleaseReservation {
 		return r.releaseScaleDownReservation(ctx, wl)
 	}
@@ -538,10 +555,8 @@ func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 			return
 		}
 		q.AddAfter(reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: pod.Namespace,
-				Name:      controllerRef.Name,
-			},
+			Namespace: pod.Namespace,
+			Name:      controllerRef.Name,
 		}, podBatchPeriod)
 	}
 }

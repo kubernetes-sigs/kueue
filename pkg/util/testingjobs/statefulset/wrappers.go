@@ -47,11 +47,9 @@ func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
 		labelValue = fmt.Sprintf("%s-pod", name)
 	}
 	return &StatefulSetWrapper{appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{

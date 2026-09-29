@@ -52,13 +52,16 @@ a Workload is admitted, Kueue monitors it until all of its Pods are ready. If
 this doesn't happen within the configured timeout, the Workload is evicted,
 its quota is released, and it is requeued with a configurable backoff.
 
-Two settings are worth calling out:
+Three settings are worth calling out:
 
 - `blockAdmission`: when enabled, workloads are admitted one at a time and
   subsequent workloads wait until the previous workload's Pods are ready.
   This prevents two half-scheduled jobs from deadlocking each other.
 - `recoveryTimeout`: bounds how long an already-running workload may wait for
   a replacement Pod (for example after a node failure) before being evicted.
+- `unscheduledTimeout`: bounds, within `timeout`, how long an admitted
+  workload may wait for all of its required Pods to be scheduled, so that
+  scheduling problems are detected sooner than slow image pulls or startup.
 
 This mechanism is a heuristic: it does not prevent partial scheduling, but it
 guarantees that a partially scheduled workload does not hold resources

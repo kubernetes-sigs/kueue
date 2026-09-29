@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -60,9 +59,7 @@ var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, 
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
 		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "exclude-",
-			},
+			GenerateName: "exclude-",
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
@@ -263,9 +260,7 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 		util.MustCreate(ctx, k8sClient, tasFlavor)
 
 		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "tas-exclude-",
-			},
+			GenerateName: "tas-exclude-",
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
