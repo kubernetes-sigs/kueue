@@ -332,8 +332,10 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 	})
 
 	leader := corev1.Pod{
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "zzzz",
+			},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -348,8 +350,10 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 	}
 
 	worker := corev1.Pod{
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "aaaa",
+			},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -388,9 +392,11 @@ func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
 	})
 
 	leader := corev1.Pod{
-		Name: "leader",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "leader",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "aaaa",
+			},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -405,9 +411,11 @@ func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
 	}
 
 	worker := corev1.Pod{
-		Name: "worker",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "zzzz",
+			},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -450,7 +458,9 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
 	leader := corev1.Pod{
-		Annotations: map[string]string{},
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{},
+		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
 				Name: "leader",
@@ -464,7 +474,9 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 	}
 
 	worker := corev1.Pod{
-		Annotations: map[string]string{},
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{},
+		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
 				Name: "worker",
@@ -543,9 +555,11 @@ func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
 	leader := corev1.Pod{
-		Name: "leader",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "leader",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "zzzz",
+			},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
@@ -560,9 +574,11 @@ func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
 	}
 
 	worker := corev1.Pod{
-		Name: "worker",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "aaaa",
+			},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{

@@ -375,10 +375,10 @@
     version: "0.5"
 - name: PodGroupSchedulingShapeOrdering
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
-    version: "0.20"
+    preRelease: Alpha
+    version: "0.18"
 - name: PodIntegrationCountSucceededPodsAsReady
   versionedSpecs:
   - default: false
