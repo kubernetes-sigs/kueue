@@ -24,13 +24,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
@@ -46,31 +47,19 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 
 	preemptionConfigName := "preemption-config"
 	priorityLabel := "test-priority-label"
-	preemptionConfig := kueuealpha.PreemptionConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: preemptionConfigName,
-		},
-		Spec: kueuealpha.PreemptionConfigSpec{
-			Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-				{
-					Name:             "preempt-within-cq-lower-priority",
-					ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-					CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-						{
-							Scope: kueuealpha.WithinClusterQueue,
-							NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
-								{
-									Key:           priorityLabel,
-									FallbackValue: ptr.To[int32](0),
-									Comparison:    ptr.To(kueuealpha.LessThan),
-								},
-							},
-						},
+	preemptionConfig := utiltestingalpha.MakePreemptionConfig(preemptionConfigName).
+		Rule("preempt-within-cq-lower-priority", kueuealpha.Always,
+			kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
+					{
+						Key:           priorityLabel,
+						FallbackValue: ptr.To[int32](0),
+						Comparison:    ptr.To(kueuealpha.LessThan),
 					},
 				},
 			},
-		},
-	}
+		).Obj()
 
 	ginkgo.BeforeAll(func() {
 		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
@@ -88,7 +77,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
-		util.MustCreate(ctx, k8sClient, &preemptionConfig)
+		util.MustCreate(ctx, k8sClient, preemptionConfig)
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
 		util.MustCreate(ctx, k8sClient, rf)
@@ -121,7 +110,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, &preemptionConfig, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
