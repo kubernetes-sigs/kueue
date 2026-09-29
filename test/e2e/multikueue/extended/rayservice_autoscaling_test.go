@@ -148,7 +148,8 @@ applications:
 	initialSlice := liveRayWorkloadSlice(gomega.Default, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
 
 	ginkgo.By("Creating two detached actors so the RayService autoscaler adds two workers", func() {
-		util.CreateDetachedRayActors(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, workerResource, actorA, actorB)
+		util.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA, workerResource)
+		util.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB, workerResource)
 	})
 
 	var upSliceName string
