@@ -151,7 +151,7 @@ spec:
 - **Rule: evict-smaller-jobs-for-topology**:
   - **Trigger**: `QuotaFeasibleAndInsufficientTopology` activates only when quota is already feasible for the incoming job under at least one eligible flavor assignment (after baseline preemption and any applicable `InsufficientQuota` rules), but placement is blocked by physical topology constraints.
   {{% alert title="Note" color="info" %}}
-  `QuotaFeasibleAndInsufficientTopology` does **not** reclaim missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied. Combining this with an `InsufficientQuota` rule ensures workloads can first reclaim quota and then defragment topology.
+  `QuotaFeasibleAndInsufficientTopology` does **not** acquire missing quota—it only resolves topology fragmentation once quota feasibility has been satisfied. Combining this with an `InsufficientQuota` rule ensures workloads can first reclaim quota and then defragment topology.
   {{% /alert %}}
   - **Scope**: `AnyClusterQueue` searches across all ClusterQueues in the cluster so topology can be unblocked across physical nodes regardless of cohort relationship.
   - **Asymmetric Defragmentation**: `numericLabels` with `comparison: LessThan` ensures that a larger workload (e.g., `example.com/node-count: 32`) can preempt smaller workloads (e.g., `example.com/node-count: 4`), but a 4-node workload cannot preempt a 32-node workload in return. Omitting `fallbackValue` ensures unlabeled workloads are treated as incomparable and protected from eviction.
