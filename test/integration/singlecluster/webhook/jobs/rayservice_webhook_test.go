@@ -119,6 +119,20 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 			})
 		})
 
+		ginkgo.When("RayServiceValidateUpgradeStrategy is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RayServiceValidateUpgradeStrategy, false)
+			})
+
+			ginkgo.It("should allow the default zero-downtime upgrade strategy without workload slicing", func() {
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					Obj()
+
+				util.MustCreate(ctx, k8sClient, service)
+			})
+		})
+
 		ginkgo.When("ElasticJobsViaWorkloadSlices is enabled", func() {
 			ginkgo.BeforeEach(func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)

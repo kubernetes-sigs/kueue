@@ -172,6 +172,9 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 }
 
 func validateUpgradeStrategy(job *rayv1.RayService) field.ErrorList {
+	if !features.Enabled(features.RayServiceValidateUpgradeStrategy) {
+		return nil
+	}
 	strategy := job.Spec.UpgradeStrategy
 	if strategy != nil && strategy.Type != nil && *strategy.Type == rayv1.RayServiceUpgradeNone {
 		return nil

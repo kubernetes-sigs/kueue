@@ -405,6 +405,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: RayServiceValidateUpgradeStrategy
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ReclaimablePods
   versionedSpecs:
   - default: true

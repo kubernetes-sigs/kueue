@@ -51,10 +51,11 @@ func TestValidateCreate(t *testing.T) {
 	strategyWithoutType.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{}
 
 	testCases := map[string]struct {
-		service     *rayv1.RayService
-		manageAll   bool
-		featureGate bool
-		wantErr     bool
+		service            *rayv1.RayService
+		manageAll          bool
+		elasticFeatureGate bool
+		disableValidation  bool
+		wantErr            bool
 	}{
 		"valid rayservice": {
 			service: &rayv1.RayService{
@@ -98,12 +99,18 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: true,
 		},
+		"default strategy is allowed when validation is disabled": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Obj(),
+			disableValidation: true,
+		},
 		"default strategy allows workload slicing": {
 			service: testingrayservice.MakeService("rayservice", "ns").
 				Queue("queue").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			featureGate: true,
+			elasticFeatureGate: true,
 		},
 		"strategy without a type requires workload slicing": {
 			service: strategyWithoutType,
@@ -128,8 +135,8 @@ func TestValidateCreate(t *testing.T) {
 				Queue("queue").
 				UpgradeStrategy(rayv1.RayServiceNewCluster).
 				Obj(),
-			featureGate: true,
-			wantErr:     true,
+			elasticFeatureGate: true,
+			wantErr:            true,
 		},
 		"NewCluster allows workload slicing": {
 			service: testingrayservice.MakeService("rayservice", "ns").
@@ -137,7 +144,7 @@ func TestValidateCreate(t *testing.T) {
 				UpgradeStrategy(rayv1.RayServiceNewCluster).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			featureGate: true,
+			elasticFeatureGate: true,
 		},
 		"NewClusterWithIncrementalUpgrade allows workload slicing": {
 			service: testingrayservice.MakeService("rayservice", "ns").
@@ -145,7 +152,7 @@ func TestValidateCreate(t *testing.T) {
 				UpgradeStrategy(rayv1.RayServiceNewClusterWithIncrementalUpgrade).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			featureGate: true,
+			elasticFeatureGate: true,
 		},
 		"too many worker groups": {
 			service: &rayv1.RayService{
@@ -197,7 +204,8 @@ func TestValidateCreate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.featureGate)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticFeatureGate)
+			features.SetFeatureGateDuringTest(t, features.RayServiceValidateUpgradeStrategy, !tc.disableValidation)
 			webhook := &RayServiceWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
