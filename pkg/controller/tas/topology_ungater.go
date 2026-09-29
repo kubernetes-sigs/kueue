@@ -221,7 +221,6 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 
 	rankOffsets := make(map[kueue.PodSetReference]int32)
-	maxRank := make(map[kueue.PodSetReference]int32)
 
 	for _, psas := range groupedPodSetAssignments {
 		if len(psas) > 1 {
@@ -237,13 +236,11 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			}
 			rankOffsets[smallerPsa.Name] = 0
 			rankOffsets[largerPsa.Name] = *smallerPsa.Count
-			maxRank[smallerPsa.Name] = *smallerPsa.Count
-			maxRank[largerPsa.Name] = *largerPsa.Count + *smallerPsa.Count
 		} else {
 			rankOffsets[psas[0].Name] = 0
-			maxRank[psas[0].Name] = *psas[0].Count
 		}
 	}
+	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
 			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa.Name)
@@ -264,10 +261,9 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 						return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
 					}
 					rankOffsets[psa.Name] += int32(offset)
-					maxRank[psa.Name] += int32(offset)
 				}
 			}
-			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
+			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
 			// While a node is recorded in Status.UnhealthyNodes the assignment still
 			// points at it until the scheduler's second pass swaps in a replacement
 			// domain. Gated pods must not be ungated onto such a node in the
@@ -399,9 +395,12 @@ func assignGatedPodsToDomains(
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
-	maxRank int32) []podWithDomain {
+	lendFreeCapacity bool) []podWithDomain {
 	rankToDomainID := rankToDomainID(psa.TopologyAssignment)
-	if rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank, rankToDomainID); ok {
+	if rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, rankToDomainID, lendFreeCapacity); ok {
+		if lendFreeCapacity {
+			return assignGatedPodsToDomainsByRanksLendingFreeCapacity(log, psa, pods, rankToPod, rankToDomainID)
+		}
 		return assignGatedPodsToDomainsByRanks(rankToPod, rankToDomainID)
 	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
@@ -417,6 +416,67 @@ func assignGatedPodsToDomainsByRanks(
 			domainID: rankToDomainID[rank],
 		})
 	}
+	return toUngate
+}
+
+// assignGatedPodsToDomainsByRanksLendingFreeCapacity places gated pods when some
+// ranks may have no domain: an elastic scale-down truncates the assignment to the
+// lowest ranks while the pods above the new count still exist, and an Indexed Job
+// with completions above parallelism creates pods at higher completion indexes.
+// A gated pod goes to its rank's domain only while that domain has free capacity,
+// because a pod without a domain may still occupy it. The capacity left after
+// that is lent to the gated pods without a domain, in ascending rank order.
+func assignGatedPodsToDomainsByRanksLendingFreeCapacity(
+	log logr.Logger,
+	psa *kueue.PodSetAssignment,
+	pods []*corev1.Pod,
+	rankToPod map[int]*corev1.Pod,
+	rankToDomainID []utiltas.TopologyDomainID) []podWithDomain {
+	levelKeys := psa.TopologyAssignment.Levels
+	freeCapacity := make(map[utiltas.TopologyDomainID]int32)
+	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
+		freeCapacity[utiltas.DomainID(psaDomain.Values)] += psaDomain.Count
+	}
+	for _, pod := range pods {
+		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+			freeCapacity[utiltas.DomainID(utiltas.LevelValues(levelKeys, pod.Spec.NodeSelector))]--
+		}
+	}
+	toUngate := make([]podWithDomain, 0)
+	var podsWithoutDomain []*corev1.Pod
+	noCapacityPodCount := 0
+	for _, rank := range slices.Sorted(maps.Keys(rankToPod)) {
+		pod := rankToPod[rank]
+		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+			continue
+		}
+		if rank >= len(rankToDomainID) {
+			podsWithoutDomain = append(podsWithoutDomain, pod)
+			continue
+		}
+		domainID := rankToDomainID[rank]
+		if freeCapacity[domainID] <= 0 {
+			noCapacityPodCount++
+			continue
+		}
+		freeCapacity[domainID]--
+		toUngate = append(toUngate, podWithDomain{pod: pod, domainID: domainID})
+	}
+	if len(podsWithoutDomain) == 0 && noCapacityPodCount == 0 {
+		return toUngate
+	}
+	lentPodCount := 0
+	// Assignment order is also the order of each domain's lowest rank.
+	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
+		domainID := utiltas.DomainID(psaDomain.Values)
+		for ; freeCapacity[domainID] > 0 && lentPodCount < len(podsWithoutDomain); lentPodCount++ {
+			freeCapacity[domainID]--
+			toUngate = append(toUngate, podWithDomain{pod: podsWithoutDomain[lentPodCount], domainID: domainID})
+		}
+	}
+	log.V(3).Info("rank-based ordering left some pods without a domain or free capacity",
+		"podsWithoutDomainCount", len(podsWithoutDomain), "lentPodCount", lentPodCount,
+		"noCapacityPodCount", noCapacityPodCount, "assignedPodCount", len(rankToDomainID))
 	return toUngate
 }
 
@@ -463,17 +523,21 @@ func assignGatedPodsToDomainsGreedy(
 	return toUngate
 }
 
+// readRanksIfAvailable returns false when the pods cannot be placed by their
+// ranks. With allowRanksWithoutDomain, a pod whose rank has no domain in the
+// topology assignment is still returned rather than making the whole PodSet
+// fall back to greedy assignment.
 func readRanksIfAvailable(log logr.Logger,
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
-	maxRank int32,
-	rankToDomainID []utiltas.TopologyDomainID) (map[int]*corev1.Pod, bool) {
+	rankToDomainID []utiltas.TopologyDomainID,
+	allowRanksWithoutDomain bool) (map[int]*corev1.Pod, bool) {
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
-	result, err := readRanksForLabels(psa, pods, psReq, offset, maxRank)
+	result, err := readRanksForLabels(psa, pods, psReq, offset)
 	if err != nil {
 		switch {
 		case errors.Is(err, utilpod.ErrLabelNotFound):
@@ -487,15 +551,15 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 
 	for rank, pod := range result {
-		if rank >= len(rankToDomainID) {
+		if allowRanksWithoutDomain && rank >= len(rankToDomainID) {
+			continue
+		}
+		if rank >= int(*psa.Count) || rank >= len(rankToDomainID) {
 			// The assignment can cover fewer pods than the PodSet count (e.g. a slice size
-			// that does not evenly divide it), so a valid rank may have no domain.
-			// Fall back to greedy assignment for the whole PodSet.
-			//
-			// TODO: this may require adjustments to support ElasticJobs with TAS,
-			// tracked by the ElasticJobsViaWorkloadSlicesWithTAS feature gate.
+			// that does not evenly divide it), and an Indexed Job with completions above
+			// parallelism creates pods at ranks above the count.
 			log.V(3).Info("pod rank is out of range for the assigned topology domains, falling back to greedy assignment",
-				"pod", klog.KObj(pod), "rank", rank, "assignedPodCount", len(rankToDomainID))
+				"pod", klog.KObj(pod), "rank", rank, "podSetCount", *psa.Count, "assignedPodCount", len(rankToDomainID))
 			return nil, false
 		}
 		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
@@ -516,12 +580,14 @@ func readRanksIfAvailable(log logr.Logger,
 	return result, true
 }
 
+// readRanksForLabels does not check the ranks against the PodSet count or the
+// number of pods the topology assignment covers; the caller does that, because
+// whether a rank without a domain is allowed depends on the workload.
 func readRanksForLabels(
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
-	offset int32,
-	maxRank int32) (map[int]*corev1.Pod, error) {
+	offset int32) (map[int]*corev1.Pod, error) {
 	result := make(map[int]*corev1.Pod)
 	podSetSize := int(*psa.Count)
 	singleJobSize := podSetSize
@@ -533,7 +599,7 @@ func readRanksForLabels(
 	}
 
 	for _, pod := range pods {
-		podIndex, err := utilpod.ReadUIntFromLabelBelowBound(pod, *psReq.PodIndexLabel, int(maxRank))
+		podIndex, err := utilpod.ReadUIntFromLabel(pod, *psReq.PodIndexLabel)
 		if err != nil {
 			// the Pod has no rank information - ranks cannot be used
 			return nil, err
@@ -551,11 +617,6 @@ func readRanksForLabels(
 				return nil, fmt.Errorf("pod index %v of Pod %q exceeds the single Job size: %v", *podIndex, klog.KObj(pod), singleJobSize)
 			}
 			rank = *podIndex + *jobIndex*singleJobSize - int(offset)
-		}
-		if rank >= podSetSize {
-			// the rank exceeds the PodSet size, this scenario is not supported
-			// by the rank-based ordering of pods.
-			return nil, fmt.Errorf("rank %v of Pod %q exceeds PodSet size %v", rank, klog.KObj(pod), podSetSize)
 		}
 		if rank < 0 {
 			return nil, fmt.Errorf("rank %v of Pod %q is below 0", rank, klog.KObj(pod))

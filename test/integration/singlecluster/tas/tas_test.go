@@ -133,6 +133,17 @@ func countUngatedPods(pods []corev1.Pod) int {
 	return ungated
 }
 
+// expectUngatedExactlyAtIndexes expects the pods at the given completion indexes
+// to be ungated and all the other pods to stay gated.
+func expectUngatedExactlyAtIndexes(g gomega.Gomega, pods []corev1.Pod, indexes ...string) {
+	for _, pod := range pods {
+		ungated := len(pod.Spec.SchedulingGates) == 0
+		index := pod.Labels[batchv1.JobCompletionIndexAnnotation]
+		g.Expect(ungated).To(gomega.Equal(slices.Contains(indexes, index)),
+			"pod %q at completion index %q, ungated=%v", pod.Name, index, ungated)
+	}
+}
+
 // podSetAssignmentByName returns the admitted pod set assignment with the given
 // name, or nil if the workload has no admission or no such assignment.
 func podSetAssignmentByName(wl *kueue.Workload, name kueue.PodSetReference) *kueue.PodSetAssignment {
@@ -4143,6 +4154,60 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 					behavioral.ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(kueue.TopologySchedulingGate, kueue.ClusterQueueReference(clusterQueue.Name), false, 1)
+				})
+			})
+
+			ginkgo.It("should ungate the replacement pod at completion index 2 into the domain freed by the succeeded pod at index 0", func() {
+				// An Indexed Job with completions above parallelism creates the pod at
+				// completion index 2 once the pod at index 0 succeeds.
+				var wl *kueue.Workload
+				createGatedPod := func(index string) *corev1.Pod {
+					pod := testingpod.MakePod("worker-"+index, ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+						Label(batchv1.JobCompletionIndexAnnotation, index).
+						Label(constants.PodSetLabel, "worker").
+						TopologySchedulingGate().
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, pod)
+					return pod
+				}
+				expectUngated := func(pod *corev1.Pod) {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+						g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(pod.Spec.NodeSelector).Should(gomega.HaveKey(corev1.LabelHostname))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				}
+
+				ginkgo.By("creating and admitting a workload ranked by the completion index", func() {
+					wl = utiltestingapi.MakeWorkload("wl-rotation", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+							RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+					behavioral.MustCreate(ctx, k8sClient, wl)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				})
+
+				var pod0 *corev1.Pod
+				ginkgo.By("ungating the pods at completion index 0 and 1", func() {
+					pod0 = createGatedPod("0")
+					pod1 := createGatedPod("1")
+					expectUngated(pod0)
+					expectUngated(pod1)
+					gomega.Expect(pod1.Spec.NodeSelector).NotTo(gomega.Equal(pod0.Spec.NodeSelector))
+				})
+
+				ginkgo.By("marking the pod at completion index 0 as succeeded", func() {
+					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod0)
+				})
+
+				ginkgo.By("verifying the replacement pod at completion index 2 is ungated into the freed domain", func() {
+					pod2 := createGatedPod("2")
+					expectUngated(pod2)
+					gomega.Expect(pod2.Spec.NodeSelector).To(gomega.Equal(pod0.Spec.NodeSelector))
 				})
 			})
 		})
@@ -9770,6 +9835,174 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							"previous workers domain %v must be preserved", domain.Values)
 					}
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should keep the Pods left after a scale-down gated while the Pods at the lowest ranks hold the domains", func() {
+			// A replacement slice admitted with a count below the previous
+			// assignment's size truncates that assignment to the lowest ranks, while
+			// the Pods above the new count still exist until the Job controller
+			// deletes them.
+			var wl1, wl2 *kueue.Workload
+			createGatedPods := func(podIndexes map[string]string) {
+				for name, index := range podIndexes {
+					pod := testingpod.MakePod(name, ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl2.Name).
+						Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
+						Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+						Label(batchv1.JobCompletionIndexAnnotation, index).
+						Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+						Request(corev1.ResourceCPU, "1").
+						TopologySchedulingGate().
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, pod)
+				}
+			}
+			listPods := func(g gomega.Gomega) []corev1.Pod {
+				var pods corev1.PodList
+				g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name),
+					client.MatchingLabels{constants.PodSetLabel: string(kueue.DefaultPodSetName)})).To(gomega.Succeed())
+				return pods.Items
+			}
+
+			ginkgo.By("creating a workload with 4 pods using unconstrained topology", func() {
+				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(constants.ElasticJobAnnotation, "true").
+					Obj()
+				wl1.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+					Request(corev1.ResourceCPU, "1").
+					UnconstrainedTopologyRequest().
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Image("image").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("creating a replacement slice larger than the available capacity", func() {
+				wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(constants.ElasticJobAnnotation, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(wl1))).
+					Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
+					Obj()
+				wl2.Spec.PodSets[0] = *utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 25).
+					Request(corev1.ResourceCPU, "1").
+					UnconstrainedTopologyRequest().
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+					Image("image").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl2)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			})
+
+			ginkgo.By("scaling the pending replacement slice down to 2 pods", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
+					wl2.Spec.PodSets[0].Count = 2
+					g.Expect(k8sClient.Update(ctx, wl2)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying the replacement slice is admitted with an assignment truncated to 2 pods", func() {
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
+					g.Expect(utiltas.CountPodsInAssignment(topologyAssignmentByName(g, wl2, kueue.DefaultPodSetName))).To(gomega.Equal(int32(2)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("creating the 2 gated pods at completion index 0 and 1", func() {
+				createGatedPods(map[string]string{"pod-c": "0", "pod-d": "1"})
+			})
+
+			nodeSelectors := make(map[string]map[string]string)
+			ginkgo.By("verifying the pods at completion index 0 and 1 are ungated", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					pods := listPods(g)
+					g.Expect(pods).Should(gomega.HaveLen(2))
+					expectUngatedExactlyAtIndexes(g, pods, "0", "1")
+					for _, pod := range pods {
+						nodeSelectors[pod.Name] = pod.Spec.NodeSelector
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("creating the 2 gated pods awaiting deletion", func() {
+				createGatedPods(map[string]string{"pod-a": "2", "pod-b": "3"})
+			})
+
+			ginkgo.By("verifying the pods awaiting deletion stay gated and the pods at completion index 0 and 1 keep their domains", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					pods := listPods(g)
+					g.Expect(pods).Should(gomega.HaveLen(4))
+					expectUngatedExactlyAtIndexes(g, pods, "0", "1")
+					for _, pod := range pods {
+						if selector, found := nodeSelectors[pod.Name]; found {
+							g.Expect(pod.Spec.NodeSelector).To(gomega.Equal(selector))
+						}
+					}
+				}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should ungate the replacement pod at completion index 2 into the domain freed by the succeeded pod at index 0", func() {
+			// An Indexed Job with completions above parallelism creates the pod at
+			// completion index 2 once the pod at index 0 succeeds. Each pod fills a
+			// node, so the two pods are placed in different domains.
+			var wl *kueue.Workload
+			createGatedPod := func(index string) *corev1.Pod {
+				pod := testingpod.MakePod("worker-"+index, ns.Name).
+					Annotation(kueue.WorkloadAnnotation, wl.Name).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Label(batchv1.JobCompletionIndexAnnotation, index).
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Request(corev1.ResourceCPU, "5").
+					TopologySchedulingGate().
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, pod)
+				return pod
+			}
+			expectUngated := func(pod *corev1.Pod) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+					g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+					g.Expect(pod.Spec.NodeSelector).NotTo(gomega.BeEmpty())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.By("creating and admitting an elastic workload ranked by the completion index", func() {
+				wl = utiltestingapi.MakeWorkload("wl-rotation", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Annotation(constants.ElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "5").
+						UnconstrainedTopologyRequest().
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			})
+
+			var pod0 *corev1.Pod
+			ginkgo.By("ungating the pods at completion index 0 and 1", func() {
+				pod0 = createGatedPod("0")
+				pod1 := createGatedPod("1")
+				expectUngated(pod0)
+				expectUngated(pod1)
+				gomega.Expect(pod1.Spec.NodeSelector).NotTo(gomega.Equal(pod0.Spec.NodeSelector))
+			})
+
+			ginkgo.By("marking the pod at completion index 0 as succeeded", func() {
+				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod0)
+			})
+
+			ginkgo.By("verifying the replacement pod at completion index 2 is ungated into the freed domain", func() {
+				pod2 := createGatedPod("2")
+				expectUngated(pod2)
+				gomega.Expect(pod2.Spec.NodeSelector).To(gomega.Equal(pod0.Spec.NodeSelector))
 			})
 		})
 
