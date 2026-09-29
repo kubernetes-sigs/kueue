@@ -282,6 +282,50 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 	})
+
+	ginkgo.It("Should keep the Workload admitted while the SparkApplication is in SUBMISSION_FAILED", func() {
+		ginkgo.By("creating localQueue")
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+
+		ginkgo.By("creating a SparkApplication and waiting for its Workload to be admitted")
+		sparkApplication := testingsparkapplication.MakeSparkApplication(jobName, ns.Name).
+			Queue(localQueue.Name).
+			Obj()
+		util.MustCreate(ctx, k8sClient, sparkApplication)
+		sparkAppKey := types.NamespacedName{Name: sparkApplication.Name, Namespace: ns.Name}
+		wlKey := types.NamespacedName{
+			Name:      workloadsparkapplication.GetWorkloadNameForSparkApplication(sparkApplication.Name, sparkApplication.UID),
+			Namespace: ns.Name,
+		}
+		util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+
+		ginkgo.By("setting the SparkApplication state to SUBMISSION_FAILED")
+		createdSparkApplication := &sparkv1beta2.SparkApplication{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			createdSparkApplication.Status.AppState.State = sparkv1beta2.ApplicationStateFailedSubmission
+			g.Expect(k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the Workload stays admitted and is not finished")
+		createdWorkload := &kueue.Workload{}
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+			g.Expect(createdWorkload.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("setting the SparkApplication state to FAILED")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
+			createdSparkApplication.Status.AppState.State = sparkv1beta2.ApplicationStateFailed
+			g.Expect(k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the Workload is finished")
+		util.ExpectWorkloadToFinish(ctx, k8sClient, wlKey)
+	})
 })
 
 var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareScheduling", ginkgo.Label("job:sparkapplication", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
