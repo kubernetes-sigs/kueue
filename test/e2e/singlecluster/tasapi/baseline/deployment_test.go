@@ -74,8 +74,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
-	ginkgo.When("creating a Deployment with topology spreading across replicas", func() {
-		ginkgo.It("should spread the replicas evenly across blocks", func() {
+	ginkgo.When("Creating a Deployment with topology spreading across replicas", func() {
+		ginkgo.It("Should spread the replicas evenly across blocks", func() {
 			const replicas = int32(4)
 
 			// Each replica of a Deployment is admitted as its own single-Pod
@@ -136,16 +136,18 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 			})
 
 			ginkgo.By("Verifying each block holds exactly 2 of the 4 replicas", func() {
+				blockOfNode := util.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
 				podsPerBlock := make(map[string]int, 2)
 				for _, p := range pods.Items {
 					block, found := blockOfNode[p.Spec.NodeName]
 					gomega.Expect(found).To(gomega.BeTrue(), "pod %s landed on unexpected node %s", p.Name, p.Spec.NodeName)
 					podsPerBlock[block]++
 				}
-				for block, count := range podsPerBlock {
-					gomega.Expect(count).To(gomega.Equal(2),
-						"block %s holds %d of the %d replicas, expected an even 2 and 2 split", block, count, replicas)
+				wantPodsPerBlock := map[string]int{
+					"b1": 2,
+					"b2": 2,
 				}
+				gomega.Expect(podsPerBlock).To(gomega.BeComparableTo(wantPodsPerBlock))
 			})
 		})
 	})
