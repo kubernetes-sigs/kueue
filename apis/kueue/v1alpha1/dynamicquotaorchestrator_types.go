@@ -203,8 +203,8 @@ type DynamicQuotaOrchestrator struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of the DynamicQuotaOrchestrator.
-	// +required
-	Spec DynamicQuotaOrchestratorSpec `json:"spec,omitzero"`
+	// +optional
+	Spec DynamicQuotaOrchestratorSpec `json:"spec"`
 
 	// status defines the observed state of the DynamicQuotaOrchestrator.
 	// +optional

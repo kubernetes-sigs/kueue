@@ -162,8 +162,8 @@ type CapacityProvider struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of the CapacityProvider.
-	// +required
-	Spec CapacityProviderSpec `json:"spec,omitzero"`
+	// +optional
+	Spec CapacityProviderSpec `json:"spec"`
 
 	// status defines the capacity observed and published by the provider.
 	// +optional

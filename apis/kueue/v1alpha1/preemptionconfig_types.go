@@ -121,8 +121,8 @@ type PreemptionConfig struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the preemption rules of the PreemptionConfig.
-	// +required
-	Spec PreemptionConfigSpec `json:"spec,omitempty"`
+	// +optional
+	Spec PreemptionConfigSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true

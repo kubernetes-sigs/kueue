@@ -235,8 +235,6 @@ spec:
                     - type
                   x-kubernetes-list-type: map
               type: object
-          required:
-            - spec
           type: object
       served: true
       storage: true
