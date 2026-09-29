@@ -645,6 +645,16 @@ func setupControllers(
 	}
 	jfOpts = append(jfOpts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
 
+	if features.Enabled(features.QuotaReleaseStrategy) {
+		for _, fc := range cfg.Integrations.FrameworkConfigs {
+			if fc.QuotaReleaseStrategy != nil {
+				if err := integrationManager.RegisterQuotaReleaseStrategy(fc.Name, fc.QuotaReleaseStrategy); err != nil {
+					return fmt.Errorf("registering quota release strategy for %q: %w", fc.Name, err)
+				}
+			}
+		}
+	}
+
 	if err := integrationManager.SetupControllers(ctx, mgr, setupLog, jfOpts...); err != nil {
 		return fmt.Errorf(
 			"unable to create controller or webhook for kubernetesVersion %v: %w",

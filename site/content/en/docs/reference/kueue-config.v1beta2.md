@@ -912,6 +912,41 @@ newest start time first.</li>
 </tbody>
 </table>
 
+## `FrameworkConfig`     {#config-kueue-x-k8s-io-v1beta2-FrameworkConfig}
+    
+
+**Appears in:**
+
+- [Integrations](#config-kueue-x-k8s-io-v1beta2-Integrations)
+
+
+<p>FrameworkConfig provides configuration options for controlling framework-specific behaviors.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Name of the framework (must match an enabled framework in Frameworks, e.g. &quot;batch/job&quot;, &quot;pod&quot;).</p>
+</td>
+</tr>
+<tr><td><code>quotaReleaseStrategy</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy"><code>QuotaReleaseStrategy</code></a>
+</td>
+<td>
+   <p>QuotaReleaseStrategy controls when quota is released for this framework during eviction or preemption.
+In Alpha (v0.20), &quot;OnTerminal&quot; is supported only for &quot;pod&quot;.
+If omitted, the framework follows its default release behavior (see Integration Release Behavior Summary).</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `IncrementalDispatcherConfig`     {#config-kueue-x-k8s-io-v1beta2-IncrementalDispatcherConfig}
     
 
@@ -1003,6 +1038,13 @@ have labels with some key from the list, the values of these labels must
 match or otherwise the workload creation would fail. The labels are copied only
 during the workload creation and are not updated even if the labels of the
 underlying job are changed.</p>
+</td>
+</tr>
+<tr><td><code>frameworkConfigs</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-FrameworkConfig"><code>[]FrameworkConfig</code></a>
+</td>
+<td>
+   <p>FrameworkConfigs provides per-framework configuration options for controlling framework-specific behaviors.</p>
 </td>
 </tr>
 </tbody>
@@ -1251,6 +1293,25 @@ A nil value disables automatic deletion of Workloads.</p>
 
 <p>QuotaCheckStrategy determines how Kueue checks resources against quota
 during admission.</p>
+
+
+
+
+## `QuotaReleaseStrategy`     {#config-kueue-x-k8s-io-v1beta2-QuotaReleaseStrategy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [FrameworkConfig](#config-kueue-x-k8s-io-v1beta2-FrameworkConfig)
+
+
+<p>QuotaReleaseStrategy controls when quota is released for a framework during eviction or preemption.</p>
+<p>Valid values are:</p>
+<ul>
+<li>&quot;OnQuotaReleased&quot;: releases quota as soon as deletion is initiated or the workload status is updated.</li>
+<li>&quot;OnTerminal&quot;: holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed). In Alpha (v0.20), supported only for &quot;pod&quot;.</li>
+</ul>
 
 
 

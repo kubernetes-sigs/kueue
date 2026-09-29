@@ -34,12 +34,15 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -311,6 +314,81 @@ func TestSetupIndexes(t *testing.T) {
 					cmpopts.SortSlices(func(a, b string) bool { return a < b })); len(diff) != 0 {
 					t.Errorf("Unexpected list workloads (-want,+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestSetupControllers_QuotaReleaseStrategy(t *testing.T) {
+	cases := map[string]struct {
+		enableFeatureGate bool
+		strategy          *configapi.QuotaReleaseStrategy
+		wantStrategy      configapi.QuotaReleaseStrategy
+	}{
+		"feature gate enabled wires strategy to reconciler": {
+			enableFeatureGate: true,
+			strategy:          new(configapi.QuotaReleaseOnTerminal),
+			wantStrategy:      configapi.QuotaReleaseOnTerminal,
+		},
+		"feature gate disabled does not wire strategy to reconciler": {
+			enableFeatureGate: false,
+			strategy:          new(configapi.QuotaReleaseOnTerminal),
+			wantStrategy:      "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.QuotaReleaseStrategy, tc.enableFeatureGate)
+
+			manager := NewIntegrationManager()
+			var gotOpts []Option
+			err := manager.RegisterIntegration("batch/job", IntegrationCallbacks{
+				NewReconciler: func(ctx context.Context, cl client.Client, idx client.FieldIndexer, rec events.EventRecorder, opts ...Option) (JobReconcilerInterface, error) {
+					gotOpts = opts
+					return testNewReconciler(ctx, cl, idx, rec, opts...)
+				},
+				SetupWebhook: testSetupWebhook,
+				JobType:      &batchv1.Job{},
+			})
+			if err != nil {
+				t.Fatalf("Unexpected error while registering batch/job: %s", err)
+			}
+			if tc.strategy != nil {
+				if err := manager.RegisterQuotaReleaseStrategy("batch/job", tc.strategy); err != nil {
+					t.Fatalf("Unexpected error while registering quota release strategy: %s", err)
+				}
+			}
+
+			ctx, logger := utiltesting.ContextWithLog(t)
+			k8sClient := utiltesting.NewClientBuilder().Build()
+			mgrOpts := ctrlmgr.Options{
+				Scheme: k8sClient.Scheme(),
+				NewClient: func(*rest.Config, client.Options) (client.Client, error) {
+					return k8sClient, nil
+				},
+				MapperProvider: func(*rest.Config, *http.Client) (apimeta.RESTMapper, error) {
+					mapper := apimeta.NewDefaultRESTMapper([]schema.GroupVersion{batchv1.SchemeGroupVersion})
+					testMapper := &TestRESTMapper{DefaultRESTMapper: mapper}
+					testMapper.Add(batchv1.SchemeGroupVersion.WithKind("Job"), apimeta.RESTScopeNamespace)
+					return testMapper, nil
+				},
+			}
+			mgr, err := ctrlmgr.New(&rest.Config{}, mgrOpts)
+			if err != nil {
+				t.Fatalf("Unexpected error while creating manager: %s", err)
+			}
+
+			opts := []Option{
+				WithEnabledFrameworks([]string{"batch/job"}),
+			}
+			if err := manager.SetupControllers(ctx, mgr, logger, opts...); err != nil {
+				t.Fatalf("SetupControllers() unexpected error: %s", err)
+			}
+
+			gotReconcilerOpts := ProcessOptions(gotOpts...)
+			if diff := cmp.Diff(tc.wantStrategy, gotReconcilerOpts.QuotaReleaseStrategy); diff != "" {
+				t.Errorf("Unexpected QuotaReleaseStrategy in reconciler options (-want +got):\n%s", diff)
 			}
 		})
 	}

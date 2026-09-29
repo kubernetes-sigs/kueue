@@ -299,6 +299,26 @@ type ControllerConfigurationSpec struct {
 	CacheSyncTimeout *time.Duration `json:"cacheSyncTimeout,omitempty"`
 }
 
+// QuotaReleaseStrategy controls when quota is released for a framework during eviction or preemption.
+//
+// Valid values are:
+// - "OnQuotaReleased": releases quota as soon as deletion is initiated or the workload status is updated.
+// - "OnTerminal": holds quota until all underlying pods have reached a terminal phase (Succeeded or Failed). In Alpha (v0.20), supported only for "pod".
+//
+// +kubebuilder:validation:Enum=OnQuotaReleased;OnTerminal
+// +enum
+type QuotaReleaseStrategy string
+
+const (
+	// QuotaReleaseOnQuotaReleased releases quota as soon as deletion is initiated
+	// or the workload status is updated.
+	QuotaReleaseOnQuotaReleased QuotaReleaseStrategy = "OnQuotaReleased"
+
+	// QuotaReleaseOnTerminal holds quota until all underlying pods
+	// have reached a terminal phase (Succeeded or Failed).
+	QuotaReleaseOnTerminal QuotaReleaseStrategy = "OnTerminal"
+)
+
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,
 // which is used to ensure that all Pods are ready within the specified time.
 type WaitForPodsReady struct {
@@ -579,6 +599,7 @@ type Integrations struct {
 	//  - "statefulset"
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
 	Frameworks []string `json:"frameworks,omitempty"`
+
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.
 	ExternalFrameworks []string `json:"externalFrameworks,omitempty"`
@@ -593,6 +614,23 @@ type Integrations struct {
 	// during the workload creation and are not updated even if the labels of the
 	// underlying job are changed.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
+
+	// FrameworkConfigs provides per-framework configuration options for controlling framework-specific behaviors.
+	// +optional
+	FrameworkConfigs []FrameworkConfig `json:"frameworkConfigs,omitempty"`
+}
+
+// FrameworkConfig provides configuration options for controlling framework-specific behaviors.
+type FrameworkConfig struct {
+	// Name of the framework (must match an enabled framework in Frameworks, e.g. "batch/job", "pod").
+	// +required
+	Name string `json:"name"`
+
+	// QuotaReleaseStrategy controls when quota is released for this framework during eviction or preemption.
+	// In Alpha (v0.20), "OnTerminal" is supported only for "pod".
+	// If omitted, the framework follows its default release behavior (see Integration Release Behavior Summary).
+	// +optional
+	QuotaReleaseStrategy *QuotaReleaseStrategy `json:"quotaReleaseStrategy,omitempty"`
 }
 
 // QuotaCheckStrategy determines how Kueue checks resources against quota

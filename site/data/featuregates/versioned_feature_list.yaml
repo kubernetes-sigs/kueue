@@ -427,6 +427,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: QuotaReleaseStrategy
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: RayServiceValidateUpgradeStrategy
   versionedSpecs:
   - default: true
