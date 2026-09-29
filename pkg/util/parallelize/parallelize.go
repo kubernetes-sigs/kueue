@@ -22,7 +22,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 )
 
-const maxParallelism = 8
+const maxParallelism = 32
 
 // ErrorChannel supports non-blocking send and receive operation to capture error.
 // A maximum of one error is kept in the channel and the rest of the errors sent
