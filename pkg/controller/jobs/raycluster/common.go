@@ -375,15 +375,24 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 			),
 		)
 	}
-	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) &&
-		isRayObjectManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
-		allErrors = append(
-			allErrors,
-			field.Forbidden(
-				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
-				fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
-			),
-		)
+	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) && isRayObjectManagedByMultiKueue(object) {
+		if _, isRayService := object.(*rayv1.RayService); isRayService {
+			allErrors = append(
+				allErrors,
+				field.Forbidden(
+					rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+					"in-tree autoscaling for a MultiKueue-managed RayService is not supported",
+				),
+			)
+		} else if !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+			allErrors = append(
+				allErrors,
+				field.Forbidden(
+					rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
+				),
+			)
+		}
 	}
 
 	// Should limit the generated PodSet count to the maximum supported by Workloads.
