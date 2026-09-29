@@ -29,6 +29,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -38,6 +39,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/test/performance/framework/controllers"
 )
@@ -49,6 +51,7 @@ var (
 	metricsPort = flag.Int("metricsPort", 0, "metrics serving port")
 
 	enableTAS = flag.Bool("enableTAS", false, "enable TAS controllers and indexers")
+	enableDRA = flag.Bool("enableDRA", false, "enable the DRA device feasibility check and map the generated DeviceClass to quota")
 )
 
 var (
@@ -177,7 +180,16 @@ func run() int {
 		cancel()
 	}()
 
-	if err := controllers.Setup(ctx, mgr, &configapi.Configuration{}, *enableTAS); err != nil {
+	cfg := &configapi.Configuration{}
+	if *enableDRA {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.KueueDRADeviceFeasibility): true}); err != nil {
+			log.Error(err, "Unable to enable the DRA device feasibility check")
+			return 1
+		}
+		cfg.Resources = &configapi.Resources{DeviceClassMappings: controllers.DRADeviceClassMappings()}
+	}
+
+	if err := controllers.Setup(ctx, mgr, cfg, *enableTAS); err != nil {
 		log.Error(err, "Unable to set up controllers and scheduler")
 		return 1
 	}

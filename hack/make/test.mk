@@ -860,6 +860,33 @@ run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=25m $(SCALABILITY_SCRAPE_ARGS)
 
+##@ Scheduler Performance Testing with TAS and DRA
+
+SCALABILITY_TAS_DRA_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/generator.yaml
+SCALABILITY_TAS_DRA_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/rangespec.yaml
+
+.PHONY: run-tas-dra-performance-scheduler
+run-tas-dra-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_TAS_DRA_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableTAS=true --enableDRA=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-tas-dra-performance-scheduler-once
+test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-tas-dra-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-tas-dra-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_TAS_DRA_RANGE_FILE)
+
+.PHONY: test-tas-dra-performance-scheduler
+test-tas-dra-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
+
 ##@ Scheduler Performance Testing - Large Scale
 
 SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/generator.yaml
