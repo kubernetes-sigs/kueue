@@ -698,6 +698,45 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	}
 }
 
+func TestFinished(t *testing.T) {
+	cases := map[string]struct {
+		state        sparkappv1beta2.ApplicationStateType
+		wantSuccess  bool
+		wantFinished bool
+	}{
+		"running": {
+			state: sparkappv1beta2.ApplicationStateRunning,
+		},
+		"submission failed, the operator may still resubmit": {
+			state: sparkappv1beta2.ApplicationStateFailedSubmission,
+		},
+		"completed": {
+			state:        sparkappv1beta2.ApplicationStateCompleted,
+			wantSuccess:  true,
+			wantFinished: true,
+		},
+		"failed": {
+			state:        sparkappv1beta2.ApplicationStateFailed,
+			wantFinished: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns").Obj()
+			sparkApp.Status.AppState.State = tc.state
+
+			_, gotSuccess, gotFinished := (*SparkApplication)(sparkApp).Finished(t.Context())
+			if gotSuccess != tc.wantSuccess {
+				t.Errorf("unexpected success: want %v, got %v", tc.wantSuccess, gotSuccess)
+			}
+			if gotFinished != tc.wantFinished {
+				t.Errorf("unexpected finished: want %v, got %v", tc.wantFinished, gotFinished)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
