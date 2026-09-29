@@ -300,11 +300,13 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 }
 
 func (j *SparkApplication) Finished(ctx context.Context) (message string, success, finished bool) {
+	// SUBMISSION_FAILED is not terminal: depending on the restartPolicy, the
+	// operator resubmits the application, and it moves the application to
+	// FAILED once no retries are left.
 	return j.Status.AppState.ErrorMessage,
 		j.Status.AppState.State == sparkv1beta2.ApplicationStateCompleted,
 		j.Status.AppState.State == sparkv1beta2.ApplicationStateCompleted ||
-			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed ||
-			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailedSubmission
+			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
 func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool {
