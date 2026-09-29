@@ -24,18 +24,20 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// LogDump dumps the pending and inadmissible workloads for each ClusterQueue into the log,
-// one line per ClusterQueue.
+// LogDump dumps the pending, inadmissible and inflight workloads for each
+// ClusterQueue into the log, one line per ClusterQueue.
 func (m *Manager) LogDump(log logr.Logger) {
 	m.Lock()
 	defer m.Unlock()
 	for name, cq := range m.hm.ClusterQueues() {
 		pending, _ := cq.Dump()
 		inadmissible, _ := cq.DumpInadmissible()
-		log.Info("Found pending and inadmissible workloads in ClusterQueue",
+		inflight, _ := cq.DumpInflight()
+		log.Info("Found pending, inadmissible and inflight workloads in ClusterQueue",
 			"clusterQueue", klog.KRef("", string(name)),
 			"pending", pending,
-			"inadmissible", inadmissible)
+			"inadmissible", inadmissible,
+			"inflight", inflight)
 	}
 }
 
@@ -72,6 +74,26 @@ func (m *Manager) DumpInadmissible() map[kueue.ClusterQueueReference][]workload.
 	dump := make(map[kueue.ClusterQueueReference][]workload.Reference, len(clusterQueues))
 	for key, cq := range clusterQueues {
 		if elements, ok := cq.DumpInadmissible(); ok {
+			dump[key] = elements
+		}
+	}
+	if len(dump) == 0 {
+		return nil
+	}
+	return dump
+}
+
+// DumpInflight is a dump of the workloads currently checked out to the scheduler.
+func (m *Manager) DumpInflight() map[kueue.ClusterQueueReference][]workload.Reference {
+	m.Lock()
+	defer m.Unlock()
+	clusterQueues := m.hm.ClusterQueues()
+	if len(clusterQueues) == 0 {
+		return nil
+	}
+	dump := make(map[kueue.ClusterQueueReference][]workload.Reference, len(clusterQueues))
+	for key, cq := range clusterQueues {
+		if elements, ok := cq.DumpInflight(); ok {
 			dump[key] = elements
 		}
 	}

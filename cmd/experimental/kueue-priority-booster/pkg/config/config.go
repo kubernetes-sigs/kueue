@@ -45,7 +45,7 @@ type TimeSharing struct {
 // Configuration defines the configuration for the kueue-priority-booster.
 type Configuration struct {
 	// TimeSharing holds the parameters of the time-sharing mode.
-	TimeSharing TimeSharing `json:"timeSharing,omitempty"`
+	TimeSharing TimeSharing `json:"timeSharing,omitzero"`
 
 	// WorkloadSelector, if set, limits which workloads the controller manages.
 	// Workloads whose labels do not match are ignored; any annotation set by

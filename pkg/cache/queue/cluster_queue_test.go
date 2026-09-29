@@ -447,18 +447,14 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 	}
 }
 
-func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
+func TestSnapshotOrderingStableOnLocalQueueLookupError(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ctx, log := utiltesting.ContextWithLog(t)
 	lqLookupErr := errors.New("temporary LocalQueue lookup error")
 	cl := utiltesting.NewClientBuilder().
-		WithObjects(
-			utiltestingapi.MakeLocalQueue("higher-usage", defaultNamespace).Obj(),
-			utiltestingapi.MakeLocalQueue("lower-usage", defaultNamespace).Obj(),
-		).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if key.Name == "unavailable" {
+				if _, ok := obj.(*kueue.LocalQueue); ok {
 					return lqLookupErr
 				}
 				return cl.Get(ctx, key, obj, opts...)
@@ -468,6 +464,7 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 	afsUsageLedger := queueafs.NewAfsUsageLedger()
 	afsUsageLedger.SetForTest("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
 	afsUsageLedger.SetForTest("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/unavailable", corev1.ResourceList{resourceGPU: resource.MustParse("8")}, now)
 
 	cq, err := newClusterQueue(
 		ctx,
@@ -482,29 +479,32 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
 
-	// Put the unavailable LocalQueue last so the usage cache is partially
-	// populated before its lookup fails. The priorities reproduce the
-	// contradictory ordering from Kueue#12534: fair sharing puts lower-usage
-	// before higher-usage, while base ordering puts higher-usage before
-	// unavailable and unavailable before lower-usage.
-	elements := []*workload.Info{
-		workload.NewInfo(log, utiltestingapi.MakeWorkload("higher-usage", defaultNamespace).
-			Queue("higher-usage").Priority(3).Creation(now).UID("uid-2").Obj()),
-		workload.NewInfo(log, utiltestingapi.MakeWorkload("lower-usage", defaultNamespace).
-			Queue("lower-usage").Priority(1).Creation(now).UID("uid-1").Obj()),
-		workload.NewInfo(log, utiltestingapi.MakeWorkload("unavailable", defaultNamespace).
-			Queue("unavailable").Priority(2).Creation(now).UID("uid-3").Obj()),
+	// Seed cached weights for higher-usage (weight 1 -> usage 20) and lower-usage
+	// (weight 2 -> usage 5). Leave "unavailable" unseeded so it falls back to the
+	// default weight 1 (usage 8).
+	cq.addLocalQueue("default/higher-usage", 1.0)
+	cq.addLocalQueue("default/lower-usage", 2.0)
+
+	for _, wl := range []*kueue.Workload{
+		utiltestingapi.MakeWorkload("higher-usage", defaultNamespace).
+			Queue("higher-usage").Priority(3).Creation(now).UID("uid-2").Obj(),
+		utiltestingapi.MakeWorkload("lower-usage", defaultNamespace).
+			Queue("lower-usage").Priority(1).Creation(now).UID("uid-1").Obj(),
+		utiltestingapi.MakeWorkload("unavailable", defaultNamespace).
+			Queue("unavailable").Priority(2).Creation(now).UID("uid-3").Obj(),
+	} {
+		cq.PushOrUpdate(workload.NewInfo(log, wl))
 	}
 
-	cq.snapshotSort(elements)
+	snap := cq.Snapshot()
 
-	got := make([]string, len(elements))
-	for i, wInfo := range elements {
+	got := make([]string, len(snap))
+	for i, wInfo := range snap {
 		got[i] = wInfo.Obj.Name
 	}
-	want := []string{"higher-usage", "unavailable", "lower-usage"}
+	want := []string{"lower-usage", "unavailable", "higher-usage"}
 	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("unexpected base ordering (-want,+got):\n%s", diff)
+		t.Errorf("unexpected snapshot ordering (-want,+got):\n%s", diff)
 	}
 }
 
@@ -531,6 +531,8 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
+	cq.addLocalQueue("default/lq1", 1.0)
+	cq.addLocalQueue("default/lq2", 1.0)
 
 	for _, w := range []*kueue.Workload{
 		utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(now).UID("uid-1").Obj(),
@@ -572,6 +574,67 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	}
 }
 
+func TestSnapshotStableWithConcurrentWeightUpdates(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		nil, defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
+		afsUsageLedger)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+	cq.addLocalQueue("default/lq1", 1.0)
+	cq.addLocalQueue("default/lq2", 1.0)
+
+	for _, w := range []*kueue.Workload{
+		utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(now).UID("uid-1").Obj(),
+		utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq2").Creation(now).UID("uid-2").Obj(),
+		utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue("lq1").Creation(now).UID("uid-3").Obj(),
+		utiltestingapi.MakeWorkload("wl4", defaultNamespace).Queue("lq2").Creation(now).UID("uid-4").Obj(),
+	} {
+		cq.PushOrUpdate(workload.NewInfo(log, w))
+	}
+
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				cq.UpdateLocalQueueWeight("default/lq1", 0.1)
+				cq.UpdateLocalQueueWeight("default/lq1", 1.0)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		<-writerDone
+	}()
+
+	validA := []string{"lq1", "lq2", "lq1", "lq2"}
+	validB := []string{"lq2", "lq2", "lq1", "lq1"}
+	for i := range 1000 {
+		snap := cq.Snapshot()
+		got := make([]string, len(snap))
+		for j, wInfo := range snap {
+			got[j] = string(wInfo.Obj.Spec.QueueName)
+		}
+		if !slices.Equal(got, validA) && !slices.Equal(got, validB) {
+			t.Fatalf("call %d: invalid ordering %v (expected %v or %v)", i+1, got, validA, validB)
+		}
+	}
+}
+
 func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -593,6 +656,7 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
+	cq.addLocalQueue("default/existing", 1.0)
 
 	// Base ordering favors the missing queue by priority, while fair sharing with
 	// the default weight favors the existing queue by usage (10 < 15).
@@ -1019,7 +1083,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 
 			inHeap := cq.workloads.active.GetByKey(key) != nil
 			inInadmissible := cq.workloads.inadmissible.hasKey(key)
-			inInflight := cq.workloads.inflight != nil && workloadKey(cq.workloads.inflight) == key
+			_, inInflight := cq.workloads.inflight[key]
 			if inHeap != tc.wantInHeap {
 				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
 			}
@@ -1052,29 +1116,59 @@ func TestPendingInLocalQueueCountsInflight(t *testing.T) {
 		Queue("lq-a").
 		Creation(now).
 		Obj()
+	secondInflightWl := utiltestingapi.MakeWorkload("wl-inflight-2", defaultNamespace).
+		Queue("lq-a").
+		Creation(now.Add(500 * time.Millisecond)).
+		Obj()
 	otherWl := utiltestingapi.MakeWorkload("wl-other", defaultNamespace).
 		Queue("lq-b").
 		Creation(now.Add(time.Second)).
 		Obj()
 
 	cq.PushOrUpdate(workload.NewInfo(log, inflightWl))
+	cq.PushOrUpdate(workload.NewInfo(log, secondInflightWl))
 	cq.PushOrUpdate(workload.NewInfo(log, otherWl))
 
-	popped := cq.Pop()
-	if popped == nil {
-		t.Fatal("expected to pop a workload")
+	// Pop both lq-a workloads, as a cycle with a refill pop would.
+	for range 2 {
+		if cq.Pop() == nil {
+			t.Fatal("expected to pop a workload")
+		}
 	}
 
 	lqA := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-a"))
 	activeA, inadmissibleA := cq.PendingInLocalQueue(lqA)
-	if activeA != 1 || inadmissibleA != 0 {
-		t.Fatalf("LocalQueue lq-a pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeA, inadmissibleA)
+	if activeA != 2 || inadmissibleA != 0 {
+		t.Fatalf("LocalQueue lq-a pending mismatch: active=%d inadmissible=%d, want active=2 inadmissible=0", activeA, inadmissibleA)
 	}
 
 	lqB := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-b"))
 	activeB, inadmissibleB := cq.PendingInLocalQueue(lqB)
 	if activeB != 1 || inadmissibleB != 0 {
 		t.Fatalf("LocalQueue lq-b pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeB, inadmissibleB)
+	}
+}
+
+// TestPopEmptyHeapKeepsInflightClaims covers a pop that finds the heap empty
+// while a claim from an earlier pop is still held.
+func TestPopEmptyHeapKeepsInflightClaims(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj()
+	cq.PushOrUpdate(workload.NewInfo(log, wl))
+
+	if cq.Pop() == nil {
+		t.Fatal("expected to pop the workload")
+	}
+	if got := cq.Pop(); got != nil {
+		t.Fatalf("Pop on an empty heap returned %v, want nil", got)
+	}
+
+	cq.PushOrUpdate(workload.NewInfo(log, wl.DeepCopy()))
+	if activeWorkloads, _ := cq.Dump(); len(activeWorkloads) != 0 {
+		t.Errorf("the empty-heap pop dropped the inflight claim; heap has %v", activeWorkloads)
 	}
 }
 
@@ -1585,22 +1679,16 @@ func TestFIFOClusterQueue(t *testing.T) {
 	now := metav1.Now()
 	ws := []*kueue.Workload{
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "now",
-				CreationTimestamp: now,
-			},
+			Name:              "now",
+			CreationTimestamp: now,
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "before",
-				CreationTimestamp: metav1.NewTime(now.Add(-time.Second)),
-			},
+			Name:              "before",
+			CreationTimestamp: metav1.NewTime(now.Add(-time.Second)),
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:              "after",
-				CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-			},
+			Name:              "after",
+			CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 		},
 	}
 	for _, w := range ws {
@@ -1614,10 +1702,8 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
 	wlInfo := workload.NewInfo(log, &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "after",
-			CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
-		},
+		Name:              "after",
+		CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
 	})
 	q.PushOrUpdate(wlInfo)
 	got = q.Pop()
@@ -2355,8 +2441,9 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 				cq.Pop()
 			},
 			wantPending: map[[6]string]int{
-				labelVals1: 0,
-				labelVals2: 2, // 1 on heap + 1 inflight
+				// Both popped workloads stay inflight.
+				labelVals1: 1, // wl1, inflight
+				labelVals2: 2, // wl3 on heap + wl2 inflight
 			},
 			wantInadmissible: map[[6]string]int{},
 		},
@@ -2482,5 +2569,41 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 				t.Errorf("Unexpected inadmissible tracker (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestPopMidCycleDoesNotConsumeRequeueSignal verifies that a mid-cycle pop
+// (fair sharing refill) does not advance popCycle, so a cluster event that
+// lands mid-cycle still sends every workload popped in that cycle back to the
+// active heap.
+func TestPopMidCycleDoesNotConsumeRequeueSignal(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	head := workload.NewInfo(log, utiltestingapi.MakeWorkload("head", defaultNamespace).Creation(now).Obj())
+	next := workload.NewInfo(log, utiltestingapi.MakeWorkload("next", defaultNamespace).Creation(now.Add(time.Second)).Obj())
+	cq.PushOrUpdate(head)
+	cq.PushOrUpdate(next)
+
+	if got := cq.Pop(); got == nil || got.Obj.Name != "head" {
+		t.Fatalf("Pop() = %v, want head", got)
+	}
+	// A cluster event lands mid-cycle (e.g. capacity was freed). Nothing is
+	// inadmissible yet, so it only records when it happened; the requeues below
+	// are what consult it.
+	queueInadmissibleWorkloads(ctx, cq, nil)
+	if got := cq.PopMidCycle(); got == nil || got.Obj.Name != "next" {
+		t.Fatalf("PopMidCycle() = %v, want next", got)
+	}
+
+	for _, wl := range []*workload.Info{head, next} {
+		if !cq.RequeueIfNotPresent(ctx, wl, RequeueReasonNoFit, "") {
+			t.Fatalf("RequeueIfNotPresent(%s) returned false", wl.Obj.Name)
+		}
+	}
+	active, _ := cq.Dump()
+	if len(active) != 2 {
+		inadmissible, _ := cq.DumpInadmissible()
+		t.Errorf("expected both workloads back on the active heap, got active %v, inadmissible %v", active, inadmissible)
 	}
 }

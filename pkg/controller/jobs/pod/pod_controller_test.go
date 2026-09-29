@@ -18,6 +18,7 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,11 +28,14 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
@@ -45,9 +49,11 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	deploymentconstants "sigs.k8s.io/kueue/pkg/controller/jobs/deployment/constants"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -56,7 +62,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
@@ -67,66 +75,337 @@ type keyUIDs struct {
 }
 
 func TestPodsReady(t *testing.T) {
-	readyCond := corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}
-	readyPod := func(name string) corev1.Pod {
-		return *testingpod.MakePod(name, "test-ns").StatusConditions(readyCond).Obj()
-	}
-	pendingPod := func(name string) corev1.Pod {
-		return *testingpod.MakePod(name, "test-ns").Obj()
-	}
-	makePodGroup := func(totalCount string, pods ...corev1.Pod) *Pod {
-		driver := testingpod.MakePod("driver", "test-ns").
-			GroupNameLabel("test-group").
-			GroupTotalCount(totalCount)
-		return &Pod{
-			pod:     *driver.Obj(),
-			isGroup: true,
-			list:    corev1.PodList{Items: pods},
-		}
-	}
+	basePodWrapper := testingpod.MakePod("test-pod", "test-ns").Queue("test-queue")
+	readyPodWrapper := basePodWrapper.Clone().
+		StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue})
+	// The kubelet flips PodReady to False once a pod completes, so a Succeeded pod
+	// carries the same conditions as a pod that is not ready.
+	succeededPodWrapper := basePodWrapper.Clone().
+		StatusPhase(corev1.PodSucceeded).
+		StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionFalse})
+	groupDriverWrapper := basePodWrapper.Clone().Name("driver").GroupNameLabel("test-group")
 
 	testCases := map[string]struct {
-		pod  *Pod
-		want bool
+		pod          *corev1.Pod
+		groupPods    []corev1.Pod
+		featureGates map[featuregate.Feature]bool
+		want         bool
 	}{
 		"single pod is ready": {
-			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").StatusConditions(readyCond).Obj()),
+			pod:  readyPodWrapper.Clone().Obj(),
 			want: true,
 		},
 		"single pod is not ready": {
-			pod:  FromObject(testingpod.MakePod("test-pod", "test-ns").Queue("test-queue").Obj()),
+			pod:  basePodWrapper.Clone().Obj(),
 			want: false,
 		},
 		"pod group with all pods ready": {
-			pod:  makePodGroup("3", readyPod("driver"), readyPod("worker-1"), readyPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: true,
 		},
 		"pod group with fewer pods than expected": {
-			pod:  makePodGroup("3", readyPod("driver")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+			},
 			want: false,
 		},
 		"pod group with all pods present but not all ready": {
-			pod:  makePodGroup("3", readyPod("driver"), pendingPod("worker-1"), pendingPod("worker-2")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
 			want: false,
 		},
+		"single pod succeeded": {
+			pod: succeededPodWrapper.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
+		},
+		"single pod succeeded, gate disabled": {
+			pod: succeededPodWrapper.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
+			},
+			want: false,
+		},
+		"pod group with some pods succeeded and the rest ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
+		},
+		"pod group with some pods succeeded and the rest ready, gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
+			},
+			want: false,
+		},
+		"pod group with all pods succeeded": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
+		},
+		"pod group with all pods succeeded, gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
+				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
+			},
+			want: false,
+		},
+		"pod group with some pods succeeded and one pending": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: false,
+		},
+		"serving pod group with some pods succeeded and the rest ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: false,
+		},
+		"serving pod group with all pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
+		},
 		"pod group without total count annotation": {
-			pod: &Pod{
-				pod:     *testingpod.MakePod("driver", "test-ns").GroupNameLabel("test-group").Obj(),
-				isGroup: true,
-				list:    corev1.PodList{Items: []corev1.Pod{readyPod("driver"), readyPod("worker-1")}},
+			pod: groupDriverWrapper.Clone().Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 			},
 			want: false,
 		},
 		"pod group with malformed total count annotation": {
-			pod:  makePodGroup("invalid", readyPod("driver"), readyPod("worker-1")),
+			pod: groupDriverWrapper.Clone().GroupTotalCount("invalid").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+			},
+			want: false,
+		},
+		"pod group within max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count even when fewer than total pods are created": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count with succeeded and ready pods": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+				features.WaitForPodsReadyMaxNotReady:             true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count with gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: false,
+			},
+			want: false,
+		},
+		"pod group exceeding max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with divergent max not-ready count annotations uses the strictest": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("2").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("2").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with partially propagated max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with zero max not-ready count requires all pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("0").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("0").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with negative max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("-1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("-1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count equal to total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("3").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("3").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("3").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count exceeding total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count exceeding total count succeeds when all total pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group with malformed max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("invalid").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("invalid").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("invalid").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("invalid").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
 			want: false,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			got := tc.pod.PodsReady(ctx, nil)
+			pod := FromObject(tc.pod)
+			if len(tc.groupPods) != 0 {
+				pod.isGroup = true
+				pod.list = corev1.PodList{Items: tc.groupPods}
+			}
+			got := pod.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -228,6 +507,525 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 		})
 	}
 }
+func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: false,
+	})
+
+	leader := corev1.Pod{
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "zzzz",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "aaaa",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					},
+				},
+			}},
+		},
+	}
+
+	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	wantOrder := []string{"worker", "leader"}
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+
+	leader := corev1.Pod{
+		Name: "leader",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "aaaa",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		Name: "worker",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "zzzz",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	got, err := constructGroupPodSets([]corev1.Pod{worker, leader}, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		string(got[0].Name),
+		string(got[1].Name),
+	}
+
+	wantOrder := []string{
+		string(kueue.NewPodSetReference("aaaa")),
+		string(kueue.NewPodSetReference("zzzz")),
+	}
+
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+	leader := corev1.Pod{
+		Annotations: map[string]string{},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		Annotations: map[string]string{},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					},
+				},
+			}},
+		},
+	}
+
+	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate leader shape hash: %v", err)
+	}
+	workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate worker shape hash: %v", err)
+	}
+
+	// Make the client-supplied role-hash ordering intentionally opposite
+	// to the shape-derived ordering.
+	if leaderShapeHash < workerShapeHash {
+		leader.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+		worker.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+	} else {
+		leader.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+		worker.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+	}
+
+	pods := []corev1.Pod{leader, worker}
+
+	got, err := constructGroupPodSets(pods, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	// Record the order before changing the role-hashes.
+	firstOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	// Swap only the client-supplied role-hashes.
+	leader.Annotations[podconstants.RoleHashAnnotation],
+		worker.Annotations[podconstants.RoleHashAnnotation] =
+		worker.Annotations[podconstants.RoleHashAnnotation],
+		leader.Annotations[podconstants.RoleHashAnnotation]
+
+	got, err = constructGroupPodSets(pods, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() after swapping role-hashes error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() after swapping role-hashes returned %d PodSets, want 2", len(got))
+	}
+
+	secondOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order changed after swapping client-supplied role-hashes (-before, +after):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+	leader := corev1.Pod{
+		Name: "leader",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "zzzz",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "container",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		Name: "worker",
+		Annotations: map[string]string{
+			podconstants.RoleHashAnnotation: "aaaa",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "container",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate leader shape hash: %v", err)
+	}
+	workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate worker shape hash: %v", err)
+	}
+
+	if leaderShapeHash != workerShapeHash {
+		t.Fatalf("expected identical PodSpecs to have the same shape hash, got %q and %q",
+			leaderShapeHash, workerShapeHash)
+	}
+
+	got1, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	got2, err := constructGroupPodSets([]corev1.Pod{worker, leader}, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+	}
+
+	if len(got1) != 2 || len(got2) != 2 {
+		t.Fatalf("expected 2 PodSets, got %d and %d", len(got1), len(got2))
+	}
+
+	firstOrder := []string{
+		string(got1[0].Name),
+		string(got1[1].Name),
+	}
+
+	secondOrder := []string{
+		string(got2[0].Name),
+		string(got2[1].Name),
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
+	}
+}
+
+func TestConstructComposableWorkloadDeploymentJobUID(t *testing.T) {
+	deploymentGVK := appsv1.SchemeGroupVersion.WithKind("Deployment")
+	statefulSetGVK := appsv1.SchemeGroupVersion.WithKind("StatefulSet")
+	replicaSetGVK := appsv1.SchemeGroupVersion.WithKind("ReplicaSet")
+
+	// The pod integration cannot import the parent integrations, so the ancestor walk is
+	// given equivalent registrations to resolve against.
+	manager := jobframework.NewIntegrationManager()
+	for _, parent := range []struct {
+		name    string
+		gvk     schema.GroupVersionKind
+		jobType runtime.Object
+	}{
+		{"deployment", deploymentGVK, &appsv1.Deployment{}},
+		{"statefulset", statefulSetGVK, &appsv1.StatefulSet{}},
+	} {
+		if err := manager.RegisterIntegration(parent.name, jobframework.IntegrationCallbacks{
+			GVK:           parent.gvk,
+			JobType:       parent.jobType,
+			NewReconciler: jobframework.NewNoopReconcilerFactory(parent.gvk),
+			SetupWebhook:  func(ctrl.Manager, ...jobframework.Option) error { return nil },
+		}); err != nil {
+			t.Fatalf("registering %s: %v", parent.name, err)
+		}
+	}
+	t.Cleanup(manager.EnableIntegrationsForTest(t, "deployment", "statefulset"))
+
+	deployment := testingdeployment.MakeDeployment("test-deployment", "ns").UID("deployment-uid").Queue("user-queue").Obj()
+	unqueuedDeployment := testingdeployment.MakeDeployment("test-deployment", "ns").UID("deployment-uid").Obj()
+	statefulSet := testingstatefulset.MakeStatefulSet("test-statefulset", "ns").UID("statefulset-uid").Queue("user-queue").Obj()
+
+	ownedBy := func(gvk schema.GroupVersionKind, name, uid string) metav1.OwnerReference {
+		return metav1.OwnerReference{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       name,
+			UID:        types.UID(uid),
+			Controller: new(true),
+		}
+	}
+	deploymentOwner := ownedBy(deploymentGVK, "test-deployment", "deployment-uid")
+	replicaSet := func(name, uid string, owners ...metav1.OwnerReference) *appsv1.ReplicaSet {
+		return &appsv1.ReplicaSet{
+			Name: name, Namespace: "ns", UID: types.UID(uid), OwnerReferences: owners}
+	}
+	podOwnedBy := func(podName, rsName, rsUID string) *testingpod.PodWrapper {
+		return testingpod.MakePod(podName, "ns").
+			UID(podName+"-uid").
+			SuspendedByParent(deploymentconstants.FrameworkName).
+			OwnerReferenceWithUID(rsName, replicaSetGVK, rsUID).
+			Image("", nil)
+	}
+	gatedPod := func() *testingpod.PodWrapper { return podOwnedBy("pod", "test-rs", "rs-uid") }
+	owningReplicaSet := replicaSet("test-rs", "rs-uid", deploymentOwner)
+	rollingUpdate := []client.Object{
+		deployment,
+		replicaSet("test-deployment-old", "old-rs-uid", deploymentOwner),
+		replicaSet("test-deployment-new", "new-rs-uid", deploymentOwner),
+	}
+
+	failMetadataReads := func(err error) interceptor.Funcs {
+		return interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, isMetadata := obj.(*metav1.PartialObjectMetadata); isMetadata {
+					return err
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}
+	}
+	errAPIDown := errors.New("api is down")
+	gateEnabled := map[featuregate.Feature]bool{features.DeploymentJobUIDLabel: true}
+	gateDisabled := map[featuregate.Feature]bool{features.DeploymentJobUIDLabel: false}
+
+	testCases := map[string]struct {
+		featureGates               map[featuregate.Feature]bool
+		pod                        *corev1.Pod
+		ancestors                  []client.Object
+		interceptors               interceptor.Funcs
+		manageJobsWithoutQueueName bool
+		wantJobUID                 string
+		wantErr                    error
+	}{
+		"deployment pod is labelled with the deployment UID": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
+		},
+		"pod from the outgoing replicaset of a rolling update": {
+			pod:          podOwnedBy("old-pod", "test-deployment-old", "old-rs-uid").Obj(),
+			ancestors:    rollingUpdate,
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
+		},
+		"pod from the incoming replicaset of a rolling update": {
+			pod:          podOwnedBy("new-pod", "test-deployment-new", "new-rs-uid").Obj(),
+			ancestors:    rollingUpdate,
+			featureGates: gateEnabled,
+			wantJobUID:   "deployment-uid",
+		},
+		"feature disabled keeps the pod UID without walking the owners": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateDisabled,
+			interceptors: failMetadataReads(errors.New("owners must not be walked while the feature is disabled")),
+			wantJobUID:   "pod-uid",
+		},
+		"queue-name on the pod rather than the deployment keeps the pod UID": {
+			pod:          gatedPod().Queue("user-queue").Obj(),
+			ancestors:    []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"deployment without a queue-name is used when unqueued jobs are managed": {
+			pod:                        gatedPod().Queue("user-queue").Obj(),
+			ancestors:                  []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates:               gateEnabled,
+			manageJobsWithoutQueueName: true,
+			wantJobUID:                 "deployment-uid",
+		},
+		"ancestor that is not a deployment keeps the pod UID": {
+			pod: testingpod.MakePod("pod", "ns").
+				UID("pod-uid").
+				SuspendedByParent("statefulset").
+				OwnerReferenceWithUID("test-statefulset", statefulSetGVK, "statefulset-uid").
+				Image("", nil).
+				Obj(),
+			ancestors:    []client.Object{statefulSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"pod gated by an external parent keeps the pod UID": {
+			pod: testingpod.MakePod("pod", "ns").
+				UID("pod-uid").
+				SuspendedByParent("spark-driver").
+				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+				Image("", nil).
+				Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"pod not gated by a parent integration keeps the pod UID": {
+			// The shape a Pod under an unmanaged Deployment actually has: the
+			// queue-name is its own and the Deployment webhook stamped nothing.
+			pod: testingpod.MakePod("pod", "ns").
+				UID("pod-uid").
+				Queue("user-queue").
+				OwnerReferenceWithUID("test-rs", replicaSetGVK, "rs-uid").
+				Image("", nil).
+				Obj(),
+			ancestors:    []client.Object{unqueuedDeployment, owningReplicaSet},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"standalone pod keeps the pod UID": {
+			pod:          testingpod.MakePod("pod", "ns").UID("pod-uid").Image("", nil).Obj(),
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"replicaset without a deployment owner keeps the pod UID": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{replicaSet("test-rs", "rs-uid")},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"replicaset UID not matching the owner reference keeps the pod UID": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, replicaSet("test-rs", "recreated-rs-uid", deploymentOwner)},
+			featureGates: gateEnabled,
+			wantJobUID:   "pod-uid",
+		},
+		"missing replicaset is surfaced for retry": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment},
+			featureGates: gateEnabled,
+			wantErr:      jobframework.ErrWorkloadOwnerNotFound,
+		},
+		"replicaset lookup failure is surfaced for retry": {
+			pod:          gatedPod().Obj(),
+			ancestors:    []client.Object{deployment, owningReplicaSet},
+			interceptors: failMetadataReads(errAPIDown),
+			featureGates: gateEnabled,
+			wantErr:      errAPIDown,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			kClient := utiltesting.NewClientBuilder().
+				WithInterceptorFuncs(tc.interceptors).
+				WithObjects(tc.ancestors...).
+				Build()
+
+			pod := &Pod{
+				pod:                        *tc.pod,
+				isFound:                    true,
+				integrationManager:         manager,
+				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
+			}
+			wl, gotErr := pod.ConstructComposableWorkload(ctx, kClient, nil, nil, nil)
+
+			if tc.wantErr != nil {
+				if !errors.Is(gotErr, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
+				}
+				return
+			}
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if gotJobUID := wl.Labels[controllerconsts.JobUIDLabel]; gotJobUID != tc.wantJobUID {
+				t.Errorf("job-uid label = %q, want %q", gotJobUID, tc.wantJobUID)
+			}
+			// The Deployment UID belongs on the Workload only; patching it onto the Pod
+			// would race with informers that already observed the Pod.
+			if diff := cmp.Diff(*tc.pod, pod.pod); diff != "" {
+				t.Errorf("pod was modified (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
@@ -306,6 +1104,49 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"with topology spreading annotation": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetTopologySpreadingAnnotation, `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`).
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						Annotations(map[string]string{
+							kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`,
+						}).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASTopologySpreading:    true,
+			},
+		},
+		"topology spreading annotation dropped when feature gate is disabled": {
+			pod: FromObject(testingpod.MakePod("pod", "ns").
+				Annotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Annotation(kueue.PodSetTopologySpreadingAnnotation, `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}]}`).
+				Obj(),
+			),
+			wantPodSets: func(pod *Pod) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodSpec(*pod.pod.Spec.DeepCopy()).
+						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+				features.TASTopologySpreading:    false,
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -365,6 +1206,43 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	podUID := "dc85db45"
+	emptyGroupOwner := &appsv1.StatefulSet{
+		Name:      "sts",
+		Namespace: "ns",
+		UID:       "sts-uid",
+	}
+	emptyGroupIntegrationManager := jobframework.NewIntegrationManager()
+	t.Cleanup(emptyGroupIntegrationManager.EnableExternalIntegrationsForTest(t, "StatefulSet.v1.apps"))
+	emptyGroupWorkload := utiltestingapi.MakeWorkload("test-group", "ns").Group().
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Queue(localUserQueueName).
+		OwnerReference(appsv1.SchemeGroupVersion.WithKind("StatefulSet"), "sts", "sts-uid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).Obj(), now).
+		AdmittedAt(true, now.Add(-time.Second)).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadEvicted,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: "Exceeded the PodsReady timeout",
+		}).
+		Obj()
+	emptyGroupWantWorkload := emptyGroupWorkload.DeepCopy()
+	emptyGroupWantWorkload.Status.Admission = nil
+	workload.SetRequeuedCondition(emptyGroupWantWorkload, kueue.WorkloadEvictedByPodsReadyTimeout, "Exceeded the PodsReady timeout", false)
+	workload.UnsetQuotaReservationWithCondition(
+		emptyGroupWantWorkload,
+		workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+		"Exceeded the PodsReady timeout",
+		now,
+	)
+	emptyGroupFinalizedWorkload := emptyGroupWorkload.DeepCopy()
+	emptyGroupFinalizedWorkload.Finalizers = nil
+	unmanagedOwner := metav1.OwnerReference{
+		APIVersion: corev1.SchemeGroupVersion.String(),
+		Kind:       "ConfigMap",
+		Name:       "config",
+		UID:        "config-uid",
+	}
 
 	testCases := map[string]struct {
 		reconcileKey           *types.NamespacedName
@@ -4392,6 +5270,91 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
+		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
+		},
+		"empty pod group with a UID-mismatched StatefulSet owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{func() *appsv1.StatefulSet {
+				owner := emptyGroupOwner.DeepCopy()
+				owner.UID = "replacement-sts-uid"
+				return owner
+			}()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads:       []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads:   []kueue.Workload{*emptyGroupFinalizedWorkload.DeepCopy()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with a deleting StatefulSet owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{func() *appsv1.StatefulSet {
+				owner := emptyGroupOwner.DeepCopy()
+				deletionTimestamp := metav1.NewTime(now)
+				owner.DeletionTimestamp = &deletionTimestamp
+				owner.Finalizers = []string{"test-finalizer"}
+				return owner
+			}()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads:       []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads:   []kueue.Workload{*emptyGroupFinalizedWorkload.DeepCopy()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with an unmanaged live owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{&corev1.ConfigMap{
+				Name: "config", Namespace: "ns", UID: "config-uid",
+			}},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*func() *kueue.Workload {
+				wl := emptyGroupWorkload.DeepCopy()
+				wl.OwnerReferences[0] = unmanagedOwner
+				return wl
+			}()},
+			wantWorkloads: []kueue.Workload{*func() *kueue.Workload {
+				wl := emptyGroupFinalizedWorkload.DeepCopy()
+				wl.OwnerReferences[0] = unmanagedOwner
+				return wl
+			}()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"replacement pods are owning the workload": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
@@ -6854,6 +7817,95 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"pod group with WaitForPodsReady marks workload PodsReady when within GroupMaxNotReadyCount": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -6897,7 +7949,10 @@ func TestReconciler(t *testing.T) {
 				}
 				recorder := &utiltesting.EventRecorder{}
 				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
-					append(tc.reconcilerOptions, jobframework.WithClock(testingclock.NewFakeClock(now)))...)
+					append(tc.reconcilerOptions,
+						jobframework.WithClock(testingclock.NewFakeClock(now)),
+						jobframework.WithCache(schdcache.New(kClient)),
+					)...)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}
@@ -7623,20 +8678,18 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(30)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-with-expired-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(30)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
-							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+							Name:   "succeeded",
+							Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
-							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+							Name:   "failed",
+							Status: corev1.PodStatus{Phase: corev1.PodFailed},
 						},
 					},
 				},
@@ -7647,28 +8700,24 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-with-expired-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(30)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-with-expired-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(30)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "succeeded"},
-							Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+							Name:   "succeeded",
+							Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "failed"},
-							Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+							Name:   "failed",
+							Status: corev1.PodStatus{Phase: corev1.PodFailed},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "deleted-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "deleted-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7681,12 +8730,10 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7699,12 +8746,10 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7717,16 +8762,14 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{Name: "running-pod"},
-							Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:   "running-pod",
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -7739,20 +8782,16 @@ func TestPod_IsActive(t *testing.T) {
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod-1",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(90)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod-1",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 						{
-							ObjectMeta: metav1.ObjectMeta{
-								Name:                       "terminating-pod-2",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-5 * time.Second))),
-								DeletionGracePeriodSeconds: new(int64(300)),
-							},
-							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+							Name:                       "terminating-pod-2",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-5 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(300)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
 				},
@@ -8061,6 +9100,67 @@ func TestStop(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+func TestReorderPodSets(t *testing.T) {
+	tests := map[string]struct {
+		podSets   []kueue.PodSet
+		reference []kueue.PodSetReference
+		want      []kueue.PodSet
+	}{
+		"reorders to match workload": {
+			podSets: []kueue.PodSet{
+				{Name: "worker"},
+				{Name: "leader"},
+			},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+		},
+		"keeps unmatched podsets": {
+			podSets: []kueue.PodSet{
+				{Name: "worker"},
+				{Name: "extra"},
+				{Name: "leader"},
+			},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+				{Name: "extra"},
+			},
+		},
+		"keeps podset order when already matching": {
+			podSets: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := reorderPodSets(tc.podSets, tc.reference)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("reorderPodSets() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

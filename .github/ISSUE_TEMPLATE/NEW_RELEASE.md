@@ -52,17 +52,18 @@ Please do not remove items from the checklist
 - [ ] For major and minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
-  - [ ] Create an unannotated _devel_ tag in the
-        `main` branch, on the first commit that gets merged after the release
-         branch has been created (presumably the README update commit above), and, push the tag:
-        `DEVEL=v$MAJ.$(($MIN+1)).0-devel; git tag $DEVEL main && git push upstream $DEVEL`
-        This ensures that the devel builds on the `main` branch will have a meaningful version number.
+  - [ ] Run the ChatOps command `/create-devel-tag` on this issue. This will:
+        create and push an unannotated `_devel` tag
+        (`v$MAJ.$(($MIN+1)).0-devel`) on `main`, so that development builds
+        from the `main` branch have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
-        <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
-  - [ ] Create the presubmits and the periodic jobs for the next patch release: <!-- CI_PULL -->
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh $VERSION` to create the
+          `v$MAJ.$(($MIN+1))` milestone and submit the `milestone_applier` PR
+    - [ ] Wait for this PR to merge <!-- MILESTONE_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
+  - [ ] Create the presubmits and periodic jobs for the next patch release, and remove the CI jobs for testing the unsupported branch:
         <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->
-  - [ ] Drop CI Jobs for testing the out-of-support branch: <!-- CI_PULL -->
-        <!-- example: https://github.com/kubernetes/test-infra/pull/34562 -->
+    - [ ] Run `./hack/releasing/ci_pull.sh $VERSION` locally.
+    - [ ] Wait for this PR to merge <!-- CI_PULL --> <!-- example #211 -->
 
 
 ## Changelog

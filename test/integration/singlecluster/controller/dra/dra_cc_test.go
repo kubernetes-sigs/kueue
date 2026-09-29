@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -74,7 +75,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-cc-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			vgpuClass = utiltesting.MakeDeviceClass("vgpu.example.com").
+			vgpuClass = testingdra.MakeDeviceClass("vgpu.example.com").
 				CELSelector("device.driver == 'gpu.example.com'").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, vgpuClass)).To(gomega.Succeed())

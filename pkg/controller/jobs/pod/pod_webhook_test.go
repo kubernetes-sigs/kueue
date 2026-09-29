@@ -61,15 +61,11 @@ import (
 
 func TestDefault(t *testing.T) {
 	defaultNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Label(corev1.LabelMetadataName, "test-ns").Obj()
-	defaultNamespaceSelector := &metav1.LabelSelector{
-		MatchExpressions: []metav1.LabelSelectorRequirement{
-			{
-				Key:      corev1.LabelMetadataName,
-				Operator: metav1.LabelSelectorOpNotIn,
-				Values:   []string{"kube-system"},
-			},
-		},
-	}
+	defaultNamespaceSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
+		Key:      corev1.LabelMetadataName,
+		Operator: metav1.LabelSelectorOpNotIn,
+		Values:   []string{"kube-system"},
+	}).Obj()
 	defaultPodSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -213,13 +209,11 @@ func TestDefault(t *testing.T) {
 			initObjects: []client.Object{
 				defaultNamespace,
 				&rayv1.RayCluster{
-					ObjectMeta: metav1.ObjectMeta{
-						UID:       types.UID("parent-ray-cluster"),
-						Name:      "parent-ray-cluster",
-						Namespace: defaultNamespace.Name,
-						Labels: map[string]string{
-							constants.QueueLabel: "test-queue",
-						},
+					UID:       types.UID("parent-ray-cluster"),
+					Name:      "parent-ray-cluster",
+					Namespace: defaultNamespace.Name,
+					Labels: map[string]string{
+						constants.QueueLabel: "test-queue",
 					},
 				},
 			},
@@ -739,20 +733,16 @@ func TestGetRoleHash(t *testing.T) {
 				{pod: *testingpod.MakePod("pod1", "test-ns").
 					Volume(corev1.Volume{
 						Name: "volume",
-						VolumeSource: corev1.VolumeSource{
-							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "claim1",
-							},
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: "claim1",
 						},
 					}).
 					Obj()},
 				{pod: *testingpod.MakePod("pod1", "test-ns").
 					Volume(corev1.Volume{
 						Name: "volume",
-						VolumeSource: corev1.VolumeSource{
-							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "claim2",
-							},
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: "claim2",
 						},
 					}).
 					Obj()},

@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	clocktesting "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -43,7 +44,7 @@ import (
 )
 
 // strategyLogMessage is emitted once per candidate ClusterQueue by both
-// runFirstFsStrategy and runSecondFsStrategy.
+// iterateWithFirstFsStrategy and iterateWithSecondFsStrategy.
 const strategyLogMessage = "Evaluating FairSharing strategy"
 
 // drsLogFields are the DominantResourceShare fields logged at the top level of
@@ -83,8 +84,8 @@ type fsLogClusterQueue struct {
 // Each ClusterQueue has 1 CPU of nominal quota. Every candidate ClusterQueue
 // admits `candidates` workloads of 1 CPU, so it borrows and is not pruned by
 // the target ordering. The preemptor's incoming workload requests 3 CPU, so
-// the preemptor borrows too. That keeps runFirstFsStrategy on the strategy
-// path instead of the FairSharingPreemptWithinNominal shortcut.
+// the preemptor borrows too. That keeps iterateWithFirstFsStrategy on the
+// strategy path instead of the FairSharingPreemptWithinNominal shortcut.
 func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fsLogFixture {
 	tb.Helper()
 	now := time.Now()
@@ -146,9 +147,7 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 	})
 
 	preemptionCtx := &preemptionCtx{
-		ctx:               ctx,
 		clock:             clocktesting.NewFakeClock(now),
-		log:               log,
 		preemptor:         *wlInfo,
 		preemptorCQ:       snapshot.ClusterQueue("a"),
 		snapshot:          snapshot,
@@ -228,12 +227,12 @@ func assertJSONString(t *testing.T, fields map[string]any, key string) {
 	}
 }
 
-// TestRunFirstFsStrategyLogging covers how runFirstFsStrategy emits the first
-// FairSharing strategy's evaluations: one log entry per candidate ClusterQueue
-// (not per evaluated workload), collapsing every evaluation into that entry's
-// strategyEvaluations array, only when V(4) is enabled, and with every
-// DominantResourceShare serialized as a JSON string.
-func TestRunFirstFsStrategyLogging(t *testing.T) {
+// TestIterateWithFirstFsStrategyLogging covers how iterateWithFirstFsStrategy
+// emits the first FairSharing strategy's evaluations: one log entry per
+// candidate ClusterQueue (not per evaluated workload), collapsing every
+// evaluation into that entry's strategyEvaluations array, only when V(4) is
+// enabled, and with every DominantResourceShare serialized as a JSON string.
+func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 	zeroWeight := resource.MustParse("0")
 	cases := map[string]struct {
 		enabledUpToV     int                 // logger is enabled up to this logr V-level (4 = strategy log on, 3 = off).
@@ -293,12 +292,13 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			log, observed := newObservedLogger(tc.enabledUpToV)
+			ctx := ctrl.LoggerInto(t.Context(), log)
 			fixture := newFsLogFixture(t, log, tc.cqs)
 
 			if tc.wantNoArrayBuilt {
 				// A disabled strategy log must not accumulate entries even as record is called.
-				ctx := fixture.preemptionCtx
-				ordering := fairsharing.MakeClusterQueueOrdering(ctx.preemptorCQ, fixture.candidates, ctx.log, ctx.clock)
+				pCtx := fixture.preemptionCtx
+				ordering := fairsharing.MakeClusterQueueOrdering(pCtx.preemptorCQ, fixture.candidates, log, pCtx.clock)
 				var candCQ *fairsharing.TargetClusterQueue
 				for cq := range ordering.Iter() {
 					candCQ = cq
@@ -326,11 +326,23 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 				evaluated++
 				return tc.passOnEvaluation != 0 && evaluated == tc.passOnEvaluation
 			}
-			fits, targets, retryCandidates := runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, strategy)
+			// Mirrors getTargets loop: collect the yielded targets and stop as
+			// soon as the incoming workload fits.
+			var targets []*Target
+			fits := false
+			retryCandidates, cont := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
+				targets = append(targets, t)
+				revertSimulation := fixture.preemptionCtx.preemptorCQ.SimulateUsageRemoval(fixture.preemptionCtx.workloadUsage)
+				fits = workloadFits(ctx, fixture.preemptionCtx, true)
+				revertSimulation()
+				return !fits
+			})
 
 			if tc.wantAllRejected {
 				if fits {
 					t.Errorf("expected the always-failing strategy to not fit")
+				} else if !cont {
+					t.Errorf("expected iterateWithFirstFsStrategy to propose continuing when no fit found")
 				}
 				if len(targets) != 0 {
 					t.Errorf("expected no targets, got %d", len(targets))
@@ -434,9 +446,10 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 	}
 }
 
-// TestRunSecondFsStrategyLog asserts that runSecondFsStrategy serializes its
-// DominantResourceShare values as JSON strings, for both finite and +Inf DRS.
-func TestRunSecondFsStrategyLog(t *testing.T) {
+// TestIterateWithSecondFsStrategyLog asserts that iterateWithSecondFsStrategy
+// serializes its DominantResourceShare values as JSON strings, for both finite
+// and +Inf DRS.
+func TestIterateWithSecondFsStrategyLog(t *testing.T) {
 	zeroWeight := resource.MustParse("0")
 	cases := map[string]struct {
 		fairWeight         *resource.Quantity
@@ -452,11 +465,11 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			runSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, nil)
+			iterateWithSecondFsStrategy(log, fixture.preemptionCtx, fixture.candidates, func(*Target) bool { return true })
 
 			entries := observed.FilterMessage(strategyLogMessage).All()
 			if len(entries) == 0 {
-				t.Fatalf("expected at least 1 log entry from runSecondFsStrategy, got 0")
+				t.Fatalf("expected at least 1 log entry from iterateWithSecondFsStrategy, got 0")
 			}
 
 			decoded := decodeLogEntry(t, entries[0])

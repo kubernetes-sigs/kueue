@@ -67,7 +67,7 @@ type WorkloadWrapper struct{ kueue.Workload }
 // with a single container.
 func MakeWorkload(name, ns string) *WorkloadWrapper {
 	return &WorkloadWrapper{kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Name: name, Namespace: ns,
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
 				*MakePodSet(kueue.DefaultPodSetName, 1).Obj(),
@@ -798,10 +798,8 @@ type LocalQueueWrapper struct{ kueue.LocalQueue }
 // MakeLocalQueue creates a wrapper for a LocalQueue.
 func MakeLocalQueue(name, ns string) *LocalQueueWrapper {
 	return &LocalQueueWrapper{kueue.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-		},
+		Name:      name,
+		Namespace: ns,
 	}}
 }
 
@@ -914,9 +912,7 @@ type CohortWrapper struct {
 
 func MakeCohort(name kueue.CohortReference) *CohortWrapper {
 	return &CohortWrapper{kueue.Cohort{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: string(name),
-		},
+		Name: string(name),
 	}}
 }
 
@@ -992,9 +988,7 @@ type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 // select-all NamespaceSelector.
 func MakeClusterQueue(name string) *ClusterQueueWrapper {
 	return &ClusterQueueWrapper{kueue.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		Name: name,
 		Spec: kueue.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
 			QueueingStrategy:  kueue.BestEffortFIFO,
@@ -1358,9 +1352,7 @@ type ResourceFlavorWrapper struct{ kueue.ResourceFlavor }
 // MakeResourceFlavor creates a wrapper for a ResourceFlavor.
 func MakeResourceFlavor(name string) *ResourceFlavorWrapper {
 	return &ResourceFlavorWrapper{kueue.ResourceFlavor{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		Name: name,
 		Spec: kueue.ResourceFlavorSpec{
 			NodeLabels: make(map[string]string),
 		},
@@ -1435,9 +1427,7 @@ type TopologyWrapper struct{ kueue.Topology }
 // MakeTopology creates a wrapper for a Topology.
 func MakeTopology(name string) *TopologyWrapper {
 	return &TopologyWrapper{kueue.Topology{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
+		Name: name,
 	}}
 }
 
@@ -1471,10 +1461,8 @@ type TopologyDomainAssignmentWrapper struct {
 
 func MakeTopologyDomainAssignment(values []string, count int32) *TopologyDomainAssignmentWrapper {
 	return &TopologyDomainAssignmentWrapper{
-		TopologyDomainAssignment: tas.TopologyDomainAssignment{
-			Values: values,
-			Count:  count,
-		},
+		Values: values,
+		Count:  count,
 	}
 }
 
@@ -1571,11 +1559,7 @@ type AdmissionCheckWrapper struct{ kueue.AdmissionCheck }
 
 func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 	return &AdmissionCheckWrapper{
-		AdmissionCheck: kueue.AdmissionCheck{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		Name: name,
 	}
 }
 
@@ -1657,9 +1641,7 @@ type WorkloadPriorityClassWrapper struct {
 // MakeWorkloadPriorityClass creates a wrapper for a WorkloadPriorityClass.
 func MakeWorkloadPriorityClass(name string) *WorkloadPriorityClassWrapper {
 	return &WorkloadPriorityClassWrapper{kueue.WorkloadPriorityClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		}},
+		Name: name},
 	}
 }
 
@@ -1686,11 +1668,7 @@ type MultiKueueConfigWrapper struct {
 
 func MakeMultiKueueConfig(name string) *MultiKueueConfigWrapper {
 	return &MultiKueueConfigWrapper{
-		MultiKueueConfig: kueue.MultiKueueConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		Name: name,
 	}
 }
 
@@ -1720,11 +1698,7 @@ type MultiKueueClusterWrapper struct {
 
 func MakeMultiKueueCluster(name string) *MultiKueueClusterWrapper {
 	return &MultiKueueClusterWrapper{
-		MultiKueueCluster: kueue.MultiKueueCluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: name,
-			},
-		},
+		Name: name,
 	}
 }
 
@@ -1779,9 +1753,7 @@ type ProvisioningRequestConfigWrapper struct {
 // MakeProvisioningRequestConfig creates a wrapper for a ProvisioningRequestConfig.
 func MakeProvisioningRequestConfig(name string) *ProvisioningRequestConfigWrapper {
 	return &ProvisioningRequestConfigWrapper{kueue.ProvisioningRequestConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		}},
+		Name: name},
 	}
 }
 
@@ -1875,13 +1847,9 @@ type ClusterProfileWrapper struct {
 
 func MakeClusterProfile(name, ns string) *ClusterProfileWrapper {
 	return &ClusterProfileWrapper{
-		ClusterProfile: inventoryv1alpha1.ClusterProfile{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      name,
-				Namespace: ns,
-			},
-			Spec: inventoryv1alpha1.ClusterProfileSpec{},
-		},
+		Name:      name,
+		Namespace: ns,
+		Spec:      inventoryv1alpha1.ClusterProfileSpec{},
 	}
 }
 
@@ -1933,4 +1901,24 @@ func (w *CustomLabelWrapper) TrackedValues(values ...string) *CustomLabelWrapper
 // Obj returns the built ControllerMetricsCustomLabel.
 func (w *CustomLabelWrapper) Obj() configapi.ControllerMetricsCustomLabel {
 	return w.label
+}
+
+// ManagedJobsNamespaceSelectorWrapper wraps the LabelSelector configured as
+// managedJobsNamespaceSelector.
+type ManagedJobsNamespaceSelectorWrapper struct {
+	selector metav1.LabelSelector
+}
+
+func MakeManagedJobsNamespaceSelector() *ManagedJobsNamespaceSelectorWrapper {
+	return &ManagedJobsNamespaceSelectorWrapper{}
+}
+
+func (w *ManagedJobsNamespaceSelectorWrapper) MatchExpressions(matchExpressions ...metav1.LabelSelectorRequirement) *ManagedJobsNamespaceSelectorWrapper {
+	w.selector.MatchExpressions = append(w.selector.MatchExpressions, matchExpressions...)
+	return w
+}
+
+// Obj returns the built LabelSelector.
+func (w *ManagedJobsNamespaceSelectorWrapper) Obj() *metav1.LabelSelector {
+	return &w.selector
 }

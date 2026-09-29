@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -79,7 +78,7 @@ func TestProvisioningRequestName(t *testing.T) {
 				t.Errorf("name %q does not start with prefix %q", got, prefix)
 			}
 
-			pr := &autoscaling.ProvisioningRequest{ObjectMeta: metav1.ObjectMeta{Name: got}}
+			pr := &autoscaling.ProvisioningRequest{Name: got}
 			if !matchesWorkloadAndCheck(pr, tc.workloadName, tc.checkName) {
 				t.Errorf("created name %q does not match workload %q check %q", got, tc.workloadName, tc.checkName)
 			}
@@ -105,8 +104,8 @@ func TestProvisioningRequestNameStablePrefixAcrossAttempts(t *testing.T) {
 		t.Fatalf("different attempts produced the same name %q", name1)
 	}
 
-	pr1 := &autoscaling.ProvisioningRequest{ObjectMeta: metav1.ObjectMeta{Name: name1}}
-	pr2 := &autoscaling.ProvisioningRequest{ObjectMeta: metav1.ObjectMeta{Name: name2}}
+	pr1 := &autoscaling.ProvisioningRequest{Name: name1}
+	pr2 := &autoscaling.ProvisioningRequest{Name: name2}
 	if !matchesWorkloadAndCheck(pr1, workloadName, checkName) || !matchesWorkloadAndCheck(pr2, workloadName, checkName) {
 		t.Fatalf("long names were not recognized as belonging to the same workload and check: %q, %q", name1, name2)
 	}

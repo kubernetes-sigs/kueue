@@ -23,7 +23,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -136,10 +135,8 @@ func (t *nodesCache) currentGeneration() int64 {
 // with frequent scheduling activity.
 func copyAndStripNode(node *corev1.Node) *corev1.Node {
 	return &corev1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:   node.Name,
-			Labels: node.Labels,
-		},
+		Name:   node.Name,
+		Labels: node.Labels,
 		Spec: corev1.NodeSpec{
 			Unschedulable: node.Spec.Unschedulable,
 			Taints:        node.Spec.Taints,

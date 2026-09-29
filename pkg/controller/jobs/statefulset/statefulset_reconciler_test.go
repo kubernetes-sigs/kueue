@@ -36,18 +36,21 @@ import (
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -56,6 +59,64 @@ var (
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 	}
 )
+
+func TestEmptyPodGroupEvictionWithLiveStatefulSet(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.FinishOrphanedWorkloads: true,
+	})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := jobframework.NewIntegrationManager()
+	for _, register := range []func(*jobframework.IntegrationManager) error{
+		podcontroller.RegisterIntegration,
+		RegisterIntegration,
+	} {
+		if err := register(manager); err != nil {
+			t.Fatalf("RegisterIntegration() error = %v", err)
+		}
+	}
+	t.Cleanup(manager.EnableIntegrationsForTest(t, podcontroller.FrameworkName, FrameworkName))
+
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Obj()
+	wl := utiltestingapi.MakeWorkload("test-group", "ns").Group().
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		OwnerReference(appsv1.SchemeGroupVersion.WithKind("StatefulSet"), sts.Name, string(sts.UID)).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+		AdmittedAt(true, time.Now()).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadEvicted,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: "Exceeded the PodsReady timeout",
+		}).
+		Obj()
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(sts, wl).
+		WithStatusSubresource(wl)
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+	}
+	cl := clientBuilder.Build()
+	reconciler, err := podcontroller.NewReconciler(ctx, cl, indexer, &utiltesting.EventRecorder{}, jobframework.WithIntegrationManager(manager))
+	if err != nil {
+		t.Fatalf("NewReconciler() error: %v", err)
+	}
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{Namespace: "group/ns", Name: wl.Name})
+	if err != nil {
+		t.Fatalf("Reconcile() error: %v", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+		t.Fatalf("Get Workload: %v", err)
+	}
+	if !controllerutil.ContainsFinalizer(got, kueue.ResourceInUseFinalizerName) {
+		t.Error("Workload finalizer was removed while its StatefulSet owner is live")
+	}
+	if workload.HasQuotaReservation(got) {
+		t.Error("Workload quota reservation was not cleared after eviction")
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	now := time.Now()
@@ -394,6 +455,7 @@ func TestReconciler(t *testing.T) {
 				*testingjobspod.MakePod("pod1", "ns").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("", "sts")).
+					Label(controllerconstants.QueueLabel, "lq").
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -1135,6 +1197,89 @@ func TestReconciler(t *testing.T) {
 			},
 			wantEvents: createdWorkloadEvents,
 		},
+		"should sync queue label only on pods that remain gated": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("new-queue").
+				Replicas(3).
+				CurrentRevision("1").
+				UpdateRevision("2").
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("new-queue").
+				Replicas(3).
+				CurrentRevision("1").
+				UpdateRevision("2").
+				Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Gate(podconstants.SchedulingGateName).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("new-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Gate(podconstants.SchedulingGateName).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("new-queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 3,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantEvents: createdWorkloadEvents,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1330,7 +1475,7 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 				t.Fatalf("NewReconciler() error: %v", err)
 			}
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}}
+			req := reconcile.Request{Namespace: "ns", Name: "sts"}
 			_, err = reconciler.Reconcile(ctx, req)
 			if err != nil {
 				t.Fatalf("Reconcile() error: %v", err)

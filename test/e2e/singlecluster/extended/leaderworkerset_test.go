@@ -470,10 +470,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				})
 
 				createdWorkload2 := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "1"),
-						Namespace: ns.Name,
-					},
+					Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "1"),
+					Namespace: ns.Name,
 				}
 				ginkgo.By("Check workload for group 2 is released", func() {
 					util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload2, false, util.MediumTimeout)

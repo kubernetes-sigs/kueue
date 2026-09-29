@@ -129,11 +129,9 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      workloadraycluster.GetWorkloadNameForRayCluster("second-workload", "test-uid"),
-				Namespace: createdWorkload.Namespace,
-			},
-			Spec: *createdWorkload.Spec.DeepCopy(),
+			Name:      workloadraycluster.GetWorkloadNameForRayCluster("second-workload", "test-uid"),
+			Namespace: createdWorkload.Namespace,
+			Spec:      *createdWorkload.Spec.DeepCopy(),
 		}
 
 		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, k8sClient.Scheme())).Should(gomega.Succeed())

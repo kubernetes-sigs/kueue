@@ -69,15 +69,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 		},
 			ginkgo.Entry("All defaults",
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 				},
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:       "foo",
-						Finalizers: []string{kueue.ResourceInUseFinalizerName},
-					},
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
 						StopPolicy:        new(kueue.None),
@@ -94,9 +90,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			),
 			ginkgo.Entry("Preemption overridden",
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.ClusterQueueSpec{
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
@@ -110,10 +104,8 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:       "foo",
-						Finalizers: []string{kueue.ResourceInUseFinalizerName},
-					},
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
 						StopPolicy:        new(kueue.None),
@@ -131,18 +123,14 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			),
 			ginkgo.Entry("Default fair sharing",
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{},
 					},
 				},
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:       "foo",
-						Finalizers: []string{kueue.ResourceInUseFinalizerName},
-					},
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
 						StopPolicy:        new(kueue.None),
@@ -401,9 +389,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resources in a flavor in different order",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -425,9 +411,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -444,9 +428,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -464,9 +446,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor and mismatch",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -510,9 +490,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing with invalid preemption due to reclaimWithinCohort=Never, while borrowWithinCohort!=nil",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -525,9 +503,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with valid preemption with borrowWithinCohort",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -541,9 +517,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -553,9 +527,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow zero FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							Weight: new(resource.MustParse("0")),
@@ -565,9 +537,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow fractional FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							Weight: new(resource.MustParse("0.1")),
@@ -577,9 +547,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow small FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-3
@@ -590,9 +558,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow even smaller FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-6
@@ -603,9 +569,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow smallest FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 2 * 10^-9
@@ -616,9 +580,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid threshold FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-9
@@ -629,9 +591,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid collapsed FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-10
@@ -642,9 +602,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid negative FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							Weight: new(resource.MustParse("-1")),

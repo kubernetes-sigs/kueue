@@ -18,6 +18,7 @@ package trainjob
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -331,6 +332,85 @@ func TestDefault(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob); diff != "" {
 				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	testCtr := testingtrainjob.MakeClusterTrainingRuntime("testCtr",
+		testingjobset.MakeJobSet("", "").ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "node",
+				Replicas:    1,
+				Parallelism: 1,
+				Completions: 1,
+			}).Obj().Spec)
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
+		Name:     "testCtr",
+		Kind:     new(kftrainerapi.ClusterTrainingRuntimeKind),
+	}).Suspend(false)
+	testcases := map[string]struct {
+		clusterTrainingRuntime *kftrainerapi.ClusterTrainingRuntime
+		oldTrainJob            *kftrainerapi.TrainJob
+		newTrainJob            *kftrainerapi.TrainJob
+		featureGates           map[featuregate.Feature]bool
+		wantErr                error
+		maxTimeoutOnWorkload   *metav1.Duration
+	}{
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
+			clusterTrainingRuntime: testCtr,
+			oldTrainJob: testTrainJob.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newTrainJob: testTrainJob.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			wantErr:              nil,
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
+			clusterTrainingRuntime: testCtr,
+			oldTrainJob: testTrainJob.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newTrainJob: testTrainJob.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(controllerconstants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme)
+			cli := clientBuilder.WithObjects(tc.clusterTrainingRuntime).Build()
+			indexer := utiltesting.AsIndexer(clientBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
+				t.Fatalf("Could not setup indexes: %v", err)
+			}
+			recorder := &utiltesting.EventRecorder{}
+			if _, err := NewReconciler(ctx, cli, indexer, recorder); err != nil {
+				t.Fatalf("Could not create reconciler: %v", err)
+			}
+			webhook := &TrainJobWebhook{
+				client:               cli,
+				maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload,
+			}
+			warnings, gotErr := webhook.ValidateUpdate(ctx, tc.oldTrainJob, tc.newTrainJob)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warnings); diff != "" {
+				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

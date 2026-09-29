@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -170,7 +169,7 @@ func TestRulesQueueFor(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			pod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{Labels: tc.labels},
+				Labels: tc.labels,
 				Spec: corev1.PodSpec{
 					PriorityClassName: tc.className,
 					Containers: []corev1.Container{

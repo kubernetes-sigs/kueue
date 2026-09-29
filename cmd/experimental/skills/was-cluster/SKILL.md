@@ -52,9 +52,10 @@ removed. Re-add JobSet coverage once there's a way to verify it without vendorin
 the upstream types.
 
 The `singlecluster/wasapi` package lives under `test/e2e/singlecluster/` (rather than a
-top-level `test/e2e/was/`) so that `make test-e2e-k8s-main-was` — which targets the
-whole `singlecluster` tree with `WAS_ENABLED=true` — actually runs it. Regular,
-non-WAS runs (`make test-e2e-baseline`, `make test-e2e-extended`) target only the
+top-level `test/e2e/was/`) to keep single-cluster test suites organized together.
+WAS e2e runs (`make test-e2e-k8s-main-was`, `make test-e2e-was-api`) target
+`singlecluster/wasapi` with `WAS_ENABLED=true`. Regular, non-WAS runs
+(`make test-e2e-baseline`, `make test-e2e-extended`) target only the
 `singlecluster/baseline` and `singlecluster/extended` subfolders respectively, so
 they never pick up `singlecluster/wasapi`, which requires feature gates
 (`GenericWorkload`, `WorkloadWithJob`) and the `scheduling.k8s.io/v1beta1` API that

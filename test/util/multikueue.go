@@ -33,7 +33,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -43,6 +42,8 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -148,8 +149,8 @@ func MultiKueueRulesForManager(ctx context.Context, k8sClient client.Client) []r
 func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig *rest.Config, ns string, prefix string, clusterName string, rules []rbacv1.PolicyRule) ([]byte, error) {
 	roleName := prefix + "-role"
 	cr := &rbacv1.ClusterRole{
-		ObjectMeta: metav1.ObjectMeta{Name: roleName},
-		Rules:      rules,
+		Name:  roleName,
+		Rules: rules,
 	}
 	err := c.Create(ctx, cr)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -158,10 +159,8 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 
 	saName := prefix + "-sa"
 	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: ns,
-			Name:      saName,
-		},
+		Namespace: ns,
+		Name:      saName,
 	}
 	err = c.Create(ctx, sa)
 	if err != nil && !apierrors.IsAlreadyExists(err) {
@@ -169,7 +168,7 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 	}
 
 	crb := &rbacv1.ClusterRoleBinding{
-		ObjectMeta: metav1.ObjectMeta{Name: prefix + "-crb"},
+		Name: prefix + "-crb",
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: rbacv1.SchemeGroupVersion.Group,
 			Kind:     "ClusterRole",
@@ -230,17 +229,17 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 func CleanKubeconfigForMultiKueueSA(ctx context.Context, c client.Client, ns string, prefix string) error {
 	roleName := prefix + "-role"
 
-	err := c.Delete(ctx, &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: roleName}})
+	err := c.Delete(ctx, &rbacv1.ClusterRole{Name: roleName})
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
 
-	err = c.Delete(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: prefix + "-sa"}})
+	err = c.Delete(ctx, &corev1.ServiceAccount{Namespace: ns, Name: prefix + "-sa"})
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
 
-	err = c.Delete(ctx, &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: prefix + "-crb"}})
+	err = c.Delete(ctx, &rbacv1.ClusterRoleBinding{Name: prefix + "-crb"})
 	if client.IgnoreNotFound(err) != nil {
 		return err
 	}
@@ -334,4 +333,16 @@ func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workloa
 
 	ginkgo.Fail("none of the supplied clusters was selected")
 	return ClusterInfo{}
+}
+
+func ExpectRemoteWorkloadSpec(g gomega.Gomega, remoteWl, managerWl *kueue.Workload) {
+	ginkgo.GinkgoHelper()
+
+	wantSpec := managerWl.Spec.DeepCopy()
+	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
+		// The manager's preemption gates are not copied and the MultiKueue
+		// preemption gate is set instead.
+		wantSpec.PreemptionGates = []kueue.PreemptionGate{{Name: constants.MultiKueuePreemptionGate}}
+	}
+	g.Expect(remoteWl.Spec).To(gomega.BeComparableTo(*wantSpec))
 }

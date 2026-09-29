@@ -79,10 +79,8 @@ func TestPodSets(t *testing.T) {
 	}{
 		"no annotations": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-				},
+				Name:      "rayservice",
+				Namespace: "ns",
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
 						HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -153,10 +151,8 @@ func TestPodSets(t *testing.T) {
 		},
 		"with required topology annotation": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-				},
+				Name:      "rayservice",
+				Namespace: "ns",
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
 						HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -201,10 +197,8 @@ func TestPodSets(t *testing.T) {
 		},
 		"with NumOfHosts > 1": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-				},
+				Name:      "rayservice",
+				Namespace: "ns",
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
 						HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -238,10 +232,8 @@ func TestPodSets(t *testing.T) {
 		},
 		"with gcs fault tolerance": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-				},
+				Name:      "rayservice",
+				Namespace: "ns",
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
 						GcsFaultToleranceOptions: &rayv1.GcsFaultToleranceOptions{
@@ -294,12 +286,10 @@ func TestPodSets(t *testing.T) {
 		},
 		"with workload slicing and autoscaling enabled, update from RayCluster": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -327,10 +317,8 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			rayCluster: &rayv1.RayCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice-cluster",
-					Namespace: "ns",
-				},
+				Name:      "rayservice-cluster",
+				Namespace: "ns",
 				Spec: rayv1.RayClusterSpec{
 					HeadGroupSpec: rayv1.HeadGroupSpec{
 						Template: corev1.PodTemplateSpec{
@@ -364,12 +352,10 @@ func TestPodSets(t *testing.T) {
 		},
 		"with workload slicing enabled but autoscaling disabled, use spec count": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -397,10 +383,8 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			rayCluster: &rayv1.RayCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice-cluster",
-					Namespace: "ns",
-				},
+				Name:      "rayservice-cluster",
+				Namespace: "ns",
 				Spec: rayv1.RayClusterSpec{
 					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 						{
@@ -426,12 +410,10 @@ func TestPodSets(t *testing.T) {
 		},
 		"with workload slicing and autoscaling enabled, RayCluster not found fallback to spec": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -475,12 +457,10 @@ func TestPodSets(t *testing.T) {
 		},
 		"with workload slicing and autoscaling enabled, no RayClusterName in status": {
 			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-					Annotations: map[string]string{
-						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-					},
+				Name:      "rayservice",
+				Namespace: "ns",
+				Annotations: map[string]string{
+					workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 				},
 				Spec: rayv1.RayServiceSpec{
 					RayClusterSpec: rayv1.RayClusterSpec{
@@ -535,13 +515,8 @@ func TestPodSets(t *testing.T) {
 			}
 			fakeClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithObjects(objs...).Build()
 
-			// Set up the reconciler with the fake client
-			reconciler = rayServiceReconciler{
-				client: fakeClient,
-			}
-
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotPodSets, err := tc.rayService.PodSets(ctx, nil)
+			gotPodSets, err := tc.rayService.PodSets(ctx, fakeClient)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}

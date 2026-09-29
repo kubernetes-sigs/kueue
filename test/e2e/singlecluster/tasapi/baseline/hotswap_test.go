@@ -26,7 +26,6 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -93,7 +92,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(ut
 
 				// We can't blindly create the node because it might still exist (if we just tainted it).
 				// We try to delete it first to ensure a clean slate for creation.
-				_ = k8sClient.Delete(ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: nodeToRestore.Name}})
+				_ = k8sClient.Delete(ctx, &corev1.Node{Name: nodeToRestore.Name})
 
 				nodeToRestore.ResourceVersion = ""
 				nodeToRestore.UID = ""

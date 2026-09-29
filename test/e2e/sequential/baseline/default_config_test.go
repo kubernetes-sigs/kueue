@@ -189,7 +189,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 
 			ginkgo.By("Creating a ClusterQueue")
 			cq = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{Name: cqName},
+				Name: cqName,
 			}
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 		})
@@ -219,7 +219,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 
 		ginkgo.It("Should use the RBAC identity from the provided kubeconfig", func() {
 			ginkgo.By("Creating Custom ServiceAccount")
-			sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: customSAName, Namespace: kueueNS}}
+			sa := &corev1.ServiceAccount{Name: customSAName, Namespace: kueueNS}
 			util.MustCreate(ctx, k8sClient, sa)
 			ginkgo.DeferCleanup(func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, sa, true)
@@ -227,12 +227,10 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 
 			ginkgo.By("Creating a token Secret for the custom SA")
 			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        customSecretName,
-					Namespace:   kueueNS,
-					Annotations: map[string]string{corev1.ServiceAccountNameKey: customSAName},
-				},
-				Type: corev1.SecretTypeServiceAccountToken,
+				Name:        customSecretName,
+				Namespace:   kueueNS,
+				Annotations: map[string]string{corev1.ServiceAccountNameKey: customSAName},
+				Type:        corev1.SecretTypeServiceAccountToken,
 			}
 			util.MustCreate(ctx, k8sClient, secret)
 			ginkgo.DeferCleanup(func() {
@@ -251,8 +249,8 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			cm := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: configMapName, Namespace: kueueNS},
-				Data:       map[string]string{"config": string(kubeconfig)},
+				Name: configMapName, Namespace: kueueNS,
+				Data: map[string]string{"config": string(kubeconfig)},
 			}
 			util.MustCreate(ctx, k8sClient, cm)
 			ginkgo.DeferCleanup(func() {
@@ -271,22 +269,18 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 
 			ginkgo.By("Creating the auth-reader binding so the visibility server can start up.")
 			authReaderBinding := &rbacv1.RoleBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "visibility-test-auth-reader",
-					Namespace: kubeSystemNamespace,
-					Labels:    map[string]string{testLabelKey: testLabelValue},
-				},
-				RoleRef:  rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "extension-apiserver-authentication-reader"},
-				Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
+				Name:      "visibility-test-auth-reader",
+				Namespace: kubeSystemNamespace,
+				Labels:    map[string]string{testLabelKey: testLabelValue},
+				RoleRef:   rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: "extension-apiserver-authentication-reader"},
+				Subjects:  []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 			}
 			util.MustCreate(ctx, k8sClient, authReaderBinding)
 
 			ginkgo.By("Granting token review permissions so delegated authentication still works during the negative authorization check.")
 			tokenReviewerRole := &rbacv1.ClusterRole{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   tokenReviewerRoleName,
-					Labels: map[string]string{testLabelKey: testLabelValue},
-				},
+				Name:   tokenReviewerRoleName,
+				Labels: map[string]string{testLabelKey: testLabelValue},
 				Rules: []rbacv1.PolicyRule{{
 					APIGroups: []string{"authentication.k8s.io"},
 					Resources: []string{"tokenreviews"},
@@ -296,10 +290,8 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 			util.MustCreate(ctx, k8sClient, tokenReviewerRole)
 
 			tokenReviewerBinding := &rbacv1.ClusterRoleBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   tokenReviewerBindingName,
-					Labels: map[string]string{testLabelKey: testLabelValue},
-				},
+				Name:     tokenReviewerBindingName,
+				Labels:   map[string]string{testLabelKey: testLabelValue},
 				RoleRef:  rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: tokenReviewerRoleName},
 				Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 			}
@@ -311,12 +303,12 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, patchedDeployment)).To(gomega.Succeed())
 				patchedDeployment.Spec.Template.Spec.Volumes = append(patchedDeployment.Spec.Template.Spec.Volumes,
 					corev1.Volume{
-						Name:         kubeconfigVolName,
-						VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: configMapName}}},
+						Name:      kubeconfigVolName,
+						ConfigMap: &corev1.ConfigMapVolumeSource{Name: configMapName},
 					},
 					corev1.Volume{
-						Name:         customSAVolName,
-						VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: customSecretName}},
+						Name:   customSAVolName,
+						Secret: &corev1.SecretVolumeSource{SecretName: customSecretName},
 					},
 				)
 				for i, c := range patchedDeployment.Spec.Template.Spec.Containers {
@@ -347,10 +339,8 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 			// POSITIVE TEST: Grant the required permissions to our custom ServiceAccount
 			ginkgo.By("Granting permissions to the custom SA and verifying requests succeed")
 			authDelegatorBinding := &rbacv1.ClusterRoleBinding{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   "visibility-test-auth-delegator",
-					Labels: map[string]string{testLabelKey: testLabelValue},
-				},
+				Name:     "visibility-test-auth-delegator",
+				Labels:   map[string]string{testLabelKey: testLabelValue},
 				RoleRef:  rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: "system:auth-delegator"},
 				Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 			}
@@ -380,10 +370,8 @@ func cloneControllerRBAC(ctx context.Context) {
 					continue
 				}
 				newCRB := &rbacv1.ClusterRoleBinding{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:   "vistest-copy-" + crb.Name,
-						Labels: map[string]string{testLabelKey: testLabelValue},
-					},
+					Name:     "vistest-copy-" + crb.Name,
+					Labels:   map[string]string{testLabelKey: testLabelValue},
 					RoleRef:  crb.RoleRef,
 					Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 				}
@@ -399,13 +387,11 @@ func cloneControllerRBAC(ctx context.Context) {
 		for _, sub := range rb.Subjects {
 			if sub.Kind == "ServiceAccount" && sub.Name == "kueue-controller-manager" && sub.Namespace == kueueNS {
 				newRB := &rbacv1.RoleBinding{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "vistest-copy-" + rb.Name,
-						Namespace: kueueNS,
-						Labels:    map[string]string{testLabelKey: testLabelValue},
-					},
-					RoleRef:  rb.RoleRef,
-					Subjects: []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
+					Name:      "vistest-copy-" + rb.Name,
+					Namespace: kueueNS,
+					Labels:    map[string]string{testLabelKey: testLabelValue},
+					RoleRef:   rb.RoleRef,
+					Subjects:  []rbacv1.Subject{{Kind: "ServiceAccount", Name: customSAName, Namespace: kueueNS}},
 				}
 				util.MustCreate(ctx, k8sClient, newRB)
 			}

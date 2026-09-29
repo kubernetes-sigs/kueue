@@ -23,7 +23,6 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/set"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -105,7 +104,7 @@ func (w *KubeConfigFSWatcher) clustersForPath(path string) []string {
 func (w *KubeConfigFSWatcher) notifyPathWrite(ctx context.Context, path string) {
 	for _, c := range w.clustersForPath(path) {
 		select {
-		case w.reconcile <- event.GenericEvent{Object: &kueue.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: c}}}:
+		case w.reconcile <- event.GenericEvent{Object: &kueue.MultiKueueCluster{Name: c}}:
 		case <-ctx.Done():
 			return
 		}

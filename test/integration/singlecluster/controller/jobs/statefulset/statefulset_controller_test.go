@@ -21,17 +21,24 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -46,7 +53,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
-			jobframework.WithEnabledFrameworks([]string{"statefulset"}),
+			jobframework.WithEnabledFrameworks([]string{"statefulset", "pod"}),
 		))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-")
 
@@ -309,6 +316,45 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should ungate a current-revision Pod whose queue-name differs from the StatefulSet", func() {
+		ginkgo.By("Creating a StatefulSet with a rollout in progress")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Status.CurrentRevision = "revision-1"
+			createdSTS.Status.UpdateRevision = "revision-2"
+			g.Expect(k8sClient.Status().Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			Queue("old-lq").
+			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
+			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
+			GroupNameLabel(workloadName).
+			GroupTotalCount("1").
+			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+			Gate(constants.SchedulingGateName).
+			KueueFinalizer().
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("Verifying the Pod is ungated and keeps its queue-name")
+		gotPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+			g.Expect(gotPod.Labels).Should(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "old-lq"))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should resize the workload when the StatefulSet scales up from zero to a different size", func() {
 		ginkgo.By("Creating a StatefulSet with replicas=3")
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
@@ -367,6 +413,188 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(5)))
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+	ginkgo.It("Should set WorkloadAnnotation on the Pod when SchedulerLibraryIntegration is enabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, true)
+
+		ginkgo.By("Creating a StatefulSet with replicas=1")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Manually creating the Pod a real StatefulSet controller would create, before Kueue processes it")
+		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
+			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
+			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+			KueueFinalizer().
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("Verifying the Pod carries WorkloadAnnotation matching its Workload")
+		gotPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(gotPod.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, workloadName))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should not set WorkloadAnnotation on the Pod when both TAS and SchedulerLibraryIntegration are disabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, false)
+
+		ginkgo.By("Creating a StatefulSet with replicas=1")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Manually creating the Pod a real StatefulSet controller would create, before Kueue processes it")
+		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
+			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
+			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+			KueueFinalizer().
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("Verifying the Pod does not carry WorkloadAnnotation")
+		gotPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(gotPod.Annotations[constants.RoleHashAnnotation]).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(kueue.WorkloadAnnotation))
+		}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should complete eviction for an empty PodGroup with a live StatefulSet owner", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
+
+		ginkgo.By("Creating a StatefulSet whose Workload has no member Pods")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wlKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name),
+			Namespace: ns.Name,
+		}
+		wl := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Evicting the Workload due to PodsReadyTimeout")
+		var wantRequeueState *kueue.RequeueState
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+				workload.UpdateRequeueState(wl, 60, 60, util.RealClock)
+				return workloadevict.SetEvictedCondition(
+					wl,
+					util.RealClock.Now(),
+					kueue.WorkloadEvictedByPodsReadyTimeout,
+					"Exceeded the PodsReady timeout",
+				), nil
+			})).Should(gomega.Succeed())
+			wantRequeueState = wl.Status.RequeueState.DeepCopy()
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(wantRequeueState).ShouldNot(gomega.BeNil())
+
+		ginkgo.By("Verifying eviction completion releases quota without orphan-finishing the Workload")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Admission).Should(gomega.BeNil())
+			g.Expect(apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadAdmitted)).Should(gomega.BeTrue())
+			g.Expect(apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued)).Should(gomega.BeTrue())
+			g.Expect(wl.Status.RequeueState).Should(gomega.Equal(wantRequeueState))
+			g.Expect(wl.Finalizers).Should(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+			g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)).Should(gomega.BeFalse())
+			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			g.Expect(quotaReserved).ShouldNot(gomega.BeNil())
+			g.Expect(quotaReserved.Status).Should(gomega.Equal(metav1.ConditionFalse))
+			util.MustHaveOwnerReference(g, wl.OwnerReferences, createdSTS, k8sClient.Scheme())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should propagate the wait-for-pods-ready annotation from statefulset to workload on create and update", ginkgo.Label("feature:workloadlevelwaitforpodsready"), func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+
+		ginkgo.By("creating a statefulset carrying the wait-for-pods-ready annotation")
+		sts := testingstatefulset.MakeStatefulSet("", ns.Name).
+			GenerateName("test-sts-").
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`).
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		ginkgo.By("checking the Workload is created with the annotation copied from the statefulset")
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: statefulset.GetWorkloadName(sts.UID, sts.Name), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		createdUID := createdWorkload.UID
+
+		ginkgo.By("updating the annotation on the statefulset to a smaller timeout")
+		createdSTS := &appsv1.StatefulSet{}
+		stsLookupKey := types.NamespacedName{Name: sts.Name, Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, stsLookupKey, createdSTS)).Should(gomega.Succeed())
+			createdSTS.Annotations[controllerconstants.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":50}`
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the existing Workload's annotation is updated in place")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Annotations).Should(gomega.HaveKeyWithValue(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":50}`))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("verifying the Workload was updated in place, not recreated", func() {
+			gomega.Expect(createdWorkload.UID).Should(gomega.Equal(createdUID))
+		})
+
+		util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+			Reason: jobframework.ReasonUpdatedWorkload,
+			Type:   corev1.EventTypeNormal,
+			Note:   `Updated workload WaitForPodsReady annotation to {"timeoutSeconds":50}`,
+		})
 	})
 })
 

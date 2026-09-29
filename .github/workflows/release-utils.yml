@@ -19,11 +19,13 @@ jobs:
       (contains(github.event.comment.body, '/sync-release-notes') ||
        contains(github.event.comment.body, '/create-release-candidate') ||
        contains(github.event.comment.body, '/create-release-branch') ||
+       contains(github.event.comment.body, '/create-devel-tag') ||
        contains(github.event.comment.body, '/tag-release') ||
        contains(github.event.comment.body, '/create-draft-release') ||
        contains(github.event.comment.body, '/wait-for-images') ||
        contains(github.event.comment.body, '/wait-for-prod-images') ||
-       contains(github.event.comment.body, '/publish-release'))
+       contains(github.event.comment.body, '/publish-release') ||
+       contains(github.event.comment.body, '/merge-main-into-website'))
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,11 +39,14 @@ jobs:
         run: |
           REQUIRED_ITEMS=(
             ".github/actions/authorize-release-actor/action.yml"
+            ".github/actions/create-devel-tag/action.yml"
             ".github/actions/create-draft-release/action.yml"
             ".github/actions/create-release-tag/action.yml"
             ".github/actions/generate-openvex/action.yml"
             ".github/actions/generate-sbom/action.yml"
+            ".github/actions/merge-main-into-website/action.yml"
             ".github/actions/publish-release/action.yml"
+            ".github/actions/update-krew-index/action.yml"
             ".github/actions/report-result/action.yml"
             "hack/releasing/authorize_release_actor.py"
             "hack/releasing/authorize_release_actor_test.py"
@@ -96,7 +101,7 @@ jobs:
 
       - name: Verify Actor Authorization
         id: auth
-        uses: ./.github/actions/authorize-release-actor
+        uses: $/.github/actions/authorize-release-actor
         with:
           actor: ${{ github.actor }}
           aliases: |
@@ -129,6 +134,8 @@ jobs:
             COMMAND="create-release-candidate"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-release-branch[[:space:]]*$'; then
             COMMAND="create-release-branch"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-devel-tag[[:space:]]*$'; then
+            COMMAND="create-devel-tag"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/tag-release[[:space:]]*$'; then
             COMMAND="tag-release"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-draft-release[[:space:]]*$'; then
@@ -139,6 +146,8 @@ jobs:
             COMMAND="wait-for-prod-images"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/merge-main-into-website[[:space:]]*$'; then
+            COMMAND="merge-main-into-website"
           else
             echo "error_message=❌ Invalid command format in comment: $COMMENT." >> "$GITHUB_OUTPUT"
             exit 1
@@ -159,32 +168,50 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.parse.outputs.version }}
           TARGET_REPO: ${{ github.repository }}
+          COMMAND: ${{ steps.parse.outputs.command }}
         run: |
           RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
 
-          if [ "$RELEASE_STATE" = "published" ]; then
+          # Commands that can only run after the release has been published.
+          case "$COMMAND" in
+            merge-main-into-website|create-devel-tag) POST_PUBLISH=true ;;
+            *) POST_PUBLISH=false ;;
+          esac
+
+          if [ "$RELEASE_STATE" = "published" ] && [ "$POST_PUBLISH" = "false" ]; then
             echo "error_message=❌ Release \`$VERSION\` has already been published. No further commands are allowed." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          if [ "$RELEASE_STATE" != "published" ] && [ "$POST_PUBLISH" = "true" ]; then
+            echo "error_message=❌ Release \`$VERSION\` must be published before running \`/$COMMAND\`." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          PATCH=$(echo "$VERSION" | grep -oE '[0-9]+$')
+          if [ "$COMMAND" = "merge-main-into-website" ] && [ "$PATCH" != "0" ]; then
+            echo "error_message=❌ \`/merge-main-into-website\` is only applicable for major and minor releases, not patch releases." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
       - name: Report Parse Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           alias: "Authorization"
           message: ${{ steps.parse.outputs.error_message || steps.auth.outputs.error_message || steps.check_published.outputs.error_message }}
 
       - name: Clear Authorization Log
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           alias: "Authorization"
           cleanup: true
 
       - name: Log command start
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ steps.parse.outputs.command }}
           message: "🔄 Authorization successful. Running command..."
@@ -245,14 +272,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.sync.outputs.message || '✅ Release notes have been synced.' }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.sync.outputs.message || '❌ Failed to sync release notes.' }}
@@ -297,7 +324,7 @@ jobs:
 
       - name: Create and Push Tag
         id: tag
-        uses: ./.github/actions/create-release-tag
+        uses: $/.github/actions/create-release-tag
         with:
           version: ${{ steps.rc-version.outputs.version }}
           changelog: ${{ needs.authorize.outputs.changelog }}
@@ -305,7 +332,7 @@ jobs:
 
       - name: Create Draft Release
         id: draft
-        uses: ./.github/actions/create-draft-release
+        uses: $/.github/actions/create-draft-release
         with:
           version: ${{ steps.rc-version.outputs.version }}
           changelog: ${{ needs.authorize.outputs.changelog }}
@@ -314,7 +341,7 @@ jobs:
 
       - name: Publish Release
         id: publish
-        uses: ./.github/actions/publish-release
+        uses: $/.github/actions/publish-release
         with:
           version: ${{ steps.rc-version.outputs.version }}
           repo: ${{ github.repository }}
@@ -322,14 +349,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.check_published.outputs.message || steps.tag.outputs.message || steps.draft.outputs.message || steps.publish.outputs.message || '❌ Failed to create release candidate.' }}
@@ -399,18 +426,55 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.push.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.push.outputs.message || '❌ Command failed.' }}
 
+  create-devel-tag:
+    name: Create Devel Tag
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 10
+    if: ${{ needs.authorize.outputs.command == 'create-devel-tag' }}
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Create and Push Devel Tag
+        id: devel
+        uses: $/.github/actions/create-devel-tag
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.devel.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.devel.outputs.message || '❌ Failed to create devel tag.' }}
+          
   wait-for-images:
     name: Wait for Images
     runs-on: ubuntu-latest
@@ -487,14 +551,14 @@ jobs:
 
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.wait_images.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.wait_images.outputs.message || '❌ Wait for images failed.' }}
@@ -634,22 +698,63 @@ jobs:
 
       - name: Publish Release
         id: publish
-        uses: ./.github/actions/publish-release
+        uses: $/.github/actions/publish-release
         with:
           version: ${{ needs.authorize.outputs.version }}
           repo: ${{ github.repository }}
           update-release-issue: true
 
+      - name: Update new version in krew-index
+        uses: $/.github/actions/update-krew-index
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+          repo: ${{ github.repository }}
+
       - name: Report Success
         if: ${{ success() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message }}
 
       - name: Report Failure
         if: ${{ failure() }}
-        uses: ./.github/actions/report-result
+        uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message || '❌ Failed to publish release.' }}
+
+  merge-main-into-website:
+    name: Merge main into website
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 10
+    if: ${{ needs.authorize.outputs.command == 'merge-main-into-website' }}
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Merge main into website
+        id: merge-main-into-website
+        uses: ./.github/actions/merge-main-into-website
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.merge-main-into-website.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.merge-main-into-website.outputs.message || '❌ Failed to merge the main branch into the website branch.' }}

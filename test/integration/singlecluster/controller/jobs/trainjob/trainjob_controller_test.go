@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,6 +52,26 @@ import (
 const (
 	instanceKey = "cloud.provider.com/instance"
 )
+
+// countStoppedEvents returns how many times a Stopped event was emitted for the
+// named TrainJob, counting the repeats the recorder folds into a single event
+// series.
+func countStoppedEvents(trainJobName string) int {
+	ginkgo.GinkgoHelper()
+	events := &eventsv1.EventList{}
+	gomega.Expect(k8sClient.List(ctx, events)).To(gomega.Succeed())
+	count := 0
+	for _, event := range events.Items {
+		if event.Reason != jobframework.ReasonStopped || event.Regarding.Name != trainJobName {
+			continue
+		}
+		count++
+		if event.Series != nil {
+			count += int(event.Series.Count) - 1
+		}
+	}
+	return count
+}
 
 var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
@@ -295,6 +316,14 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("a Stopped event is emitted for the trainjob", func() {
+				util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: jobframework.ReasonStopped,
+					Type:   corev1.EventTypeNormal,
+					Note:   "By test",
+				})
+			})
+
 			ginkgo.By("the workload should stay admitted", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -312,6 +341,21 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 			ginkgo.By("the workload should get unadmitted", func() {
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("the admission data is restored from kueue's runtime patch", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
+					kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(trainJob)
+					g.Expect(kueueRuntimePatch).NotTo(gomega.BeNil())
+					g.Expect(kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs).To(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("stopping the trainjob stays idempotent, so no further Stopped event is emitted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(countStoppedEvents(trainJob.Name)).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})

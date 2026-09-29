@@ -71,9 +71,6 @@ linters:
       forbid:
         - pattern: ^sort\.(Slice|Sort|Stable|String).*$
           msg: Please use slices package instead of sort for better performance and consistency
-    modernize:
-      disable:
-        - omitzero
     usetesting:
       os-temp-dir: true
       context-background: true

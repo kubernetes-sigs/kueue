@@ -22,7 +22,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	testingclock "k8s.io/utils/clock/testing"
@@ -114,11 +113,11 @@ rf1                  60m
 			args: []string{"-o", "yaml"},
 			listPages: []runtime.Object{
 				&kueue.ResourceFlavorList{
-					ListMeta: metav1.ListMeta{Continue: "page2"},
-					Items:    []kueue.ResourceFlavor{{ObjectMeta: metav1.ObjectMeta{Name: "a"}}},
+					Continue: "page2",
+					Items:    []kueue.ResourceFlavor{{Name: "a"}},
 				},
 				&kueue.ResourceFlavorList{
-					Items: []kueue.ResourceFlavor{{ObjectMeta: metav1.ObjectMeta{Name: "b"}}},
+					Items: []kueue.ResourceFlavor{{Name: "b"}},
 				},
 			},
 			wantOut: `apiVersion: kueue.x-k8s.io/v1beta2

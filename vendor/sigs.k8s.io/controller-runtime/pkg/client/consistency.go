@@ -443,10 +443,11 @@ func (c *consistentSubResourceClient) Get(ctx context.Context, obj, subResource 
 	return c.upstream.Get(ctx, obj, subResource, opts...)
 }
 
+// Create is excluded from read-your-writes consistency, because it either returns a
+// status with no RV (pod/eviction, pod/binding) or a virtual resource that is not
+// persisted (serviceaccount/token).
 func (c *consistentSubResourceClient) Create(ctx context.Context, obj, subResource Object, opts ...SubResourceCreateOption) error {
-	return c.writeAndRecordRV(ctx, obj, (&SubResourceCreateOptions{}).ApplyOptions(opts).DisableReadYourWritesConsistency, func() error {
-		return c.upstream.Create(ctx, obj, subResource, opts...)
-	})
+	return c.upstream.Create(ctx, obj, subResource, opts...)
 }
 
 func (c *consistentSubResourceClient) Update(ctx context.Context, obj Object, opts ...SubResourceUpdateOption) error {
