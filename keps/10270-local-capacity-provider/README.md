@@ -112,7 +112,7 @@ which was closed in favour of building on DQO.
    resources.
 3. A new feature gate, `LocalCapacityProvider` (alpha, disabled by default),
    which requires `DynamicQuotaOrchestration`.
-4. It relies on a small DQO change, proposed separately in
+4. It relies on a small DQO change, merged in
    [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168) and needed for
    correct zeros (see [Notes](#notesconstraintscaveats)): a provider orchestrates
    all resources of the flavors in its `orchestratedFlavors`, so capacity it does
@@ -372,9 +372,9 @@ At every step, each cluster's quota matches the nodes it actually has.
   spec value instead of dropping to 0. With #16168, DQO adds every orchestrated
   flavor to `status.effectiveCapacity` (with `resources: {}` when nothing is
   reported) and distributes 0 for any declared pair missing from it. So when a
-  flavor has no eligible nodes, the provider omits it and all of its resources
-  count as 0; when a resource disappears from all nodes of a flavor, that
-  resource counts as 0.
+  flavor has no eligible nodes, the provider publishes it with empty
+  `resources` and all of its resources count as 0; when a resource disappears
+  from all nodes of a flavor, that resource counts as 0.
 - **Only node resources belong on an orchestrated flavor.** Because the provider
   orchestrates all resources of its flavors, a resource declared for such a
   flavor in a ClusterQueue or Cohort that nodes do not advertise (for example a
@@ -499,8 +499,8 @@ For each provider, the reconcile loop:
    local-capacity providers) it matches. A node matching more than one flavor
    makes the provider `Misconfigured`.
 4. Sums `allocatable` over the eligible nodes of each of the provider's flavors.
-   Flavors without eligible nodes are omitted; DQO treats them as having zero
-   capacity.
+   Flavors without eligible nodes are published with empty `resources` (the
+   status must list at least one flavor), which DQO distributes as zero.
 5. Writes `status.capacity` and the `CapacitySynchronized` condition, skipping
    writes that change nothing.
 
@@ -510,7 +510,7 @@ CapacityProviders, which Kueue already has, and `get/update/patch` on
 
 ### DQO change
 
-Proposed separately in [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168):
+Merged in [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168):
 
 - A provider orchestrates all resources of the flavors in its
   `spec.orchestratedFlavors`; partial orchestration of a flavor for a subset of
@@ -551,7 +551,7 @@ multiplier is 1.
 | 10 nodes | 80 / 1200 / 9000Gi |
 | Pool target raised to 14, only 2 nodes join | 96 / 1440 / 10800Gi |
 | 3 nodes leave | 72 / 1080 / 8100Gi |
-| All nodes gone | flavor omitted, all resources count as 0 |
+| All nodes gone | flavor published with empty `resources`; all resources count as 0 |
 | A 16-GPU job starts | no change |
 
 ### Test Plan
@@ -568,7 +568,7 @@ None.
 
 - `pkg/controller/core/localcapacity`: node eligibility (Ready, cordoned,
   deleting, taints vs. tolerations and nodeTaints, label match), summing
-  allocatable, omitted flavors, overlap detection, missing flavors, providers of
+  allocatable, flavors without nodes published as empty, overlap detection, missing flavors, providers of
   other controllers ignored, feature gate disabled.
 - `pkg/controller/core/dqo` (in #16168): unreported orchestrated flavors appear
   in `effectiveCapacity` with empty `resources`, their declared pairs are
@@ -610,6 +610,8 @@ None.
 - 2026-09: Initial draft on top of DQO.
 - 2026-09: Proof of concept in
   [#16080](https://github.com/kubernetes-sigs/kueue/pull/16080).
+- 2026-09-28: DQO zero-handling fix merged in
+  [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168).
 
 ## Drawbacks
 
