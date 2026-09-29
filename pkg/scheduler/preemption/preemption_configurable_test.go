@@ -703,7 +703,8 @@ func TestConfigurablePreemptions(t *testing.T) {
 				// a doesn't allow preemption within the ClusterQueue, so a1 is not a
 				// Fair Sharing candidate.
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				// b is not borrowing, so the Fair Sharing ordering prunes it.
+				// when default preemption policies (Never) are set and Fair Sharing is enabled,
+				// only the configurable preemption candidates are returned
 				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
 			},
 			incoming: unitWl.Clone().Name("a_incoming").Obj(),
