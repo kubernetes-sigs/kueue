@@ -836,10 +836,13 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 			config: &multiTriggerConfig,
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
 			},
-			// a1 has no tier, so it is only selected by the InsufficientQuota trigger,
-			// and preempting it frees enough quota for the preemptor to fit.
-			preemptor:       unitWl.Clone().Name("a_incoming").Label("preemption-tier", "5").Request(corev1.ResourceCPU, "3").Obj(),
+			// Needs 2 CPUs out of the 1 available: a1 and a2 have no tier, so they are
+			// only selected by the InsufficientQuota trigger. Preempting a1 frees enough
+			// quota for the preemptor to fit, so the yield returns false and a2 is not
+			// yielded even though it is also a candidate.
+			preemptor:       unitWl.Clone().Name("a_incoming").Label("preemption-tier", "5").Request(corev1.ResourceCPU, "2").Obj(),
 			wantInterrupted: true,
 			wantTargets:     []string{"/a1"},
 		},
